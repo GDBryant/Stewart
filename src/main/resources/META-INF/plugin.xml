@@ -1,0 +1,9 @@
+<idea-plugin>
+    <id>com.aijb.assistant</id>
+    <name>AIJB Assistant</name>
+    <vendor>AIJB</vendor>
+    <depends>com.intellij.modules.platform</depends>
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="AIJB Assistant" anchor="right" factoryClass="com.aijb.assistant.ui.ChatToolWindowFactory"/>
+    </extensions>
+</idea-plugin>

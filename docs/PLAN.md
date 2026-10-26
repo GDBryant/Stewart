@@ -86,7 +86,7 @@ Proposed transport: **Claude Code CLI subprocess**, subject to an M1 feasibility
 - Network: HTTP providers use the IDE proxy and certificate settings for corporate networks; configure and validate the subprocess network environment separately, since the CLI does not inherit IDE HTTP settings automatically.
 
 ## Milestones
-Each milestone ships its own tests and passes `buildPlugin`, `test` and `verifyPlugin` before the next starts. Automated provider tests use recorded fixtures/fakes; live-provider smoke checks are separate and require locally configured access.
+Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `koverVerify`: ≥90% line, ≥80% branch) and `verifyPlugin` before the next starts. UI components get headless tests. Automated provider tests use recorded fixtures/fakes; live-provider smoke checks are separate and require locally configured access.
 
 ### 1. Skeleton
 - Gradle IntelliJ Platform Plugin 2.x project, pinned Gradle/Kotlin versions and Java 21 toolchain; provisional since-build 251. Confirm the supported PyCharm/IDEA matrix and verify each declared product rather than inferring compatibility from Cline.
@@ -141,14 +141,14 @@ Each milestone ships its own tests and passes `buildPlugin`, `test` and `verifyP
 
 ## Assumptions
 - Kotlin + Gradle IntelliJ Platform Plugin 2.x; provisional IntelliJ 2025.1+ (build 251) and Java 21, subject to the M1 product compatibility matrix.
-- Enterprise Claude Code entitlement, SSO login and effective CLI isolation must pass the M1 feasibility gate.
+- Enterprise Claude Code entitlement, SSO login and CLI isolation passed the M1 feasibility gate on CLI 2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); managed-policy suppression check still pending manual inspection.
 - Ollama runs locally on default port; no auth.
 - The AIF proxy continues to strip `tools`; the shim is the default path for `AifProvider` and stays a Kotlin port (no bundled Python sidecar).
 - Worker-bee edits require user approval by default (diff preview); terminal commands always require approval.
 - Levels talk via structured JSON messages (plan, task, result), not free text.
 
 ## Open Questions
-1. Does the enterprise Claude Code account and managed configuration pass the M1 transport/isolation gate? If not, which explicitly supported authenticated transport is available?
+1. Managed configuration: does the org's managed policy leave hooks/plugins/MCP suppressed? (Scripted transport/isolation checks passed on CLI 2.1.309; if the policy check fails, which explicitly supported authenticated transport is available?)
 2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+.
 3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front?
 4. Auto-approve edits option for trusted mode?
