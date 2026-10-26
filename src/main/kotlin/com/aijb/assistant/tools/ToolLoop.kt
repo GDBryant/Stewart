@@ -1,0 +1,185 @@
+package com.aijb.assistant.tools
+
+import com.aijb.assistant.provider.ChatMessage
+import com.aijb.assistant.provider.ChatRequest
+import com.aijb.assistant.provider.ModelProvider
+import com.aijb.assistant.provider.ProviderEvent
+import com.aijb.assistant.provider.Role
+import com.aijb.assistant.provider.ToolCall
+import com.aijb.assistant.provider.Usage
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+
+sealed interface ApprovalDecision {
+    data object Approved : ApprovalDecision
+    data class Rejected(val reason: String) : ApprovalDecision
+}
+
+fun interface ApprovalGate {
+    suspend fun review(call: ToolCall): ApprovalDecision
+}
+
+sealed interface ToolOutcome {
+    data class Success(val content: String) : ToolOutcome
+    data class Failure(val message: String) : ToolOutcome
+    data class Rejected(val reason: String) : ToolOutcome
+    data class Invalid(val reason: String) : ToolOutcome
+    data class Uncertain(val reason: String) : ToolOutcome
+}
+
+interface LoopListener {
+    fun onText(text: String) {}
+    fun onReasoning(text: String) {}
+    fun onToolRequested(call: ToolCall) {}
+    fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
+}
+
+data class LoopLimits(
+    val maxModelTurns: Int = 10,
+    val toolTimeout: Duration = 60.seconds,
+    val maxToolOutputChars: Int = 20_000,
+    val maxContextChars: Int = 400_000,
+)
+
+sealed interface LoopResult {
+    val messages: List<ChatMessage>
+    data class Completed(override val messages: List<ChatMessage>, val usage: Usage?) : LoopResult
+    data class TurnLimitReached(override val messages: List<ChatMessage>) : LoopResult
+    data class Failed(override val messages: List<ChatMessage>, val message: String, val code: String? = null) : LoopResult
+}
+
+class ToolLoop(
+    private val provider: ModelProvider,
+    private val registry: ToolRegistry,
+    private val approval: ApprovalGate,
+    private val limits: LoopLimits = LoopLimits(),
+) {
+
+    suspend fun run(model: String, history: List<ChatMessage>, listener: LoopListener): LoopResult {
+        val produced = mutableListOf<ChatMessage>()
+        var turns = 0
+        while (true) {
+            if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced)
+            val context = history + produced
+            val size = context.sumOf { it.content.length } +
+                context.sumOf { m -> m.toolCalls.sumOf { it.arguments.toString().length } }
+            if (size > limits.maxContextChars) {
+                return LoopResult.Failed(produced, "context size limit exceeded", "context_limit")
+            }
+            turns++
+            val text = StringBuilder()
+            var calls: List<ToolCall> = emptyList()
+            var usage: Usage? = null
+            var finish: String? = null
+            var failed: ProviderEvent.Failed? = null
+            var protocolError = false
+            provider.chat(ChatRequest(model, context, tools = registry.specs)).collect { ev ->
+                    when (ev) {
+                        is ProviderEvent.TextDelta -> {
+                            if (finish != null) protocolError = true
+                            else { text.append(ev.text); listener.onText(ev.text) }
+                        }
+                        is ProviderEvent.ReasoningDelta -> {
+                            if (finish != null) protocolError = true else listener.onReasoning(ev.text)
+                        }
+                        is ProviderEvent.ToolCalls -> {
+                            if (finish != null) protocolError = true else calls = ev.calls
+                        }
+                        is ProviderEvent.NativeToolCalls -> {
+                            protocolError = true
+                        }
+                        is ProviderEvent.Completed -> {
+                            if (finish != null) protocolError = true
+                            finish = ev.finishReason
+                            usage = ev.usage
+                        }
+                        is ProviderEvent.Failed -> {
+                            if (finish != null) protocolError = true else failed = ev
+                        }
+                    }
+            }
+            if (protocolError) {
+                return LoopResult.Failed(produced, "provider emitted events after completion", "protocol_error")
+            }
+            if (failed != null) {
+                return LoopResult.Failed(produced, failed!!.message, failed!!.code)
+            }
+            if (finish == null) {
+                return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream")
+            }
+            if (finish == "length" || finish == "content_filter") {
+                produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
+                return LoopResult.Failed(produced, "response truncated ($finish)", "truncated")
+            }
+            produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
+            if (calls.isEmpty()) return LoopResult.Completed(produced, usage)
+            val seen = mutableSetOf<String>()
+            for (call in calls) {
+                listener.onToolRequested(call)
+                val outcome = executeCall(call, seen, listener)
+                produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
+            }
+        }
+    }
+
+    private suspend fun executeCall(call: ToolCall, seen: MutableSet<String>, listener: LoopListener): ToolOutcome {
+        val outcome: ToolOutcome = when {
+            !seen.add(call.id) -> ToolOutcome.Invalid("duplicate tool call id")
+            registry.find(call.name) == null -> ToolOutcome.Invalid("unknown tool '${call.name}'")
+            else -> {
+                val invalid = registry.validate(call)
+                if (invalid != null) {
+                    ToolOutcome.Invalid(invalid)
+                } else {
+                    val tool = registry.find(call.name)!!
+                    if (tool.requiresApproval) {
+                        val decision = approval.review(call)
+                        if (decision is ApprovalDecision.Rejected) {
+                            return finishOutcome(call, ToolOutcome.Rejected(decision.reason), listener)
+                        }
+                    }
+                    try {
+                        val out = withTimeout(limits.toolTimeout) { tool.execute(call.arguments) }
+                        ToolOutcome.Success(
+                            if (out.length > limits.maxToolOutputChars) {
+                                out.take(limits.maxToolOutputChars) + "\n[output truncated]"
+                            } else out
+                        )
+                    } catch (e: CancellationException) {
+                        if (currentCoroutineContext().isActive) {
+                            ToolOutcome.Uncertain("timed out; side effects unknown")
+                        } else {
+                            withContext(NonCancellable) {
+                                listener.onToolOutcome(call, ToolOutcome.Uncertain("cancelled; side effects unknown"))
+                            }
+                            throw e
+                        }
+                    } catch (e: Exception) {
+                        ToolOutcome.Failure(e.message ?: "tool failed")
+                    }
+                }
+            }
+        }
+        return finishOutcome(call, outcome, listener)
+    }
+
+    private fun finishOutcome(call: ToolCall, outcome: ToolOutcome, listener: LoopListener): ToolOutcome {
+        listener.onToolOutcome(call, outcome)
+        return outcome
+    }
+
+    private fun outcomeMessage(outcome: ToolOutcome): String = when (outcome) {
+        is ToolOutcome.Success -> outcome.content
+        is ToolOutcome.Failure -> "Error: ${outcome.message}"
+        is ToolOutcome.Rejected -> "Rejected by user: ${outcome.reason}"
+        is ToolOutcome.Invalid -> "Invalid tool call: ${outcome.reason}"
+        is ToolOutcome.Uncertain -> "Outcome uncertain: ${outcome.reason}"
+    }
+}

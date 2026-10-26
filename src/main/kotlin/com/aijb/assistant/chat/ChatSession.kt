@@ -65,6 +65,7 @@ class ChatSession(
                             }
                             is ProviderEvent.Failed ->
                                 withContext(Dispatchers.EDT) { listener.onFailed(event.message) }
+                            else -> {}
                         }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {

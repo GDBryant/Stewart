@@ -1,0 +1,76 @@
+package com.aijb.assistant.tools
+
+import com.aijb.assistant.provider.ToolCall
+import com.aijb.assistant.provider.ToolSpec
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+interface Tool {
+    val spec: ToolSpec
+    val requiresApproval: Boolean
+    suspend fun execute(arguments: JsonObject): String
+}
+
+class ToolRegistry(tools: List<Tool>) {
+    private val byName = tools.associateBy { it.spec.name }
+    val specs: List<ToolSpec> = tools.map { it.spec }
+
+    fun find(name: String): Tool? = byName[name]
+
+    fun validate(call: ToolCall): String? {
+        val tool = byName[call.name] ?: return "unknown tool '${call.name}'"
+        return validateObject(call.arguments, tool.spec.parameters, call.name)
+    }
+
+    private fun validateObject(args: JsonObject, schema: JsonObject, name: String): String? {
+        val props = (schema["properties"] as? JsonObject) ?: JsonObject(emptyMap())
+        val required = (schema["required"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+        for (req in required) {
+            if (req !in args) return "missing required argument '$req' for $name"
+        }
+        for ((key, value) in args) {
+            val prop = props[key]
+            if (prop == null) {
+                if ((schema["additionalProperties"] as? JsonPrimitive)?.booleanOrNull == false) {
+                    return "unexpected argument '$key' for $name"
+                }
+                continue
+            }
+            val ps = prop as? JsonObject ?: continue
+            typeError(value, ps)?.let { return "argument '$key' for $name: $it" }
+            val enum = ps["enum"] as? JsonArray
+            if (enum != null && enum.none { it == value }) {
+                return "argument '$key' for $name: value not in enum"
+            }
+        }
+        return null
+    }
+
+    private fun typeError(value: kotlinx.serialization.json.JsonElement, schema: JsonObject): String? {
+        val typeEl = schema["type"] ?: return null
+        val types = when (typeEl) {
+            is JsonPrimitive -> listOf(typeEl.content)
+            is JsonArray -> typeEl.mapNotNull { (it as? JsonPrimitive)?.content }
+            else -> return null
+        }
+        val ok = types.any { t ->
+            when (t) {
+                "string" -> value is JsonPrimitive && value.isString
+                "integer" -> value is JsonPrimitive && value.intOrNull != null
+                "number" -> value is JsonPrimitive && value.doubleOrNull != null
+                "boolean" -> value is JsonPrimitive && value.booleanOrNull != null
+                "array" -> value is JsonArray
+                "object" -> value is JsonObject
+                else -> true
+            }
+        }
+        return if (ok) null else "expected type ${types.joinToString("|")}"
+    }
+}
