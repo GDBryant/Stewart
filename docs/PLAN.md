@@ -1,0 +1,163 @@
+# JetBrains AI Plugin — High-Level Plan
+
+## Goal
+JetBrains plugin (Kotlin, Gradle IntelliJ Platform Plugin) with a chat tool window that can drive local Ollama models, Claude (enterprise account, Microsoft SSO via browser), and AI Factory models (OpenAI-compatible proxy that strips tool calls), with per-message model selection and a multi-model mode that splits planning and execution across three agent levels.
+
+## Scope
+- In: chat tool window, model picker, Ollama + Claude + AI Factory providers, built-in tool-call shim for tool-call-stripping proxies, 3-level agent loop, file edits, terminal commands, settings UI.
+- Out (for now): Jira integration, remote/shared sessions, non-JetBrains IDEs, MCP tools.
+
+## Reference: Cline plugin
+The installed Cline plugin (`bot.cline` 2.0.7, `~/.local/share/JetBrains/PyCharm2025.3/cline`) is worth studying for UX, not architecture:
+
+- Cline ships a thin Kotlin host + a bundled Node runtime running the TypeScript core, talking over gRPC (`bot.cline.host.proto`, "hostbridge" classes). The chat UI is a webview in JCEF. We take a simpler path: all logic in Kotlin, Swing UI (or JCEF later if markdown/webview needs grow).
+- Patterns to borrow: right-side tool window; Approve/Reject gate per tool call; separate Plan/Act model IDs (our per-role ModelRefs generalise this); editor popup action "Add to chat" and intention actions (explain/fix); `org.jetbrains.plugins.terminal` as an optional dependency for optional terminal display.
+- Gap it leaves for us: Cline assumes the provider honours native `tool_calls`. Against the AIF proxy it prints `<tool_call>` markup as text (see `/srv/compose/aif_shim/docs/`). Our shim layer closes that gap in-process.
+
+## Architecture
+
+```
+ToolWindow (chat UI, model picker, mode toggle, approval gates)
+        |
+ Orchestrator — Planner / Executor / Worker (each bound to a ModelRef)
+        |
+ ToolLoop — owns conversation, bounded model/tool cycles and cancellation
+   ├── ModelProvider — canonical messages/events and provider/model capabilities
+   │     ├── OllamaProvider (/api/chat, /api/tags)
+   │     ├── AifProvider (OpenAI-compatible HTTP + API key)
+   │     └── ClaudeProvider (CLI subprocess; see Auth)
+   │           Native or ToolCallShim translation at each provider boundary
+   └── ToolRegistry → validate → approval → execute → correlated result
+         ReadFile, Search, WriteFile/ApplyPatch, RunTerminal
+```
+
+Threading: Kotlin coroutines; network/subprocess work off the EDT; UI updates on the EDT; every call carries a cancellable `Job` from M1.
+
+### Execution contract
+- Providers normalise text deltas, complete tool calls, completion status, usage and errors; `ToolLoop` owns tool execution. Freeze the selected ModelRef and native/shim path for each turn. Unknown tool capability uses the shim; never switch paths or replay actions midway through a turn.
+- Validate registered tool names and schemas after repair. Execute only after successful response completion; incomplete streams, truncation, filtering and cancellation never release buffered calls. Preserve call IDs and return success, rejection or failure against the originating call; do not ingest both partial and final CLI text twice.
+- Approval binds to the exact normalised arguments, command/cwd or diff. Revalidate paths and file versions before applying edits; changed content requires a fresh preview. File tools stay within approved project roots, resolving symlinks; commands always require explicit approval and are not a filesystem sandbox.
+- Bound model turns, retries, tool duration/output and context size. Stop with an actionable result on exhaustion. Never automatically replay an edit or command after execution starts or its outcome becomes uncertain. Start with serial tool execution and one active worker per project.
+
+### Tool-calling path per provider
+| Provider | Path |
+|---|---|
+| Ollama | Native `tools` for models that support it; shim for models that don't |
+| AIF | Shim (default on) until upstream function calling works |
+| Claude CLI | Built-in tools disabled with `--tools ""`; isolated CLI configuration; our tools via shim text (M1 feasibility gate, M3 integration) |
+
+Native/shim routing is a per-provider/per-model capability setting, with an explicit override; it is not AIF-specific.
+
+### Three agent levels
+| Level | Name | Responsibility | Default model |
+|---|---|---|---|
+| 1 | Plan-the-plan | Clarify intent, ask questions, produce a goal + ordered milestones | Strong (Claude or AIF flagship) |
+| 2 | Execute-the-plan | Turn one milestone into concrete tasks, dispatch to workers, verify, re-plan on failure | Strong or mid |
+| 3 | Worker-bee | Perform one task: edit a file, run a command, report result | Fast/local (Ollama) or AIF small model |
+
+Multi-model mode = each level has its own ModelRef in settings. Single-model mode = all three share the chat-window selection.
+
+### Tool-call shim (ported from aif_shim)
+The AIF proxy drops `tools` and returns tool calls as plain text. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop`, enabled by default for AIF — no external Python process.
+
+- **Request side** (`prepare_request`): inject tool schemas into the system prompt inside `<tools>` with `<tool_call>` instructions (GLM-family models get `<call>` — their own `<tool_call>` token is swallowed upstream); rewrite assistant `tool_calls` history and `tool`-role messages into the same text format; merge adjacent same-role messages.
+- **Response side** (`parse_tool_calls`): extract `<tool_call>` / `<call>` / `<function=NAME>` / GLM `arg_key/arg_value` blocks into OpenAI `tool_calls`; strip `<think>` into `reasoning_content`; best-effort JSON repair (unescaped quotes, bare values, missing closers); schema-driven argument coercion; alias normalisation mapped to our tool names (invented `bash`/`execute_command`/`run_commands` → `RunTerminal`, etc.); text emitted alongside calls is kept and shown (aif_shim's drop/relegate mode is a Cline workaround and is not ported).
+- **Streaming**: buffer chunks that could start a call tag so raw markup never flashes in the UI; emit text only once it's safe; repair streamed native `tool_calls` deltas as a whole.
+- **Policy**: nudge-retry once when a tool-offered turn ends with no call and only an announcement ("Let me check ..."); surface an `empty_turn` error instead of a silent stop; withhold calls on `finish_reason` `length`/`content_filter`; never repair an unterminated JSON string into a runnable call (fail closed). Parsing is not authorisation: calls must pass the execution contract, and quoted examples or tool-result content must not become executable calls.
+- **Parity**: port `tests/` fixtures from aif_shim verbatim — each parser case keeps the exact text seen in the wild. New formats observed get added to the Kotlin parser with a verbatim test, same rule as aif_shim's `docs/skills/tool-call-format`. Record the Python source revision or content hashes and intentional Kotlin differences alongside the fixtures.
+- **Override**: per-provider/per-model native/shim selection; native mode requires confirmed tool support. Keep text-only chat available when tools are disabled.
+
+### Model selection
+- Picker in chat header lists Ollama models (live from `/api/tags`) + configured Claude and AIF models.
+- Selection applies to single-model mode; in multi-model mode the picker sets the Planner, and per-role overrides live in a popover/settings.
+- AIF models are configured by ID (as listed in the AI Factory Portal); the shim's per-model call-tag table is applied automatically.
+
+### Claude auth (enterprise, Microsoft SSO)
+Proposed transport: **Claude Code CLI subprocess**, subject to an M1 feasibility gate. Candidate invocation: `claude -p --output-format stream-json --verbose --include-partial-messages --tools "" --safe-mode --strict-mcp-config --no-session-persistence`. Launch with an argument list, preserving the empty `--tools` argument, and send conversation input over stdin.
+- Local CLI 2.1.309 help confirms the tool-disable and isolation flags; the documented streaming flags provide token deltas. This is interface evidence only: enterprise SSO, organisation policy and runtime isolation still need validation. Do not use `--bare` for this path: its documented auth mode excludes OAuth/keychain login.
+- The CLI owns login and refresh. Verify the enterprise account actually supports Claude Code; Microsoft SSO alone does not establish CLI access or usage permission. Hooks, plugins, MCP and managed configuration must not introduce execution outside the plugin gates. If isolation cannot be demonstrated, disable this transport and revisit the design.
+- Use a plugin-owned transcript sent to a fresh subprocess for each model turn; encode tool history through the shim. Do not use implicit CLI session resume. Use configured model IDs/aliases unless a supported discovery interface is verified.
+- Defer the optional Anthropic API-key provider until CLI feasibility is settled; it is a separate authenticated transport, not an SSO fallback that can silently be selected.
+
+### Persistence
+- Settings: `PersistentStateComponent` (provider URLs, per-role models, CLI path, shim toggles).
+- Secrets: AIF API key in `PasswordSafe`, not in project files.
+- Chat history: per-project JSON in the plugin state dir (not `.idea/`, which is often committed). Keep diagnostic logs free of credentials; provide history deletion and a retention setting.
+- Network: HTTP providers use the IDE proxy and certificate settings for corporate networks; configure and validate the subprocess network environment separately, since the CLI does not inherit IDE HTTP settings automatically.
+
+## Milestones
+Each milestone ships its own tests and passes `buildPlugin`, `test` and `verifyPlugin` before the next starts. Automated provider tests use recorded fixtures/fakes; live-provider smoke checks are separate and require locally configured access.
+
+### 1. Skeleton
+- Gradle IntelliJ Platform Plugin 2.x project, pinned Gradle/Kotlin versions and Java 21 toolchain; provisional since-build 251. Confirm the supported PyCharm/IDEA matrix and verify each declared product rather than inferring compatibility from Cline.
+- Tool window on the right, message list + input box.
+- Coroutine scope per project service; EDT/background split; cancellable `Job` per request.
+- `ModelProvider` interface + `OllamaProvider` (streaming `/api/chat`, `/api/tags`).
+- Streaming render into the chat view; send/cancel.
+- CI: build, test, Plugin Verifier.
+- Claude feasibility spike: verify enterprise CLI login, streaming flags, empty tool set and suppression of hooks/plugins/MCP under effective managed policy, using a disposable workspace. Record the supported CLI version; a failed gate blocks M3, not Ollama/AIF work.
+- Done when: chat with a local Ollama model streams and cancels cleanly; CI green.
+
+### 2. AIF provider, tool-call shim, tool loop core
+- `ToolRegistry` (tool name + JSON schema) and single-agent `ToolLoop` (call → approval → execute → result back), tested with a fake tool. Cover approval denial, cancellation, schema rejection, duplicate events and uncertain execution outcomes with fake tools.
+- `AifProvider`: OpenAI-compatible streaming SSE client; configure the actual upstream base URL ending in /api/proxy/v1 and append /chat/completions exactly once. Test URL joining. Store the API key in PasswordSafe from this milestone; M4 adds the full settings UI.
+- Port `prepare_request` (tool injection, history rewrite, message merge, per-model call tag).
+- Port `parse_tool_calls` + JSON repair + coercion + alias normalisation to our tool names, with the aif_shim test corpus ported verbatim.
+- Streaming tag-buffering and `tool_calls` delta repair (`StreamTranslator`, `NativeCallCollector` equivalents).
+- Retry nudge, `empty_turn` error, finish-reason policy, `tool_choice`/`parallel_tool_calls` validation.
+- Test chunk boundaries, interrupted/truncated streams, native versus shim routing, quoted call examples and loop limits; no tool runs before successful completion.
+- Done when: ported aif_shim fixtures pass; an AIF model drives the fake tool through the loop end to end.
+
+### 3. Claude provider
+- Proceed only after the M1 CLI feasibility gate passes. Implement the verified invocation, explicit model selection, login-state reporting and subprocess network configuration.
+- Disable built-in tools and configuration-driven execution; route shim calls into ToolLoop with plugin-owned conversation history.
+- Test recorded CLI streams for partial/final deduplication, tool-result continuity, auth expiry, nonzero exits and cancellation; verify isolation in a disposable workspace against the supported CLI version.
+- Done when: an authenticated Claude conversation completes multiple plugin tool turns, and isolation tests demonstrate no file/command execution outside the plugin approval gates.
+
+### 4. Model picker + settings UI
+- Chat-header picker; per-role overrides popover; settings page (provider URLs, keys → `PasswordSafe`, CLI path, per-provider/per-model shim toggle).
+- Done when: settings persist across restarts; secrets are stored only through PasswordSafe and never serialised into plugin XML/JSON or logs.
+
+### 5. Tools
+- Read/search tools (VFS + indexes) registered in `ToolRegistry`.
+- Write/patch with diff preview + Approve/Reject. Recheck document versions and apply through undoable WriteCommandAction; handle unsaved editor buffers.
+- Command run via `GeneralCommandLine`/`OSProcessHandler` with captured output and approval gate; output displayed in the plugin, optionally mirrored to the IDE terminal (optional dependency).
+- Enforce project-root/symlink boundaries for file tools; test rejection, stale previews, cancellation, process cleanup and output limits. Resolve index-dependent search correctly during IDE indexing.
+- Done when: each provider path (native, shim, Claude CLI) reads, edits with approval and runs a command with approval.
+
+### 6. Three-level orchestrator
+- Structured JSON messages (plan/task/result) between levels; single-model mode; role badges in chat.
+- Validate plan/task/result schemas, correlate task IDs and propagate cancellation; bound re-planning and dispatch workers serially to avoid conflicting edits. Test malformed worker output and failed tasks.
+- Done when: a multi-step task runs Planner → Executor → Worker with one model and re-plans on a failed task.
+
+### 7. Multi-model mode
+- Per-role `ModelRef` binding; per-level streaming and error surfacing.
+- Pass explicit bounded context and results between roles; show destination provider before dispatch and never silently fall back from a local model to a remote provider. Test routing and provider failure with fakes.
+- Done when: each level runs on a different provider in one session.
+
+### 8. Hardening
+- Cancellation end-to-end (stream + subprocess + tool run), error surfacing, token/cost display, chat-history persistence.
+- Done when: cancellation stops scheduling, closes streams and terminates owned process trees where supported; atomic IDE edits remain undoable, and completed or uncertain command side effects are reported rather than claimed to be rolled back.
+
+## Assumptions
+- Kotlin + Gradle IntelliJ Platform Plugin 2.x; provisional IntelliJ 2025.1+ (build 251) and Java 21, subject to the M1 product compatibility matrix.
+- Enterprise Claude Code entitlement, SSO login and effective CLI isolation must pass the M1 feasibility gate.
+- Ollama runs locally on default port; no auth.
+- The AIF proxy continues to strip `tools`; the shim is the default path for `AifProvider` and stays a Kotlin port (no bundled Python sidecar).
+- Worker-bee edits require user approval by default (diff preview); terminal commands always require approval.
+- Levels talk via structured JSON messages (plan, task, result), not free text.
+
+## Open Questions
+1. Does the enterprise Claude Code account and managed configuration pass the M1 transport/isolation gate? If not, which explicitly supported authenticated transport is available?
+2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+.
+3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front?
+4. Auto-approve edits option for trusted mode?
+5. Is per-project history in the plugin state directory sufficient, or is a global history view required?
+6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences?
+7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings?
+
+## References
+- `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.
+- Cline plugin jar for API/UX patterns: `~/.local/share/JetBrains/PyCharm2025.3/cline/lib/cline-2.0.7.jar` (`META-INF/plugin.xml` shows the extension points in use).
+- Claude Code CLI reference: https://code.claude.com/docs/en/cli-reference — interface documentation, not proof of tenant support.
+- Claude Code headless streaming: https://code.claude.com/docs/en/headless — interface documentation, not proof of tenant support.
