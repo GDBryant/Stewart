@@ -48,3 +48,7 @@ run it in CI — it uses the enterprise account.
 Result (2026-10-26): all scripted checks PASS on CLI 2.1.309 with the enterprise
 account. Check 6 (managed policy / hooks suppression) still needs a manual look at
 the organisation's managed settings before M3 ships.
+
+## Status note
+
+Live M3 isolation run on CLI 2.1.309: the model hallucinated a `bash` tool_use which the CLI refused ("No such tool available"), and called the server-side `advisor` tool which returned unavailable; no local execution. Provider policy: refused tool_use blocks and the `advisor` server tool are allowed; any executed (non-error) tool_result, any other server tool, or non-empty init tools/MCP → `isolation_violation` and the process is killed. Check 6 still pending manual inspection.

@@ -383,4 +383,21 @@ class ToolCallingProviderTest {
         assertTrue(events.any { it is ProviderEvent.ToolCalls })
         assertTrue(events.last() is ProviderEvent.Completed)
     }
+
+    @Test
+    fun `shim empty on second attempt yields empty turn`() {
+        var n = 0
+        val inner = object : ModelProvider {
+            override val id = "f"
+            override suspend fun listModels() = emptyList<ModelInfo>()
+            override fun chat(request: ChatRequest) = kotlinx.coroutines.flow.flow<ProviderEvent> {
+                n++
+                emit(ProviderEvent.Completed("stop", null))
+            }
+        }
+        val events = collect(ToolCallingProvider(inner, ToolPath.SHIM),
+            req(Role.USER to "g"))
+        assertEquals(2, n)
+        assertEquals("empty_turn", (events.last() as ProviderEvent.Failed).code)
+    }
 }

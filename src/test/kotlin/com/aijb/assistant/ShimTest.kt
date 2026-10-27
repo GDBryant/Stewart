@@ -194,4 +194,19 @@ class ShimTest {
         assertEquals(2, Regex("<tool_response>").findAll(out.messages[1].content).count())
         assertTrue(out.messages[1].content.endsWith("ok"))
     }
+
+    @Test
+    fun `translator edge cases`() {
+        assertEquals("tool_call", RequestTranslator.callTag(""))
+        val block = RequestTranslator.toolBlock(listOf(spec("a"), spec("b")), "tool_call")
+        assertTrue(block.contains("\"name\":\"a\"") && block.contains("\"name\":\"b\""))
+        val out = RequestTranslator.prepare(req(listOf(
+            ChatMessage(Role.ASSISTANT, "plain"),
+            ChatMessage(Role.TOOL, "t", toolCallId = "zzz"),
+            ChatMessage(Role.ASSISTANT, "after"))))
+        assertTrue(out.messages.any { it.content.contains("\"name\":\"unknown\"") })
+        val merged = RequestTranslator.mergeMessages(listOf(
+            user("a"), sys("s"), user("b")))
+        assertEquals(3, merged.size)
+    }
 }

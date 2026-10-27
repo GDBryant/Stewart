@@ -12,6 +12,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (built
 - Run IDE sandbox: `./gradlew runIde`
 - Live Ollama smoke test (skipped by default): `OLLAMA_LIVE=1 ./gradlew test --tests '*OllamaLiveTest*'`
 - Live AIF test (skipped, needs env): `AIF_LIVE=1 AIF_BASE_URL=... AIF_API_KEY=... AIF_MODEL=... ./gradlew test --tests '*AifLiveTest*'`
+- Live Claude test (skipped, needs env): `CLAUDE_LIVE=1 ./gradlew test --tests '*ClaudeLiveTest*'` (uses the enterprise CLI login)
 - Coverage gate: `./gradlew koverVerify`
 - Coverage report: `./gradlew koverHtmlReport` → `build/reports/kover/html/`
 

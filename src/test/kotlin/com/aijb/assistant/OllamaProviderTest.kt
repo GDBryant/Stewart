@@ -261,4 +261,64 @@ class OllamaProviderTest {
         assertEquals(listOf("a:latest", "b:latest"), models.map { it.ref.modelId })
         assertEquals("ollama", models.first().ref.providerId)
     }
+
+    @Test
+    fun `done without reason or usage fields`() = runBlocking {
+        server.createContext("/api/chat") { ex ->
+            val body = "{\"message\":{\"content\":\"x\"},\"done\":false}\n{\"done\":true}\n"
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        val events = mutableListOf<ProviderEvent>()
+        provider.chat(request()).collect { events.add(it) }
+        assertTrue(events.last() is ProviderEvent.Completed)
+        assertEquals(null, (events.last() as ProviderEvent.Completed).finishReason)
+    }
+
+    @Test
+    fun `lines without message and non-string fields tolerated`() = runBlocking {
+        server.createContext("/api/chat") { ex ->
+            val body = "{\"done\":false}\n{\"message\":{}}\n{\"done\":true,\"done_reason\":\"stop\"}\n"
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        val events = mutableListOf<ProviderEvent>()
+        provider.chat(request()).collect { events.add(it) }
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `ndjson edge cases`() {
+        org.junit.Assert.assertNull(com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("{}"))
+        org.junit.Assert.assertNull(com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("""{"message":{"content":""},"done":false}"""))
+        val e = com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("""{"error":42}""")
+        assertTrue(e is ProviderEvent.Failed)
+        org.junit.Assert.assertNull(com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("""{"model":"m"}"""))
+        val c = com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("""{"message":{"content":"y"},"done":false}""")
+        assertEquals(ProviderEvent.TextDelta("y"), c)
+        val d = com.aijb.assistant.provider.ollama.OllamaNdjson.parseLine("""{"done":true,"prompt_eval_count":1,"eval_count":2}""")
+        assertTrue(d is ProviderEvent.Completed)
+        assertEquals(1, (d as ProviderEvent.Completed).usage?.promptTokens)
+        assertEquals(2, d.usage?.completionTokens)
+    }
+
+    @Test
+    fun `native path with function choice`() = runBlocking {
+        var sent: ChatRequest? = null
+        val inner = object : com.aijb.assistant.provider.ModelProvider {
+            override val id = "n"
+            override suspend fun listModels() = emptyList<com.aijb.assistant.provider.ModelInfo>()
+            override fun supportsNativeTools(model: String) = true
+            override fun chat(request: ChatRequest) = kotlinx.coroutines.flow.flow<ProviderEvent> {
+                sent = request
+                emit(ProviderEvent.Completed("stop", null))
+            }
+        }
+        val spec = com.aijb.assistant.provider.ToolSpec("read_file", "d", kotlinx.serialization.json.JsonObject(emptyMap()))
+        val events = mutableListOf<ProviderEvent>()
+        com.aijb.assistant.shim.ToolCallingProvider(inner, com.aijb.assistant.provider.ToolPath.NATIVE).chat(
+            ChatRequest("m", listOf(ChatMessage(Role.USER, "g")),
+                listOf(spec), com.aijb.assistant.provider.ToolChoice.Function("read_file"))).collect { events.add(it) }
+        assertEquals(listOf(spec), sent!!.tools)
+    }
 }

@@ -134,4 +134,20 @@ class OllamaNdjsonTest {
         val event = OllamaNdjson.parseLine("{not json")
         assertTrue(event is ProviderEvent.Failed)
     }
+
+    @Test
+    fun `more edges`() {
+        assertEquals(ProviderEvent.TextDelta("5"), OllamaNdjson.parseLine("""{"message":{"content":5},"done":false}"""))
+        assertTrue(OllamaNdjson.parseLine("""{"error":{"message":"x"}}""") is ProviderEvent.Failed)
+        assertNull(OllamaNdjson.parseLine("""{"done":false,"done_reason":"x"}"""))
+        val d = OllamaNdjson.parseLine("""{"done":true,"done_reason":5}""")
+        assertTrue(d is ProviderEvent.Completed)
+        assertEquals("5", (d as ProviderEvent.Completed).finishReason)
+        assertTrue(OllamaNdjson.parseLine("not json") is ProviderEvent.Failed)
+        assertTrue(OllamaNdjson.parseLine("""{"message":{"content":"a"},"done":true,"done_reason":"stop"}""") is ProviderEvent.Completed)
+        assertEquals("x", OllamaNdjson.extractError("""{"error":"x"}""", "f"))
+        assertEquals("f", OllamaNdjson.extractError("{}", "f"))
+        assertEquals("body", OllamaNdjson.extractError("body", "f"))
+        assertEquals("f", OllamaNdjson.extractError("", "f"))
+    }
 }

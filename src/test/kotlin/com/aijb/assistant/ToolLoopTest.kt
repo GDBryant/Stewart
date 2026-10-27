@@ -295,4 +295,11 @@ class ToolLoopTest {
             tools = listOf(tool()))
         assertEquals("protocol_error", (r as LoopResult.Failed).code)
     }
+
+    @Test
+    fun `text after completed is protocol error`() {
+        val r = run(ProviderEvent.Completed("stop", null), ProviderEvent.TextDelta("x"),
+            tools = listOf(tool()))
+        assertEquals("protocol_error", (r as LoopResult.Failed).code)
+    }
 }

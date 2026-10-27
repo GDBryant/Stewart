@@ -663,4 +663,25 @@ class ToolCallParserTest {
         assertEquals(1, calls.size)
         assertTrue(clean.contains("x"))
     }
+
+    @Test
+    fun `alias with non string command element dropped`() {
+        val text = "<tool_call>{\"name\": \"bash\", \"arguments\": {\"commands\": [1]}}</tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, EXEC_SCHEMA)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
+    fun `arguments string containing number rejected`() {
+        val text = "<tool_call>{\"name\": \"read_file\", \"arguments\": \"5\"}</tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, SCHEMA)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
+    fun `boolean bare literal untouched`() {
+        val text = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": true}}</tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, SCHEMA)
+        assertEquals(listOf("read_file" to args("path" to b(true))), namesArgs(calls))
+    }
 }

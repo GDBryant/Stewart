@@ -298,4 +298,20 @@ class AifProviderTest {
         val e2 = collect(provider(key = "secret-key-123"))
         assertEquals("bad: ***", (e2.last() as ProviderEvent.Failed).message)
     }
+
+    @Test
+    fun `tool choice function serializes`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")
+        val spec = ToolSpec("read_file", "d", JsonObject(emptyMap()))
+        collect(provider(), req().copy(tools = listOf(spec), toolChoice = ToolChoice.Function("read_file")))
+        assertTrue(body.contains("\"function\":{\"name\":\"read_file\"}"))
+    }
+
+    @Test
+    fun `tool choice none omits tools`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")
+        val spec = ToolSpec("read_file", "d", JsonObject(emptyMap()))
+        collect(provider(), req().copy(tools = emptyList(), toolChoice = ToolChoice.None))
+        assertTrue(!body.contains("\"tools\""))
+    }
 }
