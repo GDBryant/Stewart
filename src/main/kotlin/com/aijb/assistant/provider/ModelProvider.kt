@@ -3,7 +3,18 @@ package com.aijb.assistant.provider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 
-data class ModelRef(val providerId: String, val modelId: String)
+data class ModelRef(val providerId: String, val modelId: String) {
+    fun encode(): String = "$providerId/$modelId"
+
+    companion object {
+        fun decode(s: String?): ModelRef? {
+            if (s.isNullOrBlank()) return null
+            val i = s.indexOf('/')
+            if (i <= 0 || i == s.length - 1) return null
+            return ModelRef(s.substring(0, i), s.substring(i + 1))
+        }
+    }
+}
 
 data class ModelInfo(val ref: ModelRef, val displayName: String)
 

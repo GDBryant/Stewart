@@ -3,10 +3,11 @@ package com.aijb.assistant.chat
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelProvider
+import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ProviderEvent
+import com.aijb.assistant.provider.ProviderRegistry
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.Usage
-import com.aijb.assistant.provider.ollama.OllamaProvider
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
@@ -33,7 +34,7 @@ class ChatSession(
     private val cs: CoroutineScope,
 ) : Disposable {
 
-    var provider: ModelProvider = OllamaProvider()
+    var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
 
     private val lock = Any()
     private val transcriptBacking = mutableListOf<ChatMessage>()
@@ -42,7 +43,7 @@ class ChatSession(
     val transcript: List<ChatMessage>
         get() = synchronized(lock) { transcriptBacking.toList() }
 
-    fun send(text: String, model: String, listener: ChatListener): Job {
+    fun send(text: String, ref: ModelRef, listener: ChatListener): Job {
         val newJob: Job
         synchronized(lock) {
             activeJob?.cancel()
@@ -53,7 +54,14 @@ class ChatSession(
                 val reply = StringBuilder()
                 var completed = false
                 try {
-                    provider.chat(ChatRequest(model, history)).collect { event ->
+                    val provider = providers().firstOrNull { it.id == ref.providerId }
+                    if (provider == null) {
+                        withContext(Dispatchers.EDT) {
+                            listener.onFailed("Provider not configured: ${ref.providerId}")
+                        }
+                        return@launch
+                    }
+                    provider.chat(ChatRequest(ref.modelId, history)).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 reply.append(event.text)

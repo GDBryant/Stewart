@@ -151,13 +151,13 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Levels talk via structured JSON messages (plan, task, result), not free text.
 
 ## Open Questions
-1. Managed configuration: does the org's managed policy leave hooks/plugins/MCP suppressed? (Scripted transport/isolation checks passed on CLI 2.1.309; if the policy check fails, which explicitly supported authenticated transport is available?)
-2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+.
-3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front?
-4. Auto-approve edits option for trusted mode?
-5. Is per-project history in the plugin state directory sufficient, or is a global history view required?
-6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences?
-7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings?
+1. Managed configuration: does the org's managed policy leave hooks/plugins/MCP suppressed? (Scripted transport/isolation checks passed on CLI 2.1.309; if the policy check fails, which explicitly supported authenticated transport is available?). Please rephrase this question to be more clear.
+2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+. All JetBrains IDEs should be supported.
+3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front? Mid-run questions should be allowed.
+4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode.
+5. Is per-project history in the plugin state directory sufficient, or is a global history view required? Per-project history in the plugin state directory should be sufficient. 
+6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences? We will manually update if and when necessary.
+7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account does expose a list of models to select from.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

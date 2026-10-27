@@ -7,6 +7,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (built
 
 ## Commands
 - Build plugin: `./gradlew buildPlugin`
+- Install into local IDEs (2025.1+): `scripts/install-plugin.sh [--no-build] [IDE_DIR_NAME...]`; or IDE → Settings → Plugins → ⚙ → Install Plugin from Disk → `build/distributions/aijb-assistant-<ver>.zip`
 - Tests: `./gradlew test`
 - Plugin Verifier: `./gradlew verifyPlugin`
 - Run IDE sandbox: `./gradlew runIde`
@@ -25,5 +26,6 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (built
 ## Conventions
 - Stack: Kotlin, Gradle IntelliJ / PyCharm Platform Plugin.
 - Docs live in `docs/`; add a reference here when adding one.
+- New code always gets tests for both positive and negative cases.
 - Every change ships tests; `koverVerify` (≥90% line, ≥80% branch) must pass. New code is tested in the same change.
 - New tool-call formats: add to the Kotlin parser with a verbatim test.
