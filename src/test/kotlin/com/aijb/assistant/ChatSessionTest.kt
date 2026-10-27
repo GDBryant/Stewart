@@ -2,6 +2,7 @@ package com.aijb.assistant
 
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
+import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelProvider
@@ -43,6 +44,16 @@ class ChatSessionTest : BasePlatformTestCase() {
         val failed = CountDownLatch(1)
         val cancelled = CountDownLatch(1)
         var failure: String? = null
+        val compacted = mutableListOf<Pair<Int, Int>>()
+        val compactionFailures = mutableListOf<String>()
+
+        override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
+            compacted += beforeTokens to afterTokens
+        }
+
+        override fun onCompactionFailed(message: String) {
+            compactionFailures += message
+        }
 
         override fun onDelta(text: String) {
             deltas.append(text)
@@ -228,6 +239,102 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals("Provider not configured: ghost", listener.failure)
         assertEquals(1, session.transcript.size)
         assertEquals(Role.USER, session.transcript[0].role)
+    }
+
+    private fun summaryAware(
+        summaryEvents: List<ProviderEvent>,
+        mainEvents: List<ProviderEvent>,
+        id: String = "fake",
+    ) = object : ModelProvider {
+        override val id = id
+        val requests = mutableListOf<ChatRequest>()
+        override suspend fun listModels(): List<ModelInfo> = emptyList()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            requests += request
+            val isSummary = request.messages.any {
+                it.role == Role.SYSTEM && it.content == ContextCompactor.SUMMARY_PROMPT
+            }
+            return flow { (if (isSummary) summaryEvents else mainEvents).forEach { emit(it) } }
+        }
+    }
+
+    private fun seedTranscript(session: ChatSession) {
+        val provider = summaryAware(
+            emptyList(),
+            listOf(ProviderEvent.TextDelta("a".repeat(40)), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        repeat(6) {
+            val l = RecordingListener()
+            session.send("q$it " + "x".repeat(40), ModelRef("fake", "m"), l)
+            pumpUntil(l.completed)
+        }
+        session.providers = { emptyList() }
+    }
+
+    fun `test compaction replaces transcript and request uses compacted history`() {
+        val session = ChatSession(project, scope)
+        session.autoCompactTokens = { 100_000 }
+        seedTranscript(session)
+        session.autoCompactTokens = { 1 }
+        val provider = summaryAware(
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+            listOf(ProviderEvent.TextDelta("reply"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        val job = session.send("next", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        runUntilIdle { job.isCompleted }
+        assertEquals(1, listener.compacted.size)
+        assertEquals(2, provider.requests.size)
+        assertTrue(provider.requests[1].messages.any {
+            it.content.startsWith(ContextCompactor.SUMMARY_PREFIX)
+        })
+        assertTrue(provider.requests[1].messages.none { it.content.startsWith("q0 ") })
+        assertTrue(session.transcript.any {
+            it.content.startsWith(ContextCompactor.SUMMARY_PREFIX)
+        })
+        assertTrue(session.transcript.none { it.content.startsWith("q0 ") })
+    }
+
+    fun `test compaction failure keeps full history and notifies`() {
+        val session = ChatSession(project, scope)
+        session.autoCompactTokens = { 100_000 }
+        seedTranscript(session)
+        session.autoCompactTokens = { 1 }
+        val provider = summaryAware(
+            listOf(ProviderEvent.Failed("no summary")),
+            listOf(ProviderEvent.TextDelta("reply"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("next", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(listOf("no summary"), listener.compactionFailures)
+        assertTrue(listener.compacted.isEmpty())
+        assertTrue(provider.requests[1].messages.any { it.content.startsWith("q0 ") })
+    }
+
+    fun `test last prompt tokens triggers compaction on next send`() {
+        val session = ChatSession(project, scope)
+        session.autoCompactTokens = { 100_000 }
+        seedTranscript(session)
+        val provider = summaryAware(
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", Usage(200_000, 1))),
+        )
+        session.providers = { listOf(provider) }
+        val first = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), first)
+        assertTrue(pumpUntil(first.completed))
+        assertEquals(1, provider.requests.size)
+        assertTrue(first.compacted.isEmpty())
+        val second = RecordingListener()
+        session.send("again", ModelRef("fake", "m"), second)
+        assertTrue(pumpUntil(second.completed))
+        assertEquals(3, provider.requests.size)
+        assertEquals(1, second.compacted.size)
     }
 
     private fun runUntilIdle(cond: () -> Boolean) {

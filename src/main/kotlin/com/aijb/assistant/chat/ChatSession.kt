@@ -8,6 +8,7 @@ import com.aijb.assistant.provider.ProviderEvent
 import com.aijb.assistant.provider.ProviderRegistry
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.Usage
+import com.aijb.assistant.settings.AijbSettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
@@ -26,6 +27,8 @@ interface ChatListener {
     fun onCompleted(usage: Usage?)
     fun onFailed(message: String)
     fun onCancelled()
+    fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
+    fun onCompactionFailed(message: String) {}
 }
 
 @Service(Service.Level.PROJECT)
@@ -35,6 +38,10 @@ class ChatSession(
 ) : Disposable {
 
     var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
+    var autoCompactTokens: () -> Int = { AijbSettings.getInstance().state.autoCompactTokens }
+    internal var compactor = ContextCompactor()
+
+    private var lastPromptTokens: Int? = null
 
     private val lock = Any()
     private val transcriptBacking = mutableListOf<ChatMessage>()
@@ -61,7 +68,23 @@ class ChatSession(
                         }
                         return@launch
                     }
-                    provider.chat(ChatRequest(ref.modelId, history)).collect { event ->
+                    var requestHistory = history
+                    val compaction = compactor.compactIfNeeded(
+                        provider, ref.modelId, history, autoCompactTokens(), lastPromptTokens)
+                    if (compaction.error != null) {
+                        withContext(Dispatchers.EDT) { listener.onCompactionFailed(compaction.error!!) }
+                    } else if (compaction.compacted) {
+                        synchronized(lock) {
+                            transcriptBacking.clear()
+                            transcriptBacking.addAll(compaction.messages)
+                        }
+                        requestHistory = compaction.messages
+                        lastPromptTokens = null
+                        withContext(Dispatchers.EDT) {
+                            listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+                        }
+                    }
+                    provider.chat(ChatRequest(ref.modelId, requestHistory)).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 reply.append(event.text)
@@ -69,6 +92,7 @@ class ChatSession(
                             }
                             is ProviderEvent.Completed -> {
                                 completed = true
+                                lastPromptTokens = event.usage?.promptTokens
                                 withContext(Dispatchers.EDT) { listener.onCompleted(event.usage) }
                             }
                             is ProviderEvent.Failed ->

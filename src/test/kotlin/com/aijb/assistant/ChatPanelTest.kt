@@ -1,11 +1,13 @@
 package com.aijb.assistant
 
 import com.aijb.assistant.chat.ChatSession
+import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelProvider
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ProviderEvent
+import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
 import com.aijb.assistant.ui.ChatPanel
@@ -362,6 +364,64 @@ class ChatPanelTest : BasePlatformTestCase() {
         ApplicationManager.getApplication().messageBus
             .syncPublisher(AijbSettings.TOPIC).settingsChanged()
         assertTrue(pumpUntil { modelIds(panel) == listOf("new") })
+    }
+
+    private fun summaryAware(
+        summaryEvents: List<ProviderEvent>,
+        mainEvents: List<ProviderEvent>,
+    ) = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> =
+            listOf(ModelInfo(ModelRef(id, "m1"), "m1"))
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            val isSummary = request.messages.any {
+                it.role == Role.SYSTEM && it.content == ContextCompactor.SUMMARY_PROMPT
+            }
+            return flow { (if (isSummary) summaryEvents else mainEvents).forEach { emit(it) } }
+        }
+    }
+
+    private fun seedTranscript() {
+        val provider = fakeProvider(events = flow {
+            emit(ProviderEvent.TextDelta("a".repeat(40)))
+            emit(ProviderEvent.Completed("stop", Usage(1, 1)))
+        })
+        session.providers = { listOf(provider) }
+        session.autoCompactTokens = { 100_000 }
+        repeat(6) {
+            val done = java.util.concurrent.CountDownLatch(1)
+            session.send("q$it " + "x".repeat(40), ModelRef("fake", "m1"), object : com.aijb.assistant.chat.ChatListener {
+                override fun onDelta(text: String) {}
+                override fun onCompleted(usage: Usage?) { done.countDown() }
+                override fun onFailed(message: String) { done.countDown() }
+                override fun onCancelled() { done.countDown() }
+            })
+            pumpUntil { done.count == 0L }
+        }
+    }
+
+    fun `test compacted status suffix`() {
+        seedTranscript()
+        session.autoCompactTokens = { 1 }
+        val panel = newPanel(summaryAware(
+            listOf(ProviderEvent.TextDelta("- s"), ProviderEvent.Completed("stop", null)),
+            listOf(ProviderEvent.Completed("stop", null)),
+        ))
+        panel.inputArea.text = "hi"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Done · context compacted" })
+    }
+
+    fun `test compaction failed status suffix`() {
+        seedTranscript()
+        session.autoCompactTokens = { 1 }
+        val panel = newPanel(summaryAware(
+            listOf(ProviderEvent.Failed("nope")),
+            listOf(ProviderEvent.Completed("stop", null)),
+        ))
+        panel.inputArea.text = "hi"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Done · compaction failed" })
     }
 
     fun `test roles button builds roles panel`() {

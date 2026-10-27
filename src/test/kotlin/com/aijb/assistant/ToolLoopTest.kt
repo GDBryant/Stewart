@@ -1,5 +1,6 @@
 package com.aijb.assistant
 
+import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
@@ -301,5 +302,136 @@ class ToolLoopTest {
         val r = run(ProviderEvent.Completed("stop", null), ProviderEvent.TextDelta("x"),
             tools = listOf(tool()))
         assertEquals("protocol_error", (r as LoopResult.Failed).code)
+    }
+
+    private class SummaryAware(
+        private val mainResponses: List<List<ProviderEvent>>,
+        private val summaryEvents: List<ProviderEvent>,
+    ) : ModelProvider {
+        override val id = "fake"
+        val requests = mutableListOf<ChatRequest>()
+        var mainCalls = 0
+        override suspend fun listModels() = emptyList<ModelInfo>()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            requests += request
+            val isSummary = request.messages.any {
+                it.role == Role.SYSTEM && it.content == ContextCompactor.SUMMARY_PROMPT
+            }
+            val evs = if (isSummary) {
+                summaryEvents
+            } else {
+                mainResponses.getOrElse(mainCalls) { listOf(ProviderEvent.Completed("stop", null)) }
+                    .also { mainCalls++ }
+            }
+            return flow { evs.forEach { emit(it) } }
+        }
+    }
+
+    private class RecordingLoopListener : LoopListener {
+        val compacted = mutableListOf<Pair<Int, Int>>()
+        val compactionFailures = mutableListOf<String>()
+        override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
+            compacted += beforeTokens to afterTokens
+        }
+        override fun onCompactionFailed(message: String) {
+            compactionFailures += message
+        }
+    }
+
+    private fun bigHistory(n: Int): List<ChatMessage> =
+        (1..n).flatMap {
+            listOf(
+                ChatMessage(Role.USER, "q$it " + "x".repeat(40)),
+                ChatMessage(Role.ASSISTANT, "a$it " + "y".repeat(40)),
+            )
+        }
+
+    @Test
+    fun `compaction on first turn replaces base`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+        )
+        val listener = RecordingLoopListener()
+        val history = bigHistory(6)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(),
+                LoopLimits(compactAtTokens = 10)).run("m", history, listener)
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(1, listener.compacted.size)
+        assertTrue(r.base[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+        assertTrue(r.base.none { it.content.startsWith("q1 ") })
+        assertEquals(r.base + r.messages, r.transcript)
+        assertEquals(2, provider.requests.size)
+        assertTrue(provider.requests[1].messages[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+    }
+
+    @Test
+    fun `compaction between turns folds produced into base`() {
+        val provider = SummaryAware(
+            listOf(
+                listOf(
+                    ProviderEvent.ToolCalls(listOf(call(id = "c9"))),
+                    ProviderEvent.Completed("stop", com.aijb.assistant.provider.Usage(60_000, 5)),
+                ),
+                listOf(ProviderEvent.TextDelta("final"), ProviderEvent.Completed("stop", null)),
+            ),
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+        )
+        val listener = RecordingLoopListener()
+        val history = listOf(
+            ChatMessage(Role.USER, "old go"),
+            ChatMessage(Role.ASSISTANT, "calls", toolCalls = listOf(call())),
+            ChatMessage(Role.TOOL, "old result", toolCallId = "c1"),
+        ) + bigHistory(3)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(),
+                LoopLimits(compactAtTokens = 50_000),
+                ContextCompactor(keepRecent = 1)).run("m", history, listener)
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(1, listener.compacted.size)
+        assertTrue(r.base[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+        assertEquals(listOf("final"), r.messages.map { it.content })
+        assertEquals(r.base + r.messages, r.transcript)
+        val summaryReq = provider.requests[1]
+        assertTrue(summaryReq.messages[1].content.contains("[tool result c1] old result"))
+    }
+
+    @Test
+    fun `compaction failure continues with full history`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),
+            listOf(ProviderEvent.Failed("no summary")),
+        )
+        val listener = RecordingLoopListener()
+        val history = bigHistory(6)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(),
+                LoopLimits(compactAtTokens = 10)).run("m", history, listener)
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(listOf("no summary"), listener.compactionFailures)
+        assertTrue(listener.compacted.isEmpty())
+        assertEquals(history, r.base)
+        assertEquals(history, provider.requests[1].messages)
+    }
+
+    @Test
+    fun `null compactAtTokens never sends summary request`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+        )
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(), LoopLimits())
+                .run("m", bigHistory(6), RecordingLoopListener())
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(1, provider.requests.size)
+        assertTrue(provider.requests[0].messages.none {
+            it.content == ContextCompactor.SUMMARY_PROMPT
+        })
     }
 }

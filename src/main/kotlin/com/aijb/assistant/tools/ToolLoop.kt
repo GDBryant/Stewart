@@ -1,5 +1,6 @@
 package com.aijb.assistant.tools
 
+import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelProvider
@@ -39,6 +40,8 @@ interface LoopListener {
     fun onReasoning(text: String) {}
     fun onToolRequested(call: ToolCall) {}
     fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
+    fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
+    fun onCompactionFailed(message: String) {}
 }
 
 data class LoopLimits(
@@ -46,13 +49,28 @@ data class LoopLimits(
     val toolTimeout: Duration = 60.seconds,
     val maxToolOutputChars: Int = 20_000,
     val maxContextChars: Int = 400_000,
+    val compactAtTokens: Int? = null,
 )
 
 sealed interface LoopResult {
     val messages: List<ChatMessage>
-    data class Completed(override val messages: List<ChatMessage>, val usage: Usage?) : LoopResult
-    data class TurnLimitReached(override val messages: List<ChatMessage>) : LoopResult
-    data class Failed(override val messages: List<ChatMessage>, val message: String, val code: String? = null) : LoopResult
+    val base: List<ChatMessage>
+    val transcript: List<ChatMessage> get() = base + messages
+    data class Completed(
+        override val messages: List<ChatMessage>,
+        val usage: Usage?,
+        override val base: List<ChatMessage>,
+    ) : LoopResult
+    data class TurnLimitReached(
+        override val messages: List<ChatMessage>,
+        override val base: List<ChatMessage>,
+    ) : LoopResult
+    data class Failed(
+        override val messages: List<ChatMessage>,
+        val message: String,
+        val code: String? = null,
+        override val base: List<ChatMessage>,
+    ) : LoopResult
 }
 
 class ToolLoop(
@@ -60,18 +78,32 @@ class ToolLoop(
     private val registry: ToolRegistry,
     private val approval: ApprovalGate,
     private val limits: LoopLimits = LoopLimits(),
+    private val compactor: ContextCompactor = ContextCompactor(),
 ) {
 
     suspend fun run(model: String, history: List<ChatMessage>, listener: LoopListener): LoopResult {
         val produced = mutableListOf<ChatMessage>()
+        var base: List<ChatMessage> = history
+        var lastPromptTokens: Int? = null
         var turns = 0
         while (true) {
-            if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced)
-            val context = history + produced
+            if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced, base)
+            limits.compactAtTokens?.let { threshold ->
+                val compaction = compactor.compactIfNeeded(
+                    provider, model, base + produced, threshold, lastPromptTokens)
+                if (compaction.error != null) {
+                    listener.onCompactionFailed(compaction.error!!)
+                } else if (compaction.compacted) {
+                    base = compaction.messages
+                    produced.clear()
+                    listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+                }
+            }
+            val context = base + produced
             val size = context.sumOf { it.content.length } +
                 context.sumOf { m -> m.toolCalls.sumOf { it.arguments.toString().length } }
             if (size > limits.maxContextChars) {
-                return LoopResult.Failed(produced, "context size limit exceeded", "context_limit")
+                return LoopResult.Failed(produced, "context size limit exceeded", "context_limit", base)
             }
             turns++
             val text = StringBuilder()
@@ -105,21 +137,22 @@ class ToolLoop(
                         }
                     }
             }
+            lastPromptTokens = usage?.promptTokens
             if (protocolError) {
-                return LoopResult.Failed(produced, "provider emitted events after completion", "protocol_error")
+                return LoopResult.Failed(produced, "provider emitted events after completion", "protocol_error", base)
             }
             if (failed != null) {
-                return LoopResult.Failed(produced, failed!!.message, failed!!.code)
+                return LoopResult.Failed(produced, failed!!.message, failed!!.code, base)
             }
             if (finish == null) {
-                return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream")
+                return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream", base)
             }
             if (finish == "length" || finish == "content_filter") {
                 produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
-                return LoopResult.Failed(produced, "response truncated ($finish)", "truncated")
+                return LoopResult.Failed(produced, "response truncated ($finish)", "truncated", base)
             }
             produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
-            if (calls.isEmpty()) return LoopResult.Completed(produced, usage)
+            if (calls.isEmpty()) return LoopResult.Completed(produced, usage, base)
             val seen = mutableSetOf<String>()
             for (call in calls) {
                 listener.onToolRequested(call)

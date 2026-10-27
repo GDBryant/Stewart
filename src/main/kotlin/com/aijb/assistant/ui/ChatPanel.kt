@@ -206,6 +206,8 @@ class ChatPanel @JvmOverloads constructor(
         val reply = StringBuilder()
         sendButton.text = "Stop"
         statusLabel.text = " "
+        var compacted = false
+        var compactionFailed = false
         session.send(text, info.ref, object : ChatListener {
             override fun onDelta(text: String) {
                 reply.append(text)
@@ -213,11 +215,26 @@ class ChatPanel @JvmOverloads constructor(
                 refreshMessages()
             }
 
+            override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
+                compacted = true
+                statusLabel.text = "Context compacted (~$beforeTokens → ~$afterTokens tokens)"
+            }
+
+            override fun onCompactionFailed(message: String) {
+                compactionFailed = true
+                statusLabel.text = "Compaction failed: $message"
+            }
+
             override fun onCompleted(usage: Usage?) {
                 sendButton.text = "Send"
-                statusLabel.text = usage?.let {
+                val base = usage?.let {
                     "tokens: ${it.promptTokens ?: "?"} in / ${it.completionTokens ?: "?"} out"
                 } ?: "Done"
+                statusLabel.text = base + when {
+                    compacted -> " · context compacted"
+                    compactionFailed -> " · compaction failed"
+                    else -> ""
+                }
             }
 
             override fun onFailed(message: String) {
