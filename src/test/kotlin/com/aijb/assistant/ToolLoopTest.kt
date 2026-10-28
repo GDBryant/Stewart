@@ -419,6 +419,65 @@ class ToolLoopTest {
     }
 
     @Test
+    fun `role prompt prepended on every turn but not in transcript`() {
+        val provider = SummaryAware(
+            listOf(
+                listOf(
+                    ProviderEvent.ToolCalls(listOf(call())),
+                    ProviderEvent.Completed("stop", null),
+                ),
+                listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null)),
+            ),
+            emptyList(),
+        )
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(), LoopLimits(),
+                ContextCompactor(), "ROLE PROMPT X").run("m",
+                listOf(ChatMessage(Role.USER, "go")), RecordingLoopListener())
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(2, provider.requests.size)
+        provider.requests.forEach { req ->
+            assertEquals(Role.SYSTEM, req.messages[0].role)
+            assertEquals("ROLE PROMPT X", req.messages[0].content)
+        }
+        assertTrue(r.transcript.none { it.content == "ROLE PROMPT X" })
+    }
+
+    @Test
+    fun `null role prompt sends no system injection`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),
+            emptyList(),
+        )
+        runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(), LoopLimits())
+                .run("m", listOf(ChatMessage(Role.USER, "go")), RecordingLoopListener())
+        }
+        assertTrue(provider.requests[0].messages.none {
+            it.role == Role.SYSTEM && it.content == "ROLE PROMPT X"
+        })
+        assertEquals(Role.USER, provider.requests[0].messages[0].role)
+    }
+
+    @Test
+    fun `role prompt not in compactor input`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+        )
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(),
+                LoopLimits(compactAtTokens = 10), ContextCompactor(), "ROLE PROMPT X")
+                .run("m", bigHistory(6), RecordingLoopListener())
+        }
+        assertTrue(r is LoopResult.Completed)
+        val summaryReq = provider.requests[0]
+        assertTrue(summaryReq.messages.none { it.content.contains("ROLE PROMPT X") })
+        assertEquals("ROLE PROMPT X", provider.requests[1].messages[0].content)
+    }
+
+    @Test
     fun `null compactAtTokens never sends summary request`() {
         val provider = SummaryAware(
             listOf(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))),

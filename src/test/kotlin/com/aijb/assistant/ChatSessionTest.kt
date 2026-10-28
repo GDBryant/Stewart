@@ -1,5 +1,7 @@
 package com.aijb.assistant
 
+import com.aijb.assistant.agents.AgentRole
+import com.aijb.assistant.agents.RolePrompts
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.ContextCompactor
@@ -335,6 +337,63 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertTrue(pumpUntil(second.completed))
         assertEquals(3, provider.requests.size)
         assertEquals(1, second.compacted.size)
+    }
+
+    fun `test multi model injects planner prompt not stored`() {
+        val session = ChatSession(project, scope)
+        session.multiModel = { true }
+        val provider = summaryAware(
+            emptyList(),
+            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        val sent = provider.requests[0].messages
+        assertEquals(Role.SYSTEM, sent[0].role)
+        assertEquals(RolePrompts.forRole(AgentRole.PLANNER), sent[0].content)
+        assertTrue(session.transcript.none { it.role == Role.SYSTEM })
+    }
+
+    fun `test single model sends no role prompt`() {
+        val session = ChatSession(project, scope)
+        session.multiModel = { false }
+        val provider = summaryAware(
+            emptyList(),
+            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertTrue(provider.requests[0].messages.none {
+            it.content.contains("You are one of three roles")
+        })
+    }
+
+    fun `test role prompt not in compaction summary request`() {
+        val session = ChatSession(project, scope)
+        session.autoCompactTokens = { 100_000 }
+        seedTranscript(session)
+        session.autoCompactTokens = { 1 }
+        session.multiModel = { true }
+        val provider = summaryAware(
+            listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
+            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("next", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(2, provider.requests.size)
+        val summaryReq = provider.requests[0]
+        assertTrue(summaryReq.messages.none {
+            it.content.contains("You are one of three roles")
+        })
+        assertEquals(Role.SYSTEM, provider.requests[1].messages[0].role)
+        assertEquals(RolePrompts.forRole(AgentRole.PLANNER),
+            provider.requests[1].messages[0].content)
     }
 
     private fun runUntilIdle(cond: () -> Boolean) {

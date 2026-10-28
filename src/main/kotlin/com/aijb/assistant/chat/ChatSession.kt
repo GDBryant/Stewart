@@ -1,5 +1,7 @@
 package com.aijb.assistant.chat
 
+import com.aijb.assistant.agents.AgentRole
+import com.aijb.assistant.agents.RolePrompts
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelProvider
@@ -39,6 +41,7 @@ class ChatSession(
 
     var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
     var autoCompactTokens: () -> Int = { AijbSettings.getInstance().state.autoCompactTokens }
+    var multiModel: () -> Boolean = { AijbSettings.getInstance().state.multiModel }
     internal var compactor = ContextCompactor()
 
     private var lastPromptTokens: Int? = null
@@ -84,7 +87,12 @@ class ChatSession(
                             listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
                         }
                     }
-                    provider.chat(ChatRequest(ref.modelId, requestHistory)).collect { event ->
+                    val outbound = if (multiModel()) {
+                        listOf(ChatMessage(Role.SYSTEM, RolePrompts.forRole(AgentRole.PLANNER))) + requestHistory
+                    } else {
+                        requestHistory
+                    }
+                    provider.chat(ChatRequest(ref.modelId, outbound)).collect { event ->
                         when (event) {
                             is ProviderEvent.TextDelta -> {
                                 reply.append(event.text)

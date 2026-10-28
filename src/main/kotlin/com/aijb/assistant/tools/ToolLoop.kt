@@ -79,6 +79,7 @@ class ToolLoop(
     private val approval: ApprovalGate,
     private val limits: LoopLimits = LoopLimits(),
     private val compactor: ContextCompactor = ContextCompactor(),
+    private val rolePrompt: String? = null,
 ) {
 
     suspend fun run(model: String, history: List<ChatMessage>, listener: LoopListener): LoopResult {
@@ -112,7 +113,10 @@ class ToolLoop(
             var finish: String? = null
             var failed: ProviderEvent.Failed? = null
             var protocolError = false
-            provider.chat(ChatRequest(model, context, tools = registry.specs)).collect { ev ->
+            val outbound = rolePrompt?.let {
+                listOf(ChatMessage(Role.SYSTEM, it)) + context
+            } ?: context
+            provider.chat(ChatRequest(model, outbound, tools = registry.specs)).collect { ev ->
                     when (ev) {
                         is ProviderEvent.TextDelta -> {
                             if (finish != null) protocolError = true

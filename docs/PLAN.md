@@ -57,6 +57,8 @@ Native/shim routing is a per-provider/per-model capability setting, with an expl
 
 Multi-model mode = each level has its own ModelRef in settings. Single-model mode = all three share the chat-window selection.
 
+In multi-model mode every request carries a role system prompt (`RolePrompts`, per request, never stored or compacted) describing the three roles and telling the model to hand work down to a lower role where it can.
+
 ### Tool-call shim (ported from aif_shim)
 The AIF proxy drops `tools` and returns tool calls as plain text. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop`, enabled by default for AIF — no external Python process.
 
