@@ -6,6 +6,8 @@ import com.aijb.assistant.agents.OrchestrationResult
 import com.aijb.assistant.agents.Orchestrator
 import com.aijb.assistant.agents.OrchestratorListener
 import com.aijb.assistant.agents.Plan
+import com.aijb.assistant.agents.RoleRouting
+import com.aijb.assistant.agents.RoutingResult
 import com.aijb.assistant.agents.WorkerResult
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ModelProvider
@@ -68,6 +70,14 @@ class ChatSession(
     }
     var approval: ApprovalGate = IdeApprovalGate(project,
         { AijbSettings.getInstance().state.autoApproveEdits })
+    var roleModels: () -> Map<AgentRole, ModelRef?> = {
+        val st = AijbSettings.getInstance().state
+        mapOf(
+            AgentRole.PLANNER to ModelRef.decode(st.plannerModel),
+            AgentRole.EXECUTOR to ModelRef.decode(st.executorModel),
+            AgentRole.WORKER to ModelRef.decode(st.workerModel),
+        )
+    }
     internal var compactor = ContextCompactor()
 
     private var lastPromptTokens: Int? = null
@@ -93,6 +103,10 @@ class ChatSession(
             newJob = cs.launch {
                 val thisJob = coroutineContext.job
                 try {
+                    if (multiModel()) {
+                        runOrchestrator(text, ref, priorHistory, listener, thisJob)
+                        return@launch
+                    }
                     val provider = providers().firstOrNull { it.id == ref.providerId }
                     if (provider == null) {
                         toEdt { listener.onFailed("Provider not configured: ${ref.providerId}") }
@@ -100,10 +114,6 @@ class ChatSession(
                     }
                     val wrapped = ToolCallingProvider(
                         provider, ToolPathResolver.resolve(ref, provider, toolPathOverrides()))
-                    if (multiModel()) {
-                        runOrchestrator(text, ref, provider, wrapped, priorHistory, listener, thisJob)
-                        return@launch
-                    }
                     val loopListener = object : LoopListener {
                         override fun onText(text: String) = toEdt { listener.onDelta(text) }
                         override fun onToolRequested(call: ToolCall) =
@@ -178,22 +188,40 @@ class ChatSession(
     }
 
     /**
-     * Multi-model mode (M6): runs the three-level orchestrator. All levels are bound to
-     * the selected chat model; per-role model binding arrives with M7.
+     * Multi-model mode (M6/M7): runs the three-level orchestrator, each level bound to its
+     * configured model (unset roles use the chat selection). A role whose provider is
+     * missing fails the request; it is never rerouted to another provider.
      */
     private suspend fun runOrchestrator(
         text: String,
         ref: ModelRef,
-        provider: ModelProvider,
-        wrapped: ModelProvider,
         priorHistory: List<ChatMessage>,
         listener: ChatListener,
         thisJob: Job,
     ) {
+        val routed = RoleRouting.resolve(
+            ref,
+            roleModels(),
+            providers(),
+            toolPathOverrides(),
+        )
+        val routes = when (routed) {
+            is RoutingResult.Resolved -> routed.routes
+            is RoutingResult.Unresolved -> {
+                toEdt { listener.onFailed(routed.message) }
+                return
+            }
+        }
+        val destinations = mutableMapOf<AgentRole, String>()
         val orchListener = object : OrchestratorListener {
             override fun onDelta(delta: String) = toEdt { listener.onDelta(delta) }
-            override fun onLevelStarted(role: AgentRole, context: String) =
-                toEdt { listener.onLevelStarted(role, context) }
+            override fun onLevelRouted(role: AgentRole, destination: String) {
+                destinations[role] = destination
+            }
+            override fun onLevelStarted(role: AgentRole, context: String) {
+                val dest = destinations[role]
+                toEdt { listener.onLevelStarted(role, if (dest != null) "$context → $dest" else context) }
+            }
             override fun onPlan(plan: Plan) {}
             override fun onTasks(taskRound: Int, tasks: List<DispatchTask>) {}
             override fun onResult(result: WorkerResult) {}
@@ -203,9 +231,7 @@ class ChatSession(
             override fun onFailed(message: String) = toEdt { listener.onFailed(message) }
         }
         val orchestrator = Orchestrator(
-            modelRef = ref.modelId,
-            provider = provider,
-            wrapped = wrapped,
+            routes = routes,
             projectTools = { tools() },
             approval = approval,
             compactAtTokens = autoCompactTokens(),

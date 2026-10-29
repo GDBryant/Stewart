@@ -69,9 +69,11 @@ class ChatSessionTest : BasePlatformTestCase() {
         val toolCalls = mutableListOf<String>()
         val toolOutcomes = mutableListOf<ToolOutcome>()
         val levels = mutableListOf<AgentRole>()
+        val levelContexts = mutableListOf<String>()
 
         override fun onLevelStarted(role: AgentRole, context: String) {
             levels += role
+            levelContexts += context
         }
 
         override fun onToolRequested(call: ToolCall) {
@@ -367,8 +369,8 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(1, second.compacted.size)
     }
 
-    private fun levelRouted() = object : ModelProvider {
-        override val id = "fake"
+    private fun levelRouted(providerId: String = "fake") = object : ModelProvider {
+        override val id = providerId
         val requests = mutableListOf<ChatRequest>()
         override suspend fun listModels(): List<ModelInfo> = emptyList()
         override fun chat(request: ChatRequest): Flow<ProviderEvent> {
@@ -412,6 +414,51 @@ class ChatSessionTest : BasePlatformTestCase() {
         // First request is the Planner level.
         val plannerSys = provider.requests[0].messages.first { it.role == Role.SYSTEM }.content
         assertTrue(plannerSys.startsWith(RolePrompts.forRole(AgentRole.PLANNER)))
+    }
+
+    fun `test multi model routes each level to its configured provider`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val planner = levelRouted("p1")
+        val executor = levelRouted("p2")
+        session.providers = { listOf(planner, executor) }
+        session.roleModels = {
+            mapOf(
+                AgentRole.PLANNER to ModelRef("p1", "big"),
+                AgentRole.EXECUTOR to ModelRef("p2", "small"),
+                AgentRole.WORKER to null,
+            )
+        }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("p1", "big"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(1, planner.requests.size)
+        assertEquals(1, executor.requests.size)
+        assertEquals("small", executor.requests[0].model)
+        // Destination is shown on the level header before dispatch.
+        assertEquals(
+            listOf(true, true),
+            listOf(listener.levelContexts[0].endsWith("→ p1/big"), listener.levelContexts[1].endsWith("→ p2/small")),
+        )
+    }
+
+    fun `test multi model missing role provider fails without fallback`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val local = levelRouted("ollama")
+        session.providers = { listOf(local) }
+        session.roleModels = {
+            mapOf(
+                AgentRole.PLANNER to ModelRef("ollama", "q"),
+                AgentRole.EXECUTOR to ModelRef("claude", "opus"),
+                AgentRole.WORKER to null,
+            )
+        }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("ollama", "q"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals("Provider not configured for executor: claude", listener.failure)
+        assertTrue(local.requests.isEmpty())
     }
 
     fun `test multi model orchestrator failure is surfaced`() {

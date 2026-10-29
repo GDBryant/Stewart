@@ -3,6 +3,7 @@ package com.aijb.assistant.agents
 import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ModelProvider
+import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.ToolCall
 import com.aijb.assistant.provider.ToolSpec
@@ -68,6 +69,8 @@ class ProtocolException(message: String) : RuntimeException(message)
 
 interface OrchestratorListener {
     fun onDelta(text: String)
+    /** Fired before a level's first request, naming the provider/model it will be sent to. */
+    fun onLevelRouted(role: AgentRole, destination: String) {}
     fun onLevelStarted(role: AgentRole, context: String)
     fun onPlan(plan: Plan)
     fun onTasks(taskRound: Int, tasks: List<DispatchTask>)
@@ -84,6 +87,7 @@ data class OrchestratorLimits(
     val maxReplans: Int = 2,
     val maxLevelModelTurns: Int = 15,
     val toolTimeout: Duration = 120.seconds,
+    val maxHandoffChars: Int = 2000,
 )
 
 sealed interface OrchestrationResult {
@@ -209,15 +213,28 @@ internal data class LevelRun(
 )
 
 class Orchestrator(
-    private val modelRef: String,
-    private val provider: ModelProvider,
-    private val wrapped: ModelProvider,
+    private val routes: Map<AgentRole, LevelRoute>,
     private val projectTools: () -> ToolRegistry,
     private val approval: ApprovalGate,
     private val limits: OrchestratorLimits = OrchestratorLimits(),
     private val compactor: ContextCompactor = ContextCompactor(),
     private val compactAtTokens: Int? = null,
 ) {
+
+    /** Single-model binding: every level uses the same model and provider. */
+    constructor(
+        modelRef: String,
+        provider: ModelProvider,
+        wrapped: ModelProvider,
+        projectTools: () -> ToolRegistry,
+        approval: ApprovalGate,
+        limits: OrchestratorLimits = OrchestratorLimits(),
+        compactor: ContextCompactor = ContextCompactor(),
+        compactAtTokens: Int? = null,
+    ) : this(
+        AgentRole.entries.associateWith { LevelRoute(ModelRef(provider.id, modelRef), wrapped) },
+        projectTools, approval, limits, compactor, compactAtTokens,
+    )
 
     suspend fun run(
         request: String,
@@ -281,7 +298,9 @@ class Orchestrator(
                         if (milestone.notes.isNotBlank()) append("Definition of done: ${milestone.notes}\n")
                         if (results.isNotEmpty()) {
                             append("Worker results from previous round:\n")
-                            results.forEach { r -> append("- task ${r.taskId} [${r.status}]: ${r.summary}\n") }
+                            results.forEach { r ->
+                                append("- task ${r.taskId} [${r.status}]: ${bound(r.summary)}\n")
+                            }
                         }
                         append(
                             if (round == 1) "\nBreak this milestone into concrete tasks and dispatch them."
@@ -312,7 +331,7 @@ class Orchestrator(
                     when (call.name) {
                         Protocol.COMPLETE_MILESTONE -> {
                             val notes = call.arguments["notes"]?.jsonPrimitive?.content.orEmpty()
-                            finished += milestone to notes
+                            finished += milestone to bound(notes)
                             done = true
                         }
                         Protocol.SUBMIT_TASKS -> {
@@ -483,12 +502,14 @@ class Orchestrator(
         baseHistory: List<ChatMessage>,
         listener: OrchestratorListener,
     ): LevelRun {
+        val route = routes.getValue(role)
+        listener.onLevelRouted(role, route.label)
         listener.onLevelStarted(role, context)
         val loopListener = object : LoopListener {
             override fun onText(text: String) = listener.onDelta(text)
         }
         val loop = ToolLoop(
-            wrapped,
+            route.provider,
             ToolRegistry(tools),
             approval,
             LoopLimits(
@@ -503,7 +524,7 @@ class Orchestrator(
         val base = baseHistory +
             ChatMessage(Role.SYSTEM, system) +
             ChatMessage(Role.USER, userContent)
-        val result = loop.run(modelRef, base, loopListener)
+        val result = loop.run(route.ref.modelId, base, loopListener)
         val submitted = result.messages.lastOrNull { m -> m.toolCalls.any { it.name in terminal } }
             ?.toolCalls?.firstOrNull { it.name in terminal }
         val status = when (result) {
@@ -511,10 +532,15 @@ class Orchestrator(
                 if (submitted != null) LevelStatus.Completed
                 else LevelStatus.Failed("${role.name.lowercase()} finished without submitting a structured result")
             is LoopResult.TurnLimitReached -> LevelStatus.TurnLimit
-            is LoopResult.Failed -> LevelStatus.Failed(result.message)
+            is LoopResult.Failed -> LevelStatus.Failed("${route.label}: ${result.message}")
         }
         return LevelRun(result.messages, (result as? LoopResult.Completed)?.usage, status, submitted)
     }
+
+    /** Caps text handed between levels so one verbose result cannot flood the next model. */
+    private fun bound(text: String): String =
+        if (text.length <= limits.maxHandoffChars) text
+        else text.take(limits.maxHandoffChars) + "… [truncated ${text.length - limits.maxHandoffChars} chars]"
 
     private fun failureMessage(res: LevelRun): String = when (val s = res.status) {
         is LevelStatus.Completed -> "no submission"
