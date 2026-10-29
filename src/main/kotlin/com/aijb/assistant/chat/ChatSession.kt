@@ -224,33 +224,18 @@ class ChatSession(
                                     t = t.dropLast(1)
                                 }
                             }
-                            synchronized(lock) {
-                                if (activeJob === thisJob) {
-                                    transcriptBacking.clear()
-                                    transcriptBacking.addAll(t)
-                                }
-                            }
+                            commitIfActive(thisJob, t)
                             lastPromptTokens = result.usage?.promptTokens
                             addUsage(result.usage)
                             toEdt { listener.onCompleted(result.usage) }
                         }
                         is LoopResult.Failed -> {
-                            synchronized(lock) {
-                                if (activeJob === thisJob) {
-                                    transcriptBacking.clear()
-                                    transcriptBacking.addAll(result.transcript)
-                                }
-                            }
+                            commitIfActive(thisJob, result.transcript)
                             addUsage(result.usage)
                             toEdt { listener.onFailedWithCode(result.message, result.code) }
                         }
                         is LoopResult.TurnLimitReached -> {
-                            synchronized(lock) {
-                                if (activeJob === thisJob) {
-                                    transcriptBacking.clear()
-                                    transcriptBacking.addAll(result.transcript)
-                                }
-                            }
+                            commitIfActive(thisJob, result.transcript)
                             addUsage(result.usage)
                             toEdt { listener.onFailedWithCode("Stopped: tool-turn limit reached (25)", "turn_limit") }
                         }
@@ -353,17 +338,22 @@ class ChatSession(
             },
         )
         val result = orchestrator.run(text, orchListener, priorHistory)
-        synchronized(lock) {
-            if (activeJob === thisJob) {
-                transcriptBacking.clear()
-                transcriptBacking.add(ChatMessage(Role.USER, text))
-                // Per-level role prompts are injected per request and never stored.
-                transcriptBacking.addAll(result.messages.filter { it.role != Role.SYSTEM })
-            }
-        }
+        // SYSTEM messages in the result are the orchestrator's "Re-planning: ..." markers; role
+        // prompts are injected per request and never appear in result.messages.
+        commitIfActive(thisJob, listOf(ChatMessage(Role.USER, text)) + result.messages.filter { it.role != Role.SYSTEM })
         if (result is OrchestrationResult.Failed) {
             addUsage(result.usage)
             toEdt { listener.onFailedWithCode(result.message, result.code) }
+        }
+    }
+
+    /** Replaces the transcript with [messages] unless a newer request has superseded [job]. */
+    internal fun commitIfActive(job: Job?, messages: List<ChatMessage>) {
+        synchronized(lock) {
+            if (activeJob === job) {
+                transcriptBacking.clear()
+                transcriptBacking.addAll(messages)
+            }
         }
     }
 

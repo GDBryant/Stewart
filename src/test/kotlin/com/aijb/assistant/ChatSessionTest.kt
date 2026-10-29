@@ -241,6 +241,30 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(ChatSession.CANCEL_MARKER, session.transcript[2].content.lines().last())
     }
 
+    fun `test a stale job does not overwrite the transcript but the active one does`() {
+        val session = newSession()
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.TextDelta("."))
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }) }
+        val listener = RecordingListener()
+        val active = session.send("one", ModelRef("fake", "m"), listener)
+        val before = session.transcript
+        val stale = kotlinx.coroutines.Job()
+        session.commitIfActive(stale, listOf(ChatMessage(Role.USER, "stale")))
+        assertEquals(before, session.transcript)
+        session.commitIfActive(null, listOf(ChatMessage(Role.USER, "null job")))
+        assertEquals(before, session.transcript)
+        session.commitIfActive(active, listOf(ChatMessage(Role.USER, "fresh")))
+        assertEquals(listOf(ChatMessage(Role.USER, "fresh")), session.transcript)
+        session.cancel()
+        assertTrue(pumpUntil(listener.cancelled))
+    }
+
     fun `test transcript snapshot is immutable`() {
         val session = newSession()
         session.providers = { listOf(fakeProvider("fake",
