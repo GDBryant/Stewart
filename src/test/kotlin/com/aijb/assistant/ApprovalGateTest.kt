@@ -10,6 +10,8 @@ import com.aijb.assistant.ui.GenericApprovalDialog
 import com.aijb.assistant.ui.IdeApprovalGate
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 
@@ -105,5 +107,102 @@ class ApprovalGateTest : BasePlatformTestCase() {
         val cancel = CommandApprovalDialog(project, call, command)
         cancel.close(DialogWrapper.CANCEL_EXIT_CODE)
         assertEquals(DialogWrapper.CANCEL_EXIT_CODE, cancel.exitCode)
+    }
+
+    // --- modeless dialogs: decision and cancel plumbing (fake DialogHost, no real window shown) ---
+
+    private class Harness(project: com.intellij.openapi.project.Project) {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        @Volatile var shown: com.aijb.assistant.ui.ApprovalDialog? = null
+        var shownCount = 0
+        val prompter = com.aijb.assistant.ui.DialogPrompter(project) { shownCount++; shown = it }
+    }
+
+    private fun pumpUntil(cond: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            if (cond()) return true
+            Thread.sleep(20)
+        }
+        return false
+    }
+
+    fun `test dialogs are modeless so Stop stays reachable`() {
+        listOf(
+            GenericApprovalDialog(project, call),
+            FileApprovalDialog(project, call, fileChange),
+            CommandApprovalDialog(project, call, command),
+        ).forEach {
+            assertFalse(it.isModal)
+            it.close(DialogWrapper.CANCEL_EXIT_CODE)
+        }
+    }
+
+    fun `test approve and reject each produce their decision`() {
+        val h = Harness(project)
+        try {
+            val approved = h.scope.async { h.prompter.confirmCommand(call, command) }
+            assertTrue(pumpUntil { h.shown != null })
+            h.shown!!.approve()
+            assertTrue(pumpUntil { approved.isCompleted })
+            assertTrue(runBlocking { approved.await() } is ApprovalDecision.Approved)
+
+            h.shown = null
+            val rejected = h.scope.async { h.prompter.confirmFile(call, fileChange) }
+            assertTrue(pumpUntil { h.shown != null })
+            h.shown!!.reject()
+            assertTrue(pumpUntil { rejected.isCompleted })
+            val d = runBlocking { rejected.await() }
+            assertEquals(ApprovalDecision.Rejected("rejected by user"), d)
+            assertEquals(2, h.shownCount)
+        } finally {
+            h.scope.cancel()
+        }
+    }
+
+    fun `test only the first decision counts`() {
+        val h = Harness(project)
+        try {
+            val result = h.scope.async { h.prompter.confirmGeneric(call) }
+            assertTrue(pumpUntil { h.shown != null })
+            h.shown!!.approve()
+            h.shown!!.reject()
+            assertTrue(pumpUntil { result.isCompleted })
+            assertTrue(runBlocking { result.await() } is ApprovalDecision.Approved)
+        } finally {
+            h.scope.cancel()
+        }
+    }
+
+    fun `test cancelling while the dialog is open closes it`() {
+        val h = Harness(project)
+        try {
+            val result = h.scope.async { h.prompter.confirmGeneric(call) }
+            assertTrue(pumpUntil { h.shown != null })
+            val dialog = h.shown!!
+            result.cancel()
+            assertTrue(pumpUntil { dialog.isDisposed })
+            assertEquals(DialogWrapper.CANCEL_EXIT_CODE, dialog.exitCode)
+            assertTrue(result.isCancelled)
+        } finally {
+            h.scope.cancel()
+        }
+    }
+
+    fun `test dialog already closed by the user is not closed again on cancel`() {
+        val h = Harness(project)
+        try {
+            val result = h.scope.async { h.prompter.confirmGeneric(call) }
+            assertTrue(pumpUntil { h.shown != null })
+            val dialog = h.shown!!
+            dialog.reject()
+            assertTrue(pumpUntil { result.isCompleted })
+            result.cancel()
+            com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertTrue(runBlocking { result.await() } is ApprovalDecision.Rejected)
+        } finally {
+            h.scope.cancel()
+        }
     }
 }

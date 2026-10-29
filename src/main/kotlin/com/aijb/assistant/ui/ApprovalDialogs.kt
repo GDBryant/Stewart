@@ -8,6 +8,8 @@ import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
@@ -18,7 +20,9 @@ import java.awt.Font
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 interface ApprovalPrompter {
@@ -45,7 +49,20 @@ class IdeApprovalGate(
         }
 }
 
-class DialogPrompter(private val project: Project) : ApprovalPrompter {
+/** Shows an approval dialog; a seam so tests need no real window. */
+fun interface DialogHost {
+    fun show(dialog: ApprovalDialog)
+}
+
+/**
+ * Approval dialogs are modeless so the chat's Stop button stays reachable while one is open.
+ * Cancelling the waiting coroutine closes the dialog; at most one is open at a time because
+ * tools run serially.
+ */
+class DialogPrompter(
+    private val project: Project,
+    private val host: DialogHost = DialogHost { it.show() },
+) : ApprovalPrompter {
     override suspend fun confirmFile(call: ToolCall, change: ToolPreview.FileChange): ApprovalDecision =
         showDialog { FileApprovalDialog(project, call, change) }
 
@@ -55,22 +72,51 @@ class DialogPrompter(private val project: Project) : ApprovalPrompter {
     override suspend fun confirmGeneric(call: ToolCall): ApprovalDecision =
         showDialog { GenericApprovalDialog(project, call) }
 
-    private suspend fun showDialog(build: () -> DialogWrapper): ApprovalDecision =
+    private suspend fun showDialog(build: () -> ApprovalDialog): ApprovalDecision =
         withContext(Dispatchers.EDT) {
-            val dialog = build()
-            if (dialog.showAndGet()) {
-                ApprovalDecision.Approved
-            } else {
-                ApprovalDecision.Rejected("rejected by user")
+            suspendCancellableCoroutine { cont ->
+                val dialog = build()
+                dialog.onDecision = { decision -> if (cont.isActive) cont.resume(decision) }
+                cont.invokeOnCancellation {
+                    ApplicationManager.getApplication().invokeLater(
+                        { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) },
+                        ModalityState.any(),
+                    )
+                }
+                host.show(dialog)
             }
         }
+}
+
+abstract class ApprovalDialog(project: Project) : DialogWrapper(project, true, IdeModalityType.MODELESS) {
+    /** Called once with the user's choice (OK, Cancel, Esc or the window close button). */
+    var onDecision: ((ApprovalDecision) -> Unit)? = null
+
+    override fun doOKAction() {
+        super.doOKAction()
+        decide(ApprovalDecision.Approved)
+    }
+
+    override fun doCancelAction() {
+        super.doCancelAction()
+        decide(ApprovalDecision.Rejected("rejected by user"))
+    }
+
+    internal fun approve() = doOKAction()
+    internal fun reject() = doCancelAction()
+
+    private fun decide(decision: ApprovalDecision) {
+        val callback = onDecision ?: return
+        onDecision = null
+        callback(decision)
+    }
 }
 
 class FileApprovalDialog(
     private val project: Project,
     private val call: ToolCall,
     private val change: ToolPreview.FileChange,
-) : DialogWrapper(project, true) {
+) : ApprovalDialog(project) {
 
     init {
         title = "Approve ${call.name}"
@@ -97,7 +143,7 @@ class CommandApprovalDialog(
     project: Project,
     private val call: ToolCall,
     private val command: ToolPreview.Command,
-) : DialogWrapper(project, true) {
+) : ApprovalDialog(project) {
 
     init {
         title = "Approve ${call.name}"
@@ -122,7 +168,7 @@ class CommandApprovalDialog(
 class GenericApprovalDialog(
     project: Project,
     private val call: ToolCall,
-) : DialogWrapper(project, true) {
+) : ApprovalDialog(project) {
 
     init {
         title = "Approve ${call.name}"

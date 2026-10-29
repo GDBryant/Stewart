@@ -148,6 +148,9 @@ class ToolLoopCancelTest {
         val gate = ApprovalGate { _, _ -> asking.countDown(); awaitCancellation() }
         val e = cancelWhen(ToolLoop(provider, ToolRegistry(listOf(guarded)), gate), asking)
         assertTrue(!executed)
+        val tool = e.produced.single { it.role == Role.TOOL }
+        assertEquals("Not executed: cancelled by user", tool.content)
+        assertEquals(0, e.uncertainOutcomes)
         assertEquals("Not executed: cancelled by user", e.produced.last().content)
         assertEquals(0, e.uncertainOutcomes)
     }
