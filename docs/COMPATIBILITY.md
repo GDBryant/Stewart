@@ -35,12 +35,12 @@ The system `java` must be a full JDK (with `javac`). If auto-detection fails, se
 `org.gradle.java.installations.paths=<jdk-home>` in `~/.gradle/gradle.properties`
 (user-local, not committed). CI uses `actions/setup-java` (temurin 21).
 
-Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch).
+Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 run: line 96%, branch 81%; still passing at 591 tests (4 live skipped).
 
 ## verifyPlugin
 
-`./gradlew verifyPlugin` — result recorded in the M1 implementation report;
-see `/tmp/m1-verifyplugin.log` locally or CI logs on GitHub.
+`./gradlew verifyPlugin` — last run after commit `22eefc8`: IDEA 2025.1 and
+PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
 
 ## Manual smoke (2026-10-26)
 

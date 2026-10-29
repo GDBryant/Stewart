@@ -139,7 +139,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ### 7. Multi-model mode
 - Per-role `ModelRef` binding; per-level streaming and error surfacing.
 - Pass explicit bounded context and results between roles; show destination provider before dispatch and never silently fall back from a local model to a remote provider. Test routing and provider failure with fakes.
-- Worker dispatch context (do at first orchestrator revision pass): when starting any sub-worker task, (1) send only the context relevant to completing that one task — goal, its own task description, paths/names it must touch, prior task results it depends on — not the full chat/orchestrator history; (2) compact that context to caveman-style terseness: short telegraphic lines, no prose/etiquette filler, e.g. `Task: fix parsePlan blank goal. File: Orchestrator.kt. Rule: ids 1..n in order.` Keep the structured task/result protocol as the source of truth; the compact context is only the worker's situational briefing.
+- Worker dispatch context (**open**, see Open Items; do at first orchestrator revision pass): when starting any sub-worker task, (1) send only the context relevant to completing that one task — goal, its own task description, paths/names it must touch, prior task results it depends on — not the full chat/orchestrator history; (2) compact that context to caveman-style terseness: short telegraphic lines, no prose/etiquette filler, e.g. `Task: fix parsePlan blank goal. File: Orchestrator.kt. Rule: ids 1..n in order.` Keep the structured task/result protocol as the source of truth; the compact context is only the worker's situational briefing.
 - Done when: each level runs on a different provider in one session.
 
 ### 8. Hardening
@@ -161,11 +161,21 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ## Open Questions
 1. Managed configuration: can the org's Claude Code policy cause hooks, plugins or MCP servers to run inside the plugin's `claude` subprocess? **Resolved (2026-10-29, CLI 2.1.312):** no. With the exact plugin flags, a project `SessionStart`/`UserPromptSubmit` hook, a project `.mcp.json` server, and the user's own hooks and plugins all stayed inert (no hook events, no canary files, init `tools`/`mcp_servers` empty). The same setup without `--safe-mode`/`--strict-mcp-config`/`--tools ""` fired all of them. No managed settings file exists on this machine (`/etc/claude-code` absent, `~/.claude/remote-settings.json` is `{}`); `policy-limits.json` only restricts remote-control/web-setup. The runtime `isolation_violation` check remains the backstop if a future org policy changes this.
 2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+. All JetBrains IDEs should be supported.
-3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front? Mid-run questions should be allowed.
-4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode.
+3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front? Mid-run questions should be allowed. **Not yet built** (see Open Items).
+4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode. **Built** (`autoApproveEdits` setting; terminal commands still always ask).
 5. Is per-project history in the plugin state directory sufficient, or is a global history view required? Per-project history in the plugin state directory should be sufficient. 
 6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences? We will manually update if and when necessary.
-7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account does expose a list of models to select from.
+7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account does expose a list of models to select from. **Built** (`AifProvider.listModels`).
+
+## Open Items
+M1–M8 are done; there is no M9. Remaining work, in suggested order:
+
+1. **Worker dispatch context** (M7 note): send each worker only its task-relevant context in caveman-terse form. Cuts tokens on every worker call. Needs a test that unrelated history never reaches the worker prompt.
+2. **Branch-coverage headroom**: 81% against the 80% gate. Add negative-path tests before more features land.
+3. **Mid-run Planner questions** (Open Question 3): new `ask_user` protocol tool, blocking UI prompt, cancellation while waiting, Planner prompt change. No implementation exists yet.
+4. **Approval dialog vs Stop**: dialogs are project-modal, so Stop is unreachable while one is open (Reject is the cancel path). Add close-on-cancel.
+5. **Native AIF tools, live check**: per-model opt-in until confirmed against the live account (`AIF_LIVE=1 ... --tests '*AifLiveTest*'`; needs user credentials).
+6. **Optional cleanup**: factor the repeated "commit transcript if still the active job" block in `ChatSession`; fix the misleading `SYSTEM`-filter comment there (it drops "Re-planning: …" markers, not role prompts).
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

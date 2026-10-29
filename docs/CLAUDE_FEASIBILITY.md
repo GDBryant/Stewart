@@ -45,9 +45,9 @@ run it in CI — it uses the enterprise account.
 - Any FAIL → disable this transport and revisit the design (see PLAN.md open
   question 1). M3 is blocked; M2/M4+ are not.
 
-Result (2026-10-26): all scripted checks PASS on CLI 2.1.309 with the enterprise
-account. Check 6 (managed policy / hooks suppression) still needs a manual look at
-the organisation's managed settings before M3 ships.
+Result (2026-10-26): checks 1–5 PASS on CLI 2.1.309 with the enterprise account.
+Check 6 (managed policy / hooks suppression) PASSED 2026-10-29 on CLI 2.1.312 via a
+canary hook/MCP test; PLAN.md open question 1 is resolved.
 
 ## Status note
 
