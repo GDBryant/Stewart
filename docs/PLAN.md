@@ -196,6 +196,7 @@ M1–M9 are done, including the manual Stop check (passed 2026-10-29). Remaining
    - Commands are disabled while a run is active, except `/help` and `/cost`.
    - Tests: parsing (args, whitespace, unknown command, `//` and `/` mid-text sent as plain text), each handler's positive and negative cases, and disabled-during-run.
    - Open question: add `/resume` or `/memory` later if needed (history is per-project, so `/resume` may be redundant).
+2. **Flaky test:** `ChatSessionTest` "a stale job does not overwrite the transcript but the active one does" fails about half the runs on `main` (seen 2026-10-29).
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

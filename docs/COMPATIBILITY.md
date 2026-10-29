@@ -35,7 +35,7 @@ The system `java` must be a full JDK (with `javac`). If auto-detection fails, se
 `org.gradle.java.installations.paths=<jdk-home>` in `~/.gradle/gradle.properties`
 (user-local, not committed). CI uses `actions/setup-java` (temurin 21).
 
-Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 run: line 96%, branch 81%; still passing at 591 tests (4 live skipped).
+Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 run: line 96%, branch 81%; still passing at 675 tests (5 live skipped), line 97.1%.
 
 ## verifyPlugin
 
