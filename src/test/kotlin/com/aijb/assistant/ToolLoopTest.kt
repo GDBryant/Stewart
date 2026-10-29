@@ -382,6 +382,98 @@ class ToolLoopTest {
             )
         }
 
+    private val truncated = listOf(ProviderEvent.TextDelta("partial"), ProviderEvent.Completed("length", null))
+    private val summary = listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null))
+    private val finished = listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))
+
+    @Test
+    fun `output limit compacts and retries`() {
+        val provider = SummaryAware(listOf(truncated, finished), summary)
+        val listener = RecordingLoopListener()
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve()).run("m", bigHistory(6), listener)
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(1, listener.compacted.size)
+        assertEquals(2, provider.mainCalls)
+        assertTrue(r.base[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+        // The truncated partial reply is dropped from the transcript.
+        assertEquals(listOf("done"), r.messages.map { it.content })
+    }
+
+    @Test
+    fun `output limit retries only once in a row`() {
+        val provider = SummaryAware(listOf(truncated, truncated, finished), summary)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve())
+                .run("m", bigHistory(6), RecordingLoopListener())
+        }
+        assertEquals("truncated", (r as LoopResult.Failed).code)
+        assertEquals(2, provider.mainCalls)
+    }
+
+    @Test
+    fun `output limit with retries disabled fails without compacting`() {
+        val provider = SummaryAware(listOf(truncated, finished), summary)
+        val listener = RecordingLoopListener()
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(), LoopLimits(maxTruncationRetries = 0))
+                .run("m", bigHistory(6), listener)
+        }
+        assertEquals("truncated", (r as LoopResult.Failed).code)
+        assertTrue(listener.compacted.isEmpty())
+        assertEquals(1, provider.requests.size)
+    }
+
+    @Test
+    fun `output limit with nothing to compact fails as truncated`() {
+        val provider = SummaryAware(listOf(truncated, finished), summary)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve())
+                .run("m", listOf(ChatMessage(Role.USER, "go")), RecordingLoopListener())
+        }
+        assertEquals("truncated", (r as LoopResult.Failed).code)
+        assertEquals("partial", r.messages.last().content)
+        assertEquals(1, provider.requests.size)
+    }
+
+    @Test
+    fun `output limit with failed compaction reports it and fails`() {
+        val provider = SummaryAware(
+            listOf(truncated, finished),
+            listOf(ProviderEvent.Failed("boom")),
+        )
+        val listener = RecordingLoopListener()
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve()).run("m", bigHistory(6), listener)
+        }
+        assertEquals("truncated", (r as LoopResult.Failed).code)
+        assertEquals(listOf("boom"), listener.compactionFailures)
+    }
+
+    @Test
+    fun `content filter is not retried`() {
+        val provider = SummaryAware(
+            listOf(listOf(ProviderEvent.Completed("content_filter", null)), finished), summary)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve())
+                .run("m", bigHistory(6), RecordingLoopListener())
+        }
+        assertEquals("truncated", (r as LoopResult.Failed).code)
+        assertEquals(1, provider.requests.size)
+    }
+
+    @Test
+    fun `retry budget resets after a successful turn`() {
+        val call = listOf(ProviderEvent.ToolCalls(listOf(call())), ProviderEvent.Completed("tool_calls", null))
+        val provider = SummaryAware(listOf(truncated, call, truncated, finished), summary)
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(tool())), approve(), compactor = ContextCompactor(keepRecent = 1))
+                .run("m", bigHistory(6), RecordingLoopListener())
+        }
+        assertTrue(r is LoopResult.Completed)
+    }
+
     @Test
     fun `compaction on first turn replaces base`() {
         val provider = SummaryAware(

@@ -50,6 +50,8 @@ data class LoopLimits(
     val maxToolOutputChars: Int = 20_000,
     val maxContextChars: Int = 400_000,
     val compactAtTokens: Int? = null,
+    /** Consecutive "output token limit" truncations answered by compacting and retrying. */
+    val maxTruncationRetries: Int = 1,
 )
 
 sealed interface LoopResult {
@@ -93,6 +95,7 @@ class ToolLoop(
         var base: List<ChatMessage> = history
         var lastPromptTokens: Int? = lastPromptTokens
         var turns = 0
+        var truncationRetries = 0
         while (true) {
             if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced, base)
             limits.compactAtTokens?.let { threshold ->
@@ -157,10 +160,25 @@ class ToolLoop(
             if (finish == null) {
                 return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream", base)
             }
+            if (finish == "length" && truncationRetries < limits.maxTruncationRetries) {
+                // Output limit hit: drop the partial reply, compact the context and retry.
+                val compaction = compactor.compactIfNeeded(provider, model, base + produced, 0, null)
+                if (compaction.error != null) {
+                    listener.onCompactionFailed(compaction.error!!)
+                } else if (compaction.compacted) {
+                    truncationRetries++
+                    base = compaction.messages
+                    produced.clear()
+                    lastPromptTokens = null
+                    listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+                    continue
+                }
+            }
             if (finish == "length" || finish == "content_filter") {
                 produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
                 return LoopResult.Failed(produced, "response truncated ($finish)", "truncated", base)
             }
+            truncationRetries = 0
             produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
             if (calls.isEmpty()) return LoopResult.Completed(produced, usage, base)
             val seen = mutableSetOf<String>()
