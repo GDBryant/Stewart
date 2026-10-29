@@ -243,6 +243,12 @@ class ChatPanel @JvmOverloads constructor(
                 refreshMessages()
             }
 
+            override fun onLevelStarted(role: com.aijb.assistant.agents.AgentRole, context: String) {
+                deltaArea = null
+                reply.setLength(0)
+                addMessage("${role.name.lowercase()} · $context", "")
+            }
+
             override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
                 compacted = true
                 statusLabel.text = "Context compacted (~$beforeTokens → ~$afterTokens tokens)"

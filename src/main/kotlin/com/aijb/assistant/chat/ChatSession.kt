@@ -1,7 +1,12 @@
 package com.aijb.assistant.chat
 
 import com.aijb.assistant.agents.AgentRole
-import com.aijb.assistant.agents.RolePrompts
+import com.aijb.assistant.agents.DispatchTask
+import com.aijb.assistant.agents.OrchestrationResult
+import com.aijb.assistant.agents.Orchestrator
+import com.aijb.assistant.agents.OrchestratorListener
+import com.aijb.assistant.agents.Plan
+import com.aijb.assistant.agents.WorkerResult
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ModelProvider
 import com.aijb.assistant.provider.ModelRef
@@ -41,6 +46,7 @@ interface ChatListener {
     fun onCancelled()
     fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
     fun onCompactionFailed(message: String) {}
+    fun onLevelStarted(role: AgentRole, context: String) {}
     fun onToolRequested(call: ToolCall) {}
     fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
 }
@@ -81,6 +87,7 @@ class ChatSession(
         val newJob: Job
         synchronized(lock) {
             activeJob?.cancel()
+            val priorHistory = transcriptBacking.toList()
             transcriptBacking.add(ChatMessage(Role.USER, text))
             val history = transcriptBacking.toList()
             newJob = cs.launch {
@@ -93,6 +100,10 @@ class ChatSession(
                     }
                     val wrapped = ToolCallingProvider(
                         provider, ToolPathResolver.resolve(ref, provider, toolPathOverrides()))
+                    if (multiModel()) {
+                        runOrchestrator(text, ref, provider, wrapped, priorHistory, listener, thisJob)
+                        return@launch
+                    }
                     val loopListener = object : LoopListener {
                         override fun onText(text: String) = toEdt { listener.onDelta(text) }
                         override fun onToolRequested(call: ToolCall) =
@@ -112,11 +123,6 @@ class ChatSession(
                             compactAtTokens = autoCompactTokens(),
                         ),
                         compactor,
-                        rolePrompt = if (multiModel()) {
-                            RolePrompts.forRole(AgentRole.PLANNER)
-                        } else {
-                            null
-                        },
                     )
                     val result = loop.run(ref.modelId, history, loopListener, lastPromptTokens)
                     when (result) {
@@ -169,6 +175,53 @@ class ChatSession(
             activeJob = newJob
         }
         return newJob
+    }
+
+    /**
+     * Multi-model mode (M6): runs the three-level orchestrator. All levels are bound to
+     * the selected chat model; per-role model binding arrives with M7.
+     */
+    private suspend fun runOrchestrator(
+        text: String,
+        ref: ModelRef,
+        provider: ModelProvider,
+        wrapped: ModelProvider,
+        priorHistory: List<ChatMessage>,
+        listener: ChatListener,
+        thisJob: Job,
+    ) {
+        val orchListener = object : OrchestratorListener {
+            override fun onDelta(delta: String) = toEdt { listener.onDelta(delta) }
+            override fun onLevelStarted(role: AgentRole, context: String) =
+                toEdt { listener.onLevelStarted(role, context) }
+            override fun onPlan(plan: Plan) {}
+            override fun onTasks(taskRound: Int, tasks: List<DispatchTask>) {}
+            override fun onResult(result: WorkerResult) {}
+            override fun onReplanning(reason: String) =
+                toEdt { listener.onDelta("\n[re-planning: $reason]\n") }
+            override fun onCompleted(usage: Usage?) = toEdt { listener.onCompleted(usage) }
+            override fun onFailed(message: String) = toEdt { listener.onFailed(message) }
+        }
+        val orchestrator = Orchestrator(
+            modelRef = ref.modelId,
+            provider = provider,
+            wrapped = wrapped,
+            projectTools = { tools() },
+            approval = approval,
+            compactAtTokens = autoCompactTokens(),
+        )
+        val result = orchestrator.run(text, orchListener, priorHistory)
+        synchronized(lock) {
+            if (activeJob === thisJob) {
+                transcriptBacking.clear()
+                transcriptBacking.add(ChatMessage(Role.USER, text))
+                // Per-level role prompts are injected per request and never stored.
+                transcriptBacking.addAll(result.messages.filter { it.role != Role.SYSTEM })
+            }
+        }
+        if (result is OrchestrationResult.Failed) {
+            toEdt { listener.onFailed(result.message) }
+        }
     }
 
     fun cancel() {

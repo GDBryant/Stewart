@@ -58,6 +58,16 @@ class ToolLoopTest {
         }
     }
 
+    private class Scripted(vararg val responses: List<ProviderEvent>) : ModelProvider {
+        override val id = "fake"
+        var calls = 0
+        override suspend fun listModels() = emptyList<ModelInfo>()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+            (responses.getOrElse(calls++) { listOf(ProviderEvent.Completed("stop", null)) })
+                .forEach { emit(it) }
+        }
+    }
+
     private fun approve() = ApprovalGate { _, _ -> ApprovalDecision.Approved }
     private fun deny() = ApprovalGate { _, _ -> ApprovalDecision.Rejected("no") }
 
@@ -518,5 +528,50 @@ class ToolLoopTest {
         assertTrue(provider.requests[0].messages.none {
             it.content == ContextCompactor.SUMMARY_PROMPT
         })
+    }
+
+    private fun terminalPlanTool() = tool(
+        name = "submit_plan",
+        schema = JsonObject(mapOf(
+            "type" to JsonPrimitive("object"),
+            "properties" to JsonObject(mapOf("goal" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+            "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("goal"))),
+        )),
+    )
+
+    @Test
+    fun `terminal tool success completes without another model turn`() {
+        val fake = Fake(
+            ProviderEvent.ToolCalls(listOf(ToolCall("c1", "submit_plan", JsonObject(mapOf("goal" to JsonPrimitive("g")))))),
+            ProviderEvent.Completed("tool_calls", null),
+        )
+        val r = runBlocking {
+            ToolLoop(fake, ToolRegistry(listOf(terminalPlanTool())), approve(), LoopLimits(),
+                terminalTools = setOf("submit_plan"),
+            ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(1, fake.calls)
+    }
+
+    @Test
+    fun `terminal tool with invalid args retries instead of stopping`() {
+        val fake = Scripted(
+            listOf(
+                ProviderEvent.ToolCalls(listOf(ToolCall("c1", "submit_plan", JsonObject(emptyMap())))),
+                ProviderEvent.Completed("tool_calls", null),
+            ),
+            listOf(
+                ProviderEvent.ToolCalls(listOf(ToolCall("c2", "submit_plan", JsonObject(mapOf("goal" to JsonPrimitive("g")))))),
+                ProviderEvent.Completed("tool_calls", null),
+            ),
+        )
+        val r = runBlocking {
+            ToolLoop(fake, ToolRegistry(listOf(terminalPlanTool())), approve(), LoopLimits(),
+                terminalTools = setOf("submit_plan"),
+            ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(2, fake.calls)
     }
 }

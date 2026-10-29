@@ -68,6 +68,11 @@ class ChatSessionTest : BasePlatformTestCase() {
 
         val toolCalls = mutableListOf<String>()
         val toolOutcomes = mutableListOf<ToolOutcome>()
+        val levels = mutableListOf<AgentRole>()
+
+        override fun onLevelStarted(role: AgentRole, context: String) {
+            levels += role
+        }
 
         override fun onToolRequested(call: ToolCall) {
             toolCalls += call.name
@@ -362,20 +367,65 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(1, second.compacted.size)
     }
 
-    fun `test multi model injects planner prompt not stored`() {
+    private fun levelRouted() = object : ModelProvider {
+        override val id = "fake"
+        val requests = mutableListOf<ChatRequest>()
+        override suspend fun listModels(): List<ModelInfo> = emptyList()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            requests += request
+            val sys = request.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty()
+            val evs = when {
+                sys.contains("submit_plan") -> listOf(
+                    ProviderEvent.NativeToolCalls(listOf(
+                        com.aijb.assistant.provider.RawToolCall(
+                            "p1", "submit_plan",
+                            """{"goal":"g","milestones":[{"id":1,"title":"m1","notes":"n"}]}""",
+                        ),
+                    )),
+                    ProviderEvent.Completed("tool_calls", null),
+                )
+                sys.contains("submit_tasks") -> listOf(
+                    ProviderEvent.NativeToolCalls(listOf(
+                        com.aijb.assistant.provider.RawToolCall("e1", "complete_milestone", """{"notes":"ok"}"""),
+                    )),
+                    ProviderEvent.Completed("tool_calls", null),
+                )
+                else -> listOf(ProviderEvent.Completed("stop", null))
+            }
+            return flow { evs.forEach { emit(it) } }
+        }
+    }
+
+    fun `test multi model runs orchestrator end to end`() {
         val session = newSession()
         session.multiModel = { true }
-        val provider = summaryAware(
-            emptyList(),
-            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", null)),
-        )
+        val provider = levelRouted()
         session.providers = { listOf(provider) }
         val listener = RecordingListener()
         session.send("hi", ModelRef("fake", "m"), listener)
         assertTrue(pumpUntil(listener.completed))
-        val sent = provider.requests[0].messages
-        assertEquals(Role.SYSTEM, sent[0].role)
-        assertEquals(RolePrompts.forRole(AgentRole.PLANNER), sent[0].content)
+        assertEquals(listOf(AgentRole.PLANNER, AgentRole.EXECUTOR), listener.levels)
+        // Role prompts are injected per request and never stored.
+        assertTrue(session.transcript.none { it.role == Role.SYSTEM })
+        assertEquals(Role.USER, session.transcript.first().role)
+        assertTrue(session.transcript.last().content.startsWith("Done. Goal: g"))
+        // First request is the Planner level.
+        val plannerSys = provider.requests[0].messages.first { it.role == Role.SYSTEM }.content
+        assertTrue(plannerSys.startsWith(RolePrompts.forRole(AgentRole.PLANNER)))
+    }
+
+    fun `test multi model orchestrator failure is surfaced`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val provider = summaryAware(
+            emptyList(),
+            listOf(ProviderEvent.TextDelta("hmm"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertTrue(listener.failure!!.contains("Planner"))
         assertTrue(session.transcript.none { it.role == Role.SYSTEM })
     }
 
@@ -395,28 +445,30 @@ class ChatSessionTest : BasePlatformTestCase() {
         })
     }
 
-    fun `test role prompt not in compaction summary request`() {
+    fun `test multi model compaction summary has no role prompt`() {
         val session = newSession()
         session.autoCompactTokens = { 100_000 }
         seedTranscript(session)
         session.autoCompactTokens = { 1 }
         session.multiModel = { true }
+        // Planner stalls with text-only turns; the assertions concern the first two requests.
         val provider = summaryAware(
             listOf(ProviderEvent.TextDelta("- sum"), ProviderEvent.Completed("stop", null)),
-            listOf(ProviderEvent.TextDelta("r"), ProviderEvent.Completed("stop", null)),
+            listOf(ProviderEvent.TextDelta("hmm"), ProviderEvent.Completed("stop", null)),
         )
         session.providers = { listOf(provider) }
         val listener = RecordingListener()
         session.send("next", ModelRef("fake", "m"), listener)
-        assertTrue(pumpUntil(listener.completed))
-        assertEquals(2, provider.requests.size)
-        val summaryReq = provider.requests[0]
-        assertTrue(summaryReq.messages.none {
+        assertTrue(pumpUntil(listener.failed))
+        assertTrue(listener.failure!!.contains("Planner"))
+        // The compaction summary request carries no role prompt.
+        assertTrue(provider.requests[0].messages.none {
             it.content.contains("You are one of three roles")
         })
-        assertEquals(Role.SYSTEM, provider.requests[1].messages[0].role)
-        assertEquals(RolePrompts.forRole(AgentRole.PLANNER),
-            provider.requests[1].messages[0].content)
+        // The Planner level request does.
+        val plannerReq = provider.requests[1]
+        assertEquals(Role.SYSTEM, plannerReq.messages[0].role)
+        assertTrue(plannerReq.messages[0].content.startsWith(RolePrompts.forRole(AgentRole.PLANNER)))
     }
 
     private fun scripted(id: String = "fake", vararg responses: List<ProviderEvent>) =

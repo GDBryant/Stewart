@@ -9,7 +9,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 | 3. Claude provider | Done (`e14acf1`) | CLI subprocess transport, `ClaudeStreamParser`, `ClaudeTranscript`, isolation policy + recorded-stream fixtures. |
 | 4. Picker + settings | Done (`5ff2ba0`, `e6e0024`, `a7755d0`) | `RolesPanel`, `AijbConfigurable`/`AijbSettings`, PasswordSafe, auto-compact setting, `RolePrompts` injection in multi-model mode. |
 | 5. Tools | Done (`de8b7f4`) | `ProjectTools` (ReadFile/FindFiles/Search/WriteFile/EditFile/RunTerminal), `ProjectPaths` root+symlink enforcement, `ApprovalDialogs`; 448 tests passed with 4 live tests skipped; coverage and IDEA/PyCharm verification passed. |
-| 6. Three-level orchestrator | Not started | Only `AgentRole` + `RolePrompts` exist. No plan/task/result protocol, dispatcher, or re-plan logic yet. |
+| 6. Three-level orchestrator | Done | `Orchestrator` plan → dispatch → worker → re-plan protocol, terminal protocol tools in `ToolLoop`, per-level usage summing and listener events. 491 tests passed incl. 30 protocol-parser tests; `koverVerify` gates passed. |
 | 7. Multi-model dispatch | Not started | Per-role `ModelRef` settings exist (`RolesPanel`); no per-level routing/execution. |
 | 8. Hardening | Partial groundwork | Auto-compaction and cancellation pieces in place; end-to-end cancellation + token/cost display + history persistence outstanding. |
 

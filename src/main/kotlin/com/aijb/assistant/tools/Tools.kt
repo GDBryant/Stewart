@@ -26,6 +26,7 @@ interface Tool {
 
 class ToolRegistry(tools: List<Tool>) {
     private val byName = tools.associateBy { it.spec.name }
+    val tools: List<Tool> = tools
     val specs: List<ToolSpec> = tools.map { it.spec }
 
     fun find(name: String): Tool? = byName[name]

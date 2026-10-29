@@ -80,6 +80,7 @@ class ToolLoop(
     private val limits: LoopLimits = LoopLimits(),
     private val compactor: ContextCompactor = ContextCompactor(),
     private val rolePrompt: String? = null,
+    private val terminalTools: Set<String> = emptySet(),
 ) {
 
     suspend fun run(
@@ -167,6 +168,9 @@ class ToolLoop(
                 listener.onToolRequested(call)
                 val outcome = executeCall(call, seen, listener)
                 produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
+                if (call.name in terminalTools && outcome is ToolOutcome.Success) {
+                    return LoopResult.Completed(produced, usage, base)
+                }
             }
         }
     }
