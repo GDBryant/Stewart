@@ -36,7 +36,7 @@ run it in CI — it uses the enterprise account.
 | 3 | stream-json partial deltas present (`stream_event` / `content_block_delta`) | PASS |
 | 4 | `system`/`init` event has empty `tools` and `mcp_servers` arrays | PASS |
 | 5 | No built-in tool execution (`tool_use` blocks absent; `pwned.txt`/`ran.txt` not created; sentinel unchanged) | PASS |
-| 6 | Hooks/plugins/MCP suppressed under effective managed policy — manually inspect managed settings (`claude` config directories / organisation policy file) before trusting `--safe-mode` | pending (manual) |
+| 6 | Hooks/plugins/MCP suppressed under effective policy — canary project hooks + `.mcp.json` in a temp cwd, run with the provider's exact flags; positive control without the flags | PASS — CLI 2.1.312 (2026-10-29): no hook events, no canary files, empty `tools`/`mcp_servers`; control fired all canaries. No managed settings present on this machine. |
 
 ## Outcome
 
@@ -51,4 +51,4 @@ the organisation's managed settings before M3 ships.
 
 ## Status note
 
-Live M3 isolation run on CLI 2.1.309: the model hallucinated a `bash` tool_use which the CLI refused ("No such tool available"), and called the server-side `advisor` tool which returned unavailable; no local execution. Provider policy: refused tool_use blocks and the `advisor` server tool are allowed; any executed (non-error) tool_result, any other server tool, or non-empty init tools/MCP → `isolation_violation` and the process is killed. Check 6 still pending manual inspection.
+Live M3 isolation run on CLI 2.1.309: the model hallucinated a `bash` tool_use which the CLI refused ("No such tool available"), and called the server-side `advisor` tool which returned unavailable; no local execution. Provider policy: refused tool_use blocks and the `advisor` server tool are allowed; any executed (non-error) tool_result, any other server tool, or non-empty init tools/MCP → `isolation_violation` and the process is killed. Check 6 passed on 2026-10-29 (CLI 2.1.312); re-run if the org rolls out managed settings.

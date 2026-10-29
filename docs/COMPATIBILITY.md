@@ -49,4 +49,4 @@ see `/tmp/m1-verifyplugin.log` locally or CI logs on GitHub.
   worked correctly.
 - `scripts/claude-feasibility.sh`: all scripted checks PASS on Claude Code CLI
   2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); supported CLI version for M3 is
-  2.1.309. Managed-policy inspection (check 6) still outstanding.
+  2.1.309. Managed-policy check 6 passed 2026-10-29 on CLI 2.1.312.

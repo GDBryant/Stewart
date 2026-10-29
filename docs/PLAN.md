@@ -152,14 +152,14 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 
 ## Assumptions
 - Kotlin + Gradle IntelliJ Platform Plugin 2.x; provisional IntelliJ 2025.1+ (build 251) and Java 21, subject to the M1 product compatibility matrix.
-- Enterprise Claude Code entitlement, SSO login and CLI isolation passed the M1 feasibility gate on CLI 2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); managed-policy suppression check still pending manual inspection.
+- Enterprise Claude Code entitlement, SSO login and CLI isolation passed the M1 feasibility gate on CLI 2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); managed-policy suppression verified 2026-10-29 on CLI 2.1.312 (canary hook/MCP test; see `docs/CLAUDE_FEASIBILITY.md`).
 - Ollama runs locally on default port; no auth.
 - The AIF proxy continues to strip `tools`; the shim is the default path for `AifProvider` and stays a Kotlin port (no bundled Python sidecar).
 - Worker-bee edits require user approval by default (diff preview); terminal commands always require approval.
 - Levels talk via structured JSON messages (plan, task, result), not free text.
 
 ## Open Questions
-1. Managed configuration: does the org's managed policy leave hooks/plugins/MCP suppressed? (Scripted transport/isolation checks passed on CLI 2.1.309; if the policy check fails, which explicitly supported authenticated transport is available?). Please rephrase this question to be more clear.
+1. Managed configuration: can the org's Claude Code policy cause hooks, plugins or MCP servers to run inside the plugin's `claude` subprocess? **Resolved (2026-10-29, CLI 2.1.312):** no. With the exact plugin flags, a project `SessionStart`/`UserPromptSubmit` hook, a project `.mcp.json` server, and the user's own hooks and plugins all stayed inert (no hook events, no canary files, init `tools`/`mcp_servers` empty). The same setup without `--safe-mode`/`--strict-mcp-config`/`--tools ""` fired all of them. No managed settings file exists on this machine (`/etc/claude-code` absent, `~/.claude/remote-settings.json` is `{}`); `policy-limits.json` only restricts remote-control/web-setup. The runtime `isolation_violation` check remains the backstop if a future org policy changes this.
 2. Minimum IntelliJ version / which IDEs (IDEA only, or all JetBrains)? Cline targets 251+. All JetBrains IDEs should be supported.
 3. Should the Planner be allowed to ask the user questions mid-run (blocking), or only up front? Mid-run questions should be allowed.
 4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode.

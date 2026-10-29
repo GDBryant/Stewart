@@ -20,6 +20,6 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 - Worker dispatch context: only send task-relevant context to sub-workers, compacted to caveman-style terseness (see M7 notes in `docs/PLAN.md`).
 
-- Managed-policy inspection (Claude check 6) still pending manual verification — `docs/COMPATIBILITY.md`.
+- Managed-policy check (Claude check 6) passed 2026-10-29 on CLI 2.1.312 — `docs/CLAUDE_FEASIBILITY.md`.
 - Native AIF support remains per-model opt-in until confirmed against the live account.
 - Open questions in PLAN.md all resolved or parked.
