@@ -15,6 +15,8 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 ## Outstanding checks / debts
 
+- Worker dispatch context: only send task-relevant context to sub-workers, compacted to caveman-style terseness (see M7 notes in `docs/PLAN.md`).
+
 - Managed-policy inspection (Claude check 6) still pending manual verification — `docs/COMPATIBILITY.md`.
 - Native AIF support remains per-model opt-in until confirmed against the live account.
 - Open questions in PLAN.md all resolved or parked.

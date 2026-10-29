@@ -139,6 +139,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ### 7. Multi-model mode
 - Per-role `ModelRef` binding; per-level streaming and error surfacing.
 - Pass explicit bounded context and results between roles; show destination provider before dispatch and never silently fall back from a local model to a remote provider. Test routing and provider failure with fakes.
+- Worker dispatch context (do at first orchestrator revision pass): when starting any sub-worker task, (1) send only the context relevant to completing that one task — goal, its own task description, paths/names it must touch, prior task results it depends on — not the full chat/orchestrator history; (2) compact that context to caveman-style terseness: short telegraphic lines, no prose/etiquette filler, e.g. `Task: fix parsePlan blank goal. File: Orchestrator.kt. Rule: ids 1..n in order.` Keep the structured task/result protocol as the source of truth; the compact context is only the worker's situational briefing.
 - Done when: each level runs on a different provider in one session.
 
 ### 8. Hardening
