@@ -8,8 +8,8 @@ import com.aijb.assistant.agents.parseResult
 import com.aijb.assistant.agents.parseTasks
 import com.aijb.assistant.agents.planError
 import com.aijb.assistant.agents.tasksError
-import com.aijb.assistant.provider.ToolCall
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -17,8 +17,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class OrchestratorParseTest {
-    private fun call(name: String, args: String): ToolCall =
-        ToolCall("c1", name, Json.parseToJsonElement(args).jsonObject)
+    private fun call(@Suppress("UNUSED_PARAMETER") name: String, args: String): JsonObject =
+        Json.parseToJsonElement(args).jsonObject
 
     @Test
     fun parsePlan_missingGoal() {

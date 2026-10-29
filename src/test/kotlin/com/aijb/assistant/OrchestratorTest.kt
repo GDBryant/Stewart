@@ -316,20 +316,41 @@ class OrchestratorTest {
     }
 
     @Test
-    fun `worker result with wrong task id is a failed result`() {
+    fun `worker result with wrong task id is rejected and retried`() {
         val p = ScriptedProvider()
         p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
         p.executor += call(Protocol.SUBMIT_TASKS, "e1a", tasks(1))
         p.worker += call(Protocol.SUBMIT_RESULT, "w1a", result(99, "done", "wrong"))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w1b", result(1, "done", "fixed"))
         p.executor += call(Protocol.COMPLETE_MILESTONE, "e1b", """{"notes":"accepted"}""")
 
         val listener = RecordingListener()
         val r = runBlocking { newOrchestrator(p).run("go", listener) }
 
         assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(WorkerResult(1, "done", "fixed"), listener.results.single())
+        val toolReplies = r.messages.filter { it.role == Role.TOOL }.map { it.content }
+        assertTrue(toolReplies.any { it.contains("task_id 99 does not match dispatched task 1") })
+    }
+
+    @Test
+    fun `worker that never fixes its result becomes a failed result`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        p.executor += call(Protocol.SUBMIT_TASKS, "e1a", tasks(1))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w1a", result(99))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w1b", result(99))
+        p.executor += call(Protocol.COMPLETE_MILESTONE, "e1b", """{"notes":"accepted"}""")
+
+        val listener = RecordingListener()
+        val r = runBlocking {
+            newOrchestrator(p, OrchestratorLimits(maxLevelModelTurns = 2)).run("go", listener)
+        }
+
+        assertTrue(r is OrchestrationResult.Completed)
         val failed = listener.results.single()
         assertEquals("failed", failed.status)
-        assertTrue(failed.summary.contains("task_id 99 does not match dispatched task 1"))
+        assertTrue(failed.summary.startsWith("no result submitted"))
     }
 
     @Test
@@ -399,16 +420,66 @@ class OrchestratorTest {
     }
 
     @Test
-    fun `plan with duplicate milestone ids is rejected`() {
+    fun `plan with duplicate milestone ids is rejected and retried`() {
         val p = ScriptedProvider()
         p.planner += call(
             Protocol.SUBMIT_PLAN, "p1",
             """{"goal":"g","milestones":[{"id":1,"title":"a"},{"id":1,"title":"b"}]}""",
         )
+        p.planner += call(Protocol.SUBMIT_PLAN, "p2", oneMilestonePlan())
+        val (e, w) = milestoneScript(1)
+        p.executor += e; p.worker += w
         val listener = RecordingListener()
         val r = runBlocking { newOrchestrator(p).run("go", listener) }
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(1, listener.plan?.milestones?.size)
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content.contains("duplicate milestone id") })
+    }
+
+    @Test
+    fun `plan that is never fixed fails with the planner turn limit`() {
+        val p = ScriptedProvider()
+        val bad = """{"goal":"g","milestones":[{"id":1,"title":"a"},{"id":1,"title":"b"}]}"""
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", bad)
+        p.planner += call(Protocol.SUBMIT_PLAN, "p2", bad)
+        val r = runBlocking {
+            newOrchestrator(p, OrchestratorLimits(maxLevelModelTurns = 2)).run("go", RecordingListener())
+        }
         assertTrue(r is OrchestrationResult.Failed)
-        assertTrue((r as OrchestrationResult.Failed).message.contains("duplicate milestone id"))
+        assertTrue((r as OrchestrationResult.Failed).message.startsWith("Planner: "))
+    }
+
+    @Test
+    fun `plan over the milestone limit is rejected and retried`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", plan(1, 2))
+        p.planner += call(Protocol.SUBMIT_PLAN, "p2", plan(1, 1))
+        val (e, w) = milestoneScript(1)
+        p.executor += e; p.worker += w
+        val listener = RecordingListener()
+        val r = runBlocking {
+            newOrchestrator(p, OrchestratorLimits(maxMilestones = 1)).run("go", listener)
+        }
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(1, listener.plan?.milestones?.size)
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content.contains("plan has 2 milestones (max 1)") })
+    }
+
+    @Test
+    fun `task list over the round limit is rejected and retried`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        p.executor += call(Protocol.SUBMIT_TASKS, "e1a", tasks(1, 2))
+        p.executor += call(Protocol.SUBMIT_TASKS, "e1b", tasks(1))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w1", result(1))
+        p.executor += call(Protocol.COMPLETE_MILESTONE, "e1c", """{"notes":"done"}""")
+        val listener = RecordingListener()
+        val r = runBlocking {
+            newOrchestrator(p, OrchestratorLimits(maxTasksPerRound = 1)).run("go", listener)
+        }
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(listOf(listOf("1:1")), listener.taskRounds)
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content.contains("round has 2 tasks (max 1)") })
     }
 
     @Test

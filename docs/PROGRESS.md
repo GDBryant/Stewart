@@ -21,6 +21,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Worker dispatch context: only send task-relevant context to sub-workers, compacted to caveman-style terseness (see M7 notes in `docs/PLAN.md`).
 
 - Routing refactor: single-model `ChatSession` path and `RoleRouting.resolve` share `RoleRouting.routeFor`; test-only single-model `Orchestrator` constructor removed (tests use `RoleRouting.uniform`). 579 tests passed (4 live skipped); `koverVerify` passed.
+- Protocol-tool refactor: `ProtocolTool` validates plan/task/result arguments in `execute` (bad submissions retry within the level's turn budget instead of failing the run); `LoopResult.Completed.submitted` replaces the post-hoc message search. 591 tests passed (4 live skipped); `koverVerify` and IDEA/PyCharm `verifyPlugin` passed.
 - Managed-policy check (Claude check 6) passed 2026-10-29 on CLI 2.1.312 — `docs/CLAUDE_FEASIBILITY.md`.
 - Native AIF support remains per-model opt-in until confirmed against the live account.
 - Open questions in PLAN.md all resolved or parked.

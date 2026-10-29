@@ -35,8 +35,9 @@ import kotlinx.serialization.json.put
 //
 // Each level is a ToolLoop with its role prompt plus a protocol block. Levels submit
 // their structured messages through terminal tools (submit_plan / submit_tasks /
-// complete_milestone / submit_result); ToolLoop's schema validation rejects malformed
-// output and feeds it back so the model retries. Milestones run in order; within a
+// complete_milestone / submit_result). Each protocol tool validates its own arguments
+// (schema plus parsePlan/parseTasks/parseResult and the size limits); a rejection comes back
+// as an ordinary tool error so the model retries within the level's turn budget. Milestones run in order; within a
 // milestone the Executor may submit task rounds (bounded by maxTaskRounds) until it
 // completes the milestone. An unmet milestone triggers a bounded Planner re-plan and
 // the run resumes at that milestone.
@@ -66,6 +67,26 @@ data class DispatchTask(val id: Int, val description: String)
 data class WorkerResult(val taskId: Int, val status: String, val summary: String)
 
 class ProtocolException(message: String) : RuntimeException(message)
+
+/**
+ * A terminal protocol tool that validates its own arguments: a [ProtocolException] from [parse]
+ * reaches the model as a normal tool error so it can resubmit. [accepted] holds the last valid
+ * submission; make one tool per level run.
+ */
+class ProtocolTool<T>(
+    override val spec: ToolSpec,
+    private val parse: (JsonObject) -> T,
+) : Tool {
+    var accepted: T? = null
+        private set
+
+    override val requiresApproval = false
+
+    override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
+        accepted = parse(arguments)
+        return "accepted"
+    }
+}
 
 interface OrchestratorListener {
     fun onDelta(text: String)
@@ -120,17 +141,16 @@ object ProtocolTools {
     private fun str() = JsonObject(mapOf("type" to JsonPrimitive("string")))
     private fun intType() = JsonObject(mapOf("type" to JsonPrimitive("integer")))
 
-    private fun protocolTool(name: String, description: String, schema: JsonObject): Tool =
-        object : Tool {
-            override val spec = ToolSpec(name, description, schema)
-            override val requiresApproval = false
-            override suspend fun execute(
-                arguments: JsonObject,
-                preview: com.aijb.assistant.tools.ToolPreview?,
-            ) = "accepted"
-        }
+    private fun reject(message: String): Nothing = throw ProtocolException(message)
 
-    val PlanTool = protocolTool(
+    private fun <T> protocolTool(
+        name: String,
+        description: String,
+        schema: JsonObject,
+        parse: (JsonObject) -> T,
+    ) = ProtocolTool(ToolSpec(name, description, schema), parse)
+
+    fun planTool(startId: Int, maxMilestones: Int) = protocolTool(
         Protocol.SUBMIT_PLAN,
         "Submit the full plan: goal plus ordered, independently checkable milestones.",
         objSchema(
@@ -152,9 +172,10 @@ object ProtocolTools {
             ),
             listOf("goal", "milestones"),
         ),
+        { args -> parsePlan(args, startId).also { planError(it, maxMilestones)?.let(::reject) } }
     )
 
-    val TasksTool = protocolTool(
+    fun tasksTool(maxTasksPerRound: Int) = protocolTool(
         Protocol.SUBMIT_TASKS,
         "Dispatch concrete tasks to the Worker. Each task must be finishable by one Worker alone.",
         objSchema(
@@ -171,15 +192,17 @@ object ProtocolTools {
             ),
             listOf("tasks"),
         ),
+        { args -> parseTasks(args).also { tasksError(it, maxTasksPerRound)?.let(::reject) } }
     )
 
-    val CompleteMilestoneTool = protocolTool(
+    fun completeMilestoneTool() = protocolTool(
         Protocol.COMPLETE_MILESTONE,
         "Declare the current milestone complete.",
         objSchema(listOf("notes" to str()), emptyList()),
+        { args -> args["notes"]?.jsonPrimitive?.content.orEmpty() }
     )
 
-    val ResultTool = protocolTool(
+    fun resultTool(expectedTaskId: Int) = protocolTool(
         Protocol.SUBMIT_RESULT,
         "Report the outcome of the given task.",
         objSchema(
@@ -197,6 +220,7 @@ object ProtocolTools {
             ),
             listOf("task_id", "status", "summary"),
         ),
+        { args -> parseResult(args, expectedTaskId) }
     )
 }
 
@@ -257,10 +281,11 @@ class Orchestrator(
         val replans = mutableListOf<String>()
         var usage: Usage? = null
 
+        val planTool = ProtocolTools.planTool(1, limits.maxMilestones)
         val planRes = runLevel(
             AgentRole.PLANNER, "plan",
             RolePrompts.forRole(AgentRole.PLANNER) + " " + Protocol.PLANNER,
-            listOf(ProtocolTools.PlanTool),
+            listOf(planTool),
             setOf(Protocol.SUBMIT_PLAN),
             request,
             history,
@@ -268,21 +293,9 @@ class Orchestrator(
         )
         usage = sumUsage(usage, planRes.usage)
         transcript += planRes.messages
-        val planCall = planRes.submitted
-        if (planCall == null) {
-            return OrchestrationResult.Failed(
-                transcript, replans, "Planner: ${failureMessage(planRes)}", usage
-            )
-        }
-        val plan = try {
-            parsePlan(planCall)
-        } catch (e: ProtocolException) {
-            return OrchestrationResult.Failed(transcript, replans, "invalid plan: ${e.message}", usage)
-        }
-        val planError = planError(plan, limits.maxMilestones)
-        if (planError != null) {
-            return OrchestrationResult.Failed(transcript, replans, planError, usage)
-        }
+        val plan = planTool.accepted ?: return OrchestrationResult.Failed(
+            transcript, replans, "Planner: ${failureMessage(planRes)}", usage
+        )
         var currentPlan = plan
         listener.onPlan(currentPlan)
 
@@ -319,11 +332,13 @@ class Orchestrator(
                             else "\nReview the worker results above: complete the milestone, or dispatch corrected tasks."
                         )
                     }
+                    val tasksTool = ProtocolTools.tasksTool(limits.maxTasksPerRound)
+                    val completeTool = ProtocolTools.completeMilestoneTool()
                     val res = runLevel(
                         AgentRole.EXECUTOR,
                         "milestone '${milestone.title}' (${milestone.id}), round $round",
                         RolePrompts.forRole(AgentRole.EXECUTOR) + " " + Protocol.EXECUTOR,
-                        listOf(ProtocolTools.TasksTool, ProtocolTools.CompleteMilestoneTool),
+                        listOf(tasksTool, completeTool),
                         setOf(Protocol.SUBMIT_TASKS, Protocol.COMPLETE_MILESTONE),
                         content,
                         execBase,
@@ -340,34 +355,16 @@ class Orchestrator(
                         break
                     }
                     execBase = execBase + ChatMessage(Role.USER, content) + res.messages
-                    when (call.name) {
-                        Protocol.COMPLETE_MILESTONE -> {
-                            val notes = call.arguments["notes"]?.jsonPrimitive?.content.orEmpty()
-                            finished += milestone to bound(notes)
-                            done = true
-                        }
-                        Protocol.SUBMIT_TASKS -> {
-                            val tasks = try {
-                                parseTasks(call)
-                            } catch (e: ProtocolException) {
-                                return OrchestrationResult.Failed(
-                                    transcript, replans, "invalid task list: ${e.message}", usage
-                                )
-                            }
-                            val taskError = tasksError(tasks, limits.maxTasksPerRound)
-                            if (taskError != null) {
-                                return OrchestrationResult.Failed(transcript, replans, taskError, usage)
-                            }
-                            listener.onTasks(round, tasks)
-                            val workerUsage = runTasksSerially(
-                                currentPlan.goal, milestone, tasks, results, transcript, listener
-                            )
-                            usage = sumUsage(usage, workerUsage)
-                        }
-                        else ->
-                            return OrchestrationResult.Failed(
-                                transcript, replans, "Executor submitted unexpected tool '${call.name}'", usage
-                            )
+                    if (call.name == Protocol.COMPLETE_MILESTONE) {
+                        finished += milestone to bound(completeTool.accepted.orEmpty())
+                        done = true
+                    } else {
+                        val tasks = checkNotNull(tasksTool.accepted) { "submit_tasks succeeded without a task list" }
+                        listener.onTasks(round, tasks)
+                        val workerUsage = runTasksSerially(
+                            currentPlan.goal, milestone, tasks, results, transcript, listener
+                        )
+                        usage = sumUsage(usage, workerUsage)
                     }
                 }
                 if (!done) {
@@ -376,23 +373,12 @@ class Orchestrator(
                             transcript, replans, "re-planning budget exhausted: ${replans.last()}", usage
                         )
                     }
-                    val replanned = replan(currentPlan, milestone, replans.last(), transcript, listener)
+                    val (replanned, newPlan) = replan(currentPlan, milestone, replans.last(), transcript, listener)
                     usage = sumUsage(usage, replanned.usage)
-                    if (replanned.submitted == null) {
+                    if (newPlan == null) {
                         return OrchestrationResult.Failed(
                             transcript, replans, "re-plan failed: ${failureMessage(replanned)}", usage
                         )
-                    }
-                    val newPlan = try {
-                        parsePlan(replanned.submitted!!, startId = milestone.id)
-                    } catch (e: ProtocolException) {
-                        return OrchestrationResult.Failed(
-                            transcript, replans, "invalid re-plan: ${e.message}", usage
-                        )
-                    }
-                    val rePlanError = planError(newPlan, limits.maxMilestones)
-                    if (rePlanError != null) {
-                        return OrchestrationResult.Failed(transcript, replans, rePlanError, usage)
                     }
                     // The re-plan re-covers the failed milestone and everything after it,
                     // so the run resumes at the start of the new plan.
@@ -423,7 +409,8 @@ class Orchestrator(
         reason: String,
         transcript: MutableList<ChatMessage>,
         listener: OrchestratorListener,
-    ): LevelRun {
+    ): Pair<LevelRun, Plan?> {
+        val planTool = ProtocolTools.planTool(milestone.id, limits.maxMilestones)
         val content = buildString {
             append("Goal: ${plan.goal}\n")
             append("Milestone ${milestone.id}: ${milestone.title} could not be completed.\n")
@@ -437,14 +424,14 @@ class Orchestrator(
             AgentRole.PLANNER, "re-plan",
             RolePrompts.forRole(AgentRole.PLANNER) + " " +
                 Protocol.REPLAN.replace("\$NEXT_ID", milestone.id.toString()),
-            listOf(ProtocolTools.PlanTool),
+            listOf(planTool),
             setOf(Protocol.SUBMIT_PLAN),
             content,
             emptyList(),
             listener,
         )
         transcript.addAll(res.messages)
-        return res
+        return res to planTool.accepted
     }
 
     private fun milestoneFailed(
@@ -475,10 +462,11 @@ class Orchestrator(
             )
             val content =
                 "Goal: $goal\nMilestone: ${milestone.title} (${milestone.id})\nTask ${task.id}: ${task.description}"
+            val resultTool = ProtocolTools.resultTool(task.id)
             val res = runLevel(
                 AgentRole.WORKER, "task ${task.id}",
                 RolePrompts.forRole(AgentRole.WORKER) + " " + Protocol.WORKER,
-                projectTools().tools + ProtocolTools.ResultTool,
+                projectTools().tools + resultTool,
                 setOf(Protocol.SUBMIT_RESULT),
                 content,
                 emptyList(),
@@ -486,18 +474,10 @@ class Orchestrator(
             )
             usage = sumUsage(usage, res.usage)
             transcript += res.messages
-            val call = res.submitted
-            val result = when {
-                call != null && call.name == Protocol.SUBMIT_RESULT -> try {
-                    parseResult(call, task.id)
-                } catch (e: ProtocolException) {
-                    WorkerResult(task.id, "failed", "malformed result: ${e.message}")
-                }
-                else -> WorkerResult(
-                    task.id, "failed",
-                    "no result submitted: ${failureMessage(res)}",
-                )
-            }
+            val result = resultTool.accepted ?: WorkerResult(
+                task.id, "failed",
+                "no result submitted: ${failureMessage(res)}",
+            )
             results += result
             listener.onResult(result)
         }
@@ -545,8 +525,7 @@ class Orchestrator(
             throw e
         }
         runUsage = sumUsage(runUsage, result.usage)
-        val submitted = result.messages.lastOrNull { m -> m.toolCalls.any { it.name in terminal } }
-            ?.toolCalls?.firstOrNull { it.name in terminal }
+        val submitted = (result as? LoopResult.Completed)?.submitted
         val status = when (result) {
             is LoopResult.Completed ->
                 if (submitted != null) LevelStatus.Completed
@@ -580,8 +559,7 @@ class Orchestrator(
 
 // --- protocol parsing ---------------------------------------------------------
 
-internal fun parsePlan(call: ToolCall, startId: Int = 1): Plan {
-    val args = call.arguments
+internal fun parsePlan(args: JsonObject, startId: Int = 1): Plan {
     val goal = args["goal"]?.jsonPrimitive?.content
     if (goal.isNullOrBlank()) throw ProtocolException("missing 'goal'")
     val milestonesEl = args["milestones"]
@@ -606,8 +584,8 @@ internal fun parsePlan(call: ToolCall, startId: Int = 1): Plan {
     return Plan(goal, milestones)
 }
 
-internal fun parseTasks(call: ToolCall): List<DispatchTask> {
-    val tasksEl = call.arguments["tasks"]
+internal fun parseTasks(args: JsonObject): List<DispatchTask> {
+    val tasksEl = args["tasks"]
     if (tasksEl !is JsonArray) throw ProtocolException("'tasks' must be an array")
     val seen = mutableSetOf<Int>()
     return tasksEl.mapIndexed { index, el ->
@@ -621,8 +599,7 @@ internal fun parseTasks(call: ToolCall): List<DispatchTask> {
     }
 }
 
-internal fun parseResult(call: ToolCall, expectedTaskId: Int): WorkerResult {
-    val args = call.arguments
+internal fun parseResult(args: JsonObject, expectedTaskId: Int): WorkerResult {
     val taskId = args["task_id"]?.jsonPrimitive?.intOrNull
         ?: throw ProtocolException("missing integer 'task_id'")
     if (taskId != expectedTaskId) {

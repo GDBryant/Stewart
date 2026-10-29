@@ -16,6 +16,7 @@ import com.aijb.assistant.tools.LoopListener
 import com.aijb.assistant.tools.LoopLimits
 import com.aijb.assistant.tools.LoopResult
 import com.aijb.assistant.tools.Tool
+import com.aijb.assistant.tools.ToolPreview
 import com.aijb.assistant.tools.ToolLoop
 import com.aijb.assistant.tools.ToolOutcome
 import com.aijb.assistant.tools.ToolRegistry
@@ -31,6 +32,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -643,7 +645,19 @@ class ToolLoopTest {
             ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
         }
         assertTrue(r is LoopResult.Completed)
+        assertEquals("c1", (r as LoopResult.Completed).submitted?.id)
         assertEquals(1, fake.calls)
+    }
+
+    @Test
+    fun `plain finish leaves submitted null`() {
+        val fake = Fake(ProviderEvent.TextDelta("hi"), ProviderEvent.Completed("stop", null))
+        val r = runBlocking {
+            ToolLoop(fake, ToolRegistry(listOf(terminalPlanTool())), approve(), LoopLimits(),
+                terminalTools = setOf("submit_plan"),
+            ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        }
+        assertNull((r as LoopResult.Completed).submitted)
     }
 
     @Test
@@ -664,6 +678,32 @@ class ToolLoopTest {
             ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
         }
         assertTrue(r is LoopResult.Completed)
+        assertEquals("c2", (r as LoopResult.Completed).submitted?.id)
         assertEquals(2, fake.calls)
+    }
+
+    @Test
+    fun `terminal tool that throws does not end the loop`() {
+        val rejecting = object : Tool {
+            override val spec = ToolSpec("submit_plan", "d", JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String =
+                throw IllegalStateException("bad plan")
+        }
+        val fake = Scripted(
+            listOf(
+                ProviderEvent.ToolCalls(listOf(ToolCall("c1", "submit_plan", JsonObject(emptyMap())))),
+                ProviderEvent.Completed("tool_calls", null),
+            ),
+            listOf(ProviderEvent.TextDelta("giving up"), ProviderEvent.Completed("stop", null)),
+        )
+        val r = runBlocking {
+            ToolLoop(fake, ToolRegistry(listOf(rejecting)), approve(), LoopLimits(),
+                terminalTools = setOf("submit_plan"),
+            ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        } as LoopResult.Completed
+        assertNull(r.submitted)
+        assertEquals(2, fake.calls)
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content == "Error: bad plan" })
     }
 }

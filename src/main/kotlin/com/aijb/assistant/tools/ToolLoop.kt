@@ -92,6 +92,8 @@ sealed interface LoopResult {
         override val messages: List<ChatMessage>,
         override val usage: Usage?,
         override val base: List<ChatMessage>,
+        /** The terminal tool call that ended the run, or null when the model simply finished. */
+        val submitted: ToolCall? = null,
     ) : LoopResult
     data class TurnLimitReached(
         override val messages: List<ChatMessage>,
@@ -231,7 +233,7 @@ class ToolLoop(
                     val outcome = executeCall(call, seen, listener, inFlight)
                     produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
                     if (call.name in terminalTools && outcome is ToolOutcome.Success) {
-                        return LoopResult.Completed(produced, total, base)
+                        return LoopResult.Completed(produced, total, base, submitted = call)
                     }
                 }
             }
