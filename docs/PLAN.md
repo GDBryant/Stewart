@@ -176,9 +176,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Done when: `test koverVerify verifyPlugin` pass. See `docs/PROGRESS.md` for hashes.
 
 ## Open Items
-M1–M9 are done. Remaining:
-
-1. **Manual `runIde` check** (item 4): Stop is clickable with an approval dialog open and closes it.
+M1–M9 are done, including the manual Stop check (passed 2026-10-29). None remaining.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

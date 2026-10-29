@@ -21,7 +21,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Protocol-tool refactor (`22eefc8`): `ProtocolTool` validates plan/task/result arguments in `execute` (bad submissions retry within the level's turn budget instead of failing the run); `LoopResult.Completed.submitted` replaces the post-hoc message search. 591 tests passed (4 live skipped); `koverVerify` and IDEA/PyCharm `verifyPlugin` passed.
 - Worker briefing (`52edf9e`): `workerBriefing` gives each worker its goal, milestone, task, `files` and only the results of `depends_on` tasks; `submit_tasks` gains optional `files`/`depends_on`, validated in `parseTasks`.
 - Planner questions (`0a45997`): non-terminal `ask_user` tool (Planner only, `maxQuestions` = 3 across plan and re-plans), inline answer panel in `ChatPanel`; Stop gives `Not answered: cancelled`.
-- Modeless approval dialogs (`d69c2e8`): Stop stays reachable; cancel closes the dialog and the call reports `Not executed`. Manual `runIde` check of Stop with a dialog open still to do.
+- Modeless approval dialogs (`d69c2e8`): Stop stays reachable; cancel closes the dialog and the call reports `Not executed`. Manual check passed in the installed plugin (2026-10-29): Stop clickable with the dialog open, dialog closed, run cancelled.
 - `ChatSession.commitIfActive` (`6d07631`): replaces four commit blocks; `SYSTEM`-filter comment fixed.
 - Branch-coverage tests (`78eb17a`): branch 81.6% → 84.6%, line 97.1%; test-only.
 - AIF native by default; shim deprecated (`206065b`): `AifProvider` is native unless the model has a `SHIM` override; shim kept as the fallback for models with tool calls disabled.
@@ -30,5 +30,4 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 Tracked in `docs/PLAN.md` → Open Items; plan in `docs/HANDOFF.md`:
 
-- Manual `runIde` check: Stop is clickable with an approval dialog open and closes it.
 - Possible bug: `NativeCallCollector.feed` turns JSON `null` name/arguments into the string "null" and rejects `"type":null`.
