@@ -544,4 +544,70 @@ class ChatPanelTest : BasePlatformTestCase() {
             panel.statusLabel.text,
         )
     }
+
+    private fun askingProvider() = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> = listOf(ModelInfo(ModelRef(id, "m1"), "m1"))
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            val sys = request.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty()
+            val answered = request.messages.any { it.content.contains("use pg") }
+            val (name, args) = when {
+                sys.contains("submit_plan") && !answered ->
+                    "ask_user" to """{"question":"Which db?","options":["use pg","use mysql"]}"""
+                sys.contains("submit_plan") ->
+                    "submit_plan" to """{"goal":"g","milestones":[{"id":1,"title":"m1","notes":"n"}]}"""
+                else -> "complete_milestone" to """{"notes":"ok"}"""
+            }
+            return flow {
+                emit(ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c-$name", name, args))))
+                emit(ProviderEvent.Completed("tool_calls", Usage(1, 1)))
+            }
+        }
+    }
+
+    fun `test planner question shows inline and an option button answers it`() {
+        settings(multi = true)
+        val panel = newPanel(askingProvider())
+        panel.inputArea.text = "build"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.questionPanel != null })
+        assertEquals("Stop", panel.sendButton.text)
+        assertEquals(listOf("use pg", "use mysql"), panel.questionButtons.map { it.text })
+        assertEquals("Waiting for your answer", panel.statusLabel.text)
+        panel.questionButtons[0].doClick()
+        assertNull(panel.questionPanel)
+        assertTrue(panel.messageAreas().any { it.text == "user: use pg" })
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" })
+    }
+
+    fun `test typed answer is submitted and a blank one is ignored`() {
+        settings(multi = true)
+        val panel = newPanel(askingProvider())
+        panel.inputArea.text = "build"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.questionPanel != null })
+        panel.questionField!!.text = "   "
+        panel.questionAnswerButton!!.doClick()
+        assertNotNull(panel.questionPanel)
+        panel.questionField!!.text = "use pg please"
+        panel.questionAnswerButton!!.doClick()
+        assertNull(panel.questionPanel)
+        assertTrue(panel.messageAreas().any { it.text == "user: use pg please" })
+    }
+
+    fun `test stop while a question is open removes it and cancels`() {
+        settings(multi = true)
+        val panel = newPanel(askingProvider())
+        panel.inputArea.text = "build"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.questionPanel != null })
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
+        assertNull(panel.questionPanel)
+        assertEquals("Send", panel.sendButton.text)
+    }
+
+    private fun settings(multi: Boolean) {
+        AijbSettings.getInstance().state.multiModel = multi
+    }
 }

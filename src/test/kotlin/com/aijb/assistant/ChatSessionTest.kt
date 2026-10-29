@@ -68,6 +68,12 @@ class ChatSessionTest : BasePlatformTestCase() {
             compactionFailures += message
         }
 
+        val questions = mutableListOf<Pair<String, List<String>>>()
+
+        override fun onQuestion(question: String, options: List<String>) {
+            questions += question to options
+        }
+
         val toolCalls = mutableListOf<String>()
         val toolOutcomes = mutableListOf<ToolOutcome>()
         val levels = mutableListOf<AgentRole>()
@@ -133,6 +139,16 @@ class ChatSessionTest : BasePlatformTestCase() {
         while (System.currentTimeMillis() < deadline) {
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             if (latch.await(20, TimeUnit.MILLISECONDS)) return true
+        }
+        return false
+    }
+
+    private fun pumpUntilCond(timeoutMs: Long = 10_000, cond: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            if (cond()) return true
+            Thread.sleep(20)
         }
         return false
     }
@@ -674,6 +690,60 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(listOf(Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT), t.map { it.role })
         assertTrue(t[2].content.startsWith("Outcome uncertain:"))
         assertEquals(ChatSession.CANCEL_MARKER, t[3].content)
+    }
+
+    /** Planner asks one question until the answer "use pg" appears in its context, then plans. */
+    private fun askingProvider() = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> = emptyList()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+            val sys = request.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty()
+            val answered = request.messages.any { it.content.contains("use pg") }
+            val (name, args) = when {
+                sys.contains("submit_plan") && !answered ->
+                    "ask_user" to """{"question":"Which db?","options":["use pg","use mysql"]}"""
+                sys.contains("submit_plan") ->
+                    "submit_plan" to """{"goal":"g","milestones":[{"id":1,"title":"m1","notes":"n"}]}"""
+                else -> "complete_milestone" to """{"notes":"ok"}"""
+            }
+            return flow {
+                emit(ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c-$name", name, args))))
+                emit(ProviderEvent.Completed("tool_calls", null))
+            }
+        }
+    }
+
+    fun `test planner question blocks until answered then the run completes`() {
+        val session = newSession()
+        session.multiModel = { true }
+        session.providers = { listOf(askingProvider()) }
+        val listener = RecordingListener()
+        session.send("build", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        assertEquals(listOf("Which db?" to listOf("use pg", "use mysql")), listener.questions)
+        assertEquals(1, listener.completed.count)
+        assertTrue(session.answerQuestion("use pg"))
+        assertFalse("a second answer has nothing to complete", session.answerQuestion("again"))
+        assertTrue(pumpUntil(listener.completed))
+        assertTrue(session.transcript.any { it.role == Role.TOOL && it.content == "use pg" })
+    }
+
+    fun `test answer with no pending question is rejected`() {
+        assertFalse(newSession().answerQuestion("hello"))
+    }
+
+    fun `test cancel while a question is pending keeps the transcript and drops the wait`() {
+        val session = newSession()
+        session.multiModel = { true }
+        session.providers = { listOf(askingProvider()) }
+        val listener = RecordingListener()
+        session.send("build", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        session.cancel()
+        assertTrue(pumpUntil(listener.cancelled))
+        assertEquals(0, listener.uncertain)
+        assertTrue(session.transcript.any { it.role == Role.TOOL && it.content == "Not answered: cancelled" })
+        assertFalse(session.answerQuestion("too late"))
     }
 
     fun `test cancel in multi model mode keeps the partial level output`() {

@@ -32,6 +32,7 @@ import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
+import javax.swing.JTextField
 import javax.swing.JTextArea
 import javax.swing.Scrollable
 import javax.swing.SwingUtilities
@@ -174,6 +175,73 @@ class ChatPanel @JvmOverloads constructor(
         refreshMessages()
     }
 
+    /** Inline Planner question (never a modal dialog, so Stop stays reachable). */
+    internal var questionPanel: JPanel? = null
+        private set
+    internal var questionField: JTextField? = null
+        private set
+    internal var questionButtons: List<JButton> = emptyList()
+        private set
+    internal var questionAnswerButton: JButton? = null
+        private set
+
+    internal fun showQuestion(question: String, options: List<String>) {
+        clearQuestion()
+        val panel = JPanel(BorderLayout(0, 4))
+        panel.border = JBUI.Borders.empty(4, 8)
+        panel.alignmentX = LEFT_ALIGNMENT
+        panel.maximumSize = Dimension(Int.MAX_VALUE, 200)
+        val label = JTextArea("planner asks: $question")
+        label.isEditable = false
+        label.lineWrap = true
+        label.wrapStyleWord = true
+        label.background = UIUtil.getPanelBackground()
+        panel.add(label, BorderLayout.NORTH)
+        val buttons = options.map { option ->
+            JButton(option).also { it.addActionListener { submitAnswer(option) } }
+        }
+        if (buttons.isNotEmpty()) {
+            val row = JPanel()
+            buttons.forEach { row.add(it) }
+            panel.add(row, BorderLayout.CENTER)
+        }
+        val field = JTextField()
+        val answer = JButton("Answer")
+        val input = JPanel(BorderLayout(4, 0))
+        input.add(field, BorderLayout.CENTER)
+        input.add(answer, BorderLayout.EAST)
+        val submit = { submitAnswer(field.text) }
+        answer.addActionListener { submit() }
+        field.addActionListener { submit() }
+        panel.add(input, BorderLayout.SOUTH)
+        questionPanel = panel
+        questionField = field
+        questionButtons = buttons
+        questionAnswerButton = answer
+        messagesPanel.add(panel)
+        statusLabel.text = "Waiting for your answer"
+        refreshMessages()
+    }
+
+    private fun submitAnswer(text: String) {
+        val answer = text.trim()
+        if (answer.isEmpty()) return
+        if (session.answerQuestion(answer)) {
+            clearQuestion()
+            addMessage("user", answer)
+            statusLabel.text = " "
+        }
+    }
+
+    internal fun clearQuestion() {
+        questionPanel?.let { messagesPanel.remove(it) }
+        questionPanel = null
+        questionField = null
+        questionButtons = emptyList()
+        questionAnswerButton = null
+        refreshMessages()
+    }
+
     internal fun messageAreas(): List<JTextArea> =
         messagesPanel.components.filterIsInstance<JTextArea>()
 
@@ -262,6 +330,12 @@ class ChatPanel @JvmOverloads constructor(
                 addMessage("${role.name.lowercase()} · $context", "")
             }
 
+            override fun onQuestion(question: String, options: List<String>) {
+                deltaArea = null
+                reply.setLength(0)
+                showQuestion(question, options)
+            }
+
             override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
                 compacted = true
                 statusLabel.text = "Context compacted (~$beforeTokens → ~$afterTokens tokens)"
@@ -273,6 +347,7 @@ class ChatPanel @JvmOverloads constructor(
             }
 
             override fun onCompleted(usage: Usage?) {
+                clearQuestion()
                 sendButton.text = "Send"
                 val base = UsageFormat.status(usage, session.sessionUsage)
                 statusLabel.text = base + when {
@@ -283,6 +358,7 @@ class ChatPanel @JvmOverloads constructor(
             }
 
             override fun onFailed(message: String) {
+                clearQuestion()
                 sendButton.text = "Send"
                 statusLabel.text = "Failed: $message"
             }
@@ -294,6 +370,7 @@ class ChatPanel @JvmOverloads constructor(
             }
 
             override fun onCancelled() {
+                clearQuestion()
                 sendButton.text = "Send"
                 statusLabel.text = "Cancelled"
             }

@@ -55,6 +55,7 @@ data class LoopLimits(
 )
 
 const val UNCERTAIN_PREFIX = "Outcome uncertain:"
+const val NOT_ANSWERED_CANCELLED = "Not answered: cancelled"
 
 /**
  * Thrown (as a cancellation) when a run is cancelled, carrying everything produced so far so the
@@ -80,6 +81,7 @@ class RunCancelledException(
 
 private class InFlight {
     var id: String? = null
+    var awaitsUser = false
 }
 
 sealed interface LoopResult {
@@ -238,21 +240,22 @@ class ToolLoop(
                 }
             }
         } catch (e: CancellationException) {
-            closeOpenToolCalls(produced, inFlight.id)
+            closeOpenToolCalls(produced, inFlight)
             if (turnOpen && text.isNotBlank()) produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
             throw RunCancelledException(base, produced, e, total)
         }
     }
 
     /** Gives every unanswered tool call of the last assistant turn a result so the transcript stays valid. */
-    private fun closeOpenToolCalls(produced: MutableList<ChatMessage>, inFlightId: String?) {
+    private fun closeOpenToolCalls(produced: MutableList<ChatMessage>, inFlight: InFlight) {
         val idx = produced.indexOfLast { it.role == Role.ASSISTANT && it.toolCalls.isNotEmpty() }
         if (idx < 0) return
         val answered = produced.drop(idx + 1).mapNotNull { it.toolCallId }.toSet()
         for (call in produced[idx].toolCalls) {
             if (call.id in answered) continue
-            val content = if (call.id == inFlightId) {
-                outcomeMessage(ToolOutcome.Uncertain("cancelled; side effects unknown"))
+            val content = if (call.id == inFlight.id) {
+                if (inFlight.awaitsUser) NOT_ANSWERED_CANCELLED
+                else outcomeMessage(ToolOutcome.Uncertain("cancelled; side effects unknown"))
             } else {
                 "Not executed: cancelled by user"
             }
@@ -290,8 +293,13 @@ class ToolLoop(
                         }
                     }
                     inFlight.id = call.id
+                    inFlight.awaitsUser = tool.awaitsUser
                     try {
-                        val out = withTimeout(limits.toolTimeout) { tool.execute(call.arguments, preview) }
+                        val out = if (tool.awaitsUser) {
+                            tool.execute(call.arguments, preview)
+                        } else {
+                            withTimeout(limits.toolTimeout) { tool.execute(call.arguments, preview) }
+                        }
                         ToolOutcome.Success(
                             if (out.length > limits.maxToolOutputChars) {
                                 out.take(limits.maxToolOutputChars) + "\n[output truncated]"
@@ -302,7 +310,11 @@ class ToolLoop(
                             ToolOutcome.Uncertain("timed out; side effects unknown")
                         } else {
                             withContext(NonCancellable) {
-                                listener.onToolOutcome(call, ToolOutcome.Uncertain("cancelled; side effects unknown"))
+                                listener.onToolOutcome(
+                                    call,
+                                    if (tool.awaitsUser) ToolOutcome.Failure(NOT_ANSWERED_CANCELLED)
+                                    else ToolOutcome.Uncertain("cancelled; side effects unknown"),
+                                )
                             }
                             throw e
                         }

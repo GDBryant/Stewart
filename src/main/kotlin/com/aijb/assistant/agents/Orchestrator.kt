@@ -48,12 +48,17 @@ object Protocol {
     const val SUBMIT_TASKS = "submit_tasks"
     const val COMPLETE_MILESTONE = "complete_milestone"
     const val SUBMIT_RESULT = "submit_result"
+    const val ASK_USER = "ask_user"
 
     const val PLANNER =
-        "Protocol: call ${SUBMIT_PLAN} exactly when you have the full plan. Arguments: {\"goal\": \"<overall goal>\", \"milestones\": [{\"id\": 1, \"title\": \"<short title>\", \"notes\": \"<what must be true when done>\"}]}. Milestones must be ordered and independently checkable. You have no other tools; do not do task-level work."
+        "Protocol: call ${SUBMIT_PLAN} exactly when you have the full plan. Arguments: {\"goal\": \"<overall goal>\", \"milestones\": [{\"id\": 1, \"title\": \"<short title>\", \"notes\": \"<what must be true when done>\"}]}. Milestones must be ordered and independently checkable. You have no project tools; do not do task-level work."
 
     const val REPLAN =
-        "Protocol: a milestone could not be completed. Call ${SUBMIT_PLAN} with a corrected plan covering the remaining work: start the milestones at id ${'$'}NEXT_ID and keep them ordered and independently checkable. You have no other tools."
+        "Protocol: a milestone could not be completed. Call ${SUBMIT_PLAN} with a corrected plan covering the remaining work: start the milestones at id ${'$'}NEXT_ID and keep them ordered and independently checkable. You have no project tools."
+
+    /** Appended to the Planner prompts only when a [UserPrompter] is available. */
+    const val ASK_USER_HINT =
+        " You may call ${ASK_USER} with {\"question\": \"<one question>\", \"options\": [\"<suggested answers>\"]} to ask the user, but only when the request is ambiguous in a way that changes the plan; otherwise just plan. Questions are limited, so ask the most important one first."
 
     const val EXECUTOR =
         "Protocol: to dispatch work, call ${SUBMIT_TASKS} with {\"tasks\": [{\"id\": 1, \"description\": \"<one concrete task a single Worker can finish alone>\", \"files\": [\"<relevant paths>\"], \"depends_on\": [<ids of earlier tasks in this round whose results it needs>]}]}. Fill in files and depends_on: the Worker sees only its own task, those files and the results of the tasks it depends on. After the Worker results arrive, call ${COMPLETE_MILESTONE} with {\"notes\": \"<evidence the milestone is done>\"} when the milestone is met, or ${SUBMIT_TASKS} again with corrected or new tasks when it is not."
@@ -103,6 +108,8 @@ interface OrchestratorListener {
     fun onTasks(taskRound: Int, tasks: List<DispatchTask>)
     fun onResult(result: WorkerResult)
     fun onReplanning(reason: String)
+    /** Fired when the Planner asks the user a question, just before the run blocks for the answer. */
+    fun onQuestion(question: String, options: List<String>) {}
     fun onCompleted(usage: Usage?)
     fun onFailed(message: String)
 }
@@ -115,6 +122,8 @@ data class OrchestratorLimits(
     val maxLevelModelTurns: Int = 15,
     val toolTimeout: Duration = 120.seconds,
     val maxHandoffChars: Int = 2000,
+    /** Planner questions to the user per run (initial plan and re-plans together). */
+    val maxQuestions: Int = 3,
 )
 
 sealed interface OrchestrationResult {
@@ -259,6 +268,7 @@ class Orchestrator(
     private val limits: OrchestratorLimits = OrchestratorLimits(),
     private val compactor: ContextCompactor = ContextCompactor(),
     private val compactAtTokens: Int? = null,
+    private val prompter: UserPrompter? = null,
 ) {
 
     /** Runs the plan; cancellation surfaces as [RunCancelledException] carrying the transcript so far. */
@@ -296,11 +306,13 @@ class Orchestrator(
         val replans = mutableListOf<String>()
         var usage: Usage? = null
 
+        // One tool for the whole run so the question budget spans the plan and every re-plan.
+        val askTool = prompter?.let { AskUserTool(it, limits.maxQuestions, listener::onQuestion) }
         val planTool = ProtocolTools.planTool(1, limits.maxMilestones)
         val planRes = runLevel(
             AgentRole.PLANNER, "plan",
-            RolePrompts.forRole(AgentRole.PLANNER) + " " + Protocol.PLANNER,
-            listOf(planTool),
+            RolePrompts.forRole(AgentRole.PLANNER) + " " + Protocol.PLANNER + askHint(askTool),
+            listOfNotNull(planTool, askTool),
             setOf(Protocol.SUBMIT_PLAN),
             request,
             history,
@@ -388,7 +400,7 @@ class Orchestrator(
                             transcript, replans, "re-planning budget exhausted: ${replans.last()}", usage
                         )
                     }
-                    val (replanned, newPlan) = replan(currentPlan, milestone, replans.last(), transcript, listener)
+                    val (replanned, newPlan) = replan(currentPlan, milestone, replans.last(), transcript, listener, askTool)
                     usage = sumUsage(usage, replanned.usage)
                     if (newPlan == null) {
                         return OrchestrationResult.Failed(
@@ -424,6 +436,7 @@ class Orchestrator(
         reason: String,
         transcript: MutableList<ChatMessage>,
         listener: OrchestratorListener,
+        askTool: AskUserTool?,
     ): Pair<LevelRun, Plan?> {
         val planTool = ProtocolTools.planTool(milestone.id, limits.maxMilestones)
         val content = buildString {
@@ -438,8 +451,8 @@ class Orchestrator(
         val res = runLevel(
             AgentRole.PLANNER, "re-plan",
             RolePrompts.forRole(AgentRole.PLANNER) + " " +
-                Protocol.REPLAN.replace("\$NEXT_ID", milestone.id.toString()),
-            listOf(planTool),
+                Protocol.REPLAN.replace("\$NEXT_ID", milestone.id.toString()) + askHint(askTool),
+            listOfNotNull(planTool, askTool),
             setOf(Protocol.SUBMIT_PLAN),
             content,
             emptyList(),
@@ -558,6 +571,8 @@ class Orchestrator(
         }
         return LevelRun(result.messages, result.usage, status, submitted)
     }
+
+    private fun askHint(askTool: AskUserTool?) = if (askTool != null) Protocol.ASK_USER_HINT else ""
 
     /** Caps text handed between levels so one verbose result cannot flood the next model. */
     private fun bound(text: String): String =

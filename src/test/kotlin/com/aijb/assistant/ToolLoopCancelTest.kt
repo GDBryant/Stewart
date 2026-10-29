@@ -296,4 +296,75 @@ class ToolLoopCancelTest {
         val e = cancelWhen(ToolLoop(provider, ToolRegistry(emptyList()), approve), summarising, history = longHistory)
         assertTrue(e.produced.none { it.content.contains("truncated reply") })
     }
+
+    private fun askTool(run: suspend () -> String) = object : Tool {
+        override val spec = com.aijb.assistant.provider.ToolSpec("ask", "d", JsonObject(emptyMap()))
+        override val requiresApproval = false
+        override val awaitsUser = true
+        override suspend fun execute(arguments: JsonObject, preview: ToolPreview?) = run()
+    }
+
+    @Test
+    fun `cancel while waiting for the user is not answered rather than uncertain`() {
+        val waiting = CountDownLatch(1)
+        val provider = scripted(listOf(
+            ProviderEvent.ToolCalls(listOf(call("c1", "ask"))),
+            ProviderEvent.Completed("tool_calls", null),
+        ))
+        val outcomes = mutableListOf<com.aijb.assistant.tools.ToolOutcome>()
+        val loop = ToolLoop(provider, ToolRegistry(listOf(askTool { waiting.countDown(); awaitCancellation() })), approve)
+        val e = cancelWhen(loop, waiting, object : LoopListener {
+            override fun onToolOutcome(call: ToolCall, outcome: com.aijb.assistant.tools.ToolOutcome) {
+                outcomes += outcome
+            }
+        })
+        val tool = e.produced.single { it.role == Role.TOOL }
+        assertEquals("c1", tool.toolCallId)
+        assertEquals(com.aijb.assistant.tools.NOT_ANSWERED_CANCELLED, tool.content)
+        assertEquals(0, e.uncertainOutcomes)
+        assertEquals(listOf<com.aijb.assistant.tools.ToolOutcome>(
+            com.aijb.assistant.tools.ToolOutcome.Failure(com.aijb.assistant.tools.NOT_ANSWERED_CANCELLED)
+        ), outcomes)
+    }
+
+    @Test
+    fun `a tool that awaits the user is not subject to the tool timeout`() {
+        val provider = object : ModelProvider {
+            override val id = "fake"
+            var n = 0
+            override suspend fun listModels() = emptyList<ModelInfo>()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                if (n++ == 0) {
+                    emit(ProviderEvent.ToolCalls(listOf(call("c1", "ask"))))
+                    emit(ProviderEvent.Completed("tool_calls", null))
+                } else {
+                    emit(ProviderEvent.TextDelta("done"))
+                    emit(ProviderEvent.Completed("stop", null))
+                }
+            }
+        }
+        val slow = askTool { kotlinx.coroutines.delay(300); "late answer" }
+        val loop = ToolLoop(
+            provider, ToolRegistry(listOf(slow)), approve,
+            LoopLimits(toolTimeout = kotlin.time.Duration.parse("50ms")),
+        )
+        val r = runBlocking { loop.run("m", history, object : LoopListener {}) }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals("late answer", r.messages.first { it.role == Role.TOOL }.content)
+    }
+
+    @Test
+    fun `an ordinary slow tool still times out as uncertain`() {
+        val provider = scripted(
+            listOf(ProviderEvent.ToolCalls(listOf(call("c1"))), ProviderEvent.Completed("tool_calls", null)),
+            listOf(ProviderEvent.TextDelta("ok"), ProviderEvent.Completed("stop", null)),
+        )
+        val slow = tool { kotlinx.coroutines.delay(300); "late" }
+        val loop = ToolLoop(
+            provider, ToolRegistry(listOf(slow)), approve,
+            LoopLimits(toolTimeout = kotlin.time.Duration.parse("50ms")),
+        )
+        val r = runBlocking { loop.run("m", history, object : LoopListener {}) }
+        assertTrue(r.messages.first { it.role == Role.TOOL }.content.startsWith("Outcome uncertain: timed out"))
+    }
 }

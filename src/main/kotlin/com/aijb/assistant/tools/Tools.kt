@@ -20,6 +20,11 @@ sealed interface ToolPreview {
 interface Tool {
     val spec: ToolSpec
     val requiresApproval: Boolean
+    /**
+     * True when execute only waits on the user: no timeout applies, and a cancel leaves
+     * nothing uncertain (reported as "Not answered").
+     */
+    val awaitsUser: Boolean get() = false
     suspend fun preview(arguments: JsonObject): ToolPreview? = null
     suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String
 }

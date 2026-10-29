@@ -11,6 +11,7 @@ import com.aijb.assistant.agents.Plan
 import com.aijb.assistant.agents.Protocol
 import com.aijb.assistant.agents.RolePrompts
 import com.aijb.assistant.agents.RoleRouting
+import com.aijb.assistant.agents.UserPrompter
 import com.aijb.assistant.agents.WorkerResult
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ChatMessage
@@ -140,6 +141,7 @@ class OrchestratorTest {
     private fun newOrchestrator(
         provider: ScriptedProvider,
         limits: OrchestratorLimits = OrchestratorLimits(),
+        prompter: UserPrompter? = null,
     ) = Orchestrator(
         routes = RoleRouting.uniform(
             LevelRoute(
@@ -150,6 +152,7 @@ class OrchestratorTest {
         projectTools = { ToolRegistry(listOf(fakeReadTool())) },
         approval = ApprovalGate { _, _ -> ApprovalDecision.Approved },
         limits = limits,
+        prompter = prompter,
     )
 
     private fun plan(id: Int = 1, n: Int = 1): String {
@@ -528,6 +531,161 @@ class OrchestratorTest {
 
     private fun levelOfWorker(req: ChatRequest) =
         req.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty().contains(Protocol.SUBMIT_RESULT)
+
+    private fun allText(req: ChatRequest) = req.messages.joinToString("\n") { it.content }
+
+    private fun plannerReqs(p: ScriptedProvider) =
+        p.requests.filter { levelOfPlanner(it) }
+
+    private fun levelOfPlanner(req: ChatRequest) =
+        req.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty().contains(Protocol.SUBMIT_PLAN)
+
+    @Test
+    fun `planner question reaches the prompter and the answer reaches the model`() {
+        val p = ScriptedProvider()
+        val asked = mutableListOf<Pair<String, List<String>>>()
+        val events = mutableListOf<Pair<String, List<String>>>()
+        p.planner += call(Protocol.ASK_USER, "a1", """{"question":"Which db?","options":["pg","mysql"]}""")
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (exec, work) = milestoneScript(1)
+        p.executor += exec
+        p.worker += work
+        val prompter = UserPrompter { q, o -> asked += q to o; "use pg" }
+        val listener = object : OrchestratorListener by RecordingListener() {
+            override fun onQuestion(question: String, options: List<String>) { events += question to options }
+        }
+
+        val r = runBlocking { newOrchestrator(p, prompter = prompter).run("go", listener) }
+
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(listOf("Which db?" to listOf("pg", "mysql")), asked)
+        assertEquals(asked, events)
+        val second = plannerReqs(p)[1]
+        assertTrue(allText(second).contains("use pg"))
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content == "use pg" })
+        assertTrue(allText(plannerReqs(p)[0]).contains(Protocol.ASK_USER))
+    }
+
+    @Test
+    fun `question limit is enforced across the run and the model sees a tool error`() {
+        val p = ScriptedProvider()
+        var n = 0
+        repeat(4) { i ->
+            p.planner += call(Protocol.ASK_USER, "a$i", """{"question":"q$i"}""")
+        }
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (exec, work) = milestoneScript(1)
+        p.executor += exec
+        p.worker += work
+
+        val r = runBlocking {
+            newOrchestrator(p, prompter = { _, _ -> "a${n++}" }).run("go", RecordingListener())
+        }
+
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(3, n)
+        val tools = r.messages.filter { it.role == Role.TOOL }.map { it.content }
+        assertEquals(listOf("a0", "a1", "a2"), tools.take(3))
+        assertTrue(tools[3].startsWith("Error: question limit reached (max 3)"))
+    }
+
+    @Test
+    fun `question budget is shared with the re-plan level`() {
+        val p = ScriptedProvider()
+        var n = 0
+        p.planner += call(Protocol.ASK_USER, "a0", """{"question":"first"}""")
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        p.executor += text("no submission")
+        p.planner += call(Protocol.ASK_USER, "a1", """{"question":"second"}""")
+        p.planner += call(Protocol.SUBMIT_PLAN, "p2", oneMilestonePlan())
+        val (exec, work) = milestoneScript(1)
+        p.executor += exec
+        p.worker += work
+
+        val limits = OrchestratorLimits(maxQuestions = 1, maxLevelModelTurns = 2)
+        val r = runBlocking {
+            newOrchestrator(p, limits, prompter = { _, _ -> "a${n++}" }).run("go", RecordingListener())
+        }
+
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(1, n)
+        assertTrue(r.messages.any { it.role == Role.TOOL && it.content.startsWith("Error: question limit reached (max 1)") })
+    }
+
+    @Test
+    fun `invalid ask_user arguments are tool errors and do not count`() {
+        val p = ScriptedProvider()
+        var n = 0
+        p.planner += call(Protocol.ASK_USER, "a0", """{"question":"  "}""")
+        p.planner += call(Protocol.ASK_USER, "a1", """{"question":"q","options":[1]}""")
+        p.planner += call(Protocol.ASK_USER, "a2", """{"question":"q","options":"pg"}""")
+        p.planner += call(Protocol.ASK_USER, "a3", """{"question":"real","options":[" a ",""]}""")
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (exec, work) = milestoneScript(1)
+        p.executor += exec
+        p.worker += work
+        val seen = mutableListOf<List<String>>()
+
+        val r = runBlocking {
+            newOrchestrator(p, OrchestratorLimits(maxQuestions = 1), prompter = { _, o -> seen += o; "ok${n++}" })
+                .run("go", RecordingListener())
+        }
+
+        assertTrue(r is OrchestrationResult.Completed)
+        assertEquals(listOf(listOf("a")), seen)
+        val tools = r.messages.filter { it.role == Role.TOOL }.map { it.content }
+        assertTrue(tools[0].startsWith("Error:") && tools[1].startsWith("Error:") && tools[2].startsWith("Invalid"))
+        assertEquals("ok0", tools[3])
+    }
+
+    @Test
+    fun `ask_user is offered to the planner only and only with a prompter`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (exec, work) = milestoneScript(1)
+        p.executor += exec
+        p.worker += work
+        runBlocking { newOrchestrator(p, prompter = { _, _ -> "x" }).run("go", RecordingListener()) }
+        for (req in p.requests) {
+            val sys = req.messages.first { it.role == Role.SYSTEM }.content
+            assertEquals(sys, levelOfPlanner(req), sys.contains(Protocol.ASK_USER))
+        }
+
+        val q = ScriptedProvider()
+        q.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (exec2, work2) = milestoneScript(1)
+        q.executor += exec2
+        q.worker += work2
+        runBlocking { newOrchestrator(q).run("go", RecordingListener()) }
+        assertTrue(q.requests.none { allText(it).contains(Protocol.ASK_USER) })
+    }
+
+    @Test
+    fun `cancelling while the question is open keeps the transcript and marks it not answered`() {
+        val p2 = ScriptedProvider()
+        p2.planner += call(Protocol.ASK_USER, "a1", """{"question":"Which db?"}""")
+        val e = runBlocking {
+            val waiting2 = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val deferred = kotlinx.coroutines.CompletableDeferred<com.aijb.assistant.tools.RunCancelledException>()
+            val job = scope.launch {
+                try {
+                    newOrchestrator(
+                        p2,
+                        prompter = { _, _ -> waiting2.complete(Unit); kotlinx.coroutines.awaitCancellation() },
+                    ).run("go", RecordingListener())
+                } catch (ex: com.aijb.assistant.tools.RunCancelledException) {
+                    deferred.complete(ex)
+                }
+            }
+            waiting2.await()
+            job.cancel()
+            deferred.await()
+        }
+        val tool = e.produced.last { it.role == Role.TOOL }
+        assertEquals("Not answered: cancelled", tool.content)
+        assertEquals(0, e.uncertainOutcomes)
+        assertTrue(e.produced.any { it.role == Role.ASSISTANT && it.toolCalls.isNotEmpty() })
+    }
 
     @Test
     fun `workers are dispatched serially`() {

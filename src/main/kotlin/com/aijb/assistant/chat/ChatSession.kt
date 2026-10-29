@@ -5,6 +5,7 @@ import com.aijb.assistant.agents.DispatchTask
 import com.aijb.assistant.agents.OrchestrationResult
 import com.aijb.assistant.agents.Orchestrator
 import com.aijb.assistant.agents.OrchestratorListener
+import com.aijb.assistant.agents.UserPrompter
 import com.aijb.assistant.agents.Plan
 import com.aijb.assistant.agents.RoleRouting
 import com.aijb.assistant.agents.RoutingResult
@@ -37,6 +38,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
@@ -56,6 +58,8 @@ interface ChatListener {
     fun onLevelStarted(role: AgentRole, context: String) {}
     fun onToolRequested(call: ToolCall) {}
     fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
+    /** The Planner asked a question; the run blocks until [ChatSession.answerQuestion] or cancel. */
+    fun onQuestion(question: String, options: List<String>) {}
 }
 
 @Service(Service.Level.PROJECT)
@@ -96,6 +100,7 @@ class ChatSession(
     private val lock = Any()
     private val transcriptBacking = mutableListOf<ChatMessage>()
     private var activeJob: Job? = null
+    private var pendingAnswer: CompletableDeferred<String>? = null
     private var usageBacking: Usage? = null
 
     val transcript: List<ChatMessage>
@@ -317,6 +322,11 @@ class ChatSession(
                 val dest = destinations[role]
                 toEdt { listener.onLevelStarted(role, if (dest != null) "$context → $dest" else context) }
             }
+            override fun onQuestion(question: String, options: List<String>) {
+                // Registered before the UI hears of it, so an immediate answer cannot be lost.
+                synchronized(lock) { pendingAnswer = CompletableDeferred() }
+                toEdt { listener.onQuestion(question, options) }
+            }
             override fun onPlan(plan: Plan) {}
             override fun onTasks(taskRound: Int, tasks: List<DispatchTask>) {}
             override fun onResult(result: WorkerResult) {}
@@ -333,6 +343,14 @@ class ChatSession(
             projectTools = { tools() },
             approval = approval,
             compactAtTokens = autoCompactTokens(),
+            prompter = UserPrompter { _, _ ->
+                val pending = checkNotNull(synchronized(lock) { pendingAnswer }) { "no pending question" }
+                try {
+                    pending.await()
+                } finally {
+                    synchronized(lock) { if (pendingAnswer === pending) pendingAnswer = null }
+                }
+            },
         )
         val result = orchestrator.run(text, orchListener, priorHistory)
         synchronized(lock) {
@@ -348,6 +366,10 @@ class ChatSession(
             toEdt { listener.onFailedWithCode(result.message, result.code) }
         }
     }
+
+    /** Delivers the user's reply to the Planner's pending question; false when none is waiting. */
+    fun answerQuestion(answer: String): Boolean =
+        synchronized(lock) { pendingAnswer }?.complete(answer) ?: false
 
     fun cancel() {
         synchronized(lock) { activeJob }?.cancel()
