@@ -1,6 +1,6 @@
 # Handoff — post-M8 open items
 
-**Status: items 1, 2, 3, 4 and 6 are done in M9 (`52edf9e`, `78eb17a`, `0a45997`, `d69c2e8`, `6d07631`). Item 5 passed live on `glm-5-3-flash` (2026-10-29); native stays opt-in. The manual `runIde` Stop check from item 4 remains. The text below is the original plan.**
+**Status: items 1, 2, 3, 4 and 6 are done in M9 (`52edf9e`, `78eb17a`, `0a45997`, `d69c2e8`, `6d07631`). Item 5 passed live on `glm-5-3-flash` (2026-10-29); native is now the AIF default; the shim is a deprecated per-model fallback. The manual `runIde` Stop check from item 4 remains. The text below is the original plan.**
 
 State at handoff: `main` @ `b28af5d`, clean. M1–M8 were done.
 591 tests pass (4 live tests skipped). `koverVerify` passes at 96% line and 81% branch.
@@ -109,7 +109,7 @@ That keeps the worker isolated, but two things are missing:
   with the model's tool path set to `NATIVE`.
 - If it passes, record the model ids and the date in `docs/COMPATIBILITY.md`.
   - Decide whether `AifProvider.supportsNativeTools` should default those ids to native. Today native is opt-in per model (see `settings/ToolPathResolver.kt`).
-- If it fails, record the failure code. The shim stays the default and no code changes.
+- If it fails, record the failure code. (Superseded: native is now the AIF default.)
 
 ## 6. Optional cleanup: `ChatSession`
 - This is a behaviour-preserving refactor. `ChatSessionTest` must pass unchanged.

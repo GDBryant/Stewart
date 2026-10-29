@@ -45,7 +45,7 @@ class ProviderRegistry @JvmOverloads constructor(
             list.add(AifProvider(
                 snap.aifBaseUrl,
                 snap.aifModels,
-                nativeToolsConfirmed = { m -> snap.toolPathOverrides["aif/$m"]?.equals("NATIVE", true) == true },
+                nativeTools = { m -> snap.toolPathOverrides["aif/$m"]?.equals("SHIM", true) != true },
             ))
         }
         return list

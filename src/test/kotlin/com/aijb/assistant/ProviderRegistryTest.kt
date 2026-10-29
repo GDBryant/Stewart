@@ -60,15 +60,16 @@ class ProviderRegistryTest {
     }
 
     @Test
-    fun `aif native lambda follows overrides`() {
+    fun `aif is native unless overridden to shim`() {
         val state = AijbSettings.State().apply {
             aifBaseUrl = "https://aif.example/v1"
-            toolPathOverrides = mutableMapOf("aif/m1" to "NATIVE")
+            toolPathOverrides = mutableMapOf("aif/m1" to "shim", "aif/m3" to "NATIVE")
         }
         val r = ProviderRegistry { state }
         val aif = r.provider("aif")!!
-        assertTrue(aif.supportsNativeTools("m1"))
-        assertFalse(aif.supportsNativeTools("m2"))
+        assertFalse(aif.supportsNativeTools("m1"))
+        assertTrue(aif.supportsNativeTools("m2"))
+        assertTrue(aif.supportsNativeTools("m3"))
     }
 
     @Test

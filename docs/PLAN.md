@@ -4,7 +4,7 @@
 JetBrains plugin (Kotlin, Gradle IntelliJ Platform Plugin) with a chat tool window that can drive local Ollama models, Claude (enterprise account, Microsoft SSO via browser), and AI Factory models (OpenAI-compatible proxy that strips tool calls), with per-message model selection and a multi-model mode that splits planning and execution across three agent levels.
 
 ## Scope
-- In: chat tool window, model picker, Ollama + Claude + AI Factory providers, built-in tool-call shim for tool-call-stripping proxies, 3-level agent loop, file edits, terminal commands, settings UI.
+- In: chat tool window, model picker, Ollama + Claude + AI Factory providers, native tool calls (the tool-call shim is a deprecated per-model fallback), 3-level agent loop, file edits, terminal commands, settings UI.
 - Out (for now): Jira integration, remote/shared sessions, non-JetBrains IDEs, MCP tools.
 
 ## Reference: Cline plugin
@@ -12,7 +12,7 @@ The installed Cline plugin (`bot.cline` 2.0.7, `~/.local/share/JetBrains/PyCharm
 
 - Cline ships a thin Kotlin host + a bundled Node runtime running the TypeScript core, talking over gRPC (`bot.cline.host.proto`, "hostbridge" classes). The chat UI is a webview in JCEF. We take a simpler path: all logic in Kotlin, Swing UI (or JCEF later if markdown/webview needs grow).
 - Patterns to borrow: right-side tool window; Approve/Reject gate per tool call; separate Plan/Act model IDs (our per-role ModelRefs generalise this); editor popup action "Add to chat" and intention actions (explain/fix); `org.jetbrains.plugins.terminal` as an optional dependency for optional terminal display.
-- Gap it leaves for us: Cline assumes the provider honours native `tool_calls`. Against the AIF proxy it prints `<tool_call>` markup as text (see `/srv/compose/aif_shim/docs/`). Our shim layer closes that gap in-process.
+- Gap it leaves for us: Cline assumes the provider honours native `tool_calls`. Against the AIF proxy it prints `<tool_call>` markup as text (see `/srv/compose/aif_shim/docs/`). The AIF proxy now honours native `tool_calls`, so the shim (which closed that gap in-process) is deprecated and kept only as a fallback.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ Threading: Kotlin coroutines; network/subprocess work off the EDT; UI updates on
 | Provider | Path |
 |---|---|
 | Ollama | Native `tools` for models that support it; shim for models that don't |
-| AIF | Native tools for models with confirmed support; shim for models without confirmed support or explicitly configured to use it |
+| AIF | Native tools by default; shim (deprecated) only for a model whose tool calls are disabled, selected with an explicit per-model `SHIM` override |
 | Claude CLI | Built-in tools disabled with `--tools ""`; isolated CLI configuration; our tools via shim text (M1 feasibility gate, M3 integration) |
 
 Native/shim routing is a per-provider/per-model capability setting, with an explicit override; it is not AIF-specific. Native AIF tool calls are data, not permission for the provider to execute anything: the plugin intercepts complete calls, validates names and arguments, previews changes, asks for approval where required and executes only through `ToolLoop`. Malformed or incomplete native calls fail closed. If native calling fails, report the failure without executing buffered calls; the user can select the shim for a subsequent turn after confirming no side effects occurred. Never silently replay or switch paths in the same turn.
@@ -60,14 +60,14 @@ Multi-model mode = the three-level orchestrator runs, each level on its own Mode
 In multi-model mode every request carries a role system prompt (`RolePrompts`, per request, never stored or compacted) describing the three roles and telling the model to hand work down to a lower role where it can.
 
 ### Tool-call shim (ported from aif_shim)
-Some AIF models may lack reliable native tool calling or return tool calls as plain text. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop` as an explicit per-model alternative — no external Python process.
+**Deprecated.** The AIF proxy now supports native tool calls, which are the default. The shim is kept only as a fallback for a model whose tool calls are disabled (select it with a per-model `SHIM` override); Claude CLI still uses it because the CLI has no native tool path. No new shim features. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop` as an explicit per-model alternative — no external Python process.
 
 - **Request side** (`prepare_request`): inject tool schemas into the system prompt inside `<tools>` with `<tool_call>` instructions (GLM-family models get `<call>` — their own `<tool_call>` token is swallowed upstream); rewrite assistant `tool_calls` history and `tool`-role messages into the same text format; merge adjacent same-role messages.
 - **Response side** (`parse_tool_calls`): extract `<tool_call>` / `<call>` / `<function=NAME>` / GLM `arg_key/arg_value` blocks into OpenAI `tool_calls`; strip `<think>` into `reasoning_content`; best-effort JSON repair (unescaped quotes, bare values, missing closers); schema-driven argument coercion; alias normalisation mapped to our tool names (invented `bash`/`execute_command`/`run_commands` → `RunTerminal`, etc.); text emitted alongside calls is kept and shown (aif_shim's drop/relegate mode is a Cline workaround and is not ported).
 - **Streaming**: buffer chunks that could start a call tag so raw markup never flashes in the UI; emit text only once it's safe; repair streamed native `tool_calls` deltas as a whole.
 - **Policy**: nudge-retry once when a tool-offered turn ends with no call and only an announcement ("Let me check ..."); surface an `empty_turn` error instead of a silent stop; withhold calls on `finish_reason` `length`/`content_filter`; never repair an unterminated JSON string into a runnable call (fail closed). Parsing is not authorisation: calls must pass the execution contract, and quoted examples or tool-result content must not become executable calls.
 - **Parity**: port `tests/` fixtures from aif_shim verbatim — each parser case keeps the exact text seen in the wild. New formats observed get added to the Kotlin parser with a verbatim test, same rule as aif_shim's `docs/skills/tool-call-format`. Record the Python source revision or content hashes and intentional Kotlin differences alongside the fixtures.
-- **Override**: per-provider/per-model native/shim selection; native mode requires confirmed tool support. A failure on the native path is surfaced, not silently retried through the shim; a later turn can use an explicit shim override. Keep text-only chat available when tools are disabled.
+- **Override**: per-provider/per-model native/shim selection; AIF defaults to native, and `SHIM` is the explicit fallback. A failure on the native path is surfaced, not silently retried through the shim; a later turn can use an explicit shim override. Keep text-only chat available when tools are disabled.
 
 ### Model selection
 - Picker in chat header lists Ollama models (live from `/api/tags`) + configured Claude and AIF models.
@@ -154,7 +154,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Kotlin + Gradle IntelliJ Platform Plugin 2.x; provisional IntelliJ 2025.1+ (build 251) and Java 21, subject to the M1 product compatibility matrix.
 - Enterprise Claude Code entitlement, SSO login and CLI isolation passed the M1 feasibility gate on CLI 2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); managed-policy suppression verified 2026-10-29 on CLI 2.1.312 (canary hook/MCP test; see `docs/CLAUDE_FEASIBILITY.md`).
 - Ollama runs locally on default port; no auth.
-- The AIF proxy continues to strip `tools`; the shim is the default path for `AifProvider` and stays a Kotlin port (no bundled Python sidecar).
+- The AIF proxy supports native `tools`; native is the default path for `AifProvider`. The shim is deprecated, kept as a per-model fallback, and stays a Kotlin port (no bundled Python sidecar).
 - Worker-bee edits require user approval by default (diff preview); terminal commands always require approval.
 - Levels talk via structured JSON messages (plan, task, result), not free text.
 
@@ -178,7 +178,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ## Open Items
 M1–M9 are done. Remaining:
 
-1. **Native AIF default**: live check passed for `glm-5-3-flash` on both paths (2026-10-29, `docs/COMPATIBILITY.md`); native stays per-model opt-in until more models are checked.
+1. **Manual `runIde` check** (item 4): Stop is clickable with an approval dialog open and closes it.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

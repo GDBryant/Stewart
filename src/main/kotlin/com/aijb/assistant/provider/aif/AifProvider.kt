@@ -71,12 +71,12 @@ class AifProvider(
     private val models: List<String>,
     private val apiKey: () -> String? = { AifCredentials.get() },
     private val client: HttpClient = IdeHttpClients.create(),
-    private val nativeToolsConfirmed: (String) -> Boolean = { false },
+    private val nativeTools: (String) -> Boolean = { true },
 ) : ModelProvider {
 
     override val id: String = "aif"
 
-    override fun supportsNativeTools(model: String): Boolean = nativeToolsConfirmed(model)
+    override fun supportsNativeTools(model: String): Boolean = nativeTools(model)
 
     override suspend fun listModels(): List<ModelInfo> =
         models.map { ModelInfo(ModelRef(id, it), it) }

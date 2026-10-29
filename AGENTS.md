@@ -1,6 +1,6 @@
 # AI_Jetbrains_Plugin
 
-JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (built-in tool-call shim), 3-level agent orchestration.
+JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (native tools; deprecated tool-call shim kept as per-model fallback), 3-level agent orchestration.
 
 ## Hard Rules
 - Always be brief and concise

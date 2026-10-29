@@ -122,7 +122,7 @@ class AifProviderTest {
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\ndata: [DONE]\n")
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
             listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(),
-            nativeToolsConfirmed = { true })
+            nativeTools = { true })
         val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
             "properties" to JsonObject(emptyMap()))))
         val events = mutableListOf<ProviderEvent>()
@@ -139,7 +139,7 @@ class AifProviderTest {
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\ndata: [DONE]\n")
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
             listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(),
-            nativeToolsConfirmed = { true })
+            nativeTools = { true })
         val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
             "properties" to JsonObject(emptyMap()))))
         val events = mutableListOf<ProviderEvent>()
@@ -150,9 +150,9 @@ class AifProviderTest {
     }
 
     @Test
-    fun `native route denied without confirmed support`() = runBlocking {
+    fun `native route denied for a model with native tools disabled`() = runBlocking {
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
-            listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient())
+            listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(), nativeTools = { false })
         val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
             "properties" to JsonObject(emptyMap()))))
         val events = mutableListOf<ProviderEvent>()
@@ -386,11 +386,11 @@ class AifProviderTest {
     }
 
     @Test
-    fun `native tools support follows confirmation callback`() {
+    fun `native tools support follows callback and defaults to native`() {
         val yes = AifProvider("http://x", listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(), { it == "good" })
         assertTrue(yes.supportsNativeTools("good"))
         assertTrue(!yes.supportsNativeTools("bad"))
-        assertTrue(!provider().supportsNativeTools("m"))
+        assertTrue(provider().supportsNativeTools("m"))
     }
 
     @Test

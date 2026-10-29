@@ -54,5 +54,5 @@ PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
 ## AIF live check (2026-10-29)
 
 `AifLiveTest` (SHIM and NATIVE tool paths): both passed on `glm-5-3-flash`.
-Native stays per-model opt-in (`toolPathOverrides["aif/<model>"] = NATIVE`);
-one model on one run is not enough to default it on.
+Native is the AIF default; the shim is deprecated and used only for a model
+whose tool calls are disabled (`toolPathOverrides["aif/<model>"] = SHIM`).
