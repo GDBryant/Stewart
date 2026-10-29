@@ -127,6 +127,21 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         assertInvalid { configurable.apply() }
     }
 
+    fun `test tools checkboxes reset and apply`() {
+        assertTrue(configurable.toolsEnabledCheck.isSelected)
+        assertFalse(configurable.autoApproveCheck.isSelected)
+        configurable.autoApproveCheck.isSelected = true
+        configurable.toolsEnabledCheck.isSelected = false
+        assertTrue(configurable.isModified)
+        configurable.apply()
+        val s = AijbSettings.getInstance().state
+        assertTrue(s.autoApproveEdits)
+        assertFalse(s.toolsEnabled)
+        configurable.reset()
+        assertTrue(configurable.autoApproveCheck.isSelected)
+        assertFalse(configurable.toolsEnabledCheck.isSelected)
+    }
+
     fun `test apply publishes topic`() {
         var fired = false
         ApplicationManager.getApplication().messageBus.connect(project)

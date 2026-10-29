@@ -31,13 +31,13 @@ class AifLiveTest {
         val tool = object : Tool {
             override val spec = ToolSpec("get_magic_number", "Return the magic number", JsonObject(emptyMap()))
             override val requiresApproval = false
-            override suspend fun execute(arguments: JsonObject): String {
+            override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
                 ran = true
                 return "42"
             }
         }
         val provider = ToolCallingProvider(AifProvider(base, listOf(model), { key }, java.net.http.HttpClient.newHttpClient()), ToolPath.SHIM)
-        val loop = ToolLoop(provider, ToolRegistry(listOf(tool)), ApprovalGate { ApprovalDecision.Approved })
+        val loop = ToolLoop(provider, ToolRegistry(listOf(tool)), ApprovalGate { _, _ -> ApprovalDecision.Approved })
         val result = withTimeout(300_000) {
             loop.run(model, listOf(ChatMessage(Role.USER, "Call get_magic_number, then tell me the number.")), object : com.aijb.assistant.tools.LoopListener {})
         }

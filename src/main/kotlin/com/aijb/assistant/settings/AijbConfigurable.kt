@@ -29,6 +29,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var claudeModelsArea: JBTextArea
     internal lateinit var overridesArea: JBTextArea
     internal lateinit var autoCompactField: JBTextField
+    internal lateinit var toolsEnabledCheck: javax.swing.JCheckBox
+    internal lateinit var autoApproveCheck: javax.swing.JCheckBox
 
     override fun createPanel(): DialogPanel = panel {
         row("Ollama URL:") { ollamaUrlField = textField().component }
@@ -49,6 +51,12 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         row("Claude models (one per line):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Auto-compact context at (tokens):") { autoCompactField = textField().component }
+        row {
+            toolsEnabledCheck = checkBox("Enable tools (read, search, edit, run commands)").component
+        }
+        row {
+            autoApproveCheck = checkBox("Trusted mode: auto-approve file edits (commands always ask)").component
+        }
     }
 
     private fun overridesText(map: Map<String, String>): String =
@@ -86,7 +94,9 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             claudeCliPathField.text.trim() != s.claudeCliPath.orEmpty().trim() ||
             claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() } != s.claudeModels ||
             runCatching { parseOverrides(overridesArea.text) }.getOrNull() != s.toolPathOverrides ||
-            TokenCount.parse(autoCompactField.text) != s.autoCompactTokens
+            TokenCount.parse(autoCompactField.text) != s.autoCompactTokens ||
+            toolsEnabledCheck.isSelected != s.toolsEnabled ||
+            autoApproveCheck.isSelected != s.autoApproveEdits
     }
 
     override fun reset() {
@@ -100,6 +110,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         claudeModelsArea.text = s.claudeModels.joinToString("\n")
         overridesArea.text = overridesText(s.toolPathOverrides)
         autoCompactField.text = TokenCount.format(s.autoCompactTokens)
+        toolsEnabledCheck.isSelected = s.toolsEnabled
+        autoApproveCheck.isSelected = s.autoApproveEdits
     }
 
     override fun apply() {
@@ -127,6 +139,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         s.claudeModels = claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
         s.toolPathOverrides = overrides.toMutableMap()
         s.autoCompactTokens = autoCompact
+        s.toolsEnabled = toolsEnabledCheck.isSelected
+        s.autoApproveEdits = autoApproveCheck.isSelected
 
         val key = String(apiKeyField.password)
         if (key.isNotEmpty()) {

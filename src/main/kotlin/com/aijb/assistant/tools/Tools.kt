@@ -12,10 +12,16 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+sealed interface ToolPreview {
+    data class FileChange(val path: String, val before: String?, val after: String) : ToolPreview
+    data class Command(val command: String, val cwd: String) : ToolPreview
+}
+
 interface Tool {
     val spec: ToolSpec
     val requiresApproval: Boolean
-    suspend fun execute(arguments: JsonObject): String
+    suspend fun preview(arguments: JsonObject): ToolPreview? = null
+    suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String
 }
 
 class ToolRegistry(tools: List<Tool>) {

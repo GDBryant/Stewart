@@ -19,6 +19,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (built
 
 ## References
 - Plan: `docs/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.
+- Progress: `docs/PROGRESS.md` — milestone status table; update on every milestone commit.
 - Compatibility: `docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
 - Claude feasibility: `docs/CLAUDE_FEASIBILITY.md` — M1 gate for the Claude Code CLI transport.
 - Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.

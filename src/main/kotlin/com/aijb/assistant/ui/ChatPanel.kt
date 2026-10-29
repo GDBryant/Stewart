@@ -202,7 +202,8 @@ class ChatPanel @JvmOverloads constructor(
         }
         inputArea.text = ""
         addMessage("user", text)
-        val deltaArea = addMessage("assistant", "")
+        var deltaArea: JTextArea? = addMessage("assistant", "")
+        val toolAreas = mutableMapOf<String, Pair<JTextArea, String>>()
         val reply = StringBuilder()
         sendButton.text = "Stop"
         statusLabel.text = " "
@@ -211,7 +212,34 @@ class ChatPanel @JvmOverloads constructor(
         session.send(text, info.ref, object : ChatListener {
             override fun onDelta(text: String) {
                 reply.append(text)
-                deltaArea.text = "assistant: $reply"
+                if (deltaArea == null) deltaArea = addMessage("assistant", "")
+                deltaArea!!.text = "assistant: $reply"
+                refreshMessages()
+            }
+
+            override fun onToolRequested(call: com.aijb.assistant.provider.ToolCall) {
+                val args = call.arguments.toString().let {
+                    if (it.length > 200) it.take(200) + "…" else it
+                }
+                toolAreas[call.id] = addMessage("tool", "${call.name} $args") to args
+                deltaArea = null
+                reply.setLength(0)
+            }
+
+            override fun onToolOutcome(
+                call: com.aijb.assistant.provider.ToolCall,
+                outcome: com.aijb.assistant.tools.ToolOutcome,
+            ) {
+                val result = when (outcome) {
+                    is com.aijb.assistant.tools.ToolOutcome.Success -> outcome.content.take(2000)
+                    is com.aijb.assistant.tools.ToolOutcome.Rejected -> "Rejected: ${outcome.reason}"
+                    is com.aijb.assistant.tools.ToolOutcome.Failure -> "Failed: ${outcome.message}"
+                    is com.aijb.assistant.tools.ToolOutcome.Invalid -> "Invalid: ${outcome.reason}"
+                    is com.aijb.assistant.tools.ToolOutcome.Uncertain -> "Uncertain: ${outcome.reason}"
+                }
+                toolAreas[call.id]?.let { (area, args) ->
+                    area.text = "tool: ${call.name} $args\n$result"
+                }
                 refreshMessages()
             }
 

@@ -17,7 +17,7 @@ class ToolRegistryTest {
     private fun reg(schema: JsonObject) = ToolRegistry(listOf(object : Tool {
         override val spec = ToolSpec("t", "d", schema)
         override val requiresApproval = false
-        override suspend fun execute(arguments: JsonObject) = "x"
+        override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?) = "x"
     }))
 
     private fun schema(props: Map<String, JsonObject>, required: List<String> = emptyList(), closed: Boolean = false) =

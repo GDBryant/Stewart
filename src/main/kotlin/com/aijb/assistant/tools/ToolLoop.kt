@@ -24,7 +24,7 @@ sealed interface ApprovalDecision {
 }
 
 fun interface ApprovalGate {
-    suspend fun review(call: ToolCall): ApprovalDecision
+    suspend fun review(call: ToolCall, preview: ToolPreview?): ApprovalDecision
 }
 
 sealed interface ToolOutcome {
@@ -82,10 +82,15 @@ class ToolLoop(
     private val rolePrompt: String? = null,
 ) {
 
-    suspend fun run(model: String, history: List<ChatMessage>, listener: LoopListener): LoopResult {
+    suspend fun run(
+        model: String,
+        history: List<ChatMessage>,
+        listener: LoopListener,
+        lastPromptTokens: Int? = null,
+    ): LoopResult {
         val produced = mutableListOf<ChatMessage>()
         var base: List<ChatMessage> = history
-        var lastPromptTokens: Int? = null
+        var lastPromptTokens: Int? = lastPromptTokens
         var turns = 0
         while (true) {
             if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced, base)
@@ -176,14 +181,22 @@ class ToolLoop(
                     ToolOutcome.Invalid(invalid)
                 } else {
                     val tool = registry.find(call.name)!!
+                    var preview: ToolPreview? = null
                     if (tool.requiresApproval) {
-                        val decision = approval.review(call)
+                        preview = try {
+                            tool.preview(call.arguments)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            return finishOutcome(call, ToolOutcome.Failure(e.message ?: "preview failed"), listener)
+                        }
+                        val decision = approval.review(call, preview)
                         if (decision is ApprovalDecision.Rejected) {
                             return finishOutcome(call, ToolOutcome.Rejected(decision.reason), listener)
                         }
                     }
                     try {
-                        val out = withTimeout(limits.toolTimeout) { tool.execute(call.arguments) }
+                        val out = withTimeout(limits.toolTimeout) { tool.execute(call.arguments, preview) }
                         ToolOutcome.Success(
                             if (out.length > limits.maxToolOutputChars) {
                                 out.take(limits.maxToolOutputChars) + "\n[output truncated]"

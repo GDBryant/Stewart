@@ -46,7 +46,7 @@ class ToolLoopTest {
     ) = object : Tool {
         override val spec = ToolSpec(name, "d", schema)
         override val requiresApproval = approval
-        override suspend fun execute(arguments: JsonObject) = run(arguments)
+        override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?) = run(arguments)
     }
 
     private class Fake(vararg val evs: ProviderEvent) : ModelProvider {
@@ -58,8 +58,8 @@ class ToolLoopTest {
         }
     }
 
-    private fun approve() = ApprovalGate { ApprovalDecision.Approved }
-    private fun deny() = ApprovalGate { ApprovalDecision.Rejected("no") }
+    private fun approve() = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+    private fun deny() = ApprovalGate { _, _ -> ApprovalDecision.Rejected("no") }
 
     private fun call(name: String = "t", id: String = "c1", args: JsonObject = JsonObject(emptyMap())) =
         ToolCall(id, name, args)
@@ -210,7 +210,7 @@ class ToolLoopTest {
         val t = tool("t", approval = true) { "x" }
         run(
             ProviderEvent.ToolCalls(listOf(call(args = args))), ProviderEvent.Completed("tool_calls", null),
-            tools = listOf(t), gate = ApprovalGate { reviewed = it.arguments; ApprovalDecision.Approved })
+            tools = listOf(t), gate = ApprovalGate { c, _ -> reviewed = c.arguments; ApprovalDecision.Approved })
         assertTrue(reviewed === args)
     }
 
@@ -252,7 +252,7 @@ class ToolLoopTest {
     fun `no approval tool runs without gate`() {
         var gateCalled = false
         run(ProviderEvent.ToolCalls(listOf(call())), ProviderEvent.Completed("tool_calls", null),
-            tools = listOf(tool(approval = false)), gate = ApprovalGate { gateCalled = true; ApprovalDecision.Approved })
+            tools = listOf(tool(approval = false)), gate = ApprovalGate { _, _ -> gateCalled = true; ApprovalDecision.Approved })
         assertTrue(!gateCalled)
     }
 
@@ -336,6 +336,32 @@ class ToolLoopTest {
         override fun onCompactionFailed(message: String) {
             compactionFailures += message
         }
+    }
+
+    @Test
+    fun `preview exception fails without approval`() {
+        var reviews = 0
+        var outcome: ToolOutcome? = null
+        val t = object : Tool {
+            override val spec = spec("t")
+            override val requiresApproval = true
+            override suspend fun preview(arguments: JsonObject): com.aijb.assistant.tools.ToolPreview? {
+                throw IllegalStateException("bad args")
+            }
+            override suspend fun execute(
+                arguments: JsonObject,
+                preview: com.aijb.assistant.tools.ToolPreview?,
+            ) = "ok"
+        }
+        run(
+            ProviderEvent.ToolCalls(listOf(call())), ProviderEvent.Completed("tool_calls", null),
+            tools = listOf(t),
+            gate = ApprovalGate { _, _ -> reviews++; ApprovalDecision.Approved },
+            listener = object : LoopListener {
+                override fun onToolOutcome(call: ToolCall, o: ToolOutcome) { outcome = o }
+            })
+        assertEquals(0, reviews)
+        assertTrue(outcome is ToolOutcome.Failure)
     }
 
     private fun bigHistory(n: Int): List<ChatMessage> =

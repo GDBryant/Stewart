@@ -32,7 +32,9 @@ class ChatPanelTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         scope = CoroutineScope(SupervisorJob())
-        session = ChatSession(project, scope)
+        session = ChatSession(project, scope).also {
+            it.tools = { com.aijb.assistant.tools.ToolRegistry(emptyList()) }
+        }
         AijbSettings.getInstance().loadState(AijbSettings.State())
     }
 
@@ -422,6 +424,39 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.inputArea.text = "hi"
         panel.sendButton.doClick()
         assertTrue(pumpUntil { panel.statusLabel.text == "Done · compaction failed" })
+    }
+
+    fun `test tool call renders area and outcome`() {
+        val tool = object : com.aijb.assistant.tools.Tool {
+            override val spec = com.aijb.assistant.provider.ToolSpec("t", "d", kotlinx.serialization.json.JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: kotlinx.serialization.json.JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String = "TOOL-OUT"
+        }
+        session.tools = { com.aijb.assistant.tools.ToolRegistry(listOf(tool)) }
+        val provider = object : ModelProvider {
+            override val id = "fake"
+            var calls = 0
+            override suspend fun listModels(): List<ModelInfo> = listOf(ModelInfo(ModelRef(id, "m1"), "m1"))
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+                return flow {
+                    if (calls++ == 0) {
+                        emit(ProviderEvent.NativeToolCalls(listOf(
+                            com.aijb.assistant.provider.RawToolCall("c1", "t", "{}"))))
+                        emit(ProviderEvent.Completed("tool_calls", null))
+                    } else {
+                        emit(ProviderEvent.TextDelta("final answer"))
+                        emit(ProviderEvent.Completed("stop", null))
+                    }
+                }
+            }
+        }
+        val panel = newPanel(provider)
+        panel.inputArea.text = "hi"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Done" })
+        val texts = panel.messageAreas().map { it.text }
+        assertTrue(texts.any { it.startsWith("tool: t") && it.contains("TOOL-OUT") })
+        assertEquals("assistant: final answer", texts.last())
     }
 
     fun `test roles button builds roles panel`() {

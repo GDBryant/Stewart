@@ -30,6 +30,8 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
         var executorModel by string()
         var workerModel by string()
         var autoCompactTokens by property(80000)
+        var autoApproveEdits by property(false)
+        var toolsEnabled by property(true)
     }
 
     val effectiveClaudeModels: List<String>

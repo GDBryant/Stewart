@@ -54,7 +54,7 @@ class ShimE2ETest {
         val tool = object : Tool {
             override val spec = ToolSpec("get_magic_number", "d", JsonObject(emptyMap()))
             override val requiresApproval = false
-            override suspend fun execute(arguments: JsonObject): String {
+            override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
                 ran++
                 return "42"
             }
@@ -62,7 +62,7 @@ class ShimE2ETest {
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1", listOf("m"), { "test-api-key" },
             java.net.http.HttpClient.newHttpClient())
         val loop = ToolLoop(ToolCallingProvider(aif, ToolPath.SHIM), ToolRegistry(listOf(tool)),
-            ApprovalGate { ApprovalDecision.Approved })
+            ApprovalGate { _, _ -> ApprovalDecision.Approved })
         val result = loop.run("m", listOf(ChatMessage(Role.USER, "go")), object : com.aijb.assistant.tools.LoopListener {})
         assertEquals(1, ran)
         assertTrue(result is LoopResult.Completed)

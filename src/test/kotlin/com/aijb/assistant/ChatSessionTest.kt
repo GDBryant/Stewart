@@ -12,6 +12,15 @@ import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ProviderEvent
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.Usage
+import com.aijb.assistant.provider.ToolCall
+import com.aijb.assistant.provider.ToolSpec
+import com.aijb.assistant.tools.ApprovalDecision
+import com.aijb.assistant.tools.ApprovalGate
+import com.aijb.assistant.tools.Tool
+import com.aijb.assistant.tools.ToolOutcome
+import com.aijb.assistant.tools.ToolPreview
+import com.aijb.assistant.tools.ToolRegistry
+import kotlinx.serialization.json.JsonObject
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.util.concurrent.CountDownLatch
@@ -57,6 +66,17 @@ class ChatSessionTest : BasePlatformTestCase() {
             compactionFailures += message
         }
 
+        val toolCalls = mutableListOf<String>()
+        val toolOutcomes = mutableListOf<ToolOutcome>()
+
+        override fun onToolRequested(call: ToolCall) {
+            toolCalls += call.name
+        }
+
+        override fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {
+            toolOutcomes += outcome
+        }
+
         override fun onDelta(text: String) {
             deltas.append(text)
         }
@@ -83,6 +103,9 @@ class ChatSessionTest : BasePlatformTestCase() {
         }
     }
 
+    private fun newSession(): ChatSession =
+        ChatSession(project, scope).also { it.tools = { ToolRegistry(emptyList()) } }
+
     private fun pumpUntil(latch: CountDownLatch, timeoutMs: Long = 10_000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -93,7 +116,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test completed turn appends user and assistant`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(fakeProvider("fake",
             ProviderEvent.TextDelta("he"),
             ProviderEvent.TextDelta("llo"),
@@ -112,7 +135,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test cancel mid stream does not append assistant`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(object : ModelProvider {
             override val id = "fake"
             override suspend fun listModels(): List<ModelInfo> = emptyList()
@@ -136,7 +159,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test failure does not append assistant`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(fakeProvider("fake",
             ProviderEvent.TextDelta("partial"),
             ProviderEvent.Failed("boom"),
@@ -149,7 +172,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test send while active cancels previous job`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(object : ModelProvider {
             override val id = "fake"
             override suspend fun listModels(): List<ModelInfo> = emptyList()
@@ -176,7 +199,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test transcript snapshot is immutable`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(fakeProvider("fake",
             ProviderEvent.TextDelta("x"),
             ProviderEvent.Completed("stop", null),
@@ -191,7 +214,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test completed with empty reply appends nothing`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(fakeProvider("fake", ProviderEvent.Completed("stop", null))) }
         val listener = RecordingListener()
         session.send("hi", ModelRef("fake", "m"), listener)
@@ -200,7 +223,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test provider exception leaves transcript with user only`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(object : ModelProvider {
             override val id = "fake"
             override suspend fun listModels(): List<ModelInfo> = emptyList()
@@ -215,7 +238,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test send routes to provider by ref`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         val used = mutableListOf<String>()
         fun recording(id: String) = object : ModelProvider {
             override val id = id
@@ -233,7 +256,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test unknown provider fails without reply`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.providers = { listOf(fakeProvider("fake", ProviderEvent.Completed("stop", null))) }
         val listener = RecordingListener()
         session.send("hi", ModelRef("ghost", "m"), listener)
@@ -275,7 +298,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test compaction replaces transcript and request uses compacted history`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.autoCompactTokens = { 100_000 }
         seedTranscript(session)
         session.autoCompactTokens = { 1 }
@@ -301,7 +324,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test compaction failure keeps full history and notifies`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.autoCompactTokens = { 100_000 }
         seedTranscript(session)
         session.autoCompactTokens = { 1 }
@@ -319,7 +342,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test last prompt tokens triggers compaction on next send`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.autoCompactTokens = { 100_000 }
         seedTranscript(session)
         val provider = summaryAware(
@@ -340,7 +363,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test multi model injects planner prompt not stored`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.multiModel = { true }
         val provider = summaryAware(
             emptyList(),
@@ -357,7 +380,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test single model sends no role prompt`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.multiModel = { false }
         val provider = summaryAware(
             emptyList(),
@@ -373,7 +396,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test role prompt not in compaction summary request`() {
-        val session = ChatSession(project, scope)
+        val session = newSession()
         session.autoCompactTokens = { 100_000 }
         seedTranscript(session)
         session.autoCompactTokens = { 1 }
@@ -394,6 +417,72 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(Role.SYSTEM, provider.requests[1].messages[0].role)
         assertEquals(RolePrompts.forRole(AgentRole.PLANNER),
             provider.requests[1].messages[0].content)
+    }
+
+    private fun scripted(id: String = "fake", vararg responses: List<ProviderEvent>) =
+        object : ModelProvider {
+            override val id = id
+            val requests = mutableListOf<ChatRequest>()
+            var calls = 0
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+                requests += request
+                val evs = responses.getOrElse(calls++) { listOf(ProviderEvent.Completed("stop", null)) }
+                return flow { evs.forEach { emit(it) } }
+            }
+        }
+
+    private fun fakeTool(name: String = "t", result: String = "T-RESULT", onRun: () -> Unit = {}) =
+        object : Tool {
+            override val spec = ToolSpec(name, "d", JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String {
+                onRun()
+                return result
+            }
+        }
+
+    fun `test tool call executes and result fed back`() {
+        val session = newSession()
+        session.tools = { ToolRegistry(listOf(fakeTool())) }
+        session.approval = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+        val provider = scripted("fake",
+            listOf(
+                ProviderEvent.NativeToolCalls(listOf(
+                    com.aijb.assistant.provider.RawToolCall("c1", "t", "{}"))),
+                ProviderEvent.Completed("tool_calls", null),
+            ),
+            listOf(ProviderEvent.TextDelta("ans"), ProviderEvent.Completed("stop", null)),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(listOf("t"), listener.toolCalls)
+        assertTrue(listener.toolOutcomes.any { it is ToolOutcome.Success })
+        assertTrue(session.transcript.any { it.role == Role.TOOL && it.content == "T-RESULT" })
+        assertEquals(2, provider.requests.size)
+        assertTrue(provider.requests[1].messages.any { it.content.contains("T-RESULT") })
+    }
+
+    fun `test turn limit fails with message`() {
+        val session = newSession()
+        session.tools = { ToolRegistry(listOf(fakeTool())) }
+        session.approval = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+        val provider = scripted("fake",
+            *(1..30).map {
+                listOf<ProviderEvent>(
+                    ProviderEvent.NativeToolCalls(listOf(
+                        com.aijb.assistant.provider.RawToolCall("c$it", "t", "{}"))),
+                    ProviderEvent.Completed("tool_calls", null),
+                )
+            }.toTypedArray(),
+        )
+        session.providers = { listOf(provider) }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals("Stopped: tool-turn limit reached (25)", listener.failure)
     }
 
     private fun runUntilIdle(cond: () -> Boolean) {

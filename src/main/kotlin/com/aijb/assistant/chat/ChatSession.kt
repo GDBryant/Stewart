@@ -3,26 +3,36 @@ package com.aijb.assistant.chat
 import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.agents.RolePrompts
 import com.aijb.assistant.provider.ChatMessage
-import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelProvider
 import com.aijb.assistant.provider.ModelRef
-import com.aijb.assistant.provider.ProviderEvent
 import com.aijb.assistant.provider.ProviderRegistry
 import com.aijb.assistant.provider.Role
+import com.aijb.assistant.provider.ToolCall
 import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
+import com.aijb.assistant.settings.ToolPathResolver
+import com.aijb.assistant.shim.ToolCallingProvider
+import com.aijb.assistant.tools.ApprovalGate
+import com.aijb.assistant.tools.LoopLimits
+import com.aijb.assistant.tools.LoopListener
+import com.aijb.assistant.tools.LoopResult
+import com.aijb.assistant.tools.ProjectTools
+import com.aijb.assistant.tools.ToolLoop
+import com.aijb.assistant.tools.ToolOutcome
+import com.aijb.assistant.tools.ToolRegistry
+import com.aijb.assistant.ui.IdeApprovalGate
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 interface ChatListener {
     fun onDelta(text: String)
@@ -31,6 +41,8 @@ interface ChatListener {
     fun onCancelled()
     fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
     fun onCompactionFailed(message: String) {}
+    fun onToolRequested(call: ToolCall) {}
+    fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
 }
 
 @Service(Service.Level.PROJECT)
@@ -42,6 +54,14 @@ class ChatSession(
     var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
     var autoCompactTokens: () -> Int = { AijbSettings.getInstance().state.autoCompactTokens }
     var multiModel: () -> Boolean = { AijbSettings.getInstance().state.multiModel }
+    var toolPathOverrides: () -> Map<String, String> = {
+        AijbSettings.getInstance().state.toolPathOverrides
+    }
+    var tools: () -> ToolRegistry = {
+        ProjectTools.registry(project, AijbSettings.getInstance().state.toolsEnabled)
+    }
+    var approval: ApprovalGate = IdeApprovalGate(project,
+        { AijbSettings.getInstance().state.autoApproveEdits })
     internal var compactor = ContextCompactor()
 
     private var lastPromptTokens: Int? = null
@@ -53,6 +73,10 @@ class ChatSession(
     val transcript: List<ChatMessage>
         get() = synchronized(lock) { transcriptBacking.toList() }
 
+    private fun toEdt(block: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater({ block() }, ModalityState.any())
+    }
+
     fun send(text: String, ref: ModelRef, listener: ChatListener): Job {
         val newJob: Job
         synchronized(lock) {
@@ -61,60 +85,82 @@ class ChatSession(
             val history = transcriptBacking.toList()
             newJob = cs.launch {
                 val thisJob = coroutineContext.job
-                val reply = StringBuilder()
-                var completed = false
                 try {
                     val provider = providers().firstOrNull { it.id == ref.providerId }
                     if (provider == null) {
-                        withContext(Dispatchers.EDT) {
-                            listener.onFailed("Provider not configured: ${ref.providerId}")
-                        }
+                        toEdt { listener.onFailed("Provider not configured: ${ref.providerId}") }
                         return@launch
                     }
-                    var requestHistory = history
-                    val compaction = compactor.compactIfNeeded(
-                        provider, ref.modelId, history, autoCompactTokens(), lastPromptTokens)
-                    if (compaction.error != null) {
-                        withContext(Dispatchers.EDT) { listener.onCompactionFailed(compaction.error!!) }
-                    } else if (compaction.compacted) {
-                        synchronized(lock) {
-                            transcriptBacking.clear()
-                            transcriptBacking.addAll(compaction.messages)
-                        }
-                        requestHistory = compaction.messages
-                        lastPromptTokens = null
-                        withContext(Dispatchers.EDT) {
-                            listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
-                        }
+                    val wrapped = ToolCallingProvider(
+                        provider, ToolPathResolver.resolve(ref, provider, toolPathOverrides()))
+                    val loopListener = object : LoopListener {
+                        override fun onText(text: String) = toEdt { listener.onDelta(text) }
+                        override fun onToolRequested(call: ToolCall) =
+                            toEdt { listener.onToolRequested(call) }
+                        override fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) =
+                            toEdt { listener.onToolOutcome(call, outcome) }
+                        override fun onCompacted(beforeTokens: Int, afterTokens: Int) =
+                            toEdt { listener.onCompacted(beforeTokens, afterTokens) }
+                        override fun onCompactionFailed(message: String) =
+                            toEdt { listener.onCompactionFailed(message) }
                     }
-                    val outbound = if (multiModel()) {
-                        listOf(ChatMessage(Role.SYSTEM, RolePrompts.forRole(AgentRole.PLANNER))) + requestHistory
-                    } else {
-                        requestHistory
-                    }
-                    provider.chat(ChatRequest(ref.modelId, outbound)).collect { event ->
-                        when (event) {
-                            is ProviderEvent.TextDelta -> {
-                                reply.append(event.text)
-                                withContext(Dispatchers.EDT) { listener.onDelta(event.text) }
+                    val loop = ToolLoop(
+                        wrapped, tools(), approval,
+                        LoopLimits(
+                            maxModelTurns = 25,
+                            toolTimeout = 120.seconds,
+                            compactAtTokens = autoCompactTokens(),
+                        ),
+                        compactor,
+                        rolePrompt = if (multiModel()) {
+                            RolePrompts.forRole(AgentRole.PLANNER)
+                        } else {
+                            null
+                        },
+                    )
+                    val result = loop.run(ref.modelId, history, loopListener, lastPromptTokens)
+                    when (result) {
+                        is LoopResult.Completed -> {
+                            var t = result.transcript
+                            t.lastOrNull()?.let {
+                                if (it.role == Role.ASSISTANT && it.content.isBlank() && it.toolCalls.isEmpty()) {
+                                    t = t.dropLast(1)
+                                }
                             }
-                            is ProviderEvent.Completed -> {
-                                completed = true
-                                lastPromptTokens = event.usage?.promptTokens
-                                withContext(Dispatchers.EDT) { listener.onCompleted(event.usage) }
+                            synchronized(lock) {
+                                if (activeJob === thisJob) {
+                                    transcriptBacking.clear()
+                                    transcriptBacking.addAll(t)
+                                }
                             }
-                            is ProviderEvent.Failed ->
-                                withContext(Dispatchers.EDT) { listener.onFailed(event.message) }
-                            else -> {}
+                            lastPromptTokens = result.usage?.promptTokens
+                            toEdt { listener.onCompleted(result.usage) }
+                        }
+                        is LoopResult.Failed -> {
+                            synchronized(lock) {
+                                if (activeJob === thisJob) {
+                                    transcriptBacking.clear()
+                                    transcriptBacking.addAll(result.transcript)
+                                }
+                            }
+                            toEdt { listener.onFailed(result.message) }
+                        }
+                        is LoopResult.TurnLimitReached -> {
+                            synchronized(lock) {
+                                if (activeJob === thisJob) {
+                                    transcriptBacking.clear()
+                                    transcriptBacking.addAll(result.transcript)
+                                }
+                            }
+                            toEdt { listener.onFailed("Stopped: tool-turn limit reached (25)") }
                         }
                     }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    withContext(NonCancellable + Dispatchers.EDT) { listener.onCancelled() }
+                } catch (e: CancellationException) {
+                    toEdt { listener.onCancelled() }
                     throw e
+                } catch (e: Throwable) {
+                    toEdt { listener.onFailed(e.message ?: "error") }
                 } finally {
-                    if (completed && reply.isNotEmpty()) {
-                        synchronized(lock) { transcriptBacking.add(ChatMessage(Role.ASSISTANT, reply.toString())) }
-                    }
                     synchronized(lock) {
                         if (activeJob === thisJob) activeJob = null
                     }

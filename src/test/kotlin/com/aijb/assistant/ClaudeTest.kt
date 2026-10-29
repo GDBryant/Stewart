@@ -260,7 +260,7 @@ class ClaudeProviderTest {
         val tool = object : Tool {
             override val spec = ToolSpec("get_key", "d", JsonObject(emptyMap()))
             override val requiresApproval = false
-            override suspend fun execute(arguments: JsonObject): String {
+            override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
                 ran++
                 return "k-7"
             }
@@ -269,7 +269,7 @@ class ClaudeProviderTest {
         val claude = ClaudeProvider(cliPath = fake, extraEnv = mapOf(
             "FAKE_RECORD" to recDir.absolutePath, "FAKE_FIXTURE_DIR" to fixDir.absolutePath))
         val loop = ToolLoop(ToolCallingProvider(claude, ToolPath.SHIM),
-            ToolRegistry(listOf(tool)), ApprovalGate { ApprovalDecision.Approved })
+            ToolRegistry(listOf(tool)), ApprovalGate { _, _ -> ApprovalDecision.Approved })
         val result = loop.run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
         assertEquals(1, ran)
         assertTrue(result is LoopResult.Completed)

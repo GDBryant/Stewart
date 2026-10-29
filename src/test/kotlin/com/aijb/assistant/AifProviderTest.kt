@@ -9,6 +9,7 @@ import com.aijb.assistant.provider.ToolChoice
 import com.aijb.assistant.provider.ToolSpec
 import com.aijb.assistant.provider.aif.AifProvider
 import com.aijb.assistant.provider.aif.AifUrls
+import com.aijb.assistant.shim.ToolCallingProvider
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
@@ -19,6 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
@@ -112,6 +114,52 @@ class AifProviderTest {
         assertEquals("read_file", native.calls[0].name)
         assertEquals("c1", native.calls[0].id)
         assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `native route completes with tool calls`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}}]}}]}\n" +
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\ndata: [DONE]\n")
+        val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
+            listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(),
+            nativeToolsConfirmed = { true })
+        val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
+            "properties" to JsonObject(emptyMap()))))
+        val events = mutableListOf<ProviderEvent>()
+        ToolCallingProvider(aif, com.aijb.assistant.provider.ToolPath.NATIVE)
+            .chat(req().copy(tools = listOf(spec))).collect { events.add(it) }
+        val calls = events.filterIsInstance<ProviderEvent.ToolCalls>().single().calls
+        assertEquals("read_file", calls[0].name)
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `native route malformed call fails`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"mystery\",\"arguments\":\"{}\"}}]}}]}\n" +
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\ndata: [DONE]\n")
+        val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
+            listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(),
+            nativeToolsConfirmed = { true })
+        val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
+            "properties" to JsonObject(emptyMap()))))
+        val events = mutableListOf<ProviderEvent>()
+        ToolCallingProvider(aif, com.aijb.assistant.provider.ToolPath.NATIVE)
+            .chat(req().copy(tools = listOf(spec))).collect { events.add(it) }
+        val last = events.last()
+        assertTrue(last is ProviderEvent.Failed && last.code == "invalid_tool_call")
+    }
+
+    @Test
+    fun `native route denied without confirmed support`() = runBlocking {
+        val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
+            listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient())
+        val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
+            "properties" to JsonObject(emptyMap()))))
+        val events = mutableListOf<ProviderEvent>()
+        ToolCallingProvider(aif, com.aijb.assistant.provider.ToolPath.NATIVE)
+            .chat(req().copy(tools = listOf(spec))).collect { events.add(it) }
+        val last = events.last()
+        assertTrue(last is ProviderEvent.Failed && last.code == "native_tools_unsupported")
     }
 
     @Test

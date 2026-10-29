@@ -34,7 +34,7 @@ ToolWindow (chat UI, model picker, mode toggle, approval gates)
 Threading: Kotlin coroutines; network/subprocess work off the EDT; UI updates on the EDT; every call carries a cancellable `Job` from M1.
 
 ### Execution contract
-- Providers normalise text deltas, complete tool calls, completion status, usage and errors; `ToolLoop` owns tool execution. Freeze the selected ModelRef and native/shim path for each turn. Unknown tool capability uses the shim; never switch paths or replay actions midway through a turn.
+- Providers normalise text deltas, complete tool calls, completion status, usage and errors; `ToolLoop` owns tool execution on both native and shim paths. Freeze the selected ModelRef and native/shim path for each turn. Unknown tool capability uses the shim; never switch paths or replay actions midway through a turn.
 - Validate registered tool names and schemas after repair. Execute only after successful response completion; incomplete streams, truncation, filtering and cancellation never release buffered calls. Preserve call IDs and return success, rejection or failure against the originating call; do not ingest both partial and final CLI text twice.
 - Approval binds to the exact normalised arguments, command/cwd or diff. Revalidate paths and file versions before applying edits; changed content requires a fresh preview. File tools stay within approved project roots, resolving symlinks; commands always require explicit approval and are not a filesystem sandbox.
 - Bound model turns, retries, tool duration/output and context size. Stop with an actionable result on exhaustion. Never automatically replay an edit or command after execution starts or its outcome becomes uncertain. Start with serial tool execution and one active worker per project.
@@ -43,10 +43,10 @@ Threading: Kotlin coroutines; network/subprocess work off the EDT; UI updates on
 | Provider | Path |
 |---|---|
 | Ollama | Native `tools` for models that support it; shim for models that don't |
-| AIF | Shim (default on) until upstream function calling works |
+| AIF | Native tools for models with confirmed support; shim for models without confirmed support or explicitly configured to use it |
 | Claude CLI | Built-in tools disabled with `--tools ""`; isolated CLI configuration; our tools via shim text (M1 feasibility gate, M3 integration) |
 
-Native/shim routing is a per-provider/per-model capability setting, with an explicit override; it is not AIF-specific.
+Native/shim routing is a per-provider/per-model capability setting, with an explicit override; it is not AIF-specific. Native AIF tool calls are data, not permission for the provider to execute anything: the plugin intercepts complete calls, validates names and arguments, previews changes, asks for approval where required and executes only through `ToolLoop`. Malformed or incomplete native calls fail closed. If native calling fails, report the failure without executing buffered calls; the user can select the shim for a subsequent turn after confirming no side effects occurred. Never silently replay or switch paths in the same turn.
 
 ### Three agent levels
 | Level | Name | Responsibility | Default model |
@@ -60,14 +60,14 @@ Multi-model mode = each level has its own ModelRef in settings. Single-model mod
 In multi-model mode every request carries a role system prompt (`RolePrompts`, per request, never stored or compacted) describing the three roles and telling the model to hand work down to a lower role where it can.
 
 ### Tool-call shim (ported from aif_shim)
-The AIF proxy drops `tools` and returns tool calls as plain text. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop`, enabled by default for AIF — no external Python process.
+Some AIF models may lack reliable native tool calling or return tool calls as plain text. The shim is a Kotlin port of `/srv/compose/aif_shim` (`parser.py`, `translate.py`), sitting between providers and the `ToolLoop` as an explicit per-model alternative — no external Python process.
 
 - **Request side** (`prepare_request`): inject tool schemas into the system prompt inside `<tools>` with `<tool_call>` instructions (GLM-family models get `<call>` — their own `<tool_call>` token is swallowed upstream); rewrite assistant `tool_calls` history and `tool`-role messages into the same text format; merge adjacent same-role messages.
 - **Response side** (`parse_tool_calls`): extract `<tool_call>` / `<call>` / `<function=NAME>` / GLM `arg_key/arg_value` blocks into OpenAI `tool_calls`; strip `<think>` into `reasoning_content`; best-effort JSON repair (unescaped quotes, bare values, missing closers); schema-driven argument coercion; alias normalisation mapped to our tool names (invented `bash`/`execute_command`/`run_commands` → `RunTerminal`, etc.); text emitted alongside calls is kept and shown (aif_shim's drop/relegate mode is a Cline workaround and is not ported).
 - **Streaming**: buffer chunks that could start a call tag so raw markup never flashes in the UI; emit text only once it's safe; repair streamed native `tool_calls` deltas as a whole.
 - **Policy**: nudge-retry once when a tool-offered turn ends with no call and only an announcement ("Let me check ..."); surface an `empty_turn` error instead of a silent stop; withhold calls on `finish_reason` `length`/`content_filter`; never repair an unterminated JSON string into a runnable call (fail closed). Parsing is not authorisation: calls must pass the execution contract, and quoted examples or tool-result content must not become executable calls.
 - **Parity**: port `tests/` fixtures from aif_shim verbatim — each parser case keeps the exact text seen in the wild. New formats observed get added to the Kotlin parser with a verbatim test, same rule as aif_shim's `docs/skills/tool-call-format`. Record the Python source revision or content hashes and intentional Kotlin differences alongside the fixtures.
-- **Override**: per-provider/per-model native/shim selection; native mode requires confirmed tool support. Keep text-only chat available when tools are disabled.
+- **Override**: per-provider/per-model native/shim selection; native mode requires confirmed tool support. A failure on the native path is surfaced, not silently retried through the shim; a later turn can use an explicit shim override. Keep text-only chat available when tools are disabled.
 
 ### Model selection
 - Picker in chat header lists Ollama models (live from `/api/tags`) + configured Claude and AIF models.
@@ -109,6 +109,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Port `prepare_request` (tool injection, history rewrite, message merge, per-model call tag).
 - Port `parse_tool_calls` + JSON repair + coercion + alias normalisation to our tool names, with the aif_shim test corpus ported verbatim.
 - Streaming tag-buffering and `tool_calls` delta repair (`StreamTranslator`, `NativeCallCollector` equivalents).
+- Confirm AIF native support per model with complete streamed tool-call fixtures; test native requests, call/result correlation, invalid or interrupted calls, approval rejection and explicit shim selection after a native failure. Neither path may bypass `ToolLoop` or execute a buffered call before successful completion.
 - Retry nudge, `empty_turn` error, finish-reason policy, `tool_choice`/`parallel_tool_calls` validation.
 - Test chunk boundaries, interrupted/truncated streams, native versus shim routing, quoted call examples and loop limits; no tool runs before successful completion.
 - Done when: ported aif_shim fixtures pass; an AIF model drives the fake tool through the loop end to end.
@@ -128,7 +129,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Write/patch with diff preview + Approve/Reject. Recheck document versions and apply through undoable WriteCommandAction; handle unsaved editor buffers.
 - Command run via `GeneralCommandLine`/`OSProcessHandler` with captured output and approval gate; output displayed in the plugin, optionally mirrored to the IDE terminal (optional dependency).
 - Enforce project-root/symlink boundaries for file tools; test rejection, stale previews, cancellation, process cleanup and output limits. Resolve index-dependent search correctly during IDE indexing.
-- Done when: each provider path (native, shim, Claude CLI) reads, edits with approval and runs a command with approval.
+- Done when: AIF native, AIF shim and Claude CLI paths each read, edit with approval and run a command with approval; native errors remain intercepted and do not trigger unapproved execution or an implicit shim retry.
 
 ### 6. Three-level orchestrator
 - Structured JSON messages (plan/task/result) between levels; single-model mode; role badges in chat.

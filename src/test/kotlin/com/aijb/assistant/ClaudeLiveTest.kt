@@ -38,7 +38,7 @@ class ClaudeLiveTest {
         val getKey = object : Tool {
             override val spec = ToolSpec("get_secret_key", "Return the secret key", JsonObject(emptyMap()))
             override val requiresApproval = false
-            override suspend fun execute(arguments: JsonObject): String {
+            override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
                 order.add("get_secret_key")
                 return "k-7"
             }
@@ -49,7 +49,7 @@ class ClaudeLiveTest {
                 "properties" to JsonObject(mapOf("key" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
                 "required" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("key"))))))
             override val requiresApproval = false
-            override suspend fun execute(arguments: JsonObject): String {
+            override suspend fun execute(arguments: JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
                 order.add("lookup_value")
                 lookupKey = arguments["key"]?.let { (it as JsonPrimitive).content }
                 return if (lookupKey == "k-7") "42" else "wrong key"
@@ -58,7 +58,7 @@ class ClaudeLiveTest {
         val loop = ToolLoop(
             ToolCallingProvider(ClaudeProvider(), ToolPath.SHIM),
             ToolRegistry(listOf(getKey, lookup)),
-            ApprovalGate { ApprovalDecision.Approved },
+            ApprovalGate { _, _ -> ApprovalDecision.Approved },
         )
         val result = withTimeout(300_000) {
             loop.run(model, listOf(ChatMessage(Role.USER,
@@ -81,7 +81,7 @@ class ClaudeLiveTest {
             val loop = ToolLoop(
                 ToolCallingProvider(ClaudeProvider(), ToolPath.SHIM),
                 ToolRegistry(emptyList()),
-                ApprovalGate { ApprovalDecision.Approved },
+                ApprovalGate { _, _ -> ApprovalDecision.Approved },
             )
             val result = withTimeout(300_000) {
                 loop.run(model, listOf(ChatMessage(Role.USER,
