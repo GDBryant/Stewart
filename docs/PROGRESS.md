@@ -25,9 +25,10 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - `ChatSession.commitIfActive` (`6d07631`): replaces four commit blocks; `SYSTEM`-filter comment fixed.
 - Branch-coverage tests (`78eb17a`): branch 81.6% → 84.6%, line 97.1%; test-only.
 - AIF native by default; shim deprecated (`206065b`): `AifProvider` is native unless the model has a `SHIM` override; shim kept as the fallback for models with tool calls disabled.
+- Native null fields: `NativeCallCollector` treats JSON `null` `id`/`type`/`name`/`arguments` as absent (was the string "null"; `type: null` was rejected). 675 tests passed (5 skipped); `koverVerify` passed.
 
 ## Open items
 
 Tracked in `docs/PLAN.md` → Open Items; plan in `docs/HANDOFF.md`:
 
-- Possible bug: `NativeCallCollector.feed` turns JSON `null` name/arguments into the string "null" and rejects `"type":null`.
+- `ChatSessionTest` "stale job does not overwrite the transcript" is flaky (fails about half the runs on `main`).

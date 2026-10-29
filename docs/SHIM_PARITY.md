@@ -33,6 +33,8 @@ Python source: `/srv/compose/aif_shim` rev `c35a654`.
 3. `split_tool_text` (drop/reasoning modes) is not ported — text alongside calls is kept.
 4. `strictDecode` additionally rejects bare non-JSON literals (`a.py`) that
    `kotlinx.serialization` would accept but Python's `json.loads` rejects.
+5. `NativeCallCollector` treats `"type": null` as absent (`function`); Python rejects it.
+   Null `id`/`name`/`arguments` and an empty `id` are skipped, as in Python.
 
 ## Skipped Python tests (not applicable)
 

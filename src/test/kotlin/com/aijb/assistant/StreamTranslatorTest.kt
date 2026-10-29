@@ -192,6 +192,35 @@ class StreamTranslatorTest {
     }
 
     @Test
+    fun `collector treats null fields as absent`() {
+        val c = NativeCallCollector()
+        c.feed(j("""[{"index":0,"id":"x","type":"function","function":{"name":"read_","arguments":null}}]"""))
+        c.feed(j("""[{"index":0,"id":null,"type":null,"function":{"name":"file","arguments":"{\"path\": \"a\"}"}}]"""))
+        c.feed(j("""[{"index":0,"id":"","function":{"name":null,"arguments":null}}]"""))
+        val out = c.finish(schema)
+        assertEquals(listOf("read_file"), out.map { it.name })
+        assertEquals("x", out[0].id)
+        assertEquals("a", (out[0].arguments["path"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun `collector generates id when id is null or empty`() {
+        for (id in listOf("null", "\"\"")) {
+            val c = NativeCallCollector()
+            c.feed(j("""[{"id":$id,"function":{"name":"read_file","arguments":"{}"}}]"""))
+            assertTrue(id, c.finish(schema)[0].id.startsWith("call_"))
+        }
+    }
+
+    @Test
+    fun `collector rejects call whose name is only null`() {
+        val c = NativeCallCollector()
+        c.feed(j("""[{"index":0,"function":{"name":null,"arguments":"{}"}}]"""))
+        val e = assertThrows(ToolCallParseException::class.java) { c.finish(schema) }
+        assertEquals("TC-NATIVE-INVALID", e.code)
+    }
+
+    @Test
     fun `collector finish resets`() {
         val c = NativeCallCollector()
         c.feed(j("""[{"index":0,"function":{"name":"read_file","arguments":"{}"}}]"""))

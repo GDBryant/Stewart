@@ -4,11 +4,11 @@ import com.aijb.assistant.provider.RawToolCall
 import com.aijb.assistant.provider.ToolCall
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 private val TAG_PREFIXES = listOf("<tool_call", "<call>", "<function=", "<think")
 private val FENCE_RE = Regex("```")
@@ -67,6 +67,10 @@ class StreamTranslator(private val schema: Map<String, JsonObject>) {
     }
 }
 
+/** String content of a primitive; JSON `null` (itself a `JsonPrimitive`) counts as absent. */
+private fun JsonElement?.contentOrNull(): String? =
+    (this as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+
 class NativeCallCollector {
     private data class Slot(var id: String?, var name: String, var arguments: String)
 
@@ -79,32 +83,32 @@ class NativeCallCollector {
             if (delta !is JsonObject) throw ToolCallParseException("TC-NATIVE-INVALID")
             val indexEl = delta["index"]
             val index = when (indexEl) {
-                null, is kotlinx.serialization.json.JsonNull -> 0
+                null, is JsonNull -> 0
                 is JsonPrimitive -> indexEl.intOrNull ?: throw ToolCallParseException("TC-NATIVE-INVALID")
                 else -> throw ToolCallParseException("TC-NATIVE-INVALID")
             }
             if (index < 0) throw ToolCallParseException("TC-NATIVE-INVALID")
-            val type = delta["type"].takeIf { it is JsonPrimitive }?.jsonPrimitive?.content ?: "function"
+            val type = delta["type"].contentOrNull() ?: "function"
             if (type != "function") throw ToolCallParseException("TC-NATIVE-INVALID")
             val fn = delta["function"]
-            if (fn != null && fn !is JsonObject && fn !is kotlinx.serialization.json.JsonNull) {
+            if (fn != null && fn !is JsonObject && fn !is JsonNull) {
                 throw ToolCallParseException("TC-NATIVE-INVALID")
             }
             val fnObj = fn as? JsonObject ?: JsonObject(emptyMap())
             val namePart = fnObj["name"]
             val argsPart = fnObj["arguments"]
-            if (namePart != null && namePart !is kotlinx.serialization.json.JsonNull &&
+            if (namePart != null && namePart !is JsonNull &&
                 (namePart !is JsonPrimitive || !namePart.isString)) {
                 throw ToolCallParseException("TC-NATIVE-INVALID")
             }
-            if (argsPart != null && argsPart !is kotlinx.serialization.json.JsonNull &&
+            if (argsPart != null && argsPart !is JsonNull &&
                 (argsPart !is JsonPrimitive || !argsPart.isString)) {
                 throw ToolCallParseException("TC-NATIVE-INVALID")
             }
             val slot = calls.getOrPut(index) { Slot(null, "", "") }
-            delta["id"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.content?.let { slot.id = it }
-            slot.name += (namePart as? JsonPrimitive)?.content ?: ""
-            slot.arguments += (argsPart as? JsonPrimitive)?.content ?: ""
+            delta["id"].contentOrNull()?.takeIf { it.isNotEmpty() }?.let { slot.id = it }
+            slot.name += namePart.contentOrNull() ?: ""
+            slot.arguments += argsPart.contentOrNull() ?: ""
         }
     }
 
