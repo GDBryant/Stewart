@@ -12,6 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -222,5 +223,61 @@ class StreamTranslatorTest {
         val r = t.finish("stop")
         assertTrue(r.calls.isEmpty())
         assertTrue(r.clean.contains("read_file"))
+    }
+
+    @Test
+    fun `collector feed null is noop and json null fields are absent`() {
+        val c = NativeCallCollector()
+        c.feed(null)
+        assertTrue(c.isEmpty())
+        c.feed(j("""[{"index":null,"id":"i1","function":null}]"""))
+        c.feed(j("""[{"index":0,"function":{"name":"read_file","arguments":"{}"}}]"""))
+        val raw = c.rawCalls()
+        assertEquals(1, raw.size)
+        assertEquals("i1", raw[0].id)
+        assertEquals("read_file", raw[0].name)
+        assertEquals("{}", raw[0].arguments)
+    }
+
+    @Test
+    fun `collector non primitive type is defaulted and id non primitive ignored`() {
+        val c = NativeCallCollector()
+        c.feed(j("""[{"index":2,"id":{"x":1},"type":{"y":1},"function":{"name":"read_file","arguments":"{}"}}]"""))
+        val raw = c.rawCalls().single()
+        assertNull(raw.id)
+        assertEquals("read_file", raw.name)
+    }
+
+    @Test
+    fun `collector orders slots by index and rejects numeric type`() {
+        val c = NativeCallCollector()
+        c.feed(j("""[{"index":3,"function":{"name":"b","arguments":"2"}},{"index":1,"function":{"name":"a","arguments":"1"}}]"""))
+        assertEquals(listOf("a", "b"), c.rawCalls().map { it.name })
+        assertEquals(listOf("1", "2"), c.rawCalls().map { it.arguments })
+        val e = assertThrows(ToolCallParseException::class.java) { c.feed(j("""[{"type":1}]""")) }
+        assertEquals("TC-NATIVE-INVALID", e.code)
+        val e2 = assertThrows(ToolCallParseException::class.java) { c.feed(j("""[{"index":[0]}]""")) }
+        assertEquals("TC-NATIVE-INVALID", e2.code)
+    }
+
+    @Test
+    fun `finish with length or content filter returns held text only`() {
+        for (reason in listOf("length", "content_filter")) {
+            val t = StreamTranslator(schema)
+            t.feed("hi <tool_call>{\"name\":\"read_file\",\"arguments\":{}}")
+            val r = t.finish(reason)
+            assertTrue(r.calls.isEmpty())
+            assertTrue(r.clean.contains("read_file"))
+            assertEquals("", t.held)
+        }
+    }
+
+    @Test
+    fun `empty feed returns empty and held tag keeps holding`() {
+        val t = StreamTranslator(schema)
+        assertEquals("", t.feed(""))
+        assertEquals("a ", t.feed("a <think>"))
+        assertEquals("", t.feed("more text"))
+        assertEquals("<think>more text", t.held)
     }
 }

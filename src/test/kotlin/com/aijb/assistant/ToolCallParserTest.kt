@@ -684,4 +684,163 @@ class ToolCallParserTest {
         val (_, calls, _) = ToolCallParser.parseToolCalls(text, SCHEMA)
         assertEquals(listOf("read_file" to args("path" to b(true))), namesArgs(calls))
     }
+
+    private fun parseNone(text: String, schema: Map<String, JsonObject> = SCHEMA): String {
+        val (clean, calls, _) = ToolCallParser.parseToolCalls(text, schema)
+        assertTrue(text, calls.isEmpty())
+        return clean
+    }
+
+    @Test
+    fun `repair native blank name rejected`() {
+        val e = assertThrows(ToolCallParseException::class.java) {
+            ToolCallParser.repairNativeCall(RawToolCall("id", "  ", "{}"), SCHEMA)
+        }
+        assertEquals("TC-NATIVE-INVALID", e.code)
+    }
+
+    @Test
+    fun `repair native known name with non object or invalid args`() {
+        for (a in listOf("[1]", "not json", "")) {
+            val e = assertThrows(ToolCallParseException::class.java) {
+                ToolCallParser.repairNativeCall(RawToolCall("id", "read_file", a), SCHEMA)
+            }
+            assertEquals(a, "TC-ARGS-INVALID", e.code)
+        }
+        val ok = ToolCallParser.repairNativeCall(RawToolCall(null, "read_file", "{\"path\":\"a\"}"), SCHEMA).single()
+        assertTrue(ok.id.startsWith("call_"))
+    }
+
+    @Test
+    fun `repair native unknown name without brace or tag rejected`() {
+        for ((n, a) in listOf("nope" to "{}", "nope" to "", "nope" to "plain", "<tool_call>" to "{}", "</tool_call>" to "{}")) {
+            val e = assertThrows(ToolCallParseException::class.java) {
+                ToolCallParser.repairNativeCall(RawToolCall("id", n, a), SCHEMA)
+            }
+            assertEquals("$n/$a", "TC-NATIVE-INVALID", e.code)
+        }
+    }
+
+    @Test
+    fun `repair native glued name with brace ignores separate args`() {
+        val out = ToolCallParser.repairNativeCall(
+            RawToolCall("id", "read_file{\"path\": \"a\"}", "{\"path\":\"ignored\"}"), SCHEMA)
+        assertEquals(listOf("read_file" to args("path" to s("a"))), namesArgs(out))
+    }
+
+    @Test
+    fun `repair native name plus separate args glued`() {
+        val out = ToolCallParser.repairNativeCall(RawToolCall("id", "read_file ", "{\"path\": \"z\"}"), SCHEMA)
+        assertEquals(listOf("read_file" to args("path" to s("z"))), namesArgs(out))
+    }
+
+    @Test
+    fun `repair native piece naming unknown function rejected`() {
+        val e = assertThrows(ToolCallParseException::class.java) {
+            ToolCallParser.repairNativeCall(RawToolCall("id", "other{\"a\":1}", "{}"), SCHEMA)
+        }
+        assertEquals("TC-NATIVE-INVALID", e.code)
+    }
+
+    @Test
+    fun `boolean parameters coerce true false and keep other text`() {
+        val schema = schema("flagged" to props("on" to "boolean", "off" to "boolean", "maybe" to "boolean"))
+        val text = "<tool_call><function=flagged><parameter=on> TRUE </parameter><parameter=off>false</parameter><parameter=maybe>perhaps</parameter></function></tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, schema)
+        assertEquals(listOf("flagged" to args("on" to b(true), "off" to b(false), "maybe" to s("perhaps"))), namesArgs(calls))
+    }
+
+    @Test
+    fun `number parameter that is not a number stays a string and unknown key is string`() {
+        val schema = schema("t" to props("count" to "integer"))
+        val text = "<tool_call><function=t><parameter=count>many</parameter><parameter=other>5</parameter></function></tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, schema)
+        assertEquals(listOf("t" to args("count" to s("many"), "other" to s("5"))), namesArgs(calls))
+    }
+
+    @Test
+    fun `schema without properties coerces everything to string`() {
+        val schema = schema("t" to JsonObject(emptyMap()))
+        val text = "<tool_call><function=t><parameter=n>7</parameter></function></tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, schema)
+        assertEquals(listOf("t" to args("n" to s("7"))), namesArgs(calls))
+    }
+
+    @Test
+    fun `json call name from function or function_name keys`() {
+        val a = "<tool_call>{\"function\": \"read_file\", \"arguments\": {\"path\": \"a\"}}</tool_call>"
+        val b2 = "<tool_call>{\"function_name\": \"read_file\", \"parameters\": {\"path\": \"b\"}}</tool_call>"
+        assertEquals(listOf("read_file" to args("path" to s("a"))), namesArgs(ToolCallParser.parseToolCalls(a, SCHEMA).calls))
+        assertEquals(listOf("read_file" to args("path" to s("b"))), namesArgs(ToolCallParser.parseToolCalls(b2, SCHEMA).calls))
+    }
+
+    @Test
+    fun `json call without any name is dropped and kept in clean text`() {
+        val text = "<tool_call>{\"arguments\": {\"path\": \"a\"}}</tool_call>"
+        assertEquals(text, parseNone(text))
+    }
+
+    @Test
+    fun `truncated and malformed json blocks are repaired or dropped`() {
+        // unterminated string and braces: closed by repair
+        val trunc = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"a.py\"</tool_call>"
+        assertEquals(listOf("read_file" to args("path" to s("a.py"))), namesArgs(ToolCallParser.parseToolCalls(trunc, SCHEMA).calls))
+        // value missing entirely: cannot be repaired into an object with a valid call
+        val noVal = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\":</tool_call>"
+        parseNone(noVal)
+        // trailing backslash inside a string
+        val bs = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\\</tool_call>"
+        ToolCallParser.parseToolCalls(bs, SCHEMA)
+        // bare value is quoted, extra closers tolerated
+        val bare = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": a.py}}}</tool_call>"
+        assertEquals(listOf("read_file" to args("path" to s("a.py"))), namesArgs(ToolCallParser.parseToolCalls(bare, SCHEMA).calls))
+        // mismatched closer
+        val mism = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"a\"]}}</tool_call>"
+        ToolCallParser.parseToolCalls(mism, SCHEMA)
+    }
+
+    @Test
+    fun `unescaped inner quote followed by comma is handled`() {
+        val text = "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"a \"b\" c\", \"x\": 1}}</tool_call>"
+        val (_, calls, _) = ToolCallParser.parseToolCalls(text, SCHEMA)
+        assertEquals("read_file", calls.single().name)
+        assertEquals(s("a \"b\" c"), calls.single().arguments["path"])
+    }
+
+    @Test
+    fun `glm block without name or without arg key dropped`() {
+        val noName = "<tool_call><arg_key>path</arg_key><arg_value>a</arg_value></tool_call>"
+        assertEquals(noName, parseNone(noName))
+        val bareName = "<tool_call>read_file</arg_key></tool_call>"
+        assertEquals(bareName, parseNone(bareName))
+    }
+
+    @Test
+    fun `glm block parses key value pairs`() {
+        val text = "<tool_call>read_file<arg_key>path</arg_key><arg_value>a.py</arg_value></tool_call>"
+        val (clean, calls, _) = ToolCallParser.parseToolCalls(text, SCHEMA)
+        assertEquals("", clean)
+        assertEquals(listOf("read_file" to args("path" to s("a.py"))), namesArgs(calls))
+    }
+
+    @Test
+    fun `exec alias command shapes`() {
+        fun call(argsJson: String, name: String = "bash") =
+            ToolCallParser.parseToolCalls("<tool_call>{\"name\": \"$name\", \"arguments\": $argsJson}</tool_call>", EXEC_SCHEMA).calls
+        assertEquals(listOf("RunTerminal" to args("command" to s("ls"))), namesArgs(call("{\"cmd\": \"ls\"}")))
+        assertEquals(listOf("RunTerminal" to args("command" to s("ls"))), namesArgs(call("{\"command\": [\"ls\"]}", "shell")))
+        assertTrue(call("{\"command\": 5}").isEmpty())
+        assertTrue(call("{\"commands\": []}").isEmpty())
+        assertTrue(call("{\"commands\": [\"a\", \"b\"]}").isEmpty())
+        assertTrue(call("{\"commands\": [\" \"]}").isEmpty())
+        assertTrue(call("{}").isEmpty())
+    }
+
+    @Test
+    fun `exec alias ignored when RunTerminal not offered or alias is itself offered`() {
+        val text = "<tool_call>{\"name\": \"bash\", \"arguments\": {\"cmd\": \"ls\"}}</tool_call>"
+        assertEquals(text, parseNone(text, SCHEMA))
+        val own = schema("bash" to props("cmd" to "string"), "RunTerminal" to props("command" to "string"))
+        assertEquals(listOf("bash" to args("cmd" to s("ls"))), namesArgs(ToolCallParser.parseToolCalls(text, own).calls))
+    }
 }

@@ -362,4 +362,167 @@ class AifProviderTest {
         collect(provider(), req().copy(tools = emptyList(), toolChoice = ToolChoice.None))
         assertTrue(!body.contains("\"tools\""))
     }
+
+    private val stopChunk = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n"
+
+    @Test
+    fun `tool choice auto and none are serialized when tools present`() = runBlocking {
+        val spec = ToolSpec("t", "d", JsonObject(emptyMap()))
+        handler(stopChunk)
+        collect(provider(), req().copy(tools = listOf(spec), toolChoice = ToolChoice.Auto))
+        val sent = Json.parseToJsonElement(body) as JsonObject
+        assertEquals("auto", sent["tool_choice"]?.jsonPrimitive?.content)
+        assertTrue(!body.contains("parallel_tool_calls"))
+    }
+
+    @Test
+    fun `tool choice none with tools sent`() = runBlocking {
+        val spec = ToolSpec("t", "d", JsonObject(emptyMap()))
+        handler(stopChunk)
+        collect(provider(), req().copy(tools = listOf(spec), toolChoice = ToolChoice.None, parallelToolCalls = false))
+        val sent = Json.parseToJsonElement(body) as JsonObject
+        assertEquals("none", sent["tool_choice"]?.jsonPrimitive?.content)
+        assertEquals("false", sent["parallel_tool_calls"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `native tools support follows confirmation callback`() {
+        val yes = AifProvider("http://x", listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(), { it == "good" })
+        assertTrue(yes.supportsNativeTools("good"))
+        assertTrue(!yes.supportsNativeTools("bad"))
+        assertTrue(!provider().supportsNativeTools("m"))
+    }
+
+    @Test
+    fun `usage only chunks with null empty or missing choices`() = runBlocking {
+        for (u in listOf(
+            "data: {\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":6}}\n",
+            "data: {\"choices\":null,\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":6}}\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":6}}\n",
+        )) {
+            val h = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            val payload = u + stopChunk
+            h.createContext("/api/proxy/v1/chat/completions") { ex ->
+                ex.sendResponseHeaders(200, payload.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(payload.toByteArray()) }
+            }
+            h.start()
+            try {
+                val p = AifProvider("http://127.0.0.1:${h.address.port}/api/proxy/v1", listOf("m"), { "k" },
+                    java.net.http.HttpClient.newHttpClient())
+                val done = collect(p).last() as ProviderEvent.Completed
+                assertEquals(u, 4, done.usage?.promptTokens)
+                assertEquals(u, 6, done.usage?.completionTokens)
+            } finally { h.stop(0) }
+        }
+    }
+
+    @Test
+    fun `usage with non numeric counts yields null tokens`() = runBlocking {
+        handler("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":\"x\"}}\n" + stopChunk)
+        val done = collect(provider()).last() as ProviderEvent.Completed
+        assertEquals(null, done.usage?.promptTokens)
+        assertEquals(null, done.usage?.completionTokens)
+        assertEquals("stop", done.finishReason)
+    }
+
+    @Test
+    fun `chunk with null or absent choices and null error is skipped`() = runBlocking {
+        handler("data: {\"error\":null,\"choices\":null}\ndata: {\"id\":\"x\"}\n" + stopChunk)
+        val events = collect(provider())
+        assertEquals(1, events.size)
+        assertTrue(events.single() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `data prefix without space and done without space`() = runBlocking {
+        handler("data:{\"choices\":[{\"delta\":{\"content\":\"q\"},\"finish_reason\":\"stop\"}]}\ndata:[DONE]\n")
+        val events = collect(provider())
+        assertEquals(ProviderEvent.TextDelta("q"), events[0])
+        assertEquals("stop", (events.last() as ProviderEvent.Completed).finishReason)
+    }
+
+    @Test
+    fun `more malformed variants fail with invalid_upstream_response`() = runBlocking {
+        for (payload in listOf(
+            "data: {\"choices\":[\"x\"]}\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"\"}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":true}}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":\"x\"}}]}\n",
+            "data: {\"choices\":[{\"delta\":[]}]}\n",
+            "data: {\"choices\":\"x\"}\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[\"x\"]}}]}\n",
+        )) {
+            val h = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            h.createContext("/api/proxy/v1/chat/completions") { ex ->
+                ex.sendResponseHeaders(200, payload.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(payload.toByteArray()) }
+            }
+            h.start()
+            try {
+                val p = AifProvider("http://127.0.0.1:${h.address.port}/api/proxy/v1", listOf("m"), { "k" },
+                    java.net.http.HttpClient.newHttpClient())
+                val last = collect(p).last()
+                assertTrue(payload, last is ProviderEvent.Failed)
+            } finally { h.stop(0) }
+        }
+    }
+
+    @Test
+    fun `reasoning content empty or non string ignored and multiple choices processed`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"\"}},{\"delta\":{\"reasoning_content\":5}}," +
+            "{\"delta\":{\"reasoning_content\":\"r\",\"content\":\"c\"},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")
+        val events = collect(provider())
+        assertEquals(listOf(ProviderEvent.ReasoningDelta("r"), ProviderEvent.TextDelta("c")).sortedBy { it.toString() },
+            events.filter { it !is ProviderEvent.Completed }.sortedBy { it.toString() })
+        assertEquals("stop", (events.last() as ProviderEvent.Completed).finishReason)
+    }
+
+    @Test
+    fun `choice without delta key still honors finish reason`() = runBlocking {
+        handler("data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n")
+        val done = collect(provider()).single() as ProviderEvent.Completed
+        assertEquals("length", done.finishReason)
+        assertEquals(null, done.usage)
+    }
+
+    @Test
+    fun `non 2xx error body shapes fall back`() = runBlocking {
+        for ((code, resp, expected) in listOf(
+            Triple(500, "", "HTTP 500"),
+            Triple(502, "{\"error\":{\"code\":1}}", "HTTP 502"),
+            Triple(503, "{\"error\":[1]}", "HTTP 503"),
+            Triple(504, "{\"detail\":\"x\"}", "HTTP 504"),
+            Triple(400, "[1,2]", "HTTP 400"),
+            Triple(429, "{\"error\":\"slow down\"}", "slow down"),
+            Triple(500, "<html>gateway down</html>", "<html>gateway down</html>"),
+        )) {
+            val h = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            h.createContext("/api/proxy/v1/chat/completions") { ex ->
+                ex.sendResponseHeaders(code, if (resp.isEmpty()) -1 else resp.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(resp.toByteArray()) }
+            }
+            h.start()
+            try {
+                val p = AifProvider("http://127.0.0.1:${h.address.port}/api/proxy/v1", listOf("m"), { "k" },
+                    java.net.http.HttpClient.newHttpClient())
+                assertEquals(resp, expected, (collect(p).single() as ProviderEvent.Failed).message)
+            } finally { h.stop(0) }
+        }
+    }
+
+    @Test
+    fun `null api key fails with missing_api_key`() = runBlocking {
+        val events = collect(provider(key = null))
+        assertEquals("missing_api_key", (events.single() as ProviderEvent.Failed).code)
+    }
+
+    @Test
+    fun `tool role message without call id omits tool_call_id`() = runBlocking {
+        handler(stopChunk)
+        collect(provider(), req().copy(messages = listOf(ChatMessage(Role.TOOL, "res"))))
+        assertTrue(body.contains("\"role\":\"tool\""))
+        assertTrue(!body.contains("tool_call_id"))
+        assertTrue(!body.contains("\"tool_calls\""))
+    }
 }

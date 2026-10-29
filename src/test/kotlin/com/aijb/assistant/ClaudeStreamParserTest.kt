@@ -211,4 +211,136 @@ class ClaudeStreamParserTest {
         val evs = feed(p, "{\"type\":\"result\",\"is_error\":true,\"result\":\"boom\"}")
         assertEquals("cli_error", (evs.single() as ProviderEvent.Failed).code)
     }
+
+    @Test
+    fun `lines without a type or with unknown type are ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p, "{}", "{\"type\":\"rate_limit_event\"}", "{\"type\":null}").isEmpty())
+        assertTrue(!p.resultSeen)
+    }
+
+    @Test
+    fun `init without tools or mcp keys is fine and subtype missing ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p, "{\"type\":\"system\",\"subtype\":\"init\"}", "{\"type\":\"system\"}").isEmpty())
+        val v = feed(p, "{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[\"Bash\"]}").single() as ProviderEvent.Failed
+        assertEquals("isolation_violation", v.code)
+        assertTrue(p.failedEmitted)
+    }
+
+    @Test
+    fun `init with non array tools is not a violation`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p, "{\"type\":\"system\",\"subtype\":\"init\",\"tools\":\"none\",\"mcp_servers\":null}").isEmpty())
+        assertTrue(!p.failedEmitted)
+    }
+
+    @Test
+    fun `server tool use without name is a violation`() {
+        var p = ClaudeStreamParser()
+        assertEquals("isolation_violation", (feed(p,
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"server_tool_use\"}}}").single()
+            as ProviderEvent.Failed).code)
+        p = ClaudeStreamParser()
+        assertEquals("isolation_violation", (feed(p,
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"server_tool_use\"}]}}").single()
+            as ProviderEvent.Failed).code)
+    }
+
+    @Test
+    fun `content block start with typeless block or non object block ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p,
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":{}}}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":\"text\"}}",
+            "{\"type\":\"stream_event\",\"event\":\"x\"}").isEmpty())
+    }
+
+    @Test
+    fun `delta without type and non object delta ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p,
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"text\":\"x\"}}}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":\"x\"}}",
+            "{\"type\":\"stream_event\",\"event\":{}}").isEmpty())
+        assertTrue(p.deltaMessageIds.isEmpty())
+    }
+
+    @Test
+    fun `text and thinking deltas emit and text delta records no id when absent`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p,
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"t\"}}}")
+        assertEquals(listOf(ProviderEvent.TextDelta("a"), ProviderEvent.ReasoningDelta("t")), evs)
+        assertTrue(p.deltaMessageIds.isEmpty())
+    }
+
+    @Test
+    fun `message delta with non object delta or no stop reason keeps stop reason null`() {
+        val p = ClaudeStreamParser()
+        feed(p,
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\",\"delta\":\"x\"}}",
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\",\"delta\":{}}}")
+        assertNull(p.stopReason)
+        feed(p, "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}}")
+        assertEquals("end_turn", p.stopReason)
+    }
+
+    @Test
+    fun `assistant with non object message or non array content ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p,
+            "{\"type\":\"assistant\",\"message\":\"x\"}",
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"a\",\"content\":\"text\"}}",
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"text\":\"no type\"},\"str\"]}}").isEmpty())
+    }
+
+    @Test
+    fun `assistant message without id is emitted and text block without text skipped`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p,
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\"},{\"type\":\"thinking\"},{\"type\":\"text\",\"text\":\"ok\"}]}}")
+        assertEquals(listOf(ProviderEvent.TextDelta("ok")), evs)
+    }
+
+    @Test
+    fun `user event variants`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p,
+            "{\"type\":\"user\"}",
+            "{\"type\":\"user\",\"message\":{\"content\":\"plain\"}}",
+            "{\"type\":\"user\",\"message\":{\"content\":[\"s\",{\"type\":\"text\"},{\"type\":\"tool_result\",\"is_error\":true}]}}").isEmpty())
+        val v = feed(p, "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\"}]}}").single() as ProviderEvent.Failed
+        assertEquals("CLI executed a tool", v.message)
+    }
+
+    @Test
+    fun `result with total cost and without usage object`() {
+        var p = ClaudeStreamParser()
+        feed(p, "{\"type\":\"result\",\"is_error\":false,\"usage\":{\"input_tokens\":1,\"output_tokens\":2},\"total_cost_usd\":0.5}")
+        assertEquals(0.5, p.usage?.costUsd ?: -1.0, 0.0)
+        p = ClaudeStreamParser()
+        feed(p, "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"stop_sequence\"}")
+        assertNull(p.usage)
+        assertEquals("stop", p.finishReason)
+    }
+
+    @Test
+    fun `result with non boolean is_error is treated as success`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p, "{\"type\":\"result\",\"is_error\":\"yes\",\"result\":\"x\"}").isEmpty())
+        assertTrue(p.resultSeen && !p.resultIsError && !p.resultFailed)
+    }
+
+    @Test
+    fun `classify stderr and auth variants`() {
+        val p = ClaudeStreamParser()
+        assertEquals("auth", p.classifyStderr("HTTP 401 from upstream"))
+        assertEquals("auth", p.classifyStderr("Please run claude login"))
+        assertEquals("rate_limited", p.classifyStderr("got 429"))
+        assertEquals("cli_error", p.classifyStderr("boom"))
+        assertNull(p.mapStopReason(null))
+        assertEquals("tool_use", p.mapStopReason("tool_use"))
+    }
 }
