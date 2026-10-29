@@ -1,6 +1,8 @@
 # Handoff — post-M8 open items
 
-State at handoff: `main` @ `b28af5d`, clean. M1–M8 are done, and there is no M9.
+**Status: items 1, 2, 3, 4 and 6 are done in M9 (`52edf9e`, `78eb17a`, `0a45997`, `d69c2e8`, `6d07631`). Only item 5 remains, plus the manual `runIde` Stop check from item 4. The text below is the original plan.**
+
+State at handoff: `main` @ `b28af5d`, clean. M1–M8 were done.
 591 tests pass (4 live tests skipped). `koverVerify` passes at 96% line and 81% branch.
 `verifyPlugin` passes on IDEA 2025.1 and PyCharm 2025.3.
 The items below expand `docs/PLAN.md` → Open Items. Work through them in the order given.
