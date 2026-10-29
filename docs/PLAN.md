@@ -55,7 +55,7 @@ Native/shim routing is a per-provider/per-model capability setting, with an expl
 | 2 | Execute-the-plan | Turn one milestone into concrete tasks, dispatch to workers, verify, re-plan on failure | Strong or mid |
 | 3 | Worker-bee | Perform one task: edit a file, run a command, report result | Fast/local (Ollama) or AIF small model |
 
-Multi-model mode = each level has its own ModelRef in settings. Single-model mode = all three share the chat-window selection.
+Multi-model mode = the three-level orchestrator runs, each level on its own ModelRef from settings; an unset level uses the chat-window selection. Single-model mode = no orchestrator: one `ToolLoop` on the chat-window selection. Both paths build their provider route through `RoleRouting.routeFor`.
 
 In multi-model mode every request carries a role system prompt (`RolePrompts`, per request, never stored or compacted) describing the three roles and telling the model to hand work down to a lower role where it can.
 

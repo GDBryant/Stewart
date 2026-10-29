@@ -2,8 +2,6 @@ package com.aijb.assistant.agents
 
 import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.provider.ChatMessage
-import com.aijb.assistant.provider.ModelProvider
-import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.ToolCall
 import com.aijb.assistant.provider.ToolSpec
@@ -223,21 +221,6 @@ class Orchestrator(
     private val compactor: ContextCompactor = ContextCompactor(),
     private val compactAtTokens: Int? = null,
 ) {
-
-    /** Single-model binding: every level uses the same model and provider. */
-    constructor(
-        modelRef: String,
-        provider: ModelProvider,
-        wrapped: ModelProvider,
-        projectTools: () -> ToolRegistry,
-        approval: ApprovalGate,
-        limits: OrchestratorLimits = OrchestratorLimits(),
-        compactor: ContextCompactor = ContextCompactor(),
-        compactAtTokens: Int? = null,
-    ) : this(
-        AgentRole.entries.associateWith { LevelRoute(ModelRef(provider.id, modelRef), wrapped) },
-        projectTools, approval, limits, compactor, compactAtTokens,
-    )
 
     /** Runs the plan; cancellation surfaces as [RunCancelledException] carrying the transcript so far. */
     suspend fun run(

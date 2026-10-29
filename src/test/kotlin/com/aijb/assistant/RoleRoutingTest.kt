@@ -1,6 +1,7 @@
 package com.aijb.assistant
 
 import com.aijb.assistant.agents.AgentRole
+import com.aijb.assistant.agents.LevelRoute
 import com.aijb.assistant.agents.RoleRouting
 import com.aijb.assistant.agents.RoutingResult
 import com.aijb.assistant.provider.ChatRequest
@@ -11,6 +12,8 @@ import com.aijb.assistant.provider.ProviderEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,5 +77,27 @@ class RoleRoutingTest {
             providers, emptyMap(),
         )
         assertTrue(r is RoutingResult.Resolved)
+    }
+
+    @Test
+    fun `routeFor wraps the matching provider`() {
+        val route = RoleRouting.routeFor(ModelRef("claude", "opus"), providers, emptyMap())!!
+        assertEquals("claude/opus", route.label)
+        assertEquals("claude", route.provider.id)
+        assertTrue(route.provider is com.aijb.assistant.shim.ToolCallingProvider)
+    }
+
+    @Test
+    fun `routeFor returns null for a missing provider`() {
+        assertNull(RoleRouting.routeFor(ModelRef("aif", "m"), providers, emptyMap()))
+    }
+
+    @Test
+    fun `uniform binds every role to the same route`() {
+        val route = LevelRoute(chat, providers[0])
+        val routes = RoleRouting.uniform(route)
+        assertEquals(AgentRole.entries.toSet(), routes.keys)
+        assertTrue(routes.values.all { it === route })
+        assertSame(route, routes[AgentRole.WORKER])
     }
 }

@@ -17,8 +17,6 @@ import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.ToolCall
 import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
-import com.aijb.assistant.settings.ToolPathResolver
-import com.aijb.assistant.shim.ToolCallingProvider
 import com.aijb.assistant.tools.ApprovalGate
 import com.aijb.assistant.tools.LoopLimits
 import com.aijb.assistant.tools.LoopListener
@@ -185,15 +183,13 @@ class ChatSession(
                         runOrchestrator(text, ref, priorHistory, listener, thisJob)
                         return@launch
                     }
-                    val provider = providers().firstOrNull { it.id == ref.providerId }
-                    if (provider == null) {
+                    val route = RoleRouting.routeFor(ref, providers(), toolPathOverrides())
+                    if (route == null) {
                         toEdt {
                             listener.onFailedWithCode("Provider not configured: ${ref.providerId}", "provider_missing")
                         }
                         return@launch
                     }
-                    val wrapped = ToolCallingProvider(
-                        provider, ToolPathResolver.resolve(ref, provider, toolPathOverrides()))
                     val loopListener = object : LoopListener {
                         override fun onText(text: String) = toEdt { listener.onDelta(text) }
                         override fun onToolRequested(call: ToolCall) =
@@ -206,7 +202,7 @@ class ChatSession(
                             toEdt { listener.onCompactionFailed(message) }
                     }
                     val loop = ToolLoop(
-                        wrapped, tools(), approval,
+                        route.provider, tools(), approval,
                         LoopLimits(
                             maxModelTurns = 25,
                             toolTimeout = 120.seconds,

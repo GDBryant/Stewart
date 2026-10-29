@@ -31,13 +31,26 @@ object RoleRouting {
         for (role in AgentRole.entries) {
             val ref = configured[role] ?: chatRef
                 ?: return RoutingResult.Unresolved("No model selected for ${role.name.lowercase()}")
-            val provider = providers.firstOrNull { it.id == ref.providerId }
+            routes[role] = routeFor(ref, providers, toolPathOverrides)
                 ?: return RoutingResult.Unresolved(
                     "Provider not configured for ${role.name.lowercase()}: ${ref.providerId}"
                 )
-            val path = ToolPathResolver.resolve(ref, provider, toolPathOverrides)
-            routes[role] = LevelRoute(ref, ToolCallingProvider(provider, path))
         }
         return RoutingResult.Resolved(routes)
     }
+
+    /** Route for one ref (shim-wrapped per its tool path), or null if its provider is missing. */
+    fun routeFor(
+        ref: ModelRef,
+        providers: List<ModelProvider>,
+        toolPathOverrides: Map<String, String>,
+    ): LevelRoute? {
+        val provider = providers.firstOrNull { it.id == ref.providerId } ?: return null
+        val path = ToolPathResolver.resolve(ref, provider, toolPathOverrides)
+        return LevelRoute(ref, ToolCallingProvider(provider, path))
+    }
+
+    /** Every level bound to the same route. */
+    fun uniform(route: LevelRoute): Map<AgentRole, LevelRoute> =
+        AgentRole.entries.associateWith { route }
 }

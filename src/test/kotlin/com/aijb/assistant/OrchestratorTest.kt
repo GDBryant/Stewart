@@ -2,6 +2,7 @@ package com.aijb.assistant
 
 import org.junit.Assert.assertNull
 import com.aijb.assistant.agents.AgentRole
+import com.aijb.assistant.agents.LevelRoute
 import com.aijb.assistant.agents.OrchestrationResult
 import com.aijb.assistant.agents.Orchestrator
 import com.aijb.assistant.agents.OrchestratorLimits
@@ -9,7 +10,9 @@ import com.aijb.assistant.agents.OrchestratorListener
 import com.aijb.assistant.agents.Plan
 import com.aijb.assistant.agents.Protocol
 import com.aijb.assistant.agents.RolePrompts
+import com.aijb.assistant.agents.RoleRouting
 import com.aijb.assistant.agents.WorkerResult
+import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
@@ -138,9 +141,12 @@ class OrchestratorTest {
         provider: ScriptedProvider,
         limits: OrchestratorLimits = OrchestratorLimits(),
     ) = Orchestrator(
-        modelRef = "llama",
-        provider = provider,
-        wrapped = ToolCallingProvider(provider, com.aijb.assistant.provider.ToolPath.SHIM),
+        routes = RoleRouting.uniform(
+            LevelRoute(
+                ModelRef(provider.id, "llama"),
+                ToolCallingProvider(provider, com.aijb.assistant.provider.ToolPath.SHIM),
+            )
+        ),
         projectTools = { ToolRegistry(listOf(fakeReadTool())) },
         approval = ApprovalGate { _, _ -> ApprovalDecision.Approved },
         limits = limits,
