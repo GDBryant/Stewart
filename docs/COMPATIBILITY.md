@@ -50,3 +50,9 @@ PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
 - `scripts/claude-feasibility.sh`: all scripted checks PASS on Claude Code CLI
   2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); supported CLI version for M3 is
   2.1.309. Managed-policy check 6 passed 2026-10-29 on CLI 2.1.312.
+
+## AIF live check (2026-10-29)
+
+`AifLiveTest` (SHIM and NATIVE tool paths): both passed on `glm-5-3-flash`.
+Native stays per-model opt-in (`toolPathOverrides["aif/<model>"] = NATIVE`);
+one model on one run is not enough to default it on.

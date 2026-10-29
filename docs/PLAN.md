@@ -178,7 +178,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ## Open Items
 M1–M9 are done. Remaining:
 
-1. **Native AIF tools, live check**: per-model opt-in until confirmed against the live account (`AIF_LIVE=1 ... --tests '*AifLiveTest*'`; needs user credentials). See `docs/HANDOFF.md` item 5.
+1. **Native AIF default**: live check passed for `glm-5-3-flash` on both paths (2026-10-29, `docs/COMPATIBILITY.md`); native stays per-model opt-in until more models are checked.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

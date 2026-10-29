@@ -22,7 +22,12 @@ import org.junit.Test
 class AifLiveTest {
 
     @Test
-    fun `live aif drives a tool end to end`() = runBlocking {
+    fun `live aif drives a tool end to end`() = drive(ToolPath.SHIM)
+
+    @Test
+    fun `live aif drives a tool end to end on the native path`() = drive(ToolPath.NATIVE)
+
+    private fun drive(path: ToolPath) = runBlocking {
         assumeTrue("AIF_LIVE not set", System.getenv("AIF_LIVE") == "1")
         val base = System.getenv("AIF_BASE_URL")!!
         val key = System.getenv("AIF_API_KEY")!!
@@ -36,7 +41,7 @@ class AifLiveTest {
                 return "42"
             }
         }
-        val provider = ToolCallingProvider(AifProvider(base, listOf(model), { key }, java.net.http.HttpClient.newHttpClient()), ToolPath.SHIM)
+        val provider = ToolCallingProvider(AifProvider(base, listOf(model), { key }, java.net.http.HttpClient.newHttpClient(), { path == ToolPath.NATIVE }), path)
         val loop = ToolLoop(provider, ToolRegistry(listOf(tool)), ApprovalGate { _, _ -> ApprovalDecision.Approved })
         val result = withTimeout(300_000) {
             loop.run(model, listOf(ChatMessage(Role.USER, "Call get_magic_number, then tell me the number.")), object : com.aijb.assistant.tools.LoopListener {})

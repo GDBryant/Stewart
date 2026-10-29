@@ -1,6 +1,6 @@
 # Handoff — post-M8 open items
 
-**Status: items 1, 2, 3, 4 and 6 are done in M9 (`52edf9e`, `78eb17a`, `0a45997`, `d69c2e8`, `6d07631`). Only item 5 remains, plus the manual `runIde` Stop check from item 4. The text below is the original plan.**
+**Status: items 1, 2, 3, 4 and 6 are done in M9 (`52edf9e`, `78eb17a`, `0a45997`, `d69c2e8`, `6d07631`). Item 5 passed live on `glm-5-3-flash` (2026-10-29); native stays opt-in. The manual `runIde` Stop check from item 4 remains. The text below is the original plan.**
 
 State at handoff: `main` @ `b28af5d`, clean. M1–M8 were done.
 591 tests pass (4 live tests skipped). `koverVerify` passes at 96% line and 81% branch.
