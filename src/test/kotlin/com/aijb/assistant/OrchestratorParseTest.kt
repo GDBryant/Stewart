@@ -266,4 +266,47 @@ class OrchestratorParseTest {
         val tasks = listOf(com.aijb.assistant.agents.DispatchTask(1, "a"))
         assertNull(tasksError(tasks, maxTasksPerRound = 5))
     }
+
+    @Test
+    fun parseTasks_filesAndDependsOn() {
+        val tasks = parseTasks(
+            call(
+                "t",
+                """{"tasks":[{"id":1,"description":"a","files":["x.kt"]},
+                    {"id":2,"description":"b","files":["y.kt","z.kt"],"depends_on":[1]}]}""",
+            )
+        )
+        assertEquals(listOf("x.kt"), tasks[0].files)
+        assertEquals(emptyList<Int>(), tasks[0].dependsOn)
+        assertEquals(listOf("y.kt", "z.kt"), tasks[1].files)
+        assertEquals(listOf(1), tasks[1].dependsOn)
+    }
+
+    @Test
+    fun parseTasks_absentOrNullOptionalsDefaultToEmpty() {
+        val tasks = parseTasks(call("t", """{"tasks":[{"id":1,"description":"a","files":null,"depends_on":null}]}"""))
+        assertEquals(emptyList<String>(), tasks[0].files)
+        assertEquals(emptyList<Int>(), tasks[0].dependsOn)
+    }
+
+    private fun assertRejected(json: String) {
+        assertThrows(ProtocolException::class.java) { parseTasks(call("t", json)) }
+    }
+
+    @Test
+    fun parseTasks_rejectsBadFilesAndDependsOn() {
+        assertRejected("""{"tasks":[{"id":1,"description":"a","files":"x.kt"}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a","files":[1]}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a","files":[{"p":"x"}]}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a"},{"id":2,"description":"b","depends_on":1}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a"},{"id":2,"description":"b","depends_on":["1"]}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a"},{"id":2,"description":"b","depends_on":[1.5]}]}""")
+    }
+
+    @Test
+    fun parseTasks_rejectsForwardSelfAndUnknownDependencies() {
+        assertRejected("""{"tasks":[{"id":1,"description":"a","depends_on":[2]},{"id":2,"description":"b"}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a","depends_on":[1]}]}""")
+        assertRejected("""{"tasks":[{"id":1,"description":"a"},{"id":2,"description":"b","depends_on":[9]}]}""")
+    }
 }

@@ -483,6 +483,53 @@ class OrchestratorTest {
     }
 
     @Test
+    fun `worker request carries only its briefing and the results it depends on`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", plan(1, 2))
+        // Milestone 1: two tasks; worker 2 depends on task 1 only if told so.
+        p.executor += call(
+            Protocol.SUBMIT_TASKS, "e1a",
+            """{"tasks":[{"id":1,"description":"t1","files":["a.kt"]},{"id":2,"description":"t2"},""" +
+                """{"id":3,"description":"t3","files":["b.kt","c.kt"],"depends_on":[1]}]}""",
+        )
+        p.worker += call(Protocol.SUBMIT_RESULT, "w1", result(1, summary = "SUMMARY-ONE"))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w2", result(2, summary = "SUMMARY-TWO"))
+        p.worker += call(Protocol.SUBMIT_RESULT, "w3", result(3, summary = "SUMMARY-THREE"))
+        p.executor += call(Protocol.COMPLETE_MILESTONE, "e1b", """{"notes":"EXEC-NOTES"}""")
+        // Milestone 2 reuses task id 1, which must not see milestone 1 results.
+        p.executor += call(Protocol.SUBMIT_TASKS, "e2a", """{"tasks":[{"id":1,"description":"m2t1","depends_on":[]}]}""")
+        p.worker += call(Protocol.SUBMIT_RESULT, "w4", result(1))
+        p.executor += call(Protocol.COMPLETE_MILESTONE, "e2b", """{"notes":"ok"}""")
+
+        val r = runBlocking { newOrchestrator(p).run("go", RecordingListener()) }
+
+        assertTrue(r is OrchestrationResult.Completed)
+        val workerReqs = p.requests.filter { levelOfWorker(it) }
+        assertEquals(4, workerReqs.size)
+        fun userText(req: ChatRequest) = req.messages.filter { it.role != Role.SYSTEM }.joinToString("\n") { it.content }
+        assertEquals(
+            "Goal: ship it\nMilestone 1: m1\nTask 1: t1\nFiles: a.kt",
+            workerReqs[0].messages.last { it.role == Role.USER }.content,
+        )
+        val w2 = userText(workerReqs[1])
+        assertTrue(!w2.contains("Prior") && !w2.contains("SUMMARY"))
+        val w3 = workerReqs[2].messages.last { it.role == Role.USER }.content
+        assertEquals(
+            "Goal: ship it\nMilestone 1: m1\nTask 3: t3\nFiles: b.kt, c.kt\nPrior #1 done: SUMMARY-ONE",
+            w3,
+        )
+        for (req in workerReqs) {
+            val all = userText(req)
+            assertTrue(!all.contains("EXEC-NOTES") && !all.contains("Break this milestone"))
+        }
+        val w4 = userText(workerReqs[3])
+        assertTrue(!w4.contains("SUMMARY") && !w4.contains("Milestone 1"))
+    }
+
+    private fun levelOfWorker(req: ChatRequest) =
+        req.messages.firstOrNull { it.role == Role.SYSTEM }?.content.orEmpty().contains(Protocol.SUBMIT_RESULT)
+
+    @Test
     fun `workers are dispatched serially`() {
         val p = ScriptedProvider()
         val order = mutableListOf<String>()

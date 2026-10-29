@@ -18,6 +18,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -30,7 +31,7 @@ import kotlinx.serialization.json.put
 // Structured protocol between the three levels (see PLAN.md, milestone 6).
 //
 //   plan:    {"goal": "...", "milestones": [{"id": 1, "title": "...", "notes": "..."}]}
-//   task:    {"tasks": [{"id": 1, "description": "..."}]}
+//   task:    {"tasks": [{"id": 1, "description": "...", "files": ["a.kt"], "depends_on": [1]}]}
 //   result:  {"task_id": 1, "status": "done" | "failed", "summary": "..."}
 //
 // Each level is a ToolLoop with its role prompt plus a protocol block. Levels submit
@@ -55,7 +56,7 @@ object Protocol {
         "Protocol: a milestone could not be completed. Call ${SUBMIT_PLAN} with a corrected plan covering the remaining work: start the milestones at id ${'$'}NEXT_ID and keep them ordered and independently checkable. You have no other tools."
 
     const val EXECUTOR =
-        "Protocol: to dispatch work, call ${SUBMIT_TASKS} with {\"tasks\": [{\"id\": 1, \"description\": \"<one concrete task a single Worker can finish alone>\"}]}. After the Worker results arrive, call ${COMPLETE_MILESTONE} with {\"notes\": \"<evidence the milestone is done>\"} when the milestone is met, or ${SUBMIT_TASKS} again with corrected or new tasks when it is not."
+        "Protocol: to dispatch work, call ${SUBMIT_TASKS} with {\"tasks\": [{\"id\": 1, \"description\": \"<one concrete task a single Worker can finish alone>\", \"files\": [\"<relevant paths>\"], \"depends_on\": [<ids of earlier tasks in this round whose results it needs>]}]}. Fill in files and depends_on: the Worker sees only its own task, those files and the results of the tasks it depends on. After the Worker results arrive, call ${COMPLETE_MILESTONE} with {\"notes\": \"<evidence the milestone is done>\"} when the milestone is met, or ${SUBMIT_TASKS} again with corrected or new tasks when it is not."
 
     const val WORKER =
         "Protocol: carry out exactly the given task using the available tools. When finished, or if you cannot finish, call ${SUBMIT_RESULT} with {\"task_id\": <id>, \"status\": \"done\" | \"failed\", \"summary\": \"<what you did, or why it failed>\"}. Do not plan beyond the task."
@@ -63,7 +64,12 @@ object Protocol {
 
 data class Milestone(val id: Int, val title: String, val notes: String)
 data class Plan(val goal: String, val milestones: List<Milestone>)
-data class DispatchTask(val id: Int, val description: String)
+data class DispatchTask(
+    val id: Int,
+    val description: String,
+    val files: List<String> = emptyList(),
+    val dependsOn: List<Int> = emptyList(),
+)
 data class WorkerResult(val taskId: Int, val status: String, val summary: String)
 
 class ProtocolException(message: String) : RuntimeException(message)
@@ -184,7 +190,16 @@ object ProtocolTools {
                     mapOf(
                         "type" to JsonPrimitive("array"),
                         "items" to objSchema(
-                            listOf("id" to intType(), "description" to str()),
+                            listOf(
+                                "id" to intType(),
+                                "description" to str(),
+                                "files" to JsonObject(
+                                    mapOf("type" to JsonPrimitive("array"), "items" to str())
+                                ),
+                                "depends_on" to JsonObject(
+                                    mapOf("type" to JsonPrimitive("array"), "items" to intType())
+                                ),
+                            ),
                             listOf("id", "description"),
                         ),
                     )
@@ -455,13 +470,17 @@ class Orchestrator(
         listener: OrchestratorListener,
     ): Usage? {
         var usage: Usage? = null
+        val roundResults = mutableListOf<WorkerResult>()
         for (task in tasks) {
             listener.onLevelStarted(
                 AgentRole.WORKER,
                 "milestone '${milestone.title}' (${milestone.id}), task ${task.id}: ${task.description}",
             )
-            val content =
-                "Goal: $goal\nMilestone: ${milestone.title} (${milestone.id})\nTask ${task.id}: ${task.description}"
+            val content = workerBriefing(
+                goal, milestone, task,
+                roundResults.filter { it.taskId in task.dependsOn },
+                limits.maxHandoffChars,
+            )
             val resultTool = ProtocolTools.resultTool(task.id)
             val res = runLevel(
                 AgentRole.WORKER, "task ${task.id}",
@@ -479,6 +498,7 @@ class Orchestrator(
                 "no result submitted: ${failureMessage(res)}",
             )
             results += result
+            roundResults += result
             listener.onResult(result)
         }
         return usage
@@ -588,6 +608,7 @@ internal fun parseTasks(args: JsonObject): List<DispatchTask> {
     val tasksEl = args["tasks"]
     if (tasksEl !is JsonArray) throw ProtocolException("'tasks' must be an array")
     val seen = mutableSetOf<Int>()
+    val earlier = mutableSetOf<Int>()
     return tasksEl.mapIndexed { index, el ->
         val obj = el as? JsonObject ?: throw ProtocolException("task $index is not an object")
         val id = obj["id"]?.jsonPrimitive?.intOrNull
@@ -595,7 +616,31 @@ internal fun parseTasks(args: JsonObject): List<DispatchTask> {
         val description = obj["description"]?.jsonPrimitive?.content
         if (description.isNullOrBlank()) throw ProtocolException("task $id missing 'description'")
         if (!seen.add(id)) throw ProtocolException("duplicate task id $id")
-        DispatchTask(id, description)
+        val files = (obj["files"] ?: JsonNull).let { el ->
+            when (el) {
+                JsonNull -> emptyList()
+                is JsonArray -> el.map { f ->
+                    (f as? JsonPrimitive)?.takeIf { it.isString }?.content
+                        ?: throw ProtocolException("task $id 'files' must contain only strings")
+                }
+                else -> throw ProtocolException("task $id 'files' must be an array")
+            }
+        }
+        val dependsOn = (obj["depends_on"] ?: JsonNull).let { el ->
+            when (el) {
+                JsonNull -> emptyList()
+                is JsonArray -> el.map { d ->
+                    (d as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
+                        ?: throw ProtocolException("task $id 'depends_on' must contain only integer ids")
+                }
+                else -> throw ProtocolException("task $id 'depends_on' must be an array")
+            }
+        }
+        dependsOn.forEach { d ->
+            if (d !in earlier) throw ProtocolException("task $id depends_on $d, which is not an earlier task in this round")
+        }
+        earlier += id
+        DispatchTask(id, description, files, dependsOn)
     }
 }
 
