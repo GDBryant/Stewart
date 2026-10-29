@@ -168,7 +168,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account does expose a list of models to select from. **Built** (`AifProvider.listModels`).
 
 ## Open Items
-M1–M8 are done; there is no M9. Remaining work, in suggested order:
+M1–M8 are done; there is no M9. Remaining work, in suggested order (implementation plan: `docs/HANDOFF.md`):
 
 1. **Worker dispatch context** (M7 note): send each worker only its task-relevant context in caveman-terse form. Cuts tokens on every worker call. Needs a test that unrelated history never reaches the worker prompt.
 2. **Branch-coverage headroom**: 81% against the 80% gate. Add negative-path tests before more features land.

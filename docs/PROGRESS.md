@@ -21,7 +21,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 ## Open items
 
-No M9 is planned. Tracked in `docs/PLAN.md` → Open Items:
+No M9 is planned. Tracked in `docs/PLAN.md` → Open Items; plan in `docs/HANDOFF.md`:
 
 - Worker dispatch context (task-relevant, caveman-terse briefing).
 - Branch coverage 81% vs 80% gate: little headroom.
