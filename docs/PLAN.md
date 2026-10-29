@@ -176,7 +176,26 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Done when: `test koverVerify verifyPlugin` pass. See `docs/PROGRESS.md` for hashes.
 
 ## Open Items
-M1–M9 are done, including the manual Stop check (passed 2026-10-29). None remaining.
+M1–M9 are done, including the manual Stop check (passed 2026-10-29). Remaining:
+
+1. **Slash commands** (not started). Typing `/` in the chat input runs a local command instead of sending a message. Start from Claude Code's built-in commands and ship its 8 most-used ones, mapped to features the plugin already has where possible:
+
+   | Command | Plugin behaviour | Builds on |
+   |---|---|---|
+   | `/clear` | Clear the conversation and its history | `ChatSession.clearHistory` (Clear button) |
+   | `/compact [focus]` | Compact now, optionally guided by focus text | `ContextCompactor` (today auto-only) |
+   | `/model [name]` | Show or switch the model (no arg opens the picker) | chat-header model picker |
+   | `/cost` | Show token use and cost for the session | M8 usage/cost display |
+   | `/help` | List commands with one-line descriptions | command registry |
+   | `/init` | Ask the model to write `AGENTS.md` for the project (approval-gated write) | `ProjectTools.WriteFile` |
+   | `/review` | Review the current VCS diff | `RunTerminal`/VCS diff, read-only |
+   | `/config` | Open the plugin's Settings page | `AijbSettings` configurable |
+
+   - A `SlashCommand` registry (name, args, description, handler) parsed before a message is sent. An unknown `/x` shows an error with a `/help` hint, and nothing is sent to the model.
+   - Autocomplete popup in the chat input when the text starts with `/`.
+   - Commands are disabled while a run is active, except `/help` and `/cost`.
+   - Tests: parsing (args, whitespace, unknown command, `//` and `/` mid-text sent as plain text), each handler's positive and negative cases, and disabled-during-run.
+   - Open question: add `/resume` or `/memory` later if needed (history is per-project, so `/resume` may be redundant).
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.
