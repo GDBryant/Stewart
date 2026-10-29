@@ -54,24 +54,56 @@ data class LoopLimits(
     val maxTruncationRetries: Int = 1,
 )
 
+const val UNCERTAIN_PREFIX = "Outcome uncertain:"
+
+/**
+ * Thrown (as a cancellation) when a run is cancelled, carrying everything produced so far so the
+ * caller can keep an honest transcript: partial reply text, tool results and any tool call whose
+ * outcome is unknown. Nothing is claimed rolled back.
+ */
+class RunCancelledException(
+    val base: List<ChatMessage>,
+    val produced: List<ChatMessage>,
+    cause: Throwable? = null,
+    /** Tokens and cost already spent by the cancelled run. */
+    val usage: Usage? = null,
+) : CancellationException("cancelled") {
+    init {
+        initCause(cause)
+    }
+
+    val transcript: List<ChatMessage> get() = base + produced
+
+    val uncertainOutcomes: Int
+        get() = produced.count { it.role == Role.TOOL && it.content.startsWith(UNCERTAIN_PREFIX) }
+}
+
+private class InFlight {
+    var id: String? = null
+}
+
 sealed interface LoopResult {
     val messages: List<ChatMessage>
     val base: List<ChatMessage>
+    /** Usage summed over every model turn and compaction request, however the run ended. */
+    val usage: Usage?
     val transcript: List<ChatMessage> get() = base + messages
     data class Completed(
         override val messages: List<ChatMessage>,
-        val usage: Usage?,
+        override val usage: Usage?,
         override val base: List<ChatMessage>,
     ) : LoopResult
     data class TurnLimitReached(
         override val messages: List<ChatMessage>,
         override val base: List<ChatMessage>,
+        override val usage: Usage? = null,
     ) : LoopResult
     data class Failed(
         override val messages: List<ChatMessage>,
         val message: String,
         val code: String? = null,
         override val base: List<ChatMessage>,
+        override val usage: Usage? = null,
     ) : LoopResult
 }
 
@@ -96,36 +128,43 @@ class ToolLoop(
         var lastPromptTokens: Int? = lastPromptTokens
         var turns = 0
         var truncationRetries = 0
-        while (true) {
-            if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced, base)
-            limits.compactAtTokens?.let { threshold ->
-                val compaction = compactor.compactIfNeeded(
-                    provider, model, base + produced, threshold, lastPromptTokens)
-                if (compaction.error != null) {
-                    listener.onCompactionFailed(compaction.error!!)
-                } else if (compaction.compacted) {
-                    base = compaction.messages
-                    produced.clear()
-                    listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+        var total: Usage? = null
+        val text = StringBuilder()
+        var turnOpen = false
+        val inFlight = InFlight()
+        try {
+            while (true) {
+                if (turns >= limits.maxModelTurns) return LoopResult.TurnLimitReached(produced, base, total)
+                limits.compactAtTokens?.let { threshold ->
+                    val compaction = compactor.compactIfNeeded(
+                        provider, model, base + produced, threshold, lastPromptTokens)
+                    compaction.usage?.let { u -> total = total?.plus(u) ?: u }
+                    if (compaction.error != null) {
+                        listener.onCompactionFailed(compaction.error!!)
+                    } else if (compaction.compacted) {
+                        base = compaction.messages
+                        produced.clear()
+                        listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+                    }
                 }
-            }
-            val context = base + produced
-            val size = context.sumOf { it.content.length } +
-                context.sumOf { m -> m.toolCalls.sumOf { it.arguments.toString().length } }
-            if (size > limits.maxContextChars) {
-                return LoopResult.Failed(produced, "context size limit exceeded", "context_limit", base)
-            }
-            turns++
-            val text = StringBuilder()
-            var calls: List<ToolCall> = emptyList()
-            var usage: Usage? = null
-            var finish: String? = null
-            var failed: ProviderEvent.Failed? = null
-            var protocolError = false
-            val outbound = rolePrompt?.let {
-                listOf(ChatMessage(Role.SYSTEM, it)) + context
-            } ?: context
-            provider.chat(ChatRequest(model, outbound, tools = registry.specs)).collect { ev ->
+                val context = base + produced
+                val size = context.sumOf { it.content.length } +
+                    context.sumOf { m -> m.toolCalls.sumOf { it.arguments.toString().length } }
+                if (size > limits.maxContextChars) {
+                    return LoopResult.Failed(produced, "context size limit exceeded", "context_limit", base, total)
+                }
+                turns++
+                text.setLength(0)
+                turnOpen = true
+                var calls: List<ToolCall> = emptyList()
+                var usage: Usage? = null
+                var finish: String? = null
+                var failed: ProviderEvent.Failed? = null
+                var protocolError = false
+                val outbound = rolePrompt?.let {
+                    listOf(ChatMessage(Role.SYSTEM, it)) + context
+                } ?: context
+                provider.chat(ChatRequest(model, outbound, tools = registry.specs)).collect { ev ->
                     when (ev) {
                         is ProviderEvent.TextDelta -> {
                             if (finish != null) protocolError = true
@@ -149,51 +188,82 @@ class ToolLoop(
                             if (finish != null) protocolError = true else failed = ev
                         }
                     }
-            }
-            lastPromptTokens = usage?.promptTokens
-            if (protocolError) {
-                return LoopResult.Failed(produced, "provider emitted events after completion", "protocol_error", base)
-            }
-            if (failed != null) {
-                return LoopResult.Failed(produced, failed!!.message, failed!!.code, base)
-            }
-            if (finish == null) {
-                return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream", base)
-            }
-            if (finish == "length" && truncationRetries < limits.maxTruncationRetries) {
-                // Output limit hit: drop the partial reply, compact the context and retry.
-                val compaction = compactor.compactIfNeeded(provider, model, base + produced, 0, null)
-                if (compaction.error != null) {
-                    listener.onCompactionFailed(compaction.error!!)
-                } else if (compaction.compacted) {
-                    truncationRetries++
-                    base = compaction.messages
-                    produced.clear()
-                    lastPromptTokens = null
-                    listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
-                    continue
+                }
+                lastPromptTokens = usage?.promptTokens
+                usage?.let { u -> total = total?.plus(u) ?: u }
+                if (protocolError) {
+                    return LoopResult.Failed(produced, "provider emitted events after completion", "protocol_error", base, total)
+                }
+                if (failed != null) {
+                    return LoopResult.Failed(produced, failed!!.message, failed!!.code, base, total)
+                }
+                if (finish == null) {
+                    return LoopResult.Failed(produced, "stream ended before completion", "incomplete_stream", base, total)
+                }
+                if (finish == "length" && truncationRetries < limits.maxTruncationRetries) {
+                    // Output limit hit: drop the partial reply, compact the context and retry.
+                    turnOpen = false
+                    val compaction = compactor.compactIfNeeded(provider, model, base + produced, 0, null)
+                    compaction.usage?.let { u -> total = total?.plus(u) ?: u }
+                    if (compaction.error != null) {
+                        listener.onCompactionFailed(compaction.error!!)
+                    } else if (compaction.compacted) {
+                        truncationRetries++
+                        base = compaction.messages
+                        produced.clear()
+                        lastPromptTokens = null
+                        listener.onCompacted(compaction.beforeTokens, compaction.afterTokens)
+                        continue
+                    }
+                }
+                if (finish == "length" || finish == "content_filter") {
+                    turnOpen = false
+                    produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
+                    return LoopResult.Failed(produced, "response truncated ($finish)", "truncated", base, total)
+                }
+                truncationRetries = 0
+                turnOpen = false
+                produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
+                if (calls.isEmpty()) return LoopResult.Completed(produced, total, base)
+                val seen = mutableSetOf<String>()
+                for (call in calls) {
+                    listener.onToolRequested(call)
+                    val outcome = executeCall(call, seen, listener, inFlight)
+                    produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
+                    if (call.name in terminalTools && outcome is ToolOutcome.Success) {
+                        return LoopResult.Completed(produced, total, base)
+                    }
                 }
             }
-            if (finish == "length" || finish == "content_filter") {
-                produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
-                return LoopResult.Failed(produced, "response truncated ($finish)", "truncated", base)
-            }
-            truncationRetries = 0
-            produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
-            if (calls.isEmpty()) return LoopResult.Completed(produced, usage, base)
-            val seen = mutableSetOf<String>()
-            for (call in calls) {
-                listener.onToolRequested(call)
-                val outcome = executeCall(call, seen, listener)
-                produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
-                if (call.name in terminalTools && outcome is ToolOutcome.Success) {
-                    return LoopResult.Completed(produced, usage, base)
-                }
-            }
+        } catch (e: CancellationException) {
+            closeOpenToolCalls(produced, inFlight.id)
+            if (turnOpen && text.isNotBlank()) produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
+            throw RunCancelledException(base, produced, e, total)
         }
     }
 
-    private suspend fun executeCall(call: ToolCall, seen: MutableSet<String>, listener: LoopListener): ToolOutcome {
+    /** Gives every unanswered tool call of the last assistant turn a result so the transcript stays valid. */
+    private fun closeOpenToolCalls(produced: MutableList<ChatMessage>, inFlightId: String?) {
+        val idx = produced.indexOfLast { it.role == Role.ASSISTANT && it.toolCalls.isNotEmpty() }
+        if (idx < 0) return
+        val answered = produced.drop(idx + 1).mapNotNull { it.toolCallId }.toSet()
+        for (call in produced[idx].toolCalls) {
+            if (call.id in answered) continue
+            val content = if (call.id == inFlightId) {
+                outcomeMessage(ToolOutcome.Uncertain("cancelled; side effects unknown"))
+            } else {
+                "Not executed: cancelled by user"
+            }
+            produced.add(ChatMessage(Role.TOOL, content, toolCallId = call.id))
+        }
+    }
+
+    private suspend fun executeCall(
+        call: ToolCall,
+        seen: MutableSet<String>,
+        listener: LoopListener,
+        inFlight: InFlight,
+    ): ToolOutcome {
         val outcome: ToolOutcome = when {
             !seen.add(call.id) -> ToolOutcome.Invalid("duplicate tool call id")
             registry.find(call.name) == null -> ToolOutcome.Invalid("unknown tool '${call.name}'")
@@ -217,6 +287,7 @@ class ToolLoop(
                             return finishOutcome(call, ToolOutcome.Rejected(decision.reason), listener)
                         }
                     }
+                    inFlight.id = call.id
                     try {
                         val out = withTimeout(limits.toolTimeout) { tool.execute(call.arguments, preview) }
                         ToolOutcome.Success(
@@ -252,6 +323,6 @@ class ToolLoop(
         is ToolOutcome.Failure -> "Error: ${outcome.message}"
         is ToolOutcome.Rejected -> "Rejected by user: ${outcome.reason}"
         is ToolOutcome.Invalid -> "Invalid tool call: ${outcome.reason}"
-        is ToolOutcome.Uncertain -> "Outcome uncertain: ${outcome.reason}"
+        is ToolOutcome.Uncertain -> "$UNCERTAIN_PREFIX ${outcome.reason}"
     }
 }

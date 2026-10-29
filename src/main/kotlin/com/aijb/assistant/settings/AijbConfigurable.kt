@@ -29,6 +29,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var claudeModelsArea: JBTextArea
     internal lateinit var overridesArea: JBTextArea
     internal lateinit var autoCompactField: JBTextField
+    internal lateinit var historyRetentionField: JBTextField
     internal lateinit var toolsEnabledCheck: javax.swing.JCheckBox
     internal lateinit var autoApproveCheck: javax.swing.JCheckBox
 
@@ -51,6 +52,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         row("Claude models (one per line):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Auto-compact context at (tokens):") { autoCompactField = textField().component }
+        row("Keep chat history (days, 0 = don't save):") { historyRetentionField = textField().component }
         row {
             toolsEnabledCheck = checkBox("Enable tools (read, search, edit, run commands)").component
         }
@@ -95,6 +97,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() } != s.claudeModels ||
             runCatching { parseOverrides(overridesArea.text) }.getOrNull() != s.toolPathOverrides ||
             TokenCount.parse(autoCompactField.text) != s.autoCompactTokens ||
+            historyRetentionField.text.trim().toIntOrNull() != s.historyRetentionDays ||
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
             autoApproveCheck.isSelected != s.autoApproveEdits
     }
@@ -110,6 +113,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         claudeModelsArea.text = s.claudeModels.joinToString("\n")
         overridesArea.text = overridesText(s.toolPathOverrides)
         autoCompactField.text = TokenCount.format(s.autoCompactTokens)
+        historyRetentionField.text = s.historyRetentionDays.toString()
         toolsEnabledCheck.isSelected = s.toolsEnabled
         autoApproveCheck.isSelected = s.autoApproveEdits
     }
@@ -130,6 +134,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         val overrides = parseOverrides(overridesArea.text)
         val autoCompact = TokenCount.parse(autoCompactField.text)
             ?: throw ConfigurationException("Invalid token count: ${autoCompactField.text}")
+        val retention = historyRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..3650 }
+            ?: throw ConfigurationException("History retention must be a whole number of days from 0 to 3650")
 
         val s = settings.state
         s.ollamaUrl = ollama
@@ -139,6 +145,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         s.claudeModels = claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
         s.toolPathOverrides = overrides.toMutableMap()
         s.autoCompactTokens = autoCompact
+        s.historyRetentionDays = retention
         s.toolsEnabled = toolsEnabledCheck.isSelected
         s.autoApproveEdits = autoApproveCheck.isSelected
 

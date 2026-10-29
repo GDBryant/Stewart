@@ -1,5 +1,6 @@
 package com.aijb.assistant
 
+import org.junit.Assert.assertNull
 import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.agents.OrchestrationResult
 import com.aijb.assistant.agents.Orchestrator
@@ -208,7 +209,8 @@ class OrchestratorTest {
             listOf(WorkerResult(1, "done", "ok"), WorkerResult(2, "done", "ok")),
             listener.results,
         )
-        assertEquals(Usage(70, 35), listener.completed)
+        // Seven level runs of 10/5, plus a second turn in the worker that uses a tool.
+        assertEquals(Usage(80, 40), listener.completed)
         // Final summary message + no re-plans.
         val messages = (r as OrchestrationResult.Completed).messages
         assertEquals("Done. Goal: ship it\n- [1] m1: done\n- [2] m2: done\n", messages.last().content)
@@ -485,5 +487,74 @@ class OrchestratorTest {
         val finished = System.currentTimeMillis() + 5000
         while (System.currentTimeMillis() < finished && !job.isCompleted) Thread.sleep(10)
         assertTrue(job.isCancelled)
+    }
+
+    // --- M8: cancellation and failure codes ---
+
+    @Test
+    fun `cancelled run returns the transcript so far and the partial level output`() {
+        val p = ScriptedProvider()
+        p.planner += call(Protocol.SUBMIT_PLAN, "p1", oneMilestonePlan())
+        val (e, w) = milestoneScript(1)
+        p.executor += e; p.worker += w
+        val inWorker = java.util.concurrent.CountDownLatch(1)
+        p.workerHook = { req, base ->
+            if (p.levelOf(req).contains(Protocol.SUBMIT_RESULT)) {
+                flow {
+                    emit(ProviderEvent.TextDelta("w-part"))
+                    inWorker.countDown()
+                    kotlinx.coroutines.awaitCancellation()
+                }
+            } else base
+        }
+        val captured = java.util.concurrent.atomic.AtomicReference<com.aijb.assistant.tools.RunCancelledException?>()
+        runBlocking {
+            val job = launch(kotlinx.coroutines.Dispatchers.Default) {
+                try {
+                    newOrchestrator(p).run("do it", RecordingListener())
+                } catch (ex: com.aijb.assistant.tools.RunCancelledException) {
+                    captured.set(ex)
+                    throw ex
+                }
+            }
+            assertTrue(inWorker.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            job.cancel()
+            job.join()
+        }
+        val ex = captured.get()!!
+        val produced = ex.produced
+        // Planner's submission survives, and so does the worker's partial text.
+        assertTrue(produced.any { m -> m.toolCalls.any { it.name == Protocol.SUBMIT_PLAN } })
+        assertEquals("w-part", produced.last().content)
+        assertEquals(Role.ASSISTANT, produced.last().role)
+        assertTrue(ex.base.isEmpty())
+        // Planner and executor each cost 10/5 before the worker was cancelled.
+        assertEquals(Usage(20, 10), ex.usage)
+    }
+
+    @Test
+    fun `failed run keeps the provider error code`() {
+        val p = ScriptedProvider()
+        p.planner += listOf(ProviderEvent.Failed("denied", code = "auth"))
+        val r = runBlocking { newOrchestrator(p).run("go", RecordingListener()) }
+        assertTrue(r is OrchestrationResult.Failed)
+        assertEquals("auth", (r as OrchestrationResult.Failed).code)
+    }
+
+    @Test
+    fun `failure not caused by a provider has no code`() {
+        val p = ScriptedProvider()
+        p.planner += text("no tool call here")
+        val r = runBlocking { newOrchestrator(p).run("go", RecordingListener()) }
+        assertTrue(r is OrchestrationResult.Failed)
+        assertNull((r as OrchestrationResult.Failed).code)
+    }
+
+    @Test
+    fun `failed run still counts the usage of the level that failed`() {
+        val p = ScriptedProvider()
+        p.planner += text("no tool call here", Usage(10, 5))
+        val r = runBlocking { newOrchestrator(p).run("go", RecordingListener()) }
+        assertEquals(Usage(10, 5), (r as OrchestrationResult.Failed).usage)
     }
 }

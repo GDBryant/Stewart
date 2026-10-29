@@ -144,6 +144,10 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 
 ### 8. Hardening
 - Cancellation end-to-end (stream + subprocess + tool run), error surfacing, token/cost display, chat-history persistence.
+- Cancellation: `ToolLoop` and `Orchestrator` throw `RunCancelledException` (a `CancellationException`) carrying the partial transcript; every unanswered tool call gets a result (`Outcome uncertain: cancelled; side effects unknown` for the one in flight, `Not executed` for the rest) and `ChatSession` appends `[Cancelled by user]`. Approval dialogs are modal; Reject is the cancel path while one is open.
+- History: one JSON file per project under `<system dir>/aijb-assistant/history/`, atomic writes, system messages never stored; `historyRetentionDays` setting (default 30, `0` = do not save); corrupt/unknown-version files are set aside as `.corrupt`; "Clear" in the chat header wipes memory, usage and file.
+- Usage/cost: token usage is summed across model turns, compaction requests and failed/cancelled runs, and across requests (session totals shown and persisted). Cost is shown only when the provider reports it (Claude CLI `total_cost_usd`); Ollama/AIF show `cost n/a`, never `$0`. No local price table.
+- Errors: provider/loop failure codes map to an actionable hint (`ErrorHints`) shown as an error message in the chat.
 - Done when: cancellation stops scheduling, closes streams and terminates owned process trees where supported; atomic IDE edits remain undoable, and completed or uncertain command side effects are reported rather than claimed to be rolled back.
 
 ## Assumptions

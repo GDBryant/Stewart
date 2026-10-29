@@ -204,6 +204,17 @@ private suspend fun onEdt(block: () -> Unit) {
 }
 
 abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(project, paths) {
+    /**
+     * Reloads an unmodified document only when it differs from disk. An unconditional reload
+     * is not undoable and would make the following edit impossible to undo from the editor.
+     */
+    private fun reloadIfStale(doc: com.intellij.openapi.editor.Document, vf: com.intellij.openapi.vfs.VirtualFile) {
+        val fdm = FileDocumentManager.getInstance()
+        if (fdm.isFileModified(vf)) return
+        val disk = String(vf.contentsToByteArray(), vf.charset)
+        if (doc.text != com.intellij.openapi.util.text.StringUtil.convertLineSeparators(disk)) fdm.reloadFromDisk(doc)
+    }
+
     protected suspend fun currentText(p: Path): String? {
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByPath(p.toString()) ?: return null
         if (vf.isDirectory) throw IllegalArgumentException("not a file: " + paths.relative(p))
@@ -243,10 +254,7 @@ abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(pro
                 var liveDoc = vfExisting?.let {
                     FileDocumentManager.getInstance().getCachedDocument(it)
                 }
-                if (liveDoc != null && vfExisting != null &&
-                    !FileDocumentManager.getInstance().isFileModified(vfExisting)) {
-                    FileDocumentManager.getInstance().reloadFromDisk(liveDoc)
-                }
+                if (liveDoc != null && vfExisting != null) reloadIfStale(liveDoc, vfExisting)
                 if (vfExisting == null) {
                     vfExisting = LocalFileSystem.getInstance()
                         .refreshAndFindFileByPath(rechecked.toString())
@@ -281,9 +289,7 @@ abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(pro
                 }
                 val doc = FileDocumentManager.getInstance().getDocument(vf)
                     ?: throw IllegalStateException("no document for ${resolved.fileName}")
-                if (!FileDocumentManager.getInstance().isFileModified(vf)) {
-                    FileDocumentManager.getInstance().reloadFromDisk(doc)
-                }
+                reloadIfStale(doc, vf)
                 doc.setText(change.after)
                 FileDocumentManager.getInstance().saveDocument(doc)
             } catch (e: RuntimeException) {

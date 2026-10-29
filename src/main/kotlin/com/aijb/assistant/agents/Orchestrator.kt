@@ -12,11 +12,13 @@ import com.aijb.assistant.tools.ApprovalGate
 import com.aijb.assistant.tools.LoopLimits
 import com.aijb.assistant.tools.LoopListener
 import com.aijb.assistant.tools.LoopResult
+import com.aijb.assistant.tools.RunCancelledException
 import com.aijb.assistant.tools.Tool
 import com.aijb.assistant.tools.ToolLoop
 import com.aijb.assistant.tools.ToolRegistry
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -104,6 +106,7 @@ sealed interface OrchestrationResult {
         override val replans: List<String>,
         val message: String,
         override val usage: Usage?,
+        val code: String? = null,
     ) : OrchestrationResult
 }
 
@@ -236,12 +239,38 @@ class Orchestrator(
         projectTools, approval, limits, compactor, compactAtTokens,
     )
 
+    /** Runs the plan; cancellation surfaces as [RunCancelledException] carrying the transcript so far. */
     suspend fun run(
         request: String,
         listener: OrchestratorListener,
         history: List<ChatMessage> = emptyList(),
     ): OrchestrationResult {
         val transcript = mutableListOf<ChatMessage>()
+        val result = try {
+            runSteps(request, listener, history, transcript)
+        } catch (e: CancellationException) {
+            val partial = (e as? RunCancelledException)?.produced ?: emptyList()
+            throw RunCancelledException(emptyList(), transcript + partial, e, runUsage)
+        }
+        return if (result is OrchestrationResult.Failed && result.code == null) {
+            result.copy(code = lastFailureCode)
+        } else {
+            result
+        }
+    }
+
+    /** Code of the most recent failed level, so a run failure keeps its provider error code. */
+    private var lastFailureCode: String? = null
+
+    /** Usage of every level run so far (including a cancelled one), for the cancellation report. */
+    private var runUsage: Usage? = null
+
+    private suspend fun runSteps(
+        request: String,
+        listener: OrchestratorListener,
+        history: List<ChatMessage>,
+        transcript: MutableList<ChatMessage>,
+    ): OrchestrationResult {
         val replans = mutableListOf<String>()
         var usage: Usage? = null
 
@@ -503,6 +532,7 @@ class Orchestrator(
         listener: OrchestratorListener,
     ): LevelRun {
         val route = routes.getValue(role)
+        lastFailureCode = null
         listener.onLevelRouted(role, route.label)
         listener.onLevelStarted(role, context)
         val loopListener = object : LoopListener {
@@ -521,10 +551,17 @@ class Orchestrator(
             rolePrompt = system,
             terminalTools = terminal,
         )
+        // The role/protocol prompt is injected per request via rolePrompt, so it is
+        // never duplicated in history and survives compaction re-injected each turn.
         val base = baseHistory +
-            ChatMessage(Role.SYSTEM, system) +
             ChatMessage(Role.USER, userContent)
-        val result = loop.run(route.ref.modelId, base, loopListener)
+        val result = try {
+            loop.run(route.ref.modelId, base, loopListener)
+        } catch (e: RunCancelledException) {
+            runUsage = sumUsage(runUsage, e.usage)
+            throw e
+        }
+        runUsage = sumUsage(runUsage, result.usage)
         val submitted = result.messages.lastOrNull { m -> m.toolCalls.any { it.name in terminal } }
             ?.toolCalls?.firstOrNull { it.name in terminal }
         val status = when (result) {
@@ -532,9 +569,12 @@ class Orchestrator(
                 if (submitted != null) LevelStatus.Completed
                 else LevelStatus.Failed("${role.name.lowercase()} finished without submitting a structured result")
             is LoopResult.TurnLimitReached -> LevelStatus.TurnLimit
-            is LoopResult.Failed -> LevelStatus.Failed("${route.label}: ${result.message}")
+            is LoopResult.Failed -> {
+                lastFailureCode = result.code
+                LevelStatus.Failed("${route.label}: ${result.message}")
+            }
         }
-        return LevelRun(result.messages, (result as? LoopResult.Completed)?.usage, status, submitted)
+        return LevelRun(result.messages, result.usage, status, submitted)
     }
 
     /** Caps text handed between levels so one verbose result cannot flood the next model. */
@@ -551,10 +591,7 @@ class Orchestrator(
     private fun sumUsage(a: Usage?, b: Usage?): Usage? = when {
         a == null -> b
         b == null -> a
-        else -> Usage(
-            (a.promptTokens ?: 0) + (b.promptTokens ?: 0),
-            (a.completionTokens ?: 0) + (b.completionTokens ?: 0),
-        )
+        else -> a + b
     }
 }
 

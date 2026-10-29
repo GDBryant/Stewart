@@ -150,4 +150,23 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         configurable.apply()
         assertTrue(fired)
     }
+
+    fun `test history retention defaults and persists`() {
+        assertEquals("30", configurable.historyRetentionField.text)
+        configurable.historyRetentionField.text = "7"
+        assertTrue(configurable.isModified)
+        configurable.apply()
+        assertEquals(7, AijbSettings.getInstance().state.historyRetentionDays)
+        assertFalse(configurable.isModified)
+        configurable.historyRetentionField.text = "0"
+        configurable.apply()
+        assertEquals(0, AijbSettings.getInstance().state.historyRetentionDays)
+    }
+
+    fun `test invalid history retention rejected`() {
+        for (bad in listOf("abc", "-1", "4000", "", "1.5")) {
+            configurable.historyRetentionField.text = bad
+            assertInvalid { configurable.apply() }
+        }
+    }
 }

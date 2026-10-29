@@ -31,6 +31,7 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
         var workerModel by string()
         var autoCompactTokens by property(80000)
         var autoApproveEdits by property(false)
+        var historyRetentionDays by property(30)
         var toolsEnabled by property(true)
     }
 

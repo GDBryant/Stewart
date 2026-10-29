@@ -24,15 +24,18 @@ import com.aijb.assistant.tools.LoopLimits
 import com.aijb.assistant.tools.LoopListener
 import com.aijb.assistant.tools.LoopResult
 import com.aijb.assistant.tools.ProjectTools
+import com.aijb.assistant.tools.RunCancelledException
 import com.aijb.assistant.tools.ToolLoop
 import com.aijb.assistant.tools.ToolOutcome
 import com.aijb.assistant.tools.ToolRegistry
 import com.aijb.assistant.ui.IdeApprovalGate
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
@@ -46,6 +49,10 @@ interface ChatListener {
     fun onCompleted(usage: Usage?)
     fun onFailed(message: String)
     fun onCancelled()
+    /** Cancellation with the number of tool calls whose side effects are unknown (not rolled back). */
+    fun onCancelledWithOutcomes(uncertainOutcomes: Int) = onCancelled()
+    /** Failure with the provider/loop error [code] (null when unknown), for actionable hints. */
+    fun onFailedWithCode(message: String, code: String?) = onFailed(message)
     fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
     fun onCompactionFailed(message: String) {}
     fun onLevelStarted(role: AgentRole, context: String) {}
@@ -80,14 +87,83 @@ class ChatSession(
     }
     internal var compactor = ContextCompactor()
 
+    /** Days to keep saved history; 0 disables persistence. */
+    var historyRetentionDays: () -> Int = { AijbSettings.getInstance().state.historyRetentionDays }
+
+    /** Null disables persistence (always the case in unit-test mode unless a test sets a store). */
+    var historyStore: ChatHistoryStore? = defaultHistoryStore(project)
+
     private var lastPromptTokens: Int? = null
 
     private val lock = Any()
     private val transcriptBacking = mutableListOf<ChatMessage>()
     private var activeJob: Job? = null
+    private var usageBacking: Usage? = null
 
     val transcript: List<ChatMessage>
         get() = synchronized(lock) { transcriptBacking.toList() }
+
+    /** Tokens and cost summed over every completed request in this chat (restored with history). */
+    val sessionUsage: Usage?
+        get() = synchronized(lock) { usageBacking }
+
+    init {
+        restoreHistory()
+    }
+
+    private fun addUsage(usage: Usage?) {
+        if (usage == null) return
+        synchronized(lock) { usageBacking = usageBacking?.plus(usage) ?: usage }
+    }
+
+    /** Loads saved history if this chat is empty and idle; unreadable or expired files are dropped. */
+    fun restoreHistory() {
+        val store = historyStore ?: return
+        val days = historyRetentionDays()
+        val loaded = try {
+            store.file.parent?.let { ChatHistoryStore.pruneExpired(it, days) }
+            store.load(days)
+        } catch (e: Exception) {
+            LOG.warn("Could not load chat history: ${e.javaClass.simpleName}")
+            null
+        } ?: return
+        synchronized(lock) {
+            if (activeJob == null && transcriptBacking.isEmpty()) {
+                transcriptBacking.addAll(loaded.messages)
+                usageBacking = loaded.usage
+            }
+        }
+    }
+
+    private fun persist() {
+        val store = historyStore ?: return
+        try {
+            if (historyRetentionDays() <= 0) {
+                store.delete()
+            } else {
+                val (snapshot, usage) = synchronized(lock) { transcriptBacking.toList() to usageBacking }
+                store.save(snapshot, usage)
+            }
+        } catch (e: Exception) {
+            LOG.warn("Could not save chat history: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /** Cancels any run and wipes the transcript, usage totals and the saved file. */
+    fun clearHistory() {
+        synchronized(lock) {
+            activeJob?.cancel()
+            activeJob = null
+            transcriptBacking.clear()
+            usageBacking = null
+            lastPromptTokens = null
+        }
+        try {
+            historyStore?.delete()
+        } catch (e: Exception) {
+            LOG.warn("Could not delete chat history: ${e.javaClass.simpleName}")
+        }
+    }
 
     private fun toEdt(block: () -> Unit) {
         ApplicationManager.getApplication().invokeLater({ block() }, ModalityState.any())
@@ -102,14 +178,18 @@ class ChatSession(
             val history = transcriptBacking.toList()
             newJob = cs.launch {
                 val thisJob = coroutineContext.job
+                var orchestrated = false
                 try {
                     if (multiModel()) {
+                        orchestrated = true
                         runOrchestrator(text, ref, priorHistory, listener, thisJob)
                         return@launch
                     }
                     val provider = providers().firstOrNull { it.id == ref.providerId }
                     if (provider == null) {
-                        toEdt { listener.onFailed("Provider not configured: ${ref.providerId}") }
+                        toEdt {
+                            listener.onFailedWithCode("Provider not configured: ${ref.providerId}", "provider_missing")
+                        }
                         return@launch
                     }
                     val wrapped = ToolCallingProvider(
@@ -150,6 +230,7 @@ class ChatSession(
                                 }
                             }
                             lastPromptTokens = result.usage?.promptTokens
+                            addUsage(result.usage)
                             toEdt { listener.onCompleted(result.usage) }
                         }
                         is LoopResult.Failed -> {
@@ -159,7 +240,8 @@ class ChatSession(
                                     transcriptBacking.addAll(result.transcript)
                                 }
                             }
-                            toEdt { listener.onFailed(result.message) }
+                            addUsage(result.usage)
+                            toEdt { listener.onFailedWithCode(result.message, result.code) }
                         }
                         is LoopResult.TurnLimitReached -> {
                             synchronized(lock) {
@@ -168,11 +250,27 @@ class ChatSession(
                                     transcriptBacking.addAll(result.transcript)
                                 }
                             }
-                            toEdt { listener.onFailed("Stopped: tool-turn limit reached (25)") }
+                            addUsage(result.usage)
+                            toEdt { listener.onFailedWithCode("Stopped: tool-turn limit reached (25)", "turn_limit") }
                         }
                     }
                 } catch (e: CancellationException) {
-                    toEdt { listener.onCancelled() }
+                    val cancelled = e as? RunCancelledException
+                    addUsage(cancelled?.usage)
+                    synchronized(lock) {
+                        if (activeJob === thisJob) {
+                            val kept = when {
+                                cancelled == null -> transcriptBacking.toList()
+                                orchestrated -> listOf(ChatMessage(Role.USER, text)) +
+                                    cancelled.produced.filter { it.role != Role.SYSTEM }
+                                else -> cancelled.transcript
+                            }
+                            transcriptBacking.clear()
+                            transcriptBacking.addAll(withCancelMarker(kept))
+                        }
+                    }
+                    val uncertain = cancelled?.uncertainOutcomes ?: 0
+                    toEdt { listener.onCancelledWithOutcomes(uncertain) }
                     throw e
                 } catch (e: Throwable) {
                     toEdt { listener.onFailed(e.message ?: "error") }
@@ -180,6 +278,7 @@ class ChatSession(
                     synchronized(lock) {
                         if (activeJob === thisJob) activeJob = null
                     }
+                    persist()
                 }
             }
             activeJob = newJob
@@ -208,7 +307,7 @@ class ChatSession(
         val routes = when (routed) {
             is RoutingResult.Resolved -> routed.routes
             is RoutingResult.Unresolved -> {
-                toEdt { listener.onFailed(routed.message) }
+                toEdt { listener.onFailedWithCode(routed.message, "provider_missing") }
                 return
             }
         }
@@ -227,7 +326,10 @@ class ChatSession(
             override fun onResult(result: WorkerResult) {}
             override fun onReplanning(reason: String) =
                 toEdt { listener.onDelta("\n[re-planning: $reason]\n") }
-            override fun onCompleted(usage: Usage?) = toEdt { listener.onCompleted(usage) }
+            override fun onCompleted(usage: Usage?) {
+                addUsage(usage)
+                toEdt { listener.onCompleted(usage) }
+            }
             override fun onFailed(message: String) = toEdt { listener.onFailed(message) }
         }
         val orchestrator = Orchestrator(
@@ -246,7 +348,8 @@ class ChatSession(
             }
         }
         if (result is OrchestrationResult.Failed) {
-            toEdt { listener.onFailed(result.message) }
+            addUsage(result.usage)
+            toEdt { listener.onFailedWithCode(result.message, result.code) }
         }
     }
 
@@ -256,9 +359,30 @@ class ChatSession(
 
     override fun dispose() {
         cancel()
+        persist()
     }
 
     companion object {
+        const val CANCEL_MARKER = "[Cancelled by user]"
+        private val LOG = Logger.getInstance(ChatSession::class.java)
+
         fun getInstance(project: Project): ChatSession = project.service()
+
+        /** Marks a cancelled run so later turns (and the user) see it was interrupted. */
+        internal fun withCancelMarker(messages: List<ChatMessage>): List<ChatMessage> {
+            val last = messages.lastOrNull()
+            return if (last != null && last.role == Role.ASSISTANT && last.toolCalls.isEmpty()) {
+                messages.dropLast(1) + last.copy(content = last.content + "\n" + CANCEL_MARKER)
+            } else {
+                messages + ChatMessage(Role.ASSISTANT, CANCEL_MARKER)
+            }
+        }
+
+        private fun defaultHistoryStore(project: Project): ChatHistoryStore? =
+            if (ApplicationManager.getApplication().isUnitTestMode) {
+                null
+            } else {
+                ChatHistoryStore(ChatHistoryStore.pathFor(PathManager.getSystemDir(), project.locationHash))
+            }
     }
 }

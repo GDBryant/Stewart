@@ -440,4 +440,47 @@ class ProjectToolsTest : BasePlatformTestCase() {
             assertEquals(JsonPrimitive(false), spec.parameters["additionalProperties"])
         }
     }
+
+    fun `test run terminal cancellation kills background children`() {
+        val t = RunTerminal(project, paths)
+        val command = "sleep 300 & echo \$! > child.pid; wait"
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).async {
+            t.execute(args("command" to command), t.preview(args("command" to command)))
+        }
+        val pidFile = File(baseDir, "child.pid")
+        val deadline = System.currentTimeMillis() + 10_000
+        // The command first hops to the EDT (this thread), so keep dispatching events while waiting.
+        while ((!pidFile.exists() || pidFile.readText().isBlank()) && System.currentTimeMillis() < deadline) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            Thread.sleep(50)
+        }
+        val pid = pidFile.readText().trim().toLong()
+        assertTrue(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+        runBlocking {
+            job.cancel()
+            try { withTimeout(10_000) { job.await() } } catch (e: CancellationException) { }
+        }
+        val killBy = System.currentTimeMillis() + 5_000
+        while (ProcessHandle.of(pid).map { it.isAlive }.orElse(false) && System.currentTimeMillis() < killBy) {
+            Thread.sleep(50)
+        }
+        assertFalse("background child survived cancellation", ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+    }
+
+    fun `test approved edit is a single undoable command`() {
+        val f = write("undo.txt", "foo bar foo")
+        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)!!
+        myFixture.configureFromExistingVirtualFile(vf)
+        val doc = myFixture.editor.document
+        val t = EditFile(project, paths)
+        val a = args("path" to "undo.txt", "old_string" to "bar", "new_string" to "BAZ")
+        runBlocking { t.execute(a, t.preview(a)) }
+        assertEquals("foo BAZ foo", doc.text)
+        val undo = com.intellij.openapi.command.undo.UndoManager.getInstance(project)
+        val editor = com.intellij.openapi.fileEditor.impl.text.TextEditorProvider.getInstance()
+            .getTextEditor(myFixture.editor)
+        assertTrue(undo.isUndoAvailable(editor))
+        undo.undo(editor)
+        assertEquals("foo bar foo", doc.text)
+    }
 }

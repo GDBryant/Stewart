@@ -2,6 +2,8 @@ package com.aijb.assistant.ui
 
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
+import com.aijb.assistant.chat.ErrorHints
+import com.aijb.assistant.chat.UsageFormat
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Usage
@@ -54,6 +56,7 @@ class ChatPanel @JvmOverloads constructor(
     internal val modelCombo = JComboBox<ModelInfo>()
     internal val refreshButton = JButton("Refresh")
     internal val rolesButton = JButton("Roles")
+    internal val clearButton = JButton("Clear")
     internal val statusLabel = JLabel(" ")
     internal val messagesPanel = MessagesContainer()
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
@@ -97,6 +100,7 @@ class ChatPanel @JvmOverloads constructor(
         header.add(modelCombo, BorderLayout.CENTER)
         val headerButtons = JPanel()
         headerButtons.add(rolesButton)
+        headerButtons.add(clearButton)
         headerButtons.add(refreshButton)
         header.add(headerButtons, BorderLayout.EAST)
 
@@ -126,10 +130,19 @@ class ChatPanel @JvmOverloads constructor(
         sendButton.addActionListener { onSendOrStop() }
         refreshButton.addActionListener { loadModels() }
         rolesButton.addActionListener { showRolesPopup() }
+        clearButton.addActionListener { onClear() }
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(AijbSettings.TOPIC, AijbSettingsListener { loadModels() })
         renderTranscript()
         loadModels()
+    }
+
+    /** Wipes the chat, usage totals and the saved history file. */
+    internal fun onClear() {
+        session.clearHistory()
+        sendButton.text = "Send"
+        renderTranscript()
+        statusLabel.text = "History cleared"
     }
 
     private fun onModelSelected() {
@@ -261,9 +274,7 @@ class ChatPanel @JvmOverloads constructor(
 
             override fun onCompleted(usage: Usage?) {
                 sendButton.text = "Send"
-                val base = usage?.let {
-                    "tokens: ${it.promptTokens ?: "?"} in / ${it.completionTokens ?: "?"} out"
-                } ?: "Done"
+                val base = UsageFormat.status(usage, session.sessionUsage)
                 statusLabel.text = base + when {
                     compacted -> " · context compacted"
                     compactionFailed -> " · compaction failed"
@@ -276,9 +287,23 @@ class ChatPanel @JvmOverloads constructor(
                 statusLabel.text = "Failed: $message"
             }
 
+            override fun onFailedWithCode(message: String, code: String?) {
+                onFailed(message)
+                val hint = ErrorHints.hint(code) ?: return
+                addMessage("error", "$message\n$hint")
+            }
+
             override fun onCancelled() {
                 sendButton.text = "Send"
                 statusLabel.text = "Cancelled"
+            }
+
+            override fun onCancelledWithOutcomes(uncertainOutcomes: Int) {
+                onCancelled()
+                if (uncertainOutcomes > 0) {
+                    statusLabel.text = "Cancelled · $uncertainOutcomes tool outcome(s) uncertain, " +
+                        "side effects not rolled back"
+                }
             }
         })
     }

@@ -2,9 +2,11 @@ package com.aijb.assistant
 
 import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.agents.RolePrompts
+import com.aijb.assistant.chat.ChatHistoryStore
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.ContextCompactor
+import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelProvider
@@ -100,6 +102,19 @@ class ChatSessionTest : BasePlatformTestCase() {
         override fun onCancelled() {
             cancelled.countDown()
         }
+
+        var failureCode: String? = null
+        var uncertain: Int = -1
+
+        override fun onFailedWithCode(message: String, code: String?) {
+            failureCode = code
+            onFailed(message)
+        }
+
+        override fun onCancelledWithOutcomes(uncertainOutcomes: Int) {
+            uncertain = uncertainOutcomes
+            onCancelled()
+        }
     }
 
     private fun fakeProvider(id: String = "fake", vararg events: ProviderEvent) = object : ModelProvider {
@@ -160,8 +175,12 @@ class ChatSessionTest : BasePlatformTestCase() {
         pumpUntil(CountDownLatch(1), 100)
         session.cancel()
         assertTrue(pumpUntil(listener.cancelled))
-        assertEquals(1, session.transcript.size)
+        // User turn kept; partial reply is kept with an interruption marker.
+        assertEquals(2, session.transcript.size)
         assertEquals(Role.USER, session.transcript[0].role)
+        assertEquals(Role.ASSISTANT, session.transcript[1].role)
+        assertTrue(session.transcript[1].content.startsWith("partial"))
+        assertTrue(session.transcript[1].content.endsWith(ChatSession.CANCEL_MARKER))
         assertTrue(job.isCancelled || job.isCompleted)
     }
 
@@ -200,9 +219,10 @@ class ChatSessionTest : BasePlatformTestCase() {
         session.cancel()
         assertTrue(pumpUntil(second.cancelled))
         assertTrue(secondJob.isCancelled || secondJob.isCompleted)
-        assertEquals(2, session.transcript.size)
+        assertEquals(3, session.transcript.size)
         assertEquals("one", session.transcript[0].content)
         assertEquals("two", session.transcript[1].content)
+        assertEquals(ChatSession.CANCEL_MARKER, session.transcript[2].content.lines().last())
     }
 
     fun `test transcript snapshot is immutable`() {
@@ -584,6 +604,232 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals("Stopped: tool-turn limit reached (25)", listener.failure)
     }
 
+    // --- M8: error codes, cancellation transcript, usage totals, persistence ---
+
+    fun `test provider failure code reaches the listener`() {
+        val session = newSession()
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.Failed("nope", code = "auth"))) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals("auth", listener.failureCode)
+        assertEquals("nope", listener.failure)
+    }
+
+    fun `test missing provider and turn limit carry codes`() {
+        val session = newSession()
+        session.providers = { emptyList() }
+        val l1 = RecordingListener()
+        session.send("hi", ModelRef("ghost", "m"), l1)
+        assertTrue(pumpUntil(l1.failed))
+        assertEquals("provider_missing", l1.failureCode)
+
+        val s2 = newSession()
+        s2.tools = { ToolRegistry(listOf(fakeTool())) }
+        s2.approval = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+        s2.providers = { listOf(scripted("fake", *(1..30).map {
+            listOf<ProviderEvent>(
+                ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c$it", "t", "{}"))),
+                ProviderEvent.Completed("tool_calls", null),
+            )
+        }.toTypedArray())) }
+        val l2 = RecordingListener()
+        s2.send("go", ModelRef("fake", "m"), l2)
+        assertTrue(pumpUntil(l2.failed))
+        assertEquals("turn_limit", l2.failureCode)
+    }
+
+    fun `test multi model failure keeps the provider code`() {
+        val session = newSession()
+        session.multiModel = { true }
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.Failed("denied", code = "rate_limited"))) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals("rate_limited", listener.failureCode)
+    }
+
+    fun `test cancel during a tool call keeps the result and reports it uncertain`() {
+        val session = newSession()
+        val inTool = CountDownLatch(1)
+        session.tools = { ToolRegistry(listOf(object : Tool {
+            override val spec = ToolSpec("t", "d", JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String {
+                inTool.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+        })) }
+        session.providers = { listOf(scripted("fake", listOf(
+            ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c1", "t", "{}"))),
+            ProviderEvent.Completed("tool_calls", null),
+        ))) }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(inTool))
+        session.cancel()
+        assertTrue(pumpUntil(listener.cancelled))
+        assertEquals(1, listener.uncertain)
+        val t = session.transcript
+        assertEquals(listOf(Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT), t.map { it.role })
+        assertTrue(t[2].content.startsWith("Outcome uncertain:"))
+        assertEquals(ChatSession.CANCEL_MARKER, t[3].content)
+    }
+
+    fun `test cancel in multi model mode keeps the partial level output`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val streaming = CountDownLatch(1)
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.TextDelta("thinking"))
+                streaming.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }) }
+        val listener = RecordingListener()
+        session.send("plan it", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(streaming))
+        session.cancel()
+        assertTrue(pumpUntil(listener.cancelled))
+        val t = session.transcript
+        assertEquals("plan it", t[0].content)
+        assertTrue(t.last().content.startsWith("thinking"))
+        assertTrue(t.last().content.endsWith(ChatSession.CANCEL_MARKER))
+        assertTrue(t.none { it.role == Role.SYSTEM })
+    }
+
+    fun `test cancel marker is appended or merged`() {
+        val user = ChatMessage(Role.USER, "q")
+        assertEquals(
+            listOf(user, ChatMessage(Role.ASSISTANT, ChatSession.CANCEL_MARKER)),
+            ChatSession.withCancelMarker(listOf(user)),
+        )
+        assertEquals(
+            listOf(user, ChatMessage(Role.ASSISTANT, "part\n" + ChatSession.CANCEL_MARKER)),
+            ChatSession.withCancelMarker(listOf(user, ChatMessage(Role.ASSISTANT, "part"))),
+        )
+        assertEquals(ChatMessage(Role.ASSISTANT, ChatSession.CANCEL_MARKER), ChatSession.withCancelMarker(emptyList()).single())
+    }
+
+    private fun tempStore(): ChatHistoryStore =
+        ChatHistoryStore(ChatHistoryStore.pathFor(java.nio.file.Files.createTempDirectory("aijb-sess-"), "p"))
+
+    private fun sendAndWait(session: ChatSession, text: String) {
+        val listener = RecordingListener()
+        val job = session.send(text, ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        runUntilIdle { job.isCompleted }
+    }
+
+    fun `test session usage sums across requests`() {
+        val session = newSession()
+        session.providers = { listOf(fakeProvider("fake",
+            ProviderEvent.TextDelta("a"), ProviderEvent.Completed("stop", Usage(10, 5, 0.5)))) }
+        assertNull(session.sessionUsage)
+        sendAndWait(session, "one")
+        sendAndWait(session, "two")
+        assertEquals(Usage(20, 10, 1.0), session.sessionUsage)
+    }
+
+    fun `test history is saved after a turn and restored by a new session`() {
+        val store = tempStore()
+        val session = newSession()
+        session.historyStore = store
+        session.historyRetentionDays = { 30 }
+        session.providers = { listOf(fakeProvider("fake",
+            ProviderEvent.TextDelta("answer"), ProviderEvent.Completed("stop", Usage(4, 2, 0.1)))) }
+        sendAndWait(session, "question")
+        runUntilIdle { java.nio.file.Files.exists(store.file) }
+
+        val restored = newSession()
+        restored.historyStore = store
+        restored.historyRetentionDays = { 30 }
+        restored.restoreHistory()
+        assertEquals(session.transcript, restored.transcript)
+        assertEquals(Usage(4, 2, 0.1), restored.sessionUsage)
+    }
+
+    fun `test restore does not overwrite a non-empty chat`() {
+        val store = tempStore()
+        store.save(listOf(ChatMessage(Role.USER, "old")), null)
+        val session = newSession()
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.Completed("stop", null))) }
+        sendAndWait(session, "new")
+        session.historyStore = store
+        session.historyRetentionDays = { 30 }
+        session.restoreHistory()
+        assertEquals("new", session.transcript.first().content)
+    }
+
+    fun `test zero retention saves nothing and removes the file`() {
+        val store = tempStore()
+        store.save(listOf(ChatMessage(Role.USER, "old")), null)
+        val session = newSession()
+        session.historyStore = store
+        session.historyRetentionDays = { 0 }
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.TextDelta("a"), ProviderEvent.Completed("stop", null))) }
+        sendAndWait(session, "q")
+        runUntilIdle { !java.nio.file.Files.exists(store.file) }
+        session.restoreHistory()
+        assertEquals(2, session.transcript.size)
+    }
+
+    fun `test clear history wipes memory usage and file`() {
+        val store = tempStore()
+        val session = newSession()
+        session.historyStore = store
+        session.historyRetentionDays = { 30 }
+        session.providers = { listOf(fakeProvider("fake",
+            ProviderEvent.TextDelta("a"), ProviderEvent.Completed("stop", Usage(1, 1, 0.1)))) }
+        sendAndWait(session, "q")
+        runUntilIdle { java.nio.file.Files.exists(store.file) }
+        session.clearHistory()
+        assertTrue(session.transcript.isEmpty())
+        assertNull(session.sessionUsage)
+        assertFalse(java.nio.file.Files.exists(store.file))
+    }
+
+    fun `test clear history cancels a running request`() {
+        val session = newSession()
+        val streaming = CountDownLatch(1)
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                streaming.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(streaming))
+        session.clearHistory()
+        assertTrue(pumpUntil(listener.cancelled))
+        assertTrue(session.transcript.isEmpty())
+    }
+
+    fun `test storage failures never break the chat`() {
+        val failing = object : ChatHistoryStore(java.nio.file.Files.createTempDirectory("aijb-f-").resolve("h.json")) {
+            override fun save(messages: List<ChatMessage>, usage: Usage?, now: Long) = throw java.io.IOException("disk full")
+            override fun load(retentionDays: Int, now: Long): com.aijb.assistant.chat.LoadedChat? = throw java.io.IOException("unreadable")
+            override fun delete() = throw java.io.IOException("locked")
+        }
+        val session = newSession()
+        session.historyStore = failing
+        session.historyRetentionDays = { 30 }
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.TextDelta("a"), ProviderEvent.Completed("stop", null))) }
+        session.restoreHistory()
+        sendAndWait(session, "q")
+        assertEquals(2, session.transcript.size)
+        session.historyRetentionDays = { 0 }
+        session.dispose()
+        session.clearHistory()
+        assertTrue(session.transcript.isEmpty())
+    }
+
     private fun runUntilIdle(cond: () -> Boolean) {
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {
@@ -592,5 +838,49 @@ class ChatSessionTest : BasePlatformTestCase() {
             Thread.sleep(20)
         }
         fail("condition not met")
+    }
+
+    fun `test cancelled and failed runs still count their usage`() {
+        val session = newSession()
+        val inTool = CountDownLatch(1)
+        session.tools = { ToolRegistry(listOf(object : Tool {
+            override val spec = ToolSpec("t", "d", JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String {
+                inTool.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+        })) }
+        session.providers = { listOf(scripted("fake", listOf(
+            ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c1", "t", "{}"))),
+            ProviderEvent.Completed("tool_calls", Usage(4, 2, 0.1)),
+        ))) }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(inTool))
+        session.cancel()
+        assertTrue(pumpUntil(listener.cancelled))
+        assertEquals(Usage(4, 2, 0.1), session.sessionUsage)
+
+        val s2 = newSession()
+        s2.providers = { listOf(fakeProvider("fake", ProviderEvent.Failed("x", code = "auth"))) }
+        val l2 = RecordingListener()
+        s2.send("go", ModelRef("fake", "m"), l2)
+        assertTrue(pumpUntil(l2.failed))
+        assertNull(s2.sessionUsage)
+
+        val s3 = newSession()
+        s3.tools = { ToolRegistry(listOf(fakeTool())) }
+        s3.approval = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+        s3.providers = { listOf(scripted("fake", *(1..30).map {
+            listOf<ProviderEvent>(
+                ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c$it", "t", "{}"))),
+                ProviderEvent.Completed("tool_calls", Usage(1, 1, 0.01)),
+            )
+        }.toTypedArray())) }
+        val l3 = RecordingListener()
+        s3.send("go", ModelRef("fake", "m"), l3)
+        assertTrue(pumpUntil(l3.failed))
+        assertEquals(25, s3.sessionUsage?.promptTokens)
     }
 }

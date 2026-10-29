@@ -22,7 +22,10 @@ if [ -n "$FAKE_RECORD" ]; then
 else
   cat >/dev/null
 fi
-[ -n "$FAKE_CHILD" ] && sleep 300 &
+if [ -n "$FAKE_CHILD" ]; then
+  sleep 300 &
+  [ -n "$FAKE_PID_FILE" ] && printf '%s\n%s\n' "$$" "$!" > "$FAKE_PID_FILE"
+fi
 [ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
 [ -n "$FAKE_STDERR" ] && printf '%s\n' "$FAKE_STDERR" >&2
 if [ -n "$FAKE_FIXTURE_DIR" ]; then

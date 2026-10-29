@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -165,6 +166,7 @@ internal class ClaudeStreamParser {
                     (it["cache_creation_input_tokens"]?.jsonPrimitive?.intOrNull ?: 0) +
                     (it["cache_read_input_tokens"]?.jsonPrimitive?.intOrNull ?: 0),
                 it["output_tokens"]?.jsonPrimitive?.intOrNull,
+                obj["total_cost_usd"]?.jsonPrimitive?.doubleOrNull,
             )
         }
         return emptyList()

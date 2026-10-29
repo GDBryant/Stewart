@@ -196,23 +196,27 @@ class ClaudeProviderTest {
     fun `cancellation kills process tree`() {
         val dir = Files.createTempDirectory("aijb-cancel-").toFile()
         fakeFile.setExecutable(true)
+        val pidFile = java.io.File(dir, "pids.txt")
         val p = ClaudeProvider(cliPath = fake,
-            extraEnv = mapOf("FAKE_SLEEP" to "300", "FAKE_CHILD" to "1", "FAKE_FIXTURE" to "/dev/null"),
+            extraEnv = mapOf("FAKE_SLEEP" to "300", "FAKE_CHILD" to "1", "FAKE_FIXTURE" to "/dev/null",
+                "FAKE_PID_FILE" to pidFile.absolutePath),
             killGrace = 500.milliseconds)
         val job = kotlinx.coroutines.runBlocking {
             val j = launch { p.chat(req()).toList() }
-            delay(1500)
+            withTimeout(8000) { while (!pidFile.exists() || pidFile.readLines().size < 2) delay(50) }
             j.cancel()
             withTimeout(8000) { j.join() }
             j
         }
         assertTrue(job.isCompleted)
-        val remaining = Runtime.getRuntime().exec(arrayOf("/bin/sh", "-c",
-            "pgrep -f 'fake-claude|sleep 300' || true")).inputStream.bufferedReader().readText().trim()
-        Thread.sleep(500)
-        val p2 = Runtime.getRuntime().exec(arrayOf("/bin/sh", "-c",
-            "pgrep -f 'FAKE_CHILD|sleep 300' || true")).inputStream.bufferedReader().readText().trim()
-        assertTrue(dir.deleteRecursively() || dir.exists())
+        val (cliPid, childPid) = pidFile.readLines().map { it.trim().toLong() }
+        // Both the CLI and its background child must be gone shortly after cancellation.
+        val deadline = System.currentTimeMillis() + 5000
+        fun alive(pid: Long) = ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
+        while ((alive(cliPid) || alive(childPid)) && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        assertFalse("CLI process still alive", alive(cliPid))
+        assertFalse("CLI child still alive", alive(childPid))
+        dir.deleteRecursively()
     }
 
     @Test

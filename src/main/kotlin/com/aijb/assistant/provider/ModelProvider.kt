@@ -48,7 +48,14 @@ data class ChatRequest(
     val parallelToolCalls: Boolean? = null,
 )
 
-data class Usage(val promptTokens: Int?, val completionTokens: Int?)
+data class Usage(val promptTokens: Int?, val completionTokens: Int?, val costUsd: Double? = null) {
+    /** Sums two usages; a missing token count counts as 0, a missing cost stays unknown only if both are missing. */
+    operator fun plus(other: Usage): Usage = Usage(
+        (promptTokens ?: 0) + (other.promptTokens ?: 0),
+        (completionTokens ?: 0) + (other.completionTokens ?: 0),
+        if (costUsd == null && other.costUsd == null) null else (costUsd ?: 0.0) + (other.costUsd ?: 0.0),
+    )
+}
 
 sealed interface ProviderEvent {
     data class TextDelta(val text: String) : ProviderEvent

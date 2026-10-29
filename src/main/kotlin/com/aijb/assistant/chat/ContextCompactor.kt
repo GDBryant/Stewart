@@ -5,6 +5,7 @@ import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelProvider
 import com.aijb.assistant.provider.ProviderEvent
 import com.aijb.assistant.provider.Role
+import com.aijb.assistant.provider.Usage
 import kotlinx.coroutines.CancellationException
 
 class ContextCompactor(private val keepRecent: Int = 4) {
@@ -15,6 +16,8 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         val error: String? = null,
         val beforeTokens: Int = 0,
         val afterTokens: Int = 0,
+        /** Tokens/cost spent on the summary request, whether or not it was used. */
+        val usage: Usage? = null,
     )
 
     suspend fun compactIfNeeded(
@@ -41,6 +44,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         val kept = body.subList(cut, body.size)
 
         val summary = StringBuilder()
+        var summaryUsage: Usage? = null
         var error: String? = null
         var sawCompleted = false
         try {
@@ -55,6 +59,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
                     is ProviderEvent.TextDelta -> summary.append(ev.text)
                     is ProviderEvent.Completed -> {
                         sawCompleted = true
+                        summaryUsage = ev.usage
                         if (ev.finishReason == "length" || ev.finishReason == "content_filter") {
                             error = "summary truncated (${ev.finishReason})"
                         }
@@ -71,7 +76,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         if (error == null && !sawCompleted) error = "summary stream ended before completion"
         if (error == null && summary.isBlank()) error = "empty summary"
         error?.let {
-            return CompactionResult(messages, false, it, before, before)
+            return CompactionResult(messages, false, it, before, before, summaryUsage)
         }
 
         val summaryText = SUMMARY_PREFIX + "\n" + summary.toString().trim()
@@ -82,7 +87,8 @@ class ContextCompactor(private val keepRecent: Int = 4) {
             listOf(ChatMessage(Role.USER, summaryText)) + kept
         }
         val result = prefix + tail
-        return CompactionResult(result, true, beforeTokens = before, afterTokens = TokenEstimate.of(result))
+        return CompactionResult(
+            result, true, beforeTokens = before, afterTokens = TokenEstimate.of(result), usage = summaryUsage)
     }
 
     private fun render(messages: List<ChatMessage>): String =

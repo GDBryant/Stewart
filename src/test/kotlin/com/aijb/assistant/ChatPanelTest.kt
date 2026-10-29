@@ -160,7 +160,9 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.sendButton.doClick()
         assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
         assertEquals("Send", panel.sendButton.text)
-        assertEquals(1, session.transcript.size)
+        // The user turn plus a cancel marker: the interruption is part of the history.
+        assertEquals(2, session.transcript.size)
+        assertTrue(session.transcript.last().content.endsWith(ChatSession.CANCEL_MARKER))
         assertTrue(panel.messageAreas().last().text.startsWith("assistant: partial"))
     }
 
@@ -228,7 +230,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         val panel = newPanel(nullUsageProvider)
         panel.inputArea.text = "hi"
         panel.sendButton.doClick()
-        assertTrue(pumpUntil { panel.statusLabel.text == "tokens: ? in / ? out" })
+        assertTrue(pumpUntil { panel.statusLabel.text == "tokens: ? in / ? out · cost n/a" })
     }
 
     fun `test completed without usage shows done`() {
@@ -464,5 +466,82 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Roles", panel.rolesButton.text)
         val roles = RolesPanel(panel.lastModels, AijbSettings.getInstance())
         assertNotNull(roles.multiModelCheck)
+    }
+
+    // --- M8 ---
+
+    private fun failingWith(message: String, code: String?) = fakeProvider(events = flow {
+        emit(ProviderEvent.Failed(message, code = code))
+    })
+
+    fun `test failure with a known code shows an error bubble with a hint`() {
+        val panel = newPanel(failingWith("cannot start", "cli_not_found"))
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Failed: cannot start" })
+        val error = panel.messageAreas().last().text
+        assertTrue(error, error.startsWith("error: cannot start"))
+        assertTrue(error, error.contains("Settings"))
+    }
+
+    fun `test failure with an unknown code adds no bubble`() {
+        val panel = newPanel(failingWith("odd", "mystery"))
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Failed: odd" })
+        assertTrue(panel.messageAreas().none { it.text.startsWith("error:") })
+    }
+
+    fun `test status shows session totals after a second request`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "one"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && panel.statusLabel.text.startsWith("tokens:") })
+        assertEquals("tokens: 1 in / 1 out · cost n/a", panel.statusLabel.text)
+        panel.inputArea.text = "two"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil {
+            panel.statusLabel.text == "tokens: 1 in / 1 out · cost n/a · session: 2 in / 2 out · cost n/a"
+        })
+    }
+
+    fun `test clear button wipes chat usage and status`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "one"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && panel.statusLabel.text.startsWith("tokens:") })
+        assertTrue(panel.messageAreas().isNotEmpty())
+        panel.clearButton.doClick()
+        assertTrue(panel.messageAreas().isEmpty())
+        assertTrue(session.transcript.isEmpty())
+        assertNull(session.sessionUsage)
+        assertEquals("History cleared", panel.statusLabel.text)
+        assertEquals("Send", panel.sendButton.text)
+    }
+
+    fun `test cancel with an uncertain tool outcome says so`() {
+        val inTool = java.util.concurrent.CountDownLatch(1)
+        session.tools = { com.aijb.assistant.tools.ToolRegistry(listOf(object : com.aijb.assistant.tools.Tool {
+            override val spec = com.aijb.assistant.provider.ToolSpec("t", "d", kotlinx.serialization.json.JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: kotlinx.serialization.json.JsonObject, preview: com.aijb.assistant.tools.ToolPreview?): String {
+                inTool.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+        })) }
+        val provider = fakeProvider(events = flow {
+            emit(ProviderEvent.NativeToolCalls(listOf(com.aijb.assistant.provider.RawToolCall("c1", "t", "{}"))))
+            emit(ProviderEvent.Completed("tool_calls", null))
+        })
+        val panel = newPanel(provider)
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { inTool.count == 0L })
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text.startsWith("Cancelled") })
+        assertEquals(
+            "Cancelled · 1 tool outcome(s) uncertain, side effects not rolled back",
+            panel.statusLabel.text,
+        )
     }
 }
