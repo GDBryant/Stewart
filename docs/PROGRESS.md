@@ -24,7 +24,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Modeless approval dialogs (`d69c2e8`): Stop stays reachable; cancel closes the dialog and the call reports `Not executed`. Manual `runIde` check of Stop with a dialog open still to do.
 - `ChatSession.commitIfActive` (`6d07631`): replaces four commit blocks; `SYSTEM`-filter comment fixed.
 - Branch-coverage tests (`78eb17a`): branch 81.6% → 84.6%, line 97.1%; test-only.
-- AIF native by default; shim deprecated (`<hash>`): `AifProvider` is native unless the model has a `SHIM` override; shim kept as the fallback for models with tool calls disabled.
+- AIF native by default; shim deprecated (`206065b`): `AifProvider` is native unless the model has a `SHIM` override; shim kept as the fallback for models with tool calls disabled.
 
 ## Open items
 
