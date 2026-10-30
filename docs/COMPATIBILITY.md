@@ -39,7 +39,7 @@ Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 r
 
 ## verifyPlugin
 
-`./gradlew verifyPlugin` — last run after commit `22eefc8`: IDEA 2025.1 and
+`./gradlew verifyPlugin` — last run after commit `5fe43d3`: IDEA 2025.1 and
 PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
 
 ## Manual smoke (2026-10-26)

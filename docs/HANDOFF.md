@@ -1,5 +1,7 @@
 # Handoff — finish the build (post-M9)
 
+**Status (2026-10-30): done.** Item 1 `96a5051`, slices 2a–2e `824d5de`…`5fe43d3` (M10 in `docs/PROGRESS.md`). Open: manual `runIde` check; `/resume`/`/memory` deferred. The plan below is kept for reference.
+
 State at handoff: `main` @ `eb43ba2`, clean. M1–M9 are done (see `docs/PROGRESS.md`).
 At `a48729f`: 675 tests passed (5 live tests skipped); `koverVerify` passed at 97.1% line and 84.6% branch.
 `verifyPlugin` passes on IDEA 2025.1 and PyCharm 2025.3.
