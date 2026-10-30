@@ -26,10 +26,10 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Branch-coverage tests (`78eb17a`): branch 81.6% → 84.6%, line 97.1%; test-only.
 - AIF native by default; shim deprecated (`206065b`): `AifProvider` is native unless the model has a `SHIM` override; shim kept as the fallback for models with tool calls disabled.
 - Native null fields (`a48729f`): `NativeCallCollector` treats JSON `null` `id`/`type`/`name`/`arguments` as absent (was the string "null"; `type: null` was rejected). 675 tests passed (5 live skipped); `koverVerify` passed.
+- Stop before the run starts (`96a5051`): the send job launches with `CoroutineStart.ATOMIC` and checks cancellation first, so `onCancelled`, the cancel marker, `activeJob` reset and persist always run (was: Send button stuck on Stop; flaky `ChatSessionTest`). 677 tests passed (5 live skipped); `koverVerify` (line 97.1%, branch 85.1%) passed; `ChatSessionTest` green 5/5 reruns.
 
 ## Open items
 
 Tracked in `docs/PLAN.md` → Open Items:
 
 - Slash commands (`/clear`, `/compact`, `/model`, `/cost`, `/help`, `/init`, `/review`, `/config`): planned, not started.
-- `ChatSessionTest` "stale job does not overwrite the transcript" is flaky (fails about half the runs on `main`): cancel before the job starts skips `onCancelled` — real bug, see `docs/HANDOFF.md` item 1.

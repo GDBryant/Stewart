@@ -176,7 +176,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Done when: `test koverVerify verifyPlugin` pass. See `docs/PROGRESS.md` for hashes.
 
 ## Open Items
-M1–M9 are done, including the manual Stop check (passed 2026-10-29). Remaining (implementation plan: `docs/HANDOFF.md`; do the flaky-test fix first):
+M1–M9 are done, including the manual Stop check (passed 2026-10-29). Remaining (implementation plan: `docs/HANDOFF.md`):
 
 1. **Slash commands** (not started). Typing `/` in the chat input runs a local command instead of sending a message. Start from Claude Code's built-in commands and ship its 8 most-used ones, mapped to features the plugin already has where possible:
 
@@ -196,7 +196,6 @@ M1–M9 are done, including the manual Stop check (passed 2026-10-29). Remaining
    - Commands are disabled while a run is active, except `/help` and `/cost`.
    - Tests: parsing (args, whitespace, unknown command, `//` and `/` mid-text sent as plain text), each handler's positive and negative cases, and disabled-during-run.
    - Open question: add `/resume` or `/memory` later if needed (history is per-project, so `/resume` may be redundant).
-2. **Flaky test:** `ChatSessionTest` "a stale job does not overwrite the transcript but the active one does" fails about half the runs on `main` (seen 2026-10-29). Cause confirmed 2026-10-30: Stop before the launched job is dispatched skips its body, so `onCancelled` never fires (also a UI bug: Send button stuck on "Stop"). Fix plan: `docs/HANDOFF.md` item 1.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.
