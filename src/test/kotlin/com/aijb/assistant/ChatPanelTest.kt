@@ -833,6 +833,104 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Send", panel.sendButton.text)
     }
 
+    private fun capturingProvider(seen: MutableList<String>) = fakeProvider(events = flow {
+        emit(ProviderEvent.TextDelta("ok"))
+        emit(ProviderEvent.Completed("stop", Usage(1, 1)))
+    }).let { base ->
+        object : ModelProvider by base {
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+                seen += request.messages.last { it.role == Role.USER }.content
+                return base.chat(request)
+            }
+        }
+    }
+
+    fun `test init command sends the canned prompt`() {
+        val seen = mutableListOf<String>()
+        val panel = newPanel(capturingProvider(seen))
+        panel.inputArea.text = "/init"
+        enter(panel)
+        assertEquals("", panel.inputArea.text)
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && seen.isNotEmpty() })
+        assertEquals(com.aijb.assistant.chat.SlashCommands.INIT_PROMPT, seen.single())
+    }
+
+    fun `test init command without a model keeps the input`() {
+        val panel = newPanel(fakeProvider(models = emptyList()))
+        panel.inputArea.text = "/init"
+        enter(panel)
+        assertEquals("No model selected", panel.statusLabel.text)
+        assertEquals("/init", panel.inputArea.text)
+    }
+
+    fun `test review command sends the diff`() {
+        val seen = mutableListOf<String>()
+        val panel = newPanel(capturingProvider(seen))
+        panel.diffSource = { com.aijb.assistant.chat.GitDiff.Result.Diff("+changed line\n") }
+        panel.inputArea.text = "/review naming"
+        enter(panel)
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && seen.isNotEmpty() })
+        assertTrue(seen.single().contains("+changed line"))
+        assertTrue(seen.single().contains("Focus on: naming"))
+    }
+
+    fun `test review command with no changes sends nothing`() {
+        val seen = mutableListOf<String>()
+        val panel = newPanel(capturingProvider(seen))
+        panel.diffSource = { com.aijb.assistant.chat.GitDiff.Result.NoChanges }
+        panel.inputArea.text = "/review"
+        enter(panel)
+        assertTrue(pumpUntil { panel.messageAreas().isNotEmpty() })
+        assertEquals("system: No changes to review", panel.messageAreas().single().text)
+        pump()
+        assertTrue(seen.isEmpty())
+        assertTrue(session.transcript.isEmpty())
+    }
+
+    fun `test review command outside a repo shows an error`() {
+        val panel = newPanel(fakeProvider())
+        panel.diffSource = { com.aijb.assistant.chat.GitDiff.Result.NotRepo("Not a git repository") }
+        panel.inputArea.text = "/review"
+        enter(panel)
+        assertTrue(pumpUntil { panel.messageAreas().isNotEmpty() })
+        assertEquals("error: Cannot review: Not a git repository", panel.messageAreas().single().text)
+    }
+
+    fun `test review command without a model reads nothing`() {
+        var reads = 0
+        val panel = newPanel(fakeProvider(models = emptyList()))
+        panel.diffSource = { reads++; com.aijb.assistant.chat.GitDiff.Result.NoChanges }
+        panel.inputArea.text = "/review"
+        enter(panel)
+        pump()
+        assertEquals(0, reads)
+        assertEquals("No model selected", panel.statusLabel.text)
+    }
+
+    fun `test review diff that arrives mid-run or after the model is gone is not sent`() {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val panel = newPanel(hangingProvider())
+        panel.diffSource = { gate.await(); com.aijb.assistant.chat.GitDiff.Result.Diff("+x\n") }
+        panel.inputArea.text = "/review"
+        enter(panel)
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.messageAreas().last().text.contains("partial") })
+        gate.countDown()
+        assertTrue(pumpUntil { panel.messageAreas().last().text == "error: /review is not available while running" })
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
+
+        val gate2 = java.util.concurrent.CountDownLatch(1)
+        panel.diffSource = { gate2.await(); com.aijb.assistant.chat.GitDiff.Result.Diff("+x\n") }
+        panel.inputArea.text = "/review"
+        enter(panel)
+        panel.modelCombo.removeAllItems()
+        gate2.countDown()
+        assertTrue(pumpUntil { panel.statusLabel.text == "No model selected" })
+        assertEquals("Send", panel.sendButton.text)
+    }
+
     private fun settings(multi: Boolean) {
         AijbSettings.getInstance().state.multiModel = multi
     }

@@ -27,6 +27,12 @@ interface CommandContext {
 
     /** Starts a forced compaction run; false (with an error shown) when it cannot start. */
     fun compact(focus: String?): Boolean
+
+    /** Sends [prompt] to the model as a normal message; false (with an error shown) when it cannot. */
+    fun sendPrompt(prompt: String): Boolean
+
+    /** Reads the diff off the EDT, then calls [SlashCommands.reviewRequest] and sends or shows the result. */
+    fun review(focus: String?): Boolean
 }
 
 /** A local command; [handler] gets the trimmed args and returns false to keep the input text. */
@@ -100,6 +106,43 @@ object SlashCommands {
         }
     }
 
+    /** Diff budget for `/review`; larger than the orchestrator's 2000-char handoff so a review is useful. */
+    const val REVIEW_MAX_DIFF_CHARS = 20_000
+
+    const val INIT_PROMPT = "Inspect this project (layout, build files, README, main source and test directories) " +
+        "with the read-only tools, then write an AGENTS.md at the project root with WriteFile. Keep it brief: " +
+        "a one-line description, the build/test/run commands, the code layout, and the conventions you can " +
+        "confirm from the code. If AGENTS.md already exists, read it first and update it rather than replacing " +
+        "what is still accurate. Do not guess commands you could not confirm."
+
+    sealed interface ReviewRequest {
+        data class Send(val prompt: String) : ReviewRequest
+        data class Message(val text: String, val isError: Boolean) : ReviewRequest
+    }
+
+    /** What `/review` does for a diff result: a prompt with the (bounded) diff inlined, or a local message. */
+    fun reviewRequest(diff: GitDiff.Result, focus: String?, maxChars: Int = REVIEW_MAX_DIFF_CHARS): ReviewRequest =
+        when (diff) {
+            GitDiff.Result.NoChanges -> ReviewRequest.Message("No changes to review", isError = false)
+            GitDiff.Result.NoCommits -> ReviewRequest.Message("No commits yet: nothing to diff against", isError = true)
+            is GitDiff.Result.NotRepo -> ReviewRequest.Message("Cannot review: ${diff.message}", isError = true)
+            is GitDiff.Result.Diff -> ReviewRequest.Send(reviewPrompt(diff.text, focus, maxChars))
+        }
+
+    private fun reviewPrompt(text: String, focus: String?, maxChars: Int): String {
+        val truncated = text.length > maxChars
+        val bounded = if (truncated) text.take(maxChars) else text
+        val note = if (truncated) {
+            "\n[diff truncated: ${text.length - maxChars} of ${text.length} chars omitted; read the files for the rest]"
+        } else {
+            ""
+        }
+        val focusLine = if (focus.isNullOrBlank()) "" else "Focus on: ${focus.trim()}\n"
+        return "Review the uncommitted changes below (git diff HEAD). Report bugs, risky changes, missing tests " +
+            "and unclear code, most severe first, each with file and line. Do not modify any files.\n" +
+            focusLine + "\n```diff\n" + bounded + (if (bounded.endsWith("\n")) "" else "\n") + "```" + note
+    }
+
     private fun cost(ctx: CommandContext) {
         val usage = ctx.usage
         ctx.show(
@@ -123,6 +166,12 @@ object SlashCommands {
         },
         SlashCommand("compact", "[focus]", "Compact the conversation now, optionally keeping a focus", allowedWhileRunning = false) { ctx, args ->
             ctx.compact(args.ifEmpty { null })
+        },
+        SlashCommand("init", "", "Ask the model to write AGENTS.md for this project", allowedWhileRunning = false) { ctx, _ ->
+            ctx.sendPrompt(INIT_PROMPT)
+        },
+        SlashCommand("review", "[focus]", "Review the uncommitted changes (git diff HEAD)", allowedWhileRunning = false) { ctx, args ->
+            ctx.review(args.ifEmpty { null })
         },
         SlashCommand("model", "[provider/model]", "Show or switch the model", allowedWhileRunning = false, ::model),
         SlashCommand("config", "", "Open the plugin settings", allowedWhileRunning = false) { ctx, _ ->

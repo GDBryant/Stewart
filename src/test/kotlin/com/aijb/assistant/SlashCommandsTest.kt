@@ -1,6 +1,8 @@
 package com.aijb.assistant
 
 import com.aijb.assistant.chat.CommandContext
+import com.aijb.assistant.chat.GitDiff
+import com.aijb.assistant.chat.SlashCommands.ReviewRequest
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.SlashCommands.ModelMatch
 import com.aijb.assistant.provider.ModelInfo
@@ -46,6 +48,17 @@ class SlashCommandsTest {
         override fun compact(focus: String?): Boolean {
             compactions += focus
             return compactStarts
+        }
+        val prompts = mutableListOf<String>()
+        val reviews = mutableListOf<String?>()
+        var accepts = true
+        override fun sendPrompt(prompt: String): Boolean {
+            prompts += prompt
+            return accepts
+        }
+        override fun review(focus: String?): Boolean {
+            reviews += focus
+            return accepts
         }
     }
 
@@ -246,5 +259,66 @@ class SlashCommandsTest {
         ctx.running = true
         assertFalse(run(ctx, "/compact"))
         assertEquals(1, ctx.compactions.size)
+    }
+
+    @Test
+    fun `init sends the canned prompt and keeps the input when it cannot`() {
+        val ctx = FakeContext()
+        assertTrue(run(ctx, "/init"))
+        assertEquals(listOf(SlashCommands.INIT_PROMPT), ctx.prompts)
+        assertTrue(SlashCommands.INIT_PROMPT.contains("AGENTS.md"))
+        ctx.accepts = false
+        assertFalse(run(ctx, "/init"))
+        ctx.running = true
+        assertFalse(run(ctx, "/init"))
+        assertEquals(2, ctx.prompts.size)
+    }
+
+    @Test
+    fun `review passes the focus and is blocked while running`() {
+        val ctx = FakeContext()
+        assertTrue(run(ctx, "/review"))
+        assertTrue(run(ctx, "/review security"))
+        ctx.running = true
+        assertFalse(run(ctx, "/review"))
+        assertEquals(listOf(null, "security"), ctx.reviews)
+    }
+
+    @Test
+    fun `review prompt inlines the diff and the focus`() {
+        val diff = "diff --git a/x b/x\n+hello\n"
+        val prompt = (SlashCommands.reviewRequest(GitDiff.Result.Diff(diff), " auth ") as ReviewRequest.Send).prompt
+        assertTrue(prompt.contains("```diff\n$diff```"))
+        assertTrue(prompt.contains("Focus on: auth\n"))
+        assertFalse(prompt.contains("truncated"))
+    }
+
+    @Test
+    fun `review prompt without focus closes a diff lacking a final newline`() {
+        val prompt = (SlashCommands.reviewRequest(GitDiff.Result.Diff("+x"), null) as ReviewRequest.Send).prompt
+        assertTrue(prompt.endsWith("```diff\n+x\n```"))
+        assertFalse(prompt.contains("Focus on"))
+    }
+
+    @Test
+    fun `review prompt truncates a large diff and says so`() {
+        val prompt = (SlashCommands.reviewRequest(GitDiff.Result.Diff("a".repeat(30)), null, maxChars = 10)
+            as ReviewRequest.Send).prompt
+        assertTrue(prompt.contains("a".repeat(10) + "\n```"))
+        assertFalse(prompt.contains("a".repeat(11)))
+        assertTrue(prompt.endsWith("[diff truncated: 20 of 30 chars omitted; read the files for the rest]"))
+    }
+
+    @Test
+    fun `review without changes or a repo shows a message and sends nothing`() {
+        assertEquals(ReviewRequest.Message("No changes to review", false), SlashCommands.reviewRequest(GitDiff.Result.NoChanges, null))
+        assertEquals(
+            ReviewRequest.Message("No commits yet: nothing to diff against", true),
+            SlashCommands.reviewRequest(GitDiff.Result.NoCommits, null),
+        )
+        assertEquals(
+            ReviewRequest.Message("Cannot review: Not a git repository", true),
+            SlashCommands.reviewRequest(GitDiff.Result.NotRepo("Not a git repository"), null),
+        )
     }
 }

@@ -4,6 +4,7 @@ import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
+import com.aijb.assistant.chat.GitDiff
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
 import com.aijb.assistant.provider.ModelInfo
@@ -311,6 +312,44 @@ class ChatPanel @JvmOverloads constructor(
         }
 
         override fun compact(focus: String?): Boolean = startCompaction(focus)
+
+        override fun sendPrompt(prompt: String): Boolean {
+            val info = selectedModelOrError() ?: return false
+            startSend(prompt, info)
+            return true
+        }
+
+        override fun review(focus: String?): Boolean {
+            if (selectedModelOrError() == null) return false
+            statusLabel.text = "Reading changes..."
+            scope.launch {
+                val diff = diffSource()
+                withContext(Dispatchers.EDT) { onReviewDiff(diff, focus) }
+            }
+            return true
+        }
+    }
+
+    /** `git diff HEAD` in the project; replaced in tests. Runs off the EDT. */
+    internal var diffSource: () -> GitDiff.Result = {
+        GitDiff.read(project.basePath?.let { java.nio.file.Path.of(it) })
+    }
+
+    private fun onReviewDiff(diff: GitDiff.Result, focus: String?) {
+        statusLabel.text = " "
+        when (val request = SlashCommands.reviewRequest(diff, focus)) {
+            is SlashCommands.ReviewRequest.Message ->
+                if (request.isError) commandContext.error(request.text) else commandContext.show(request.text)
+            is SlashCommands.ReviewRequest.Send -> {
+                // The diff was read in the background; the chat may have changed meanwhile.
+                val info = modelCombo.selectedItem as? ModelInfo
+                when {
+                    running -> commandContext.error("/review is not available while running")
+                    info == null -> statusLabel.text = "No model selected"
+                    else -> startSend(request.prompt, info)
+                }
+            }
+        }
     }
 
     private fun selectedModelOrError(): ModelInfo? {
@@ -378,6 +417,10 @@ class ChatPanel @JvmOverloads constructor(
         if (text.isEmpty()) return
         val info = selectedModelOrError() ?: return
         inputArea.text = ""
+        startSend(text, info)
+    }
+
+    private fun startSend(text: String, info: ModelInfo) {
         addMessage("user", text)
         var deltaArea: JTextArea? = addMessage("assistant", "")
         val toolAreas = mutableMapOf<String, Pair<JTextArea, String>>()
