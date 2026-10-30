@@ -5,6 +5,7 @@ import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
 import com.aijb.assistant.chat.GitDiff
+import com.aijb.assistant.chat.SlashCommand
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
 import com.aijb.assistant.provider.ModelInfo
@@ -18,19 +19,25 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Point
 import java.awt.Rectangle
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComboBox
@@ -41,6 +48,8 @@ import javax.swing.JTextField
 import javax.swing.JTextArea
 import javax.swing.Scrollable
 import javax.swing.SwingUtilities
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +77,14 @@ class ChatPanel @JvmOverloads constructor(
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
     internal val inputArea = JBTextArea(3, 40)
     internal val sendButton = JButton("Send")
+
+    /** Slash-command autocomplete: the list lives in a non-focusable popup; keys stay in the input. */
+    internal val completionList = JBList<SlashCommand>()
+    private var completionPopup: JBPopup? = null
+    private var swallowTab = false
+
+    /** Esc hides completions until the text changes. */
+    private var dismissedFor: String? = null
 
     @Volatile
     private var updatingCombo = false
@@ -114,10 +131,43 @@ class ChatPanel @JvmOverloads constructor(
         inputArea.wrapStyleWord = true
         inputArea.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                if (handleCompletionKey(e)) {
+                    e.consume()
+                    return
+                }
                 if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
                     e.consume()
                     onSubmit()
                 }
+            }
+
+            override fun keyTyped(e: KeyEvent) {
+                // The Tab that inserted a completion must not also type a tab character.
+                if (e.keyChar == '\t' && swallowTab) {
+                    swallowTab = false
+                    e.consume()
+                }
+            }
+        })
+        inputArea.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent) = updateCompletions()
+            override fun removeUpdate(e: DocumentEvent) = updateCompletions()
+            override fun changedUpdate(e: DocumentEvent) = updateCompletions()
+        })
+        completionList.cellRenderer = object : SimpleListCellRenderer<SlashCommand>() {
+            override fun customize(
+                list: javax.swing.JList<out SlashCommand>,
+                value: SlashCommand?,
+                index: Int,
+                selected: Boolean,
+                hasFocus: Boolean,
+            ) {
+                text = value?.let { "/${it.name} ${it.argHint}".trimEnd() + " — ${it.description}" } ?: ""
+            }
+        }
+        completionList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                completionList.selectedValue?.let { insertCompletion(it) }
             }
         })
         val inputPanel = JPanel(BorderLayout())
@@ -178,6 +228,85 @@ class ChatPanel @JvmOverloads constructor(
             addMessage(msg.role.name.lowercase(), msg.content)
         }
         refreshMessages()
+    }
+
+    internal val completionItems: List<SlashCommand>
+        get() = (0 until completionList.model.size).map { completionList.model.getElementAt(it) }
+
+    internal fun updateCompletions() {
+        val text = inputArea.text
+        if (dismissedFor != null && dismissedFor != text) dismissedFor = null
+        val items = if (dismissedFor == null) SlashCommands.complete(text) else emptyList()
+        completionList.setListData(items.toTypedArray())
+        if (items.isEmpty()) {
+            hideCompletionPopup()
+            return
+        }
+        completionList.selectedIndex = 0
+        showCompletionPopup()
+    }
+
+    private fun showCompletionPopup() {
+        if (!inputArea.isShowing) return
+        completionPopup?.takeIf { it.isVisible }?.let {
+            it.pack(true, true)
+            return
+        }
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(JBScrollPane(completionList), null)
+            .setRequestFocus(false)
+            .setFocusable(false)
+            .setCancelOnClickOutside(true)
+            .createPopup()
+        completionPopup = popup
+        val height = completionList.preferredSize.height + JBUI.scale(8)
+        popup.show(RelativePoint(inputArea, Point(0, -height)))
+    }
+
+    private fun hideCompletionPopup() {
+        completionPopup?.cancel()
+        completionPopup = null
+    }
+
+    private fun insertCompletion(command: SlashCommand) {
+        inputArea.text = "/${command.name} "
+        inputArea.caretPosition = inputArea.text.length
+    }
+
+    /**
+     * Keys while completions are listed: Tab inserts the selection, Enter too unless the text is
+     * already a full command name (then Enter runs it), Up/Down move, Esc hides. True = consumed.
+     */
+    internal fun handleCompletionKey(e: KeyEvent): Boolean {
+        val items = completionItems
+        if (items.isEmpty()) return false
+        val selected = completionList.selectedValue ?: items[0]
+        return when (e.keyCode) {
+            KeyEvent.VK_TAB -> {
+                swallowTab = true
+                insertCompletion(selected)
+                true
+            }
+            KeyEvent.VK_ENTER -> {
+                if (e.isShiftDown || SlashCommands.find(inputArea.text.substring(1).lowercase()) != null) {
+                    false
+                } else {
+                    insertCompletion(selected)
+                    true
+                }
+            }
+            KeyEvent.VK_DOWN, KeyEvent.VK_UP -> {
+                val step = if (e.keyCode == KeyEvent.VK_DOWN) 1 else -1
+                completionList.selectedIndex = (completionList.selectedIndex + step).mod(items.size)
+                true
+            }
+            KeyEvent.VK_ESCAPE -> {
+                dismissedFor = inputArea.text
+                updateCompletions()
+                true
+            }
+            else -> false
+        }
     }
 
     /** Inline Planner question (never a modal dialog, so Stop stays reachable). */
@@ -572,6 +701,7 @@ class ChatPanel @JvmOverloads constructor(
     }
 
     override fun dispose() {
+        hideCompletionPopup()
         session.cancel()
         scope.cancel()
     }

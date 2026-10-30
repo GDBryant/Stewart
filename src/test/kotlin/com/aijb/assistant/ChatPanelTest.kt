@@ -931,6 +931,82 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Send", panel.sendButton.text)
     }
 
+    private fun key(panel: ChatPanel, code: Int, shift: Boolean = false) {
+        val e = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(),
+            if (shift) KeyEvent.SHIFT_DOWN_MASK else 0, code, KeyEvent.CHAR_UNDEFINED,
+        )
+        panel.inputArea.keyListeners.forEach { it.keyPressed(e) }
+    }
+
+    private fun names(panel: ChatPanel) = panel.completionItems.map { it.name }
+
+    fun `test typing a slash prefix lists matching commands and a space hides them`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/co"
+        assertEquals(listOf("cost", "compact", "config"), names(panel))
+        panel.inputArea.text = "/cost "
+        assertTrue(names(panel).isEmpty())
+        panel.inputArea.text = "/zz"
+        assertTrue(names(panel).isEmpty())
+        panel.inputArea.text = "plain"
+        assertTrue(names(panel).isEmpty())
+    }
+
+    fun `test tab inserts the selected command and swallows the tab char`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/co"
+        key(panel, KeyEvent.VK_DOWN)
+        key(panel, KeyEvent.VK_TAB)
+        assertEquals("/compact ", panel.inputArea.text)
+        assertTrue(names(panel).isEmpty())
+        val typed = KeyEvent(panel.inputArea, KeyEvent.KEY_TYPED, System.currentTimeMillis(), 0, KeyEvent.VK_UNDEFINED, '\t')
+        panel.inputArea.keyListeners.forEach { it.keyTyped(typed) }
+        assertTrue(typed.isConsumed)
+        val again = KeyEvent(panel.inputArea, KeyEvent.KEY_TYPED, System.currentTimeMillis(), 0, KeyEvent.VK_UNDEFINED, '\t')
+        panel.inputArea.keyListeners.forEach { it.keyTyped(again) }
+        assertFalse(again.isConsumed)
+    }
+
+    fun `test up wraps and enter on a partial name inserts it`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/co"
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("config", panel.completionList.selectedValue.name)
+        key(panel, KeyEvent.VK_ENTER)
+        assertEquals("/config ", panel.inputArea.text)
+        assertTrue(panel.messageAreas().isEmpty())
+    }
+
+    fun `test enter on a full command name runs it`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/help"
+        assertEquals(listOf("help"), names(panel))
+        enter(panel)
+        assertTrue(panel.messageAreas().single().text.startsWith("system: Commands:"))
+        assertEquals("", panel.inputArea.text)
+    }
+
+    fun `test escape hides completions until the text changes`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/c"
+        key(panel, KeyEvent.VK_ESCAPE)
+        assertTrue(names(panel).isEmpty())
+        key(panel, KeyEvent.VK_TAB)
+        assertEquals("/c", panel.inputArea.text)
+        panel.inputArea.text = "/cl"
+        assertEquals(listOf("clear"), names(panel))
+    }
+
+    fun `test other keys pass through while completions are listed`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/c"
+        val e = KeyEvent(panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_A, 'a')
+        assertFalse(panel.handleCompletionKey(e))
+        key(panel, KeyEvent.VK_ENTER, shift = true)
+        assertEquals("/c", panel.inputArea.text)
+    }
+
     private fun settings(multi: Boolean) {
         AijbSettings.getInstance().state.multiModel = multi
     }

@@ -182,6 +182,13 @@ object SlashCommands {
 
     fun find(name: String): SlashCommand? = all.firstOrNull { it.name == name }
 
+    /** Autocomplete: commands whose name starts with the typed prefix, until a space is typed. */
+    fun complete(input: String): List<SlashCommand> {
+        if (!input.startsWith("/") || input.startsWith("//") || input.any { it.isWhitespace() }) return emptyList()
+        val prefix = input.substring(1).lowercase()
+        return all.filter { it.name.startsWith(prefix) }
+    }
+
     fun help(): String = "Commands:\n" + all.joinToString("\n") { c ->
         val usage = if (c.argHint.isEmpty()) "/${c.name}" else "/${c.name} ${c.argHint}"
         "$usage — ${c.description}"

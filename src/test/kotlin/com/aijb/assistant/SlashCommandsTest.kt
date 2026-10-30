@@ -321,4 +321,21 @@ class SlashCommandsTest {
             SlashCommands.reviewRequest(GitDiff.Result.NotRepo("Not a git repository"), null),
         )
     }
+
+    @Test
+    fun `complete filters by prefix case insensitively`() {
+        assertEquals(listOf("clear", "cost", "compact", "config"), SlashCommands.complete("/c").map { it.name })
+        assertEquals(listOf("cost", "compact", "config"), SlashCommands.complete("/CO").map { it.name })
+        assertEquals(listOf("help"), SlashCommands.complete("/help").map { it.name })
+        assertEquals(SlashCommands.all, SlashCommands.complete("/"))
+    }
+
+    @Test
+    fun `complete is empty for no match, a space, plain text and the escape`() {
+        assertTrue(SlashCommands.complete("/zz").isEmpty())
+        assertTrue(SlashCommands.complete("/help ").isEmpty())
+        assertTrue(SlashCommands.complete("help").isEmpty())
+        assertTrue(SlashCommands.complete("//h").isEmpty())
+        assertTrue(SlashCommands.complete("").isEmpty())
+    }
 }
