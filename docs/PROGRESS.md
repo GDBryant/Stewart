@@ -32,4 +32,4 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 Tracked in `docs/PLAN.md` → Open Items:
 
 - Slash commands (`/clear`, `/compact`, `/model`, `/cost`, `/help`, `/init`, `/review`, `/config`): planned, not started.
-- `ChatSessionTest` "stale job does not overwrite the transcript" is flaky (fails about half the runs on `main`).
+- `ChatSessionTest` "stale job does not overwrite the transcript" is flaky (fails about half the runs on `main`): cancel before the job starts skips `onCancelled` — real bug, see `docs/HANDOFF.md` item 1.
