@@ -166,6 +166,18 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(panel.messageAreas().last().text.startsWith("assistant: partial"))
     }
 
+    fun `test stop right after send resets the button`() {
+        val panel = newPanel(hangingProvider())
+        repeat(10) {
+            panel.inputArea.text = "go"
+            panel.sendButton.doClick()
+            assertEquals("Stop", panel.sendButton.text)
+            panel.sendButton.doClick()
+            assertTrue(pumpUntil { panel.sendButton.text == "Send" && panel.statusLabel.text == "Cancelled" })
+        }
+        assertTrue(session.transcript.last().content.endsWith(ChatSession.CANCEL_MARKER))
+    }
+
     fun `test failure shows failed status`() {
         val panel = newPanel(failingProvider())
         panel.inputArea.text = "go"
