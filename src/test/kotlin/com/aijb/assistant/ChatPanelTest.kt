@@ -690,6 +690,85 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
     }
 
+    fun `test clear command wipes the chat`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "one"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && session.transcript.size == 2 })
+        panel.inputArea.text = "/clear"
+        enter(panel)
+        assertTrue(session.transcript.isEmpty())
+        assertTrue(panel.messageAreas().isEmpty())
+        assertEquals("History cleared", panel.statusLabel.text)
+    }
+
+    fun `test cost command shows session usage and runs while running`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/cost"
+        enter(panel)
+        assertEquals("system: No usage yet", panel.messageAreas().last().text)
+        panel.inputArea.text = "one"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && panel.statusLabel.text.startsWith("tokens:") })
+        panel.inputArea.text = "/cost"
+        enter(panel)
+        assertEquals("system: Session: tokens 1 in / 1 out · cost n/a", panel.messageAreas().last().text)
+    }
+
+    fun `test commands other than help and cost are blocked while running`() {
+        var opened = 0
+        val panel = newPanel(hangingProvider())
+        panel.openSettingsPage = { opened++ }
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.messageAreas().last().text.contains("partial") })
+        for (cmd in listOf("/clear", "/config", "/model m1")) {
+            panel.inputArea.text = cmd
+            enter(panel)
+            assertEquals("error: ${cmd.substringBefore(' ')} is not available while running", panel.messageAreas().last().text)
+            assertEquals(cmd, panel.inputArea.text)
+        }
+        assertEquals(0, opened)
+        assertEquals("Stop", panel.sendButton.text)
+        panel.inputArea.text = "/cost"
+        enter(panel)
+        assertEquals("system: No usage yet", panel.messageAreas().last().text)
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
+    }
+
+    fun `test config command opens the settings page`() {
+        var opened = 0
+        val panel = newPanel(fakeProvider(models = emptyList()))
+        panel.openSettingsPage = { opened++ }
+        panel.inputArea.text = "/config"
+        enter(panel)
+        assertEquals(1, opened)
+        assertEquals("", panel.inputArea.text)
+    }
+
+    fun `test model command switches and persists the selection`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/model fake/m2"
+        enter(panel)
+        assertEquals("m2", (panel.modelCombo.selectedItem as ModelInfo).ref.modelId)
+        assertEquals("fake/m2", AijbSettings.getInstance().state.chatModel)
+        assertEquals("system: Model: fake/m2", panel.messageAreas().last().text)
+        panel.inputArea.text = "/model"
+        enter(panel)
+        assertEquals("system: Model: fake/m2", panel.messageAreas().last().text)
+    }
+
+    fun `test model command with an unknown model keeps the selection`() {
+        val panel = newPanel(fakeProvider())
+        selectModel(panel, "fake", "m1")
+        panel.inputArea.text = "/model zz"
+        enter(panel)
+        assertEquals("m1", (panel.modelCombo.selectedItem as ModelInfo).ref.modelId)
+        assertEquals("error: Unknown model zz. Available: fake/m1, fake/m2", panel.messageAreas().last().text)
+        assertEquals("/model zz", panel.inputArea.text)
+    }
+
     private fun settings(multi: Boolean) {
         AijbSettings.getInstance().state.multiModel = multi
     }

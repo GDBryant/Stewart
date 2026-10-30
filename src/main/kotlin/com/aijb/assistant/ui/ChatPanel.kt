@@ -10,10 +10,12 @@ import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
+import com.aijb.assistant.settings.AijbConfigurable
 import com.aijb.assistant.settings.AijbSettingsListener
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
@@ -286,6 +288,32 @@ class ChatPanel @JvmOverloads constructor(
         override fun error(text: String) {
             addMessage("error", text)
         }
+
+        override val usage: Usage?
+            get() = session.sessionUsage
+
+        override val models: List<ModelInfo>
+            get() = lastModels
+
+        override val currentModel: ModelInfo?
+            get() = modelCombo.selectedItem as? ModelInfo
+
+        override fun clear() = onClear()
+
+        override fun openSettings() = openSettingsPage()
+
+        override fun selectModel(model: ModelInfo) {
+            modelCombo.selectedItem = model
+        }
+
+        override fun openModelPicker() {
+            if (modelCombo.isShowing) modelCombo.showPopup()
+        }
+    }
+
+    /** Opens the plugin's Settings page; replaced in tests. */
+    internal var openSettingsPage: () -> Unit = {
+        ShowSettingsUtil.getInstance().showSettingsDialog(project, AijbConfigurable::class.java)
     }
 
     /** The button: Stop while running, otherwise submit. */

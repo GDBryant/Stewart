@@ -1,5 +1,8 @@
 package com.aijb.assistant.chat
 
+import com.aijb.assistant.provider.ModelInfo
+import com.aijb.assistant.provider.Usage
+
 /** What a slash command can act on; `ChatPanel` implements it, tests use a fake. */
 interface CommandContext {
     /** True while a chat run is active. */
@@ -9,6 +12,18 @@ interface CommandContext {
     fun show(text: String)
 
     fun error(text: String)
+
+    /** Session totals, as for the status line. */
+    val usage: Usage?
+
+    /** Models from the last load, in picker order. */
+    val models: List<ModelInfo>
+    val currentModel: ModelInfo?
+
+    fun clear()
+    fun openSettings()
+    fun selectModel(model: ModelInfo)
+    fun openModelPicker()
 }
 
 /** A local command; [handler] gets the trimmed args and returns false to keep the input text. */
@@ -38,9 +53,74 @@ object SlashCommands {
     /** Text to send for non-command input: a leading "//" sends a single "/". */
     fun plainText(input: String): String = if (input.startsWith("//")) input.substring(1) else input
 
+    sealed interface ModelMatch {
+        data class Found(val model: ModelInfo) : ModelMatch
+        data class Ambiguous(val candidates: List<ModelInfo>) : ModelMatch
+        data object NotFound : ModelMatch
+    }
+
+    /** Exact "provider/model" first, else a bare model id when exactly one provider has it. */
+    fun matchModel(arg: String, models: List<ModelInfo>): ModelMatch {
+        models.firstOrNull { it.ref.encode() == arg }?.let { return ModelMatch.Found(it) }
+        val byId = models.filter { it.ref.modelId == arg }
+        return when (byId.size) {
+            0 -> ModelMatch.NotFound
+            1 -> ModelMatch.Found(byId[0])
+            else -> ModelMatch.Ambiguous(byId)
+        }
+    }
+
+    private fun listRefs(models: List<ModelInfo>): String = models.joinToString(", ") { it.ref.encode() }
+
+    private fun model(ctx: CommandContext, arg: String): Boolean {
+        if (arg.isEmpty()) {
+            val current = ctx.currentModel
+            if (current == null) ctx.error("No model selected") else ctx.show("Model: ${current.ref.encode()}")
+            ctx.openModelPicker()
+            return true
+        }
+        return when (val match = matchModel(arg, ctx.models)) {
+            is ModelMatch.Found -> {
+                ctx.selectModel(match.model)
+                ctx.show("Model: ${match.model.ref.encode()}")
+                true
+            }
+            is ModelMatch.Ambiguous -> {
+                ctx.error("Model $arg is ambiguous: ${listRefs(match.candidates)}")
+                false
+            }
+            ModelMatch.NotFound -> {
+                val available = if (ctx.models.isEmpty()) "none loaded" else listRefs(ctx.models)
+                ctx.error("Unknown model $arg. Available: $available")
+                false
+            }
+        }
+    }
+
+    private fun cost(ctx: CommandContext) {
+        val usage = ctx.usage
+        ctx.show(
+            if (usage == null) "No usage yet"
+            else "Session: tokens ${UsageFormat.tokens(usage)} · cost ${UsageFormat.cost(usage)}"
+        )
+    }
+
     val all: List<SlashCommand> = listOf(
         SlashCommand("help", "", "List commands", allowedWhileRunning = true) { ctx, _ ->
             ctx.show(help())
+            true
+        },
+        SlashCommand("clear", "", "Clear the conversation and its saved history", allowedWhileRunning = false) { ctx, _ ->
+            ctx.clear()
+            true
+        },
+        SlashCommand("cost", "", "Show token use and cost for this chat", allowedWhileRunning = true) { ctx, _ ->
+            cost(ctx)
+            true
+        },
+        SlashCommand("model", "[provider/model]", "Show or switch the model", allowedWhileRunning = false, ::model),
+        SlashCommand("config", "", "Open the plugin settings", allowedWhileRunning = false) { ctx, _ ->
+            ctx.openSettings()
             true
         },
     )
