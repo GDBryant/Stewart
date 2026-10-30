@@ -326,4 +326,65 @@ class ContextCompactorTest {
         assertTrue(job.isCancelled)
         assertTrue(propagated)
     }
+
+    private fun force(provider: ModelProvider, messages: List<ChatMessage>, focus: String?) = runBlocking {
+        ContextCompactor(4).compact(provider, "m", messages, focus)
+    }
+
+    @Test
+    fun `forced compaction ignores the threshold and uses the plain prompt without focus`() {
+        val p = CapturingProvider()
+        val r = force(p, longThread(3), null)
+        assertTrue(r.compacted)
+        assertNull(r.skipped)
+        assertEquals(ContextCompactor.SUMMARY_PROMPT, p.requests.single().messages[0].content)
+    }
+
+    @Test
+    fun `forced compaction appends the focus to the prompt`() {
+        val p = CapturingProvider()
+        val r = force(p, longThread(3), "  the db schema ")
+        assertTrue(r.compacted)
+        assertEquals(
+            ContextCompactor.SUMMARY_PROMPT + " Focus especially on: the db schema",
+            p.requests.single().messages[0].content,
+        )
+    }
+
+    @Test
+    fun `forced compaction with a blank focus uses the plain prompt`() {
+        val p = CapturingProvider()
+        force(p, longThread(3), "   ")
+        assertEquals(ContextCompactor.SUMMARY_PROMPT, p.requests.single().messages[0].content)
+    }
+
+    @Test
+    fun `forced compaction with nothing to compact says so`() {
+        val p = CapturingProvider()
+        val r = force(p, longThread(2), "x")
+        assertFalse(r.compacted)
+        assertNull(r.error)
+        assertEquals(ContextCompactor.NOTHING_TO_COMPACT, r.skipped)
+        assertTrue(p.requests.isEmpty())
+    }
+
+    @Test
+    fun `forced compaction of an already compacted chat says so`() {
+        val p = CapturingProvider()
+        val messages = listOf(ChatMessage(Role.USER, ContextCompactor.SUMMARY_PREFIX + "\n- old")) + longThread(2)
+        val r = force(p, messages, null)
+        assertFalse(r.compacted)
+        assertEquals(ContextCompactor.ALREADY_COMPACT, r.skipped)
+        assertTrue(p.requests.isEmpty())
+    }
+
+    @Test
+    fun `forced compaction provider error leaves messages unchanged`() {
+        val messages = longThread(3)
+        val r = force(CapturingProvider(listOf(ProviderEvent.Failed("nope"))), messages, null)
+        assertFalse(r.compacted)
+        assertEquals("nope", r.error)
+        assertNull(r.skipped)
+        assertEquals(messages, r.messages)
+    }
 }

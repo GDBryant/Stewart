@@ -41,6 +41,12 @@ class SlashCommandsTest {
         override fun openModelPicker() {
             pickerOpened++
         }
+        val compactions = mutableListOf<String?>()
+        var compactStarts = true
+        override fun compact(focus: String?): Boolean {
+            compactions += focus
+            return compactStarts
+        }
     }
 
     private fun run(ctx: FakeContext, input: String): Boolean = SlashCommands.execute(SlashCommands.parse(input)!!, ctx)
@@ -222,5 +228,23 @@ class SlashCommandsTest {
         val models = listOf(info("z", "a/b"), info("a", "b"))
         assertEquals(ModelMatch.Found(models[1]), SlashCommands.matchModel("a/b", models))
         assertEquals(ModelMatch.NotFound, SlashCommands.matchModel("", models))
+    }
+
+    @Test
+    fun `compact passes the focus or null`() {
+        val ctx = FakeContext()
+        assertTrue(run(ctx, "/compact"))
+        assertTrue(run(ctx, "/compact  the api  "))
+        assertEquals(listOf(null, "the api"), ctx.compactions)
+    }
+
+    @Test
+    fun `compact keeps the input when it cannot start and is blocked while running`() {
+        val ctx = FakeContext()
+        ctx.compactStarts = false
+        assertFalse(run(ctx, "/compact"))
+        ctx.running = true
+        assertFalse(run(ctx, "/compact"))
+        assertEquals(1, ctx.compactions.size)
     }
 }

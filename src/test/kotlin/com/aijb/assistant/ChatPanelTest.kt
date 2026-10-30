@@ -769,6 +769,70 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("/model zz", panel.inputArea.text)
     }
 
+    private fun summarizingProvider(models: List<String> = listOf("m1")) = fakeProvider(
+        models = models,
+        events = flow {
+            emit(ProviderEvent.TextDelta("- sum"))
+            emit(ProviderEvent.Completed("stop", Usage(2, 2)))
+        },
+    )
+
+    fun `test compact command compacts and resets the button`() {
+        val panel = newPanel(summarizingProvider())
+        session.commitIfActive(null, (1..3).flatMap {
+            listOf(
+                com.aijb.assistant.provider.ChatMessage(Role.USER, "q$it"),
+                com.aijb.assistant.provider.ChatMessage(Role.ASSISTANT, "a$it"),
+            )
+        })
+        panel.inputArea.text = "/compact api"
+        enter(panel)
+        assertEquals("", panel.inputArea.text)
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" })
+        assertTrue(panel.messageAreas().last().text.startsWith("system: Context compacted"))
+        assertEquals("tokens: 2 in / 2 out · cost n/a", panel.statusLabel.text)
+        assertTrue(session.transcript[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+    }
+
+    fun `test compact command with nothing to compact says so`() {
+        val panel = newPanel(summarizingProvider())
+        panel.inputArea.text = "/compact"
+        enter(panel)
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && panel.messageAreas().isNotEmpty() })
+        assertEquals("system: Nothing to compact", panel.messageAreas().last().text)
+        assertEquals("Done", panel.statusLabel.text)
+    }
+
+    fun `test compact command failure and cancel reset the button`() {
+        val panel = newPanel(failingProvider())
+        session.commitIfActive(null, (1..3).flatMap {
+            listOf(
+                com.aijb.assistant.provider.ChatMessage(Role.USER, "q$it"),
+                com.aijb.assistant.provider.ChatMessage(Role.ASSISTANT, "a$it"),
+            )
+        })
+        panel.inputArea.text = "/compact"
+        enter(panel)
+        assertTrue(pumpUntil { panel.statusLabel.text == "Failed: Compaction failed: boom" })
+        assertEquals("Send", panel.sendButton.text)
+        session.providers = { listOf(hangingProvider()) }
+        panel.inputArea.text = "/compact"
+        enter(panel)
+        assertEquals("Stop", panel.sendButton.text)
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
+        assertEquals("Send", panel.sendButton.text)
+    }
+
+    fun `test compact command without a model keeps the input`() {
+        val panel = newPanel(fakeProvider(models = emptyList()))
+        panel.inputArea.text = "/compact"
+        enter(panel)
+        assertEquals("No model selected", panel.statusLabel.text)
+        assertEquals("/compact", panel.inputArea.text)
+        assertEquals("Send", panel.sendButton.text)
+    }
+
     private fun settings(multi: Boolean) {
         AijbSettings.getInstance().state.multiModel = multi
     }

@@ -24,6 +24,9 @@ interface CommandContext {
     fun openSettings()
     fun selectModel(model: ModelInfo)
     fun openModelPicker()
+
+    /** Starts a forced compaction run; false (with an error shown) when it cannot start. */
+    fun compact(focus: String?): Boolean
 }
 
 /** A local command; [handler] gets the trimmed args and returns false to keep the input text. */
@@ -117,6 +120,9 @@ object SlashCommands {
         SlashCommand("cost", "", "Show token use and cost for this chat", allowedWhileRunning = true) { ctx, _ ->
             cost(ctx)
             true
+        },
+        SlashCommand("compact", "[focus]", "Compact the conversation now, optionally keeping a focus", allowedWhileRunning = false) { ctx, args ->
+            ctx.compact(args.ifEmpty { null })
         },
         SlashCommand("model", "[provider/model]", "Show or switch the model", allowedWhileRunning = false, ::model),
         SlashCommand("config", "", "Open the plugin settings", allowedWhileRunning = false) { ctx, _ ->

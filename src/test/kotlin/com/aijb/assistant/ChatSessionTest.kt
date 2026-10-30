@@ -1025,4 +1025,119 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertTrue(pumpUntil(l3.failed))
         assertEquals(25, s3.sessionUsage?.promptTokens)
     }
+    private class CompactListener : ChatListener {
+        val events = mutableListOf<String>()
+        val done = CountDownLatch(1)
+        override fun onDelta(text: String) {}
+        override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
+            events += "compacted"
+        }
+        override fun onCompactionSkipped(reason: String) {
+            events += "skipped:$reason"
+        }
+        override fun onCompactionFailed(message: String) {
+            events += "compactionFailed:$message"
+        }
+        override fun onCompleted(usage: Usage?) {
+            events += "completed"
+            done.countDown()
+        }
+        override fun onFailed(message: String) {
+            events += "failed:$message"
+            done.countDown()
+        }
+        override fun onCancelled() {
+            events += "cancelled"
+            done.countDown()
+        }
+    }
+
+    private fun seed(session: ChatSession, pairs: Int) {
+        val messages = (1..pairs).flatMap {
+            listOf(ChatMessage(Role.USER, "q$it"), ChatMessage(Role.ASSISTANT, "a$it"))
+        }
+        session.commitIfActive(null, messages)
+    }
+
+    fun `test compact replaces the transcript and adds usage`() {
+        val session = newSession()
+        seed(session, 3)
+        session.providers = { listOf(fakeProvider("fake",
+            ProviderEvent.TextDelta("- sum"),
+            ProviderEvent.Completed("stop", Usage(7, 3)),
+        )) }
+        val listener = CompactListener()
+        session.compact(ModelRef("fake", "m"), "focus", listener)
+        assertTrue(pumpUntil(listener.done))
+        assertEquals(listOf("compacted", "completed"), listener.events)
+        assertTrue(session.transcript[0].content.startsWith(ContextCompactor.SUMMARY_PREFIX))
+        assertEquals(4, session.transcript.size)
+        assertEquals(Usage(7, 3), session.sessionUsage)
+    }
+
+    fun `test compact with nothing to compact is skipped then completed`() {
+        val session = newSession()
+        seed(session, 2)
+        val before = session.transcript
+        session.providers = { listOf(fakeProvider("fake")) }
+        val listener = CompactListener()
+        session.compact(ModelRef("fake", "m"), null, listener)
+        assertTrue(pumpUntil(listener.done))
+        assertEquals(listOf("skipped:${ContextCompactor.NOTHING_TO_COMPACT}", "completed"), listener.events)
+        assertEquals(before, session.transcript)
+    }
+
+    fun `test compact provider error fails and keeps the transcript`() {
+        val session = newSession()
+        seed(session, 3)
+        val before = session.transcript
+        session.providers = { listOf(fakeProvider("fake", ProviderEvent.Failed("boom"))) }
+        val listener = CompactListener()
+        session.compact(ModelRef("fake", "m"), null, listener)
+        assertTrue(pumpUntil(listener.done))
+        assertEquals(listOf("compactionFailed:boom", "failed:Compaction failed: boom"), listener.events)
+        assertEquals(before, session.transcript)
+    }
+
+    fun `test compact with a missing provider fails`() {
+        val session = newSession()
+        session.providers = { emptyList() }
+        val listener = CompactListener()
+        session.compact(ModelRef("nope", "m"), null, listener)
+        assertTrue(pumpUntil(listener.done))
+        assertEquals(listOf("failed:Provider not configured: nope"), listener.events)
+    }
+
+    fun `test cancelled compact leaves the transcript untouched and frees the session`() {
+        val session = newSession()
+        seed(session, 3)
+        val before = session.transcript
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }) }
+        repeat(10) {
+            val listener = CompactListener()
+            val job = session.compact(ModelRef("fake", "m"), null, listener)
+            if (it % 2 == 1) Thread.sleep(50)
+            session.cancel()
+            assertTrue(pumpUntil(listener.done))
+            assertEquals(listOf("cancelled"), listener.events)
+            assertTrue(pumpUntilCond { job.isCompleted })
+            assertEquals(before, session.transcript)
+        }
+    }
+
+    fun `test compact throwing provider reports a failure`() {
+        val session = newSession()
+        seed(session, 3)
+        session.providers = { throw IllegalStateException("registry down") }
+        val listener = CompactListener()
+        session.compact(ModelRef("fake", "m"), null, listener)
+        assertTrue(pumpUntil(listener.done))
+        assertEquals(listOf("failed:registry down"), listener.events)
+    }
 }

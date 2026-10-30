@@ -18,6 +18,8 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         val afterTokens: Int = 0,
         /** Tokens/cost spent on the summary request, whether or not it was used. */
         val usage: Usage? = null,
+        /** Why nothing was compacted when there was no error ([NOTHING_TO_COMPACT], [ALREADY_COMPACT]). */
+        val skipped: String? = null,
     )
 
     suspend fun compactIfNeeded(
@@ -32,15 +34,39 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         if (before < thresholdTokens && (lastPromptTokens ?: 0) < thresholdTokens) {
             return unchanged
         }
+        return summarize(provider, model, messages, SUMMARY_PROMPT, before)
+    }
+
+    /** Compacts now, ignoring the threshold; [focus] (if any) tells the summary what to keep. */
+    suspend fun compact(
+        provider: ModelProvider,
+        model: String,
+        messages: List<ChatMessage>,
+        focus: String?,
+    ): CompactionResult {
+        val prompt = if (focus.isNullOrBlank()) SUMMARY_PROMPT else "$SUMMARY_PROMPT Focus especially on: ${focus.trim()}"
+        return summarize(provider, model, messages, prompt, TokenEstimate.of(messages))
+    }
+
+    private suspend fun summarize(
+        provider: ModelProvider,
+        model: String,
+        messages: List<ChatMessage>,
+        prompt: String,
+        before: Int,
+    ): CompactionResult {
+        val unchanged = CompactionResult(messages, false, beforeTokens = before, afterTokens = before)
         val prefixEnd = messages.indexOfFirst { it.role != Role.SYSTEM }
             .let { if (it < 0) messages.size else it }
         val prefix = messages.subList(0, prefixEnd)
         val body = messages.subList(prefixEnd, messages.size)
         var cut = body.size - keepRecent
         while (cut > 0 && body[cut].role == Role.TOOL) cut--
-        if (cut <= 0) return unchanged
+        if (cut <= 0) return unchanged.copy(skipped = NOTHING_TO_COMPACT)
         val older = body.subList(0, cut)
-        if (older.size == 1 && older[0].content.startsWith(SUMMARY_PREFIX)) return unchanged
+        if (older.size == 1 && older[0].content.startsWith(SUMMARY_PREFIX)) {
+            return unchanged.copy(skipped = ALREADY_COMPACT)
+        }
         val kept = body.subList(cut, body.size)
 
         val summary = StringBuilder()
@@ -51,7 +77,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
             provider.chat(ChatRequest(
                 model,
                 listOf(
-                    ChatMessage(Role.SYSTEM, SUMMARY_PROMPT),
+                    ChatMessage(Role.SYSTEM, prompt),
                     ChatMessage(Role.USER, render(older)),
                 ),
             )).collect { ev ->
@@ -114,6 +140,8 @@ class ContextCompactor(private val keepRecent: Int = 4) {
 
     companion object {
         const val SUMMARY_PREFIX = "[Summary of earlier conversation]"
+        const val NOTHING_TO_COMPACT = "Nothing to compact"
+        const val ALREADY_COMPACT = "Already compact"
         const val SUMMARY_PROMPT = "You compress conversations. Summarize the conversation below so another assistant can continue it without the original. Keep: the user's goals and constraints, decisions made, facts learned, file paths, code identifiers, commands run and their outcomes, tool results that still matter, and open tasks or questions. Drop pleasantries and repetition. Do not invent anything. Output only the summary, as concise bullet points."
     }
 }

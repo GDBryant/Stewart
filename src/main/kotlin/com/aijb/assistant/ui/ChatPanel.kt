@@ -309,6 +309,47 @@ class ChatPanel @JvmOverloads constructor(
         override fun openModelPicker() {
             if (modelCombo.isShowing) modelCombo.showPopup()
         }
+
+        override fun compact(focus: String?): Boolean = startCompaction(focus)
+    }
+
+    private fun selectedModelOrError(): ModelInfo? {
+        val info = modelCombo.selectedItem as? ModelInfo
+        if (info == null) statusLabel.text = "No model selected"
+        return info
+    }
+
+    private fun startCompaction(focus: String?): Boolean {
+        val info = selectedModelOrError() ?: return false
+        sendButton.text = "Stop"
+        statusLabel.text = "Compacting..."
+        session.compact(info.ref, focus, object : ChatListener {
+            override fun onDelta(text: String) {}
+
+            override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
+                addMessage("system", "Context compacted (~$beforeTokens → ~$afterTokens tokens)")
+            }
+
+            override fun onCompactionSkipped(reason: String) {
+                addMessage("system", reason)
+            }
+
+            override fun onCompleted(usage: Usage?) {
+                sendButton.text = "Send"
+                statusLabel.text = UsageFormat.status(usage, session.sessionUsage)
+            }
+
+            override fun onFailed(message: String) {
+                sendButton.text = "Send"
+                statusLabel.text = "Failed: $message"
+            }
+
+            override fun onCancelled() {
+                sendButton.text = "Send"
+                statusLabel.text = "Cancelled"
+            }
+        })
+        return true
     }
 
     /** Opens the plugin's Settings page; replaced in tests. */
@@ -335,11 +376,7 @@ class ChatPanel @JvmOverloads constructor(
         if (running) return
         val text = SlashCommands.plainText(raw).trim()
         if (text.isEmpty()) return
-        val info = modelCombo.selectedItem as? ModelInfo
-        if (info == null) {
-            statusLabel.text = "No model selected"
-            return
-        }
+        val info = selectedModelOrError() ?: return
         inputArea.text = ""
         addMessage("user", text)
         var deltaArea: JTextArea? = addMessage("assistant", "")

@@ -57,6 +57,8 @@ interface ChatListener {
     fun onFailedWithCode(message: String, code: String?) = onFailed(message)
     fun onCompacted(beforeTokens: Int, afterTokens: Int) {}
     fun onCompactionFailed(message: String) {}
+    /** A forced compaction found nothing to do ([reason] is shown as is); [onCompleted] follows. */
+    fun onCompactionSkipped(reason: String) {}
     fun onLevelStarted(role: AgentRole, context: String) {}
     fun onToolRequested(call: ToolCall) {}
     fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
@@ -174,30 +176,48 @@ class ChatSession(
         ApplicationManager.getApplication().invokeLater({ block() }, ModalityState.any())
     }
 
+    /**
+     * Starts [body] as the active run, cancelling any previous one; call under [lock].
+     * ATOMIC: a Stop before dispatch still runs the body, so its own catch (which must begin
+     * with `ensureActive()` inside the `try`) and this finally always fire.
+     */
+    private fun startRun(body: suspend CoroutineScope.(thisJob: Job) -> Unit): Job {
+        activeJob?.cancel()
+        val newJob = cs.launch(start = CoroutineStart.ATOMIC) {
+            val thisJob = coroutineContext.job
+            try {
+                body(thisJob)
+            } finally {
+                synchronized(lock) {
+                    if (activeJob === thisJob) activeJob = null
+                }
+                persist()
+            }
+        }
+        activeJob = newJob
+        return newJob
+    }
+
     fun send(text: String, ref: ModelRef, listener: ChatListener): Job {
-        val newJob: Job
         synchronized(lock) {
-            activeJob?.cancel()
             val priorHistory = transcriptBacking.toList()
             transcriptBacking.add(ChatMessage(Role.USER, text))
             val history = transcriptBacking.toList()
-            // ATOMIC: a Stop before dispatch still runs the body, so catch/finally always fire.
-            newJob = cs.launch(start = CoroutineStart.ATOMIC) {
-                val thisJob = coroutineContext.job
+            return startRun { thisJob ->
                 var orchestrated = false
                 try {
                     coroutineContext.ensureActive()
                     if (multiModel()) {
                         orchestrated = true
                         runOrchestrator(text, ref, priorHistory, listener, thisJob)
-                        return@launch
+                        return@startRun
                     }
                     val route = RoleRouting.routeFor(ref, providers(), toolPathOverrides())
                     if (route == null) {
                         toEdt {
                             listener.onFailedWithCode("Provider not configured: ${ref.providerId}", "provider_missing")
                         }
-                        return@launch
+                        return@startRun
                     }
                     val loopListener = object : LoopListener {
                         override fun onText(text: String) = toEdt { listener.onDelta(text) }
@@ -264,16 +284,58 @@ class ChatSession(
                     throw e
                 } catch (e: Throwable) {
                     toEdt { listener.onFailed(e.message ?: "error") }
-                } finally {
-                    synchronized(lock) {
-                        if (activeJob === thisJob) activeJob = null
-                    }
-                    persist()
                 }
             }
-            activeJob = newJob
         }
-        return newJob
+    }
+
+    /**
+     * `/compact`: summarises the transcript now, with optional [focus], as a run (Stop cancels it
+     * and leaves the transcript untouched). Ends with exactly one of onCompleted, onFailed or
+     * onCancelled; onCompacted / onCompactionSkipped / onCompactionFailed come first.
+     */
+    fun compact(ref: ModelRef, focus: String?, listener: ChatListener): Job {
+        synchronized(lock) {
+            val history = transcriptBacking.toList()
+            return startRun { thisJob ->
+                try {
+                    coroutineContext.ensureActive()
+                    val route = RoleRouting.routeFor(ref, providers(), toolPathOverrides())
+                    if (route == null) {
+                        toEdt {
+                            listener.onFailedWithCode("Provider not configured: ${ref.providerId}", "provider_missing")
+                        }
+                        return@startRun
+                    }
+                    val result = compactor.compact(route.provider, ref.modelId, history, focus)
+                    addUsage(result.usage)
+                    val error = result.error
+                    when {
+                        result.compacted -> {
+                            commitIfActive(thisJob, result.messages)
+                            lastPromptTokens = null
+                            toEdt {
+                                listener.onCompacted(result.beforeTokens, result.afterTokens)
+                                listener.onCompleted(result.usage)
+                            }
+                        }
+                        error != null -> toEdt {
+                            listener.onCompactionFailed(error)
+                            listener.onFailed("Compaction failed: $error")
+                        }
+                        else -> toEdt {
+                            listener.onCompactionSkipped(result.skipped ?: ContextCompactor.NOTHING_TO_COMPACT)
+                            listener.onCompleted(result.usage)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    toEdt { listener.onCancelled() }
+                    throw e
+                } catch (e: Throwable) {
+                    toEdt { listener.onFailed(e.message ?: "error") }
+                }
+            }
+        }
     }
 
     /**
