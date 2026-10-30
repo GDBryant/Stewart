@@ -2,7 +2,9 @@ package com.aijb.assistant.ui
 
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
+import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
+import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelRef
@@ -111,7 +113,7 @@ class ChatPanel @JvmOverloads constructor(
             override fun keyPressed(e: KeyEvent) {
                 if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
                     e.consume()
-                    onSendOrStop()
+                    onSubmit()
                 }
             }
         })
@@ -269,12 +271,41 @@ class ChatPanel @JvmOverloads constructor(
         }
     }
 
+    private val running: Boolean
+        get() = sendButton.text == "Stop"
+
+    /** Slash-command output goes into the panel only, never into the transcript. */
+    internal val commandContext = object : CommandContext {
+        override val running: Boolean
+            get() = this@ChatPanel.running
+
+        override fun show(text: String) {
+            addMessage("system", text)
+        }
+
+        override fun error(text: String) {
+            addMessage("error", text)
+        }
+    }
+
+    /** The button: Stop while running, otherwise submit. */
     private fun onSendOrStop() {
-        if (sendButton.text == "Stop") {
+        if (running) {
             session.cancel()
             return
         }
-        val text = inputArea.text.trim()
+        onSubmit()
+    }
+
+    /** Enter: runs a slash command (even mid-run); plain text is ignored while running. */
+    private fun onSubmit() {
+        val raw = inputArea.text
+        SlashCommands.parse(raw)?.let { parsed ->
+            if (SlashCommands.execute(parsed, commandContext)) inputArea.text = ""
+            return
+        }
+        if (running) return
+        val text = SlashCommands.plainText(raw).trim()
         if (text.isEmpty()) return
         val info = modelCombo.selectedItem as? ModelInfo
         if (info == null) {

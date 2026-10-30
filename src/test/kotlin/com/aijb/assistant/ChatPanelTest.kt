@@ -619,6 +619,77 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Send", panel.sendButton.text)
     }
 
+    private fun enter(panel: ChatPanel) {
+        val enter = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ENTER, '\n',
+        )
+        panel.inputArea.keyListeners.forEach { it.keyPressed(enter) }
+    }
+
+    fun `test help command shows output locally and sends nothing`() {
+        var requests = 0
+        val panel = newPanel(fakeProvider(events = flow { requests++ }))
+        panel.inputArea.text = "/help"
+        panel.sendButton.doClick()
+        pump()
+        assertEquals(0, requests)
+        assertTrue(session.transcript.isEmpty())
+        assertTrue(panel.messageAreas().single().text.startsWith("system: Commands:"))
+        assertEquals("", panel.inputArea.text)
+        assertEquals("Send", panel.sendButton.text)
+    }
+
+    fun `test help works without a model selected`() {
+        val panel = newPanel(fakeProvider(models = emptyList()))
+        panel.inputArea.text = "/help"
+        enter(panel)
+        assertTrue(panel.messageAreas().single().text.startsWith("system: Commands:"))
+    }
+
+    fun `test unknown command shows an error and keeps the input`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "/nope"
+        panel.sendButton.doClick()
+        pump()
+        assertEquals("error: Unknown command /nope — type /help", panel.messageAreas().single().text)
+        assertEquals("/nope", panel.inputArea.text)
+        assertTrue(session.transcript.isEmpty())
+    }
+
+    fun `test double slash is sent as plain text without the escape`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "//etc/hosts"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && session.transcript.size == 2 })
+        assertEquals("/etc/hosts", session.transcript[0].content)
+    }
+
+    fun `test leading space slash is plain text`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = " /help"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && session.transcript.size == 2 })
+        assertEquals("/help", session.transcript[0].content)
+    }
+
+    fun `test enter while running runs help and ignores plain text`() {
+        val panel = newPanel(hangingProvider())
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.messageAreas().last().text.contains("partial") })
+        panel.inputArea.text = "more"
+        enter(panel)
+        pump()
+        assertEquals("Stop", panel.sendButton.text)
+        assertEquals("more", panel.inputArea.text)
+        panel.inputArea.text = "/help"
+        enter(panel)
+        assertEquals("Stop", panel.sendButton.text)
+        assertTrue(panel.messageAreas().last().text.startsWith("system: Commands:"))
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.statusLabel.text == "Cancelled" })
+    }
+
     private fun settings(multi: Boolean) {
         AijbSettings.getInstance().state.multiModel = multi
     }
