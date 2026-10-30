@@ -253,6 +253,7 @@ class ChatSessionTest : BasePlatformTestCase() {
         }) }
         val listener = RecordingListener()
         val active = session.send("one", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.deltas.isNotEmpty() })
         val before = session.transcript
         val stale = kotlinx.coroutines.Job()
         session.commitIfActive(stale, listOf(ChatMessage(Role.USER, "stale")))
@@ -263,6 +264,53 @@ class ChatSessionTest : BasePlatformTestCase() {
         assertEquals(listOf(ChatMessage(Role.USER, "fresh")), session.transcript)
         session.cancel()
         assertTrue(pumpUntil(listener.cancelled))
+    }
+
+    fun `test cancel before the job starts still fires onCancelled and marks the transcript`() {
+        val session = newSession()
+        var hang = true
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                if (hang) kotlinx.coroutines.awaitCancellation()
+                emit(ProviderEvent.TextDelta("ok"))
+                emit(ProviderEvent.Completed("stop", null))
+            }
+        }) }
+        repeat(20) { i ->
+            val listener = RecordingListener()
+            val job = session.send("m$i", ModelRef("fake", "m"), listener)
+            session.cancel()
+            assertTrue("iteration $i", pumpUntil(listener.cancelled))
+            assertTrue(pumpUntilCond { job.isCompleted })
+            assertEquals(ChatSession.CANCEL_MARKER, session.transcript.last().content.lines().last())
+        }
+        hang = false
+        val after = RecordingListener()
+        session.send("final", ModelRef("fake", "m"), after)
+        assertTrue(pumpUntil(after.completed))
+        assertEquals("ok", session.transcript.last().content)
+    }
+
+    fun `test cancel before the orchestrator job starts still fires onCancelled`() {
+        val session = newSession()
+        session.multiModel = { true }
+        session.providers = { listOf(object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = emptyList()
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }) }
+        session.roleModels = { emptyMap() }
+        repeat(10) { i ->
+            val listener = RecordingListener()
+            session.send("m$i", ModelRef("fake", "m"), listener)
+            session.cancel()
+            assertTrue("iteration $i", pumpUntil(listener.cancelled))
+            assertEquals(ChatSession.CANCEL_MARKER, session.transcript.last().content.lines().last())
+        }
     }
 
     fun `test transcript snapshot is immutable`() {

@@ -40,7 +40,9 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
@@ -179,10 +181,12 @@ class ChatSession(
             val priorHistory = transcriptBacking.toList()
             transcriptBacking.add(ChatMessage(Role.USER, text))
             val history = transcriptBacking.toList()
-            newJob = cs.launch {
+            // ATOMIC: a Stop before dispatch still runs the body, so catch/finally always fire.
+            newJob = cs.launch(start = CoroutineStart.ATOMIC) {
                 val thisJob = coroutineContext.job
                 var orchestrated = false
                 try {
+                    coroutineContext.ensureActive()
                     if (multiModel()) {
                         orchestrated = true
                         runOrchestrator(text, ref, priorHistory, listener, thisJob)
