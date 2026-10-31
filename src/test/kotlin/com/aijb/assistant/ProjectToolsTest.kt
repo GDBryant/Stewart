@@ -8,7 +8,9 @@ import com.aijb.assistant.tools.ReadFile
 import com.aijb.assistant.tools.RunTerminal
 import com.aijb.assistant.tools.Search
 import com.aijb.assistant.tools.ToolPreview
+import com.aijb.assistant.tools.EditTool
 import com.aijb.assistant.tools.WriteFile
+import com.aijb.assistant.provider.ToolSpec
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.io.File
@@ -248,6 +250,54 @@ class ProjectToolsTest : BasePlatformTestCase() {
         }
         assertTrue(msg.contains("changed since preview"))
         assertEquals("changed meanwhile", File(baseDir, "stale.txt").readText())
+    }
+
+    private class FakeDiskEdit(
+        project: com.intellij.openapi.project.Project,
+        paths: ProjectPaths,
+        private val fakeDisk: String?,
+    ) : EditTool(project, paths) {
+        override val spec = ToolSpec("FakeDiskEdit", "probe", JsonObject(emptyMap()))
+        override val requiresApproval = true
+        override suspend fun execute(arguments: JsonObject, preview: ToolPreview?): String = ""
+        suspend fun apply(rawPath: String, change: ToolPreview.FileChange) =
+            applyChange(rawPath, JsonObject(emptyMap()), change) { _, _ -> change.after }
+        override fun diskText(resolved: java.nio.file.Path, vf: com.intellij.openapi.vfs.VirtualFile): String? = fakeDisk
+    }
+
+    fun `test post write read back mismatch fails without reporting success`() {
+        val t = FakeDiskEdit(project, paths, "tampered")
+        write("rbm.txt", "old")
+        val change = ToolPreview.FileChange(
+            File(baseDir, "rbm.txt").absolutePath, "old", "new content")
+        val msg = expectError { t.apply("rbm.txt", change); "" }
+        assertTrue(msg.contains("differs"))
+        assertTrue(msg.contains("uncertain"))
+        assertEquals("new content", File(baseDir, "rbm.txt").readText())
+    }
+
+    fun `test post write missing file fails`() {
+        val t = FakeDiskEdit(project, paths, null)
+        write("rbn.txt", "old")
+        val change = ToolPreview.FileChange(
+            File(baseDir, "rbn.txt").absolutePath, "old", "new content")
+        val msg = expectError { t.apply("rbn.txt", change); "" }
+        assertTrue(msg.contains("missing after write"))
+    }
+
+    fun `test write execute cancelled coroutine does not report success`() {
+        val t = WriteFile(project, paths)
+        val a = args("path" to "cxc.txt", "content" to "x")
+        val prev = runBlocking { t.preview(a) }
+        val job = kotlinx.coroutines.Job()
+        try {
+            runBlocking(job) {
+                job.cancel()
+                t.execute(a, prev)
+            }
+            fail("expected cancellation")
+        } catch (e: CancellationException) {
+        }
     }
 
     fun `test path outside project rejected`() {

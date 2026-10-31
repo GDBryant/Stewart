@@ -1,7 +1,7 @@
 # JetBrains AI Plugin — High-Level Plan
 
 ## Goal
-JetBrains plugin (Kotlin, Gradle IntelliJ Platform Plugin) with a chat tool window that can drive local Ollama models, Claude (enterprise account, Microsoft SSO via browser), and AI Factory models (OpenAI-compatible proxy that strips tool calls), with per-message model selection and a multi-model mode that splits planning and execution across three agent levels.
+JetBrains plugin (Kotlin, Gradle IntelliJ Platform Plugin) with a chat tool window that can drive local Ollama models, Claude (enterprise account, Microsoft SSO via browser), and AI Factory models (OpenAI-compatible proxy with native tools and an explicit shim fallback), with per-message model selection and a multi-model mode that splits planning and execution across three agent levels.
 
 ## Scope
 - In: chat tool window, model picker, Ollama + Claude + AI Factory providers, native tool calls (the tool-call shim is a deprecated per-model fallback), 3-level agent loop, file edits, terminal commands, settings UI.
@@ -165,7 +165,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode. **Built** (`autoApproveEdits` setting; terminal commands still always ask).
 5. Is per-project history in the plugin state directory sufficient, or is a global history view required? Per-project history in the plugin state directory should be sufficient. 
 6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences? We will manually update if and when necessary.
-7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account does expose a list of models to select from. **Built** (`AifProvider.listModels`).
+7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account exposes a model list, but `AifProvider.listModels()` currently returns only model IDs configured in settings; API-based discovery remains outstanding.
 
 ### 9. Post-M8 open items
 - Worker dispatch context: `workerBriefing` gives each Worker its own task, files and the results of the tasks it lists in `depends_on` (same round only), bounded to `maxHandoffChars`.
@@ -180,6 +180,18 @@ M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/PROGR
 
 1. Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window.
 2. Deferred: `/resume` and `/memory` (history is per-project, so `/resume` is likely redundant). Add only if asked.
+3. Requested follow-ups from `docs/todo.txt`: Qwen/AIF file-edit compatibility, Visual Studio support and Nemotron investigation; work and acceptance criteria below.
+4. AIF model discovery from the API (Open Question 7) and Ollama native tools (path table row).
+
+Per-item handoff plans: `docs/HANDOFF.md`.
+
+### Requested follow-ups (not implemented)
+
+**Qwen/AIF edit calls and write verification — resolved 2026-10-31.** `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` through preview, approval and post-write read-back, on SHIM and NATIVE paths; approved content verified on disk on both. The reported incompatibility did not reproduce. `EditTool.applyChange` now re-reads the saved file and compares it with the approved `FileChange.after`; a mismatch or missing file fails with uncertain side effects rather than success, and there is no retry. If a future live run surfaces an unmapped Qwen call format, fail closed per the rule below; a CLI write remains a separate, explicitly approved `RunTerminal` action, never an automatic fallback.
+
+**Visual Studio support.** Treat this as a separate product/host integration, not a compatibility flag for the IntelliJ Platform ZIP. First define supported Visual Studio versions/OS, installation format, chat UI and approval/undo model; assess which provider/tool/orchestration contracts could be shared versus reimplemented. Create a separately scoped implementation and test/packaging plan after feasibility; the current JetBrains milestone and verifier results do not cover Visual Studio. No build or completion claim yet.
+
+**Nemotron model investigation.** Resolved: Nemotron on the AIF account is `nemotron-3-embed-8b`, embeddings only (HTTP 404 on `/chat/completions`). No chat/tool route exists; nothing to implement unless the account adds a chat Nemotron model.
 
 ## References
 - `/srv/compose/aif_shim/` — Python shim to port (`aif_shim/parser.py`, `translate.py`, `server.py`), docs + install notes in its `docs/`, test fixtures in `tests/`.

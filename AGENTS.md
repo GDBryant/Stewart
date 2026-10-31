@@ -22,7 +22,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Progress: `docs/PROGRESS.md` — milestone status table; update on every milestone commit.
 - Compatibility: `docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
 - Claude feasibility: `docs/CLAUDE_FEASIBILITY.md` — M1 gate for the Claude Code CLI transport.
-- Handoff: `docs/HANDOFF.md` — post-M9 plan (cancel-before-start fix, slash commands) — done; kept for reference.
+- Handoff: `docs/HANDOFF.md` — post-M10 plans for the outstanding items (runIde check, AIF model list, Qwen edits + write verification, Ollama native tools, Visual Studio, Nemotron). Previous handoff text is in git history (`0ee6ce2`).
 - Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
 
 ## Conventions

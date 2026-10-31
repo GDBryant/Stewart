@@ -1,126 +1,139 @@
-# Handoff — finish the build (post-M9)
+# Handoff — outstanding items (post-M10)
 
-**Status (2026-10-30): done.** Item 1 `96a5051`, slices 2a–2e `824d5de`…`5fe43d3` (M10 in `docs/PROGRESS.md`). Open: manual `runIde` check; `/resume`/`/memory` deferred. The plan below is kept for reference.
+State at handoff: `main` @ `0ee6ce2` plus uncommitted doc edits (`docs/PLAN.md`, `docs/PROGRESS.md`). M1–M10 done (`docs/PROGRESS.md`).
+Last recorded gate (`5fe43d3`): 755 tests passed (5 live skipped); `koverVerify` line 96.8%, branch 85.2%; `verifyPlugin` Compatible on IDEA 2025.1 and PyCharm 2025.3.
+The post-M9 handoff (cancel-before-start fix, slash commands) is done; its text is in git history (`0ee6ce2`).
 
-State at handoff: `main` @ `eb43ba2`, clean. M1–M9 are done (see `docs/PROGRESS.md`).
-At `a48729f`: 675 tests passed (5 live tests skipped); `koverVerify` passed at 97.1% line and 84.6% branch.
-`verifyPlugin` passes on IDEA 2025.1 and PyCharm 2025.3.
-The post-M8 handoff (items 1–6) is done. Its text is in git history (`d44daa2`).
+Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a written plan, not code.
 
-Remaining work, in this order:
-1. Fix the flaky test. It is a real cancellation bug.
-2. Slash commands, slices 2a–2e.
+| # | Item | Kind |
+|---|------|------|
+| 1 | Manual `runIde` check of slash commands | verify |
+| 2 | AIF model discovery from the API | feature |
+| 3 | ~~Qwen/AIF edit calls + post-write verification~~ done 2026-10-31 — see §3 note | done |
+| 4 | Ollama native tools | feature |
+| 5 | Visual Studio support | feasibility |
+| 6 | Nemotron model | investigation |
 
 ## Rules for every item (from `AGENTS.md`)
-- Add tests for both the positive and the negative case in the same change.
+- Tests for the positive and the negative case in the same change.
 - `./gradlew test koverVerify` must pass (≥90% line, ≥80% branch).
-- Run `./gradlew verifyPlugin` before any commit that touches `plugin.xml`, the UI, or platform APIs.
-- Commit each item or slice on its own.
-- Add a line to `docs/PROGRESS.md` → Post-M8 changes, with the commit hash.
-- When an item is done, remove it from PLAN Open Items and from PROGRESS Open items.
+- `./gradlew verifyPlugin` before any commit that touches `plugin.xml`, UI or platform APIs.
+- One commit per item (or slice). Add a line to `docs/PROGRESS.md` with the hash; remove the item from PLAN Open Items and PROGRESS when done.
+- Never log or persist the AIF key (`AifCredentials`, PasswordSafe only). Redact bearer tokens in any captured stream.
+- Tool calls are data: every path goes through `ToolLoop.executeCall` (validate → preview → approval → execute). No provider executes anything. No same-turn native→shim switch, no replay after execution starts.
 - Do not push unless asked.
 
 ---
 
-## 1. Stop before the run starts: no callback (flaky `ChatSessionTest`)
-**Symptom.** `ChatSessionTest` "a stale job does not overwrite the transcript but the active one does" fails about half the time. The failing line is `ChatSessionTest.kt:265`, where `pumpUntil(listener.cancelled)` times out. On 2026-10-30 it failed 3 of 4 runs.
+## 1. Manual `runIde` check: slash commands
+**Why.** M10 shipped with unit tests only; the autocomplete popup and key handling were never exercised in a real tool window.
 
-**Cause (confirmed).**
-- `ChatSession.send` (`chat/ChatSession.kt:182`) calls `cs.launch { … }` with the default `CoroutineStart`.
-- The test calls `session.cancel()` immediately. If the job is cancelled before it is dispatched, its body never runs. That means no `catch`, so no `onCancelled`, and no `finally`, so `activeJob` stays set and `persist()` is skipped.
-- When the test was changed to wait for the first delta, it passed 6/6 runs.
+**Steps.** `./gradlew runIde` (IC 2025.1 sandbox), open the chat tool window, Ollama running locally.
+- Each of `/help`, `/clear`, `/cost`, `/config`, `/model`, `/model <id>`, `/compact`, `/init`, `/review` once; `/init` and `/review` need a model and a dirty git file.
+- Autocomplete: type `/`, check the list; Tab inserts; Enter on a partial inserts, on a full name runs; Up/Down move; Esc hides until the text changes; a space hides it.
+- Mid-run: `/cost` works, `/clear` reports "not available while running", plain text is ignored, the button stops.
+- Unknown `/foo` → error, input kept. `//x` is sent as text `/x`.
 
-**Production impact.**
-- If the user presses Stop right after Send, `ChatPanel.sendButton` stays on "Stop".
-- The transcript keeps the USER message with no cancel marker.
-- Clear recovers it.
-
-**Fix.**
-- Make the launched body always run its handlers. Two options:
-  - `cs.launch(start = CoroutineStart.ATOMIC)`. The first suspension then throws `CancellationException`, and the existing catch/finally runs.
-  - A completion handler that calls `onCancelled` and clears `activeJob` when the body never started.
-- Do **not** use `UNDISPATCHED`. `launch` runs inside `synchronized(lock)` before `activeJob = newJob` (`:270`), so the body would see `activeJob !== thisJob`.
-- Check the orchestrator path, `runOrchestrator` (`:280`), for the same gap.
-
-**Tests.**
-- New test: cancel immediately after `send`, with no sleep. Then:
-  - `onCancelled` fires;
-  - the transcript ends with `CANCEL_MARKER`;
-  - a second `send` runs to completion.
-  - Repeat the send/cancel ~20× in a loop to make the race likely.
-- Existing stale-job test: wait for the first delta (`pumpUntilCond { listener.deltas.isNotEmpty() }`) before calling `commitIfActive`. That way it tests the commit and not the race.
-- Run `./gradlew test --tests '*ChatSessionTest*' --rerun` at least 5×, and all runs must be green.
-
-**Done when** Stop at any moment resets the UI, and `ChatSessionTest` passes on repeated runs.
+**Done when** all pass; record the date in `docs/COMPATIBILITY.md` → Manual smoke, and drop Open Item 1 in `docs/PLAN.md`. Any failure becomes a bug item with a failing test first.
 
 ---
 
-## 2. Slash commands
-Spec: `docs/PLAN.md` → Open Items 1 (the command table). Ship it in slices, one commit per slice.
+## 2. AIF model discovery
+**Current.** `AifProvider.listModels()` (`provider/aif/AifProvider.kt:81`) returns `models` from settings (`AijbSettings.State.aifModels`, edited as a text area in `AijbConfigurable.kt:50`). PLAN Open Question 7 says the account exposes a list. No code calls it.
 
-### Design decisions (resolve these first)
-- **Parse point.** `ChatPanel.onSendOrStop` (`ui/ChatPanel.kt:272`), after the empty-check and before the model check. `/help`, `/clear`, `/cost` and `/config` must work without a model selected.
-- **What counts as a command.**
-  - It is a command only if the **untrimmed** input starts with `/`. Today the text is trimmed at `:277`, so parse before trimming. Otherwise `" /help"` becomes a command.
-  - `//x` is sent as plain text, with the leading `/` removed.
-  - `/` mid-text is plain text.
-- **During a run.**
-  - Enter (`:110`) and the button both call `onSendOrStop`. While a run is active, that path means **Stop**, so typing `/cost` mid-run would cancel the run.
-  - Fix: Enter parses first. `/help` and `/cost` run, other commands show "Not available while running", and plain text is ignored. Only the button stops the run.
-- **Registry.**
-  - `chat/SlashCommands.kt`: `SlashCommand(name, argHint, description, allowedWhileRunning, handler)`.
-  - `parse(input): Parsed?` is a pure function that returns `name` and `args`.
-  - Handlers get a small `CommandContext` interface that `ChatPanel` implements. Tests use a fake.
-- **Unknown command** → a local error message: `Unknown command /x — type /help`. Nothing is sent. The input text is kept.
-- **Output** of local commands is added as a `system` message in the panel. It is not added to the transcript and not sent to the model.
+**Verified (2026-10-31).** `GET <aifBaseUrl>/models` returns 200 with the OpenAI `{"data":[{"id":"..."}]}` shape: `nemotron-3-embed-8b`, `qwen3-8-27b`, `glm-5-3-flash`.
 
-### 2a. Parser, registry, `/help`, unknown-command handling
-- Tests:
-  - parse: name, args, extra whitespace, uppercase name (reject or lowercase it; pick one);
-  - `//`, mid-text `/`, a lone `/`, unknown command;
-  - `/help` lists every registered command;
-  - nothing reaches `session.send` for a command.
+**Design.**
+- `AifUrls.models(base)`: same trimming/validation as `chatCompletions`; `<base>/models`, never doubled. Test URL joining (trailing slash, already-ending-in-`/models`).
+- `listModels()`: if the key is missing → `emptyList()` plus no exception (the picker already shows other providers when one fails, `ChatPanel.kt:664`). On HTTP error or parse failure → throw `IOException` with the redacted error, as `OllamaProvider.listModels` does. On success: union of API ids and configured `aifModels` (configured ids stay usable when the list omits them), stable order, no duplicates.
+- Timeout 10 s, `Dispatchers.IO`, same `client` as chat.
+- Settings UI: rename the label to "AIF extra models (one per line)"; keep the field.
+- `ProviderRegistry` snapshot is unchanged (base URL, models, overrides).
 
-### 2b. `/clear`, `/cost`, `/config`, `/model`
-- `/clear` → `onClear()` (`:142`) → `ChatSession.clearHistory` (`ChatSession.kt:156`).
-- `/cost` → `session.sessionUsage` (`:110`) formatted with `UsageFormat`. With no usage it shows "No usage yet".
-- `/config` → `ShowSettingsUtil.getInstance().showSettingsDialog(project, AijbConfigurable::class.java)` (id `com.aijb.assistant.settings`, `plugin.xml:8`).
-- `/model`:
-  - With no argument, show the current model and open the `modelCombo` (`:57`) popup.
-  - With an argument, match `provider/model` exactly, or else match a bare model id when it is unique.
-  - If the match is ambiguous or there is none, show an error that lists the candidates.
-- Each command needs a positive and a negative test. Also test that they are blocked during a run (`/cost` is allowed).
-- Run `verifyPlugin` (this slice touches the UI and platform APIs).
+**Tests** (`AifProviderTest`, fake `HttpClient` as the chat tests do): success parses ids; union with configured ids; missing key → empty, no call; 401 → `IOException` with redacted message; malformed JSON → `IOException`; URL join cases. Live: extend `AifLiveTest` with a `listModels` call gated by `AIF_LIVE`.
 
-### 2c. `/compact [focus]`
-- `ContextCompactor.compactIfNeeded` (`chat/ContextCompactor.kt:23`) is gated by a threshold and uses a fixed `SUMMARY_PROMPT`.
-- Add a forced path: `compact(provider, model, messages, focus: String?)`. It skips the threshold check and appends the focus text to the summary prompt.
-- Keep the existing early returns:
-  - `cut <= 0` → "Nothing to compact";
-  - already summarised → "Already compact".
-- Run it through `ChatSession`. The commit uses `commitIfActive` and fires the existing `onCompacted` and `onCompactionFailed` events.
-- Tests: forced compaction with and without focus, nothing to compact, provider error, and blocked during a run.
-
-### 2d. `/init`, `/review`
-Both are canned prompts sent with `session.send`. In multi-model mode they go through the Orchestrator like any other message.
-- `/init`: asks the model to inspect the project and write `AGENTS.md` with `WriteFile`. The approval gate applies.
-- `/review [focus]`:
-  - Get the diff locally with the VCS API (`ChangeListManager` + `ChangesUtil`/patch builder) or with `git diff HEAD`. Run it read-only, without `RunTerminal`, so there is no approval prompt.
-  - Bound the diff to `maxHandoffChars` and note the truncation.
-  - Send the prompt with the diff inlined.
-  - With no changes, show "No changes to review" and send nothing.
-- Tests: the prompt contains the diff, truncation, no diff, and not a VCS repo.
-
-### 2e. Autocomplete popup
-- When the input starts with `/` and has no space yet, show a `JBPopup` list filtered by prefix. Tab or Enter inserts the name; Esc closes the popup.
-- Keep the filter logic pure so it can be tested. Test the prefix filter, no matches, and the popup hidden once a space is typed.
-- Run `verifyPlugin`.
-
-**Done when** all 8 commands work in `./gradlew runIde`, and the PLAN open question (`/resume`, `/memory`) is either recorded as deferred or answered.
+**Done when** the picker shows the account's models without typing them; `verifyPlugin` passes (settings UI touched).
 
 ---
 
-## After both items
-- Update `docs/PROGRESS.md`: add an M10 row, or post-M9 lines, with hashes, test counts and coverage.
-- Update `docs/PLAN.md` → Open Items to "none", or to whatever is left.
-- `./gradlew buildPlugin verifyPlugin`, then `scripts/install-plugin.sh --no-build` for a manual smoke test.
+## 3. Qwen/AIF edit calls + post-write verification — DONE (2026-10-31)
+Resolved: `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` on both SHIM and NATIVE paths; approved content verified on disk. The reported incompatibility did not reproduce — the one observed anomaly was the model editing leftover state from a prior run, fixed by unique filenames per run, not a plugin bug. Post-write read-back landed in `EditTool.applyChange` (`ProjectTools.kt`): after `saveDocument` the file is re-read from disk and compared with the approved `FileChange.after`; mismatch/missing file throws `IllegalStateException` reporting uncertain side effects — no silent success, no retry. Tests cover success (existing write/edit tests), mismatch, missing file, stale preview and cancellation. The investigation plan below is kept for reference; only §3d remains latent policy if an unmapped format ever appears.
+
+### Original investigation plan (kept for reference)
+**Report (unreproduced).** "Edit file tool calls from AI Factory > Qwen are not all compatible with the JetBrains IDE." Native AIF was live-tested on `glm-5-3-flash` only. `AifLiveTest` (zero-arg tool) passes on `qwen3-8-27b` on both SHIM and NATIVE paths, so 3a must use the real `EditFile`/`WriteFile` flow. Otherwise nothing about the reported failure is known yet: not which call format, not whether it is in the stream, the parser, validation, approval or the write.
+
+### 3a. Reproduce (no code changes)
+- Disposable project (not this repo). Settings: AIF base URL, Qwen model id in `aifModels`, no override (native). Enable tools, trusted mode off.
+- Ask for: (1) create a new file (`WriteFile`), (2) replace one line (`EditFile`), (3) replace a string that occurs twice (expects the ambiguity error), (4) edit a file outside the project (expects rejection).
+- Capture per attempt: the raw SSE lines (temporarily via a test `HttpClient` wrapper or `AIF_LIVE` test, **redact `Authorization`**), the `ToolCall`s emitted by `ToolCallingProvider`, the `ToolOutcome` from `LoopListener.onToolOutcome`, and the file before/after.
+- Repeat with `toolPathOverrides["aif/<qwen>"] = "SHIM"`.
+- Classify each failure as one of:
+  - **A. stream/parse** — `NativeCallCollector`/`StreamTranslator` drops or mangles the call (e.g. arguments split oddly, `arguments` sent as an object rather than a string, missing `id`, a Qwen-specific tag format);
+  - **B. schema** — the model invents arguments or tool names (`ToolRegistry.validate` → `Invalid tool call`), e.g. `old_str`/`new_str`, `file_path`, `content` on `EditFile`, `replace_all` as a string;
+  - **C. preview** — `old_string` not found / ambiguous / empty (`EditFile.preview`);
+  - **D. write** — approved but the IDE write failed or the file does not contain `after`.
+- Write the findings (redacted samples, one per class seen) into `docs/QWEN_EDITS.md` before fixing anything.
+
+### 3b. Fix by class
+- **A:** add the verbatim sample as a fixture to `ToolCallParserTest`/`StreamTranslatorTest` (positive) plus a near-miss negative; fix the parser/collector. New format → `docs/SHIM_PARITY.md` intentional-differences entry. Never accept an incomplete call.
+- **B:** do **not** loosen `additionalProperties=false`. Options, in order: (i) tighten the tool descriptions in `ProjectTools.kt` specs (name the exact argument names, give one example); (ii) add a role-independent note to the system prompt for the tools path; (iii) only if the same alias recurs across models, add an alias normalisation in `ToolCallParser` (like the existing `RunTerminal` aliases, `docs/SHIM_PARITY.md` §1) with verbatim tests. Rejected calls already return `Invalid tool call: …` to the model so it can retry within the turn budget.
+- **C:** usually a model error (stale content). Make the error text actionable ("read the file again and copy the exact text"); no behaviour change.
+- **D:** see 3c.
+
+### 3c. Post-write verification (do this regardless of 3a's result)
+- In `EditTool.applyChange` (`tools/ProjectTools.kt:234`), after `saveDocument(doc)` (`:294`): read back `doc.text` and `Files.readString(path)`; both must equal `change.after`. On mismatch throw `IllegalStateException("write verification failed: <which> differs; side effects possible")`. `ToolLoop` turns this into `Error: …` for the model; the UI already shows failures.
+- Keep it inside the same `WriteCommandAction` so the undo unit is unchanged (`ProjectToolsTest` "approved edit is a single undoable command" must still pass).
+- No automatic retry, no second write. The model may ask again; that produces a fresh preview and approval.
+- Tests (`ProjectToolsTest`, `BasePlatformTestCase`): success unchanged; simulated mismatch (a test-only hook that mutates the document after `setText`, or a `VirtualFileListener` that rewrites on save) → failure message, file left as written, result reported as failure not success; missing-preview and stale-preview errors unchanged; cancellation during apply → `Uncertain` as today (`ToolLoopCancelTest`).
+
+### 3d. CLI write path — only if 3a shows a call that cannot be mapped safely
+Not a fallback. If a model's edit call cannot be mapped (class A unfixable or class B with no stable alias), the correct outcome is the existing `Invalid tool call` result; the model can then use `RunTerminal`, which previews the exact command and cwd and always asks. Do not add a hidden "interpret and run via CLI" step: it would skip the diff preview, undo and `before`/`after` checks. If the user still wants a CLI write tool, it is a new approval-gated tool with its own preview and tests, scoped in a separate handoff.
+
+**Done when** each class seen in 3a has a fixture and a fix (or a documented "model error, message improved"); 3c lands with tests; a live Qwen cycle (read → `EditFile` approved → verified on disk) and a later-turn shim cycle both pass in the disposable project; malformed/rejected calls made no change. Record the Qwen model id and date in `docs/COMPATIBILITY.md` → AIF live check.
+
+---
+
+## 4. Ollama native tools
+**Current.** PLAN's path table promises native `tools` for capable Ollama models, but `OllamaProvider` (`provider/ollama/OllamaProvider.kt`) uses the `ModelProvider` default `supportsNativeTools = false` (`ModelProvider.kt:75`) and never sends `tools`; `ToolPathResolver.NATIVE_CAPABLE` is `{"aif"}`. Everything Ollama goes through the shim.
+
+**To verify first.** Against the local Ollama: `GET /api/show` with `{"name": "<model>"}` returns a `capabilities` array containing `"tools"` on recent servers; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` where `arguments` is a JSON **object** (not a string as in OpenAI); models without tool support answer HTTP 400 "… does not support tools". Confirm all three on the installed version and record the server version in `docs/COMPATIBILITY.md`.
+
+**Design.**
+- Capability: `supportsNativeTools(model)` from a per-provider cache filled on `listModels()` via `/api/show` per model (parallel, 10 s timeout). Unknown/failed lookup → `false` (shim), matching the execution contract "unknown capability uses the shim". An explicit `NATIVE` override on an unsupported model still fails with `native_tools_unsupported` (`ToolCallingProvider.kt:43`) — keep that.
+- Request: when `request.tools` is non-empty, send `tools` in OpenAI function shape (same builder as `AifProvider.kt:96`). Ollama has no `tool_choice`; if `toolChoice` is `Required`/`Specific` and the model returns no call, let the existing `toolPolicyError` path report it. `parallel_tool_calls` is ignored.
+- Response: `OllamaNdjson.parseLine` emits `ProviderEvent.NativeToolCalls` when `message.tool_calls` is present; `arguments` object → serialised string for `RawToolCall`; synthesise ids `call_<n>` when absent (Ollama omits them), unique within the turn. Tool results go back as `role: "tool"` messages with `tool_call_id` where supported; verify the field name the server accepts.
+- HTTP 400 "does not support tools" → `Failed(code = "native_tools_unsupported")`, no retry on the shim in the same turn (contract). The user may set a `SHIM` override.
+- Add `"ollama"` to `ToolPathResolver.NATIVE_CAPABLE`: `AijbConfigurable.kt:80` rejects a `NATIVE` override for any provider outside that set, so without this the per-model override cannot be set. Update `ToolPathResolverTest`.
+
+**Tests.** `OllamaNdjsonTest`: tool_calls line (object arguments, missing id, two calls, `done` on a later line), malformed tool_calls (no name) → `Failed`, 400 body → `native_tools_unsupported`. `OllamaProviderTest` (fake `HttpClient`): payload contains `tools` only when offered; capability cache true/false/unknown. `ToolCallingProviderTest`: native path drives the fake tool; shim unchanged for a non-capable model. `ToolsE2ETest`: native read + approved edit + approved command with a fake Ollama (closes the M5 "each path" matrix together with AIF native). Live: `OllamaLiveTest` native variant gated by `OLLAMA_LIVE` and `OLLAMA_TOOL_MODEL`.
+
+**Done when** a tool-capable local model edits with approval on the native path and a non-capable one still works on the shim; `verifyPlugin` passes if settings UI changed.
+
+---
+
+## 5. Visual Studio support (feasibility only)
+Visual Studio is not a JetBrains host: the IntelliJ Platform ZIP, `plugin.xml`, VFS/PSI, `WriteCommandAction`, `PasswordSafe` and the Swing tool window do not exist there. This item ends in a written plan and a go/no-go, not code in this repo.
+
+**Questions to answer** (write to `docs/VISUAL_STUDIO.md`):
+1. Target: Visual Studio 2022 (VSIX, .NET, Windows) vs Visual Studio Code (extension, TypeScript, cross-platform). The todo says "Visual Studio"; confirm with the user — the two share nothing.
+2. What is portable: provider protocols (Ollama NDJSON, AIF SSE, Claude CLI stream-json) and the tool-call parser/translator (a Python reference already exists at `/srv/compose/aif_shim`); the orchestration protocol (`submit_plan`/`submit_tasks`/`submit_result`/`ask_user` JSON schemas). What is not: everything under `tools/` (VFS, documents, undo), `ui/`, `settings/`.
+3. Host equivalents needed: secret store, undoable document edits, diff preview + approval UI, cancellable process runner, per-project history location.
+4. Packaging/signing/distribution and the test story (both hosts have test harnesses; coverage gates must be re-established).
+5. Effort by option: (a) separate repo, port in the host's language; (b) shared core as a local HTTP/stdio service in Kotlin reused by a thin host extension (adds a process and a protocol to maintain); (c) decline for now.
+
+**Done when** the doc exists with a recommendation and the user has chosen; nothing in this repo changes except PLAN Scope if the user widens it.
+
+---
+
+## 6. Nemotron model (resolved)
+
+Nemotron on the AIF account is `nemotron-3-embed-8b`, an embeddings-only model — `POST /chat/completions` returns HTTP 404 `{"detail":"Not Found"}`. No chat/tool route exists; nothing to implement unless the account adds a chat Nemotron model. `docs/NEMOTRON.md` is not needed.
+
+
+---
+
+## After the items
+- `docs/PROGRESS.md`: one line per item with hash, test count, coverage.
+- `docs/PLAN.md` → Open Items: remove done items; Open Question 7 → **Built** once item 2 lands; path table → confirm Ollama row once item 4 lands.
+- `./gradlew buildPlugin verifyPlugin`, then `scripts/install-plugin.sh --no-build` and a manual smoke test.

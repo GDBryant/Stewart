@@ -56,3 +56,24 @@ PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
 `AifLiveTest` (SHIM and NATIVE tool paths): both passed on `glm-5-3-flash`.
 Native is the AIF default; the shim is deprecated and used only for a model
 whose tool calls are disabled (`toolPathOverrides["aif/<model>"] = SHIM`).
+
+2026-10-31 follow-up: `GET /models` returns `nemotron-3-embed-8b`,
+`qwen3-8-27b`, `glm-5-3-flash` (OpenAI `data[].id` shape). `AifLiveTest`
+SHIM and NATIVE passed on `glm-5-3-flash` and `qwen3-8-27b`.
+`nemotron-3-embed-8b` is an embedding model — `/chat/completions` returns
+HTTP 404 `{"detail":"Not Found"}`, so it is not usable for chat.
+Qwen native stream: standard OpenAI deltas, `id` on the first chunk then
+null, string `arguments`, `finish_reason: tool_calls`, plus
+`reasoning_content` deltas.
+
+2026-10-31 edit-flow check: `AifEditLiveTest` drove a real
+`WriteFile` + `EditFile` cycle on `qwen3-8-27b` through preview,
+approval and the new post-write read-back check, on both SHIM and
+NATIVE paths — the reported Qwen edit incompatibility did **not**
+reproduce; approved content `alpha BETA gamma` verified on disk on
+both paths. Earlier single-run difference was model behaviour (Qwen
+edited the leftover file from the previous run back), not a
+protocol or write failure. `EditTool` now re-reads the saved file
+and compares it with the approved `FileChange.after`; a mismatch or
+missing file is reported as failure with uncertain side effects
+rather than success.

@@ -34,6 +34,14 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Slash commands 2d (`a0a2b37`): `/init` (canned AGENTS.md prompt, WriteFile approval applies), `/review [focus]` (`GitDiff`: `git --no-pager diff --no-color --no-ext-diff HEAD` off the EDT, no `RunTerminal`). Deviation from the handoff: the diff is bounded to `REVIEW_MAX_DIFF_CHARS` = 20000, not `maxHandoffChars` (2000 ≈ 40 lines, too small to review), with a truncation note. No changes / no commits / not a repo are local messages.
 - Slash commands 2e (`5fe43d3`): autocomplete popup (non-focusable, keys stay in the input): Tab inserts, Enter inserts a partial name and runs a full one, Up/Down move, Esc hides until the text changes. 755 tests passed (5 live skipped); `koverVerify` (line 96.8%, branch 85.2%) and IDEA/PyCharm `verifyPlugin` passed.
 
+## Requested follow-ups (not started)
+
+From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open Items / Requested follow-ups):
+
+- Qwen/AIF file-write investigation — resolved 2026-10-31: `AifEditLiveTest` runs a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` on SHIM and NATIVE; the reported incompatibility did not reproduce. Post-write read-back added to `EditTool`: the saved file is re-read and compared with the approved `FileChange.after`; mismatch or missing file fails with uncertain side effects (tests: success, mismatch, missing, stale preview, cancellation).
+- Visual Studio: separate host feasibility (versions, packaging, UI, approval/undo model); the JetBrains verifier results do not cover it.
+- Nemotron: resolved — the AIF model is `nemotron-3-embed-8b`, embeddings only; `/chat/completions` returns HTTP 404, so there is no chat/tool route.
+
 ## Open items
 
 Tracked in `docs/PLAN.md` → Open Items:

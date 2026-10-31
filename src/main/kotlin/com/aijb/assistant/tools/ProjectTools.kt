@@ -242,6 +242,7 @@ abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(pro
             throw IllegalStateException("file moved since preview; request the edit again")
         }
         var failure: RuntimeException? = null
+        var writtenVf: VirtualFile? = null
         writeCommand(project, "AIJB: edit ${resolved.fileName}") {
             try {
                 val rechecked = paths.resolve(rawPath)
@@ -292,11 +293,28 @@ abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(pro
                 reloadIfStale(doc, vf)
                 doc.setText(change.after)
                 FileDocumentManager.getInstance().saveDocument(doc)
+                writtenVf = vf
             } catch (e: RuntimeException) {
                 failure = e
             }
         }
         failure?.let { throw it }
+        val vf = writtenVf ?: return
+        currentCoroutineContext().ensureActive()
+        val disk = diskText(resolved, vf)
+            ?: throw IllegalStateException(
+                "file missing after write: ${resolved.fileName}; side effects uncertain")
+        if (com.intellij.openapi.util.text.StringUtil.convertLineSeparators(disk)
+            != com.intellij.openapi.util.text.StringUtil.convertLineSeparators(change.after)) {
+            throw IllegalStateException(
+                "file content differs from approved change; side effects uncertain: ${resolved.fileName}")
+        }
+    }
+
+    protected open fun diskText(resolved: Path, vf: VirtualFile): String? = try {
+        String(java.nio.file.Files.readAllBytes(resolved), vf.charset)
+    } catch (e: java.io.IOException) {
+        null
     }
 }
 
