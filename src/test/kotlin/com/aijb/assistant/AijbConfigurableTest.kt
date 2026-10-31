@@ -1,12 +1,14 @@
 package com.aijb.assistant
 
 import com.aijb.assistant.provider.aif.AifCredentials
+import com.aijb.assistant.provider.claude.ClaudeLoginState
 import com.aijb.assistant.settings.AijbConfigurable
 import com.aijb.assistant.settings.AijbSettings
 import com.aijb.assistant.settings.AijbSettingsListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.xmlb.XmlSerializer
 
@@ -174,5 +176,47 @@ class AijbConfigurableTest : BasePlatformTestCase() {
             configurable.historyRetentionField.text = bad
             assertInvalid { configurable.apply() }
         }
+    }
+
+    fun `test check login reports signed in account`() {
+        configurable.claudeCliPathField.text = "/opt/claude"
+        var checkedPath: String? = null
+        configurable.loginStatusCheck = { path ->
+            checkedPath = path
+            ClaudeLoginState(true, "oauth", "max", null)
+        }
+        configurable.loginCheckExecutor = { it() }
+        assertEquals("Not checked yet", configurable.claudeLoginStatus.text)
+        configurable.checkLoginButton.doClick()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("/opt/claude", checkedPath)
+        assertEquals("Logged in (max, oauth)", configurable.claudeLoginStatus.text)
+    }
+
+    fun `test check login reports signed out and failure`() {
+        configurable.loginStatusCheck = { ClaudeLoginState(false, null, null, "auth status exit 1") }
+        configurable.loginCheckExecutor = { it() }
+        configurable.checkLoginButton.doClick()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("Not logged in: auth status exit 1", configurable.claudeLoginStatus.text)
+
+        configurable.loginStatusCheck = { throw IllegalStateException("cannot start CLI") }
+        configurable.checkLoginButton.doClick()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("Not logged in: cannot start CLI", configurable.claudeLoginStatus.text)
+    }
+
+    fun `test check login falls back to default cli path`() {
+        var checkedPath: String? = null
+        configurable.claudeCliPathField.text = "   "
+        configurable.loginStatusCheck = { path ->
+            checkedPath = path
+            ClaudeLoginState(true, null, null, null)
+        }
+        configurable.loginCheckExecutor = { it() }
+        configurable.checkLoginButton.doClick()
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("claude", checkedPath)
+        assertEquals("Logged in", configurable.claudeLoginStatus.text)
     }
 }

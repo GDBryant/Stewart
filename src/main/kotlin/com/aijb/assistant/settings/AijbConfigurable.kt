@@ -3,6 +3,8 @@ package com.aijb.assistant.settings
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.aif.AifCredentials
 import com.aijb.assistant.provider.aif.AifUrls
+import com.aijb.assistant.provider.claude.ClaudeLoginState
+import com.aijb.assistant.provider.claude.ClaudeProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.ConfigurationException
@@ -27,6 +29,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var aifModelsArea: JBTextArea
     internal lateinit var claudeCliPathField: JBTextField
     internal lateinit var claudeModelsArea: JBTextArea
+    internal lateinit var claudeLoginStatus: JLabel
+    internal lateinit var checkLoginButton: JButton
     internal lateinit var overridesArea: JBTextArea
     internal lateinit var autoCompactField: JBTextField
     internal lateinit var historyRetentionField: JBTextField
@@ -49,6 +53,13 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         }
         row("AIF extra models (one per line):") { aifModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Claude CLI path:") { claudeCliPathField = textField().component }
+        row("Claude login:") {
+            claudeLoginStatus = label(UNCHECKED_LOGIN).component
+            checkLoginButton = JButton("Check login").also { button ->
+                button.addActionListener { checkLogin() }
+                cell(button)
+            }
+        }
         row("Claude models (one per line):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Auto-compact context at (tokens):") { autoCompactField = textField().component }
@@ -61,8 +72,40 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         }
     }
 
-    private fun overridesText(map: Map<String, String>): String =
-        map.entries.joinToString("\n") { "${it.key}=${it.value}" }
+    internal var loginStatusCheck: suspend (String) -> ClaudeLoginState =
+        { path -> ClaudeProvider(path).loginStatus() }
+    internal var loginCheckExecutor: ((() -> Unit) -> Unit) = { task ->
+        ApplicationManager.getApplication().executeOnPooledThread(task)
+    }
+
+    internal fun checkLogin() {
+        if (!::claudeLoginStatus.isInitialized) return
+        claudeLoginStatus.text = "Checking…"
+        val path = claudeCliPathField.text.trim().ifBlank { "claude" }
+        val check = loginStatusCheck
+        loginCheckExecutor {
+            val state = try {
+                kotlinx.coroutines.runBlocking { check(path) }
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ClaudeLoginState(false, null, null, e.message ?: e.javaClass.simpleName)
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (::claudeLoginStatus.isInitialized) claudeLoginStatus.text = describeLogin(state)
+            }
+        }
+    }
+
+    internal fun describeLogin(state: ClaudeLoginState): String {
+        if (!state.loggedIn) {
+            return "Not logged in" + (state.detail?.let { ": $it" } ?: "")
+        }
+        val account = listOfNotNull(state.subscriptionType, state.authMethod).joinToString(", ")
+        return if (account.isEmpty()) "Logged in" else "Logged in ($account)"
+    }
+
+    private fun overridesText(map: Map<String, String>): String =        map.entries.joinToString("\n") { "${it.key}=${it.value}" }
 
     private fun parseOverrides(text: String): Map<String, String> {
         val map = linkedMapOf<String, String>()
@@ -110,6 +153,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         apiKeyStatus.text = if (AifCredentials.get() != null) "Stored" else "Not set"
         aifModelsArea.text = s.aifModels.joinToString("\n")
         claudeCliPathField.text = s.claudeCliPath
+        claudeLoginStatus.text = UNCHECKED_LOGIN
         claudeModelsArea.text = s.claudeModels.joinToString("\n")
         overridesArea.text = overridesText(s.toolPathOverrides)
         autoCompactField.text = TokenCount.format(s.autoCompactTokens)
@@ -159,3 +203,5 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             .syncPublisher(AijbSettings.TOPIC).settingsChanged()
     }
 }
+
+private const val UNCHECKED_LOGIN = "Not checked yet"

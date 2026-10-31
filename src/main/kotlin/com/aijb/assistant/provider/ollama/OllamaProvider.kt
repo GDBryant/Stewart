@@ -1,5 +1,6 @@
 package com.aijb.assistant.provider.ollama
 
+import com.aijb.assistant.http.IdeHttpClients
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
@@ -45,10 +46,7 @@ private val json = Json { ignoreUnknownKeys = true }
 
 class OllamaProvider(
     private val baseUrl: String = "http://localhost:11434",
-    private val client: HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
-        .proxy(HttpClient.Builder.NO_PROXY)
-        .build(),
+    private val client: HttpClient = IdeHttpClients.create(),
 ) : ModelProvider {
 
     override val id: String = "ollama"
