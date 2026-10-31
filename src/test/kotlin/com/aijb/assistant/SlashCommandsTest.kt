@@ -50,6 +50,12 @@ class SlashCommandsTest {
             return compactStarts
         }
         val prompts = mutableListOf<String>()
+        var inits = 0
+        var initResult = true
+        override fun init(): Boolean {
+            inits++
+            return initResult
+        }
         val reviews = mutableListOf<String?>()
         var accepts = true
         override fun sendPrompt(prompt: String): Boolean {
@@ -262,16 +268,18 @@ class SlashCommandsTest {
     }
 
     @Test
-    fun `init sends the canned prompt and keeps the input when it cannot`() {
+    fun `init defers to the context and keeps the input when it cannot`() {
         val ctx = FakeContext()
         assertTrue(run(ctx, "/init"))
-        assertEquals(listOf(SlashCommands.INIT_PROMPT), ctx.prompts)
+        assertEquals(1, ctx.inits)
+        assertTrue(ctx.prompts.isEmpty())
         assertTrue(SlashCommands.INIT_PROMPT.contains("AGENTS.md"))
-        ctx.accepts = false
+        assertTrue(SlashCommands.INIT_PROMPT.contains("docs/ai_docs"))
+        ctx.initResult = false
         assertFalse(run(ctx, "/init"))
         ctx.running = true
         assertFalse(run(ctx, "/init"))
-        assertEquals(2, ctx.prompts.size)
+        assertEquals(2, ctx.inits)
     }
 
     @Test

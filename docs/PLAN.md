@@ -165,7 +165,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 4. Auto-approve edits option for trusted mode? Yes, auto-approve edits option for trusted mode. **Built** (`autoApproveEdits` setting; terminal commands still always ask).
 5. Is per-project history in the plugin state directory sufficient, or is a global history view required? Per-project history in the plugin state directory should be sufficient. 
 6. Should ongoing Kotlin/Python shim parity be maintained automatically, beyond the recorded baseline and explicit differences? We will manually update if and when necessary.
-7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? The AIF account exposes a model list, but `AifProvider.listModels()` currently returns only model IDs configured in settings; API-based discovery remains outstanding.
+7. Do AIF accounts expose a `/models` list, or do model IDs stay user-entered strings? **Built (2026-10-31):** `AifProvider.listModels()` calls `GET <base>/models` and unions the API ids with any configured extra models; missing key → empty list, HTTP/parse failure → `IOException`.
 
 ### 9. Post-M8 open items
 - Worker dispatch context: `workerBriefing` gives each Worker its own task, files and the results of the tasks it lists in `depends_on` (same round only), bounded to `maxHandoffChars`.
@@ -181,7 +181,7 @@ M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/PROGR
 1. Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window.
 2. Deferred: `/resume` and `/memory` (history is per-project, so `/resume` is likely redundant). Add only if asked.
 3. Requested follow-ups from `docs/todo.txt`: Qwen/AIF file-edit compatibility, Visual Studio support and Nemotron investigation; work and acceptance criteria below.
-4. AIF model discovery from the API (Open Question 7) and Ollama native tools (path table row).
+4. ~~AIF model discovery~~ (done 2026-10-31). Ollama native tools (path table row).
 
 Per-item handoff plans: `docs/HANDOFF.md`.
 

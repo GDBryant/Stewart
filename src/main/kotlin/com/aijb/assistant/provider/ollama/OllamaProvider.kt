@@ -91,6 +91,7 @@ class OllamaProvider(private val baseUrl: String = "http://localhost:11434") : M
             }
             val response = f.join()
             stream = response.body()
+            currentCoroutineContext().ensureActive()
             if (response.statusCode() !in 200..299) {
                 val body = stream!!.bufferedReader().use { it.readText() }
                 emit(ProviderEvent.Failed(OllamaNdjson.extractError(body, "HTTP ${response.statusCode()}")))

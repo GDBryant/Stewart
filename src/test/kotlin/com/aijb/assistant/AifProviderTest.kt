@@ -198,8 +198,59 @@ class AifProviderTest {
     }
 
     @Test
-    fun `list models returns configured`() = runBlocking {
-        assertEquals(listOf("a", "b"), provider(listOf("a", "b")).listModels().map { it.ref.modelId })
+    fun `models url joining`() {
+        assertEquals("http://x/models", AifUrls.models("http://x/"))
+        assertEquals("http://x/v1/models", AifUrls.models("http://x/v1"))
+        assertEquals("http://x/models", AifUrls.models("http://x/models"))
+        assertThrows(IllegalArgumentException::class.java) { AifUrls.models("ftp://x") }
+        assertThrows(IllegalArgumentException::class.java) { AifUrls.models("http://x/v1?y=1") }
+    }
+
+    private fun modelsHandler(response: String, code: Int = 200, hit: (() -> Unit)? = null) {
+        server.createContext("/api/proxy/v1/models") { ex ->
+            hit?.invoke()
+            ex.sendResponseHeaders(code, response.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(response.toByteArray()) }
+        }
+    }
+
+    @Test
+    fun `list models returns api ids unioned with configured`() = runBlocking {
+        modelsHandler("""{"data":[{"id":"b"},{"id":"c"}]}""")
+        assertEquals(listOf("b", "c", "a"), provider(listOf("a", "b")).listModels().map { it.ref.modelId })
+    }
+
+    @Test
+    fun `list models without key returns empty and does not call api`() = runBlocking {
+        var hit = false
+        modelsHandler("""{"data":[{"id":"x"}]}""") { hit = true }
+        assertEquals(emptyList<String>(), provider(key = null).listModels().map { it.ref.modelId })
+        assertEquals(emptyList<String>(), provider(key = "").listModels().map { it.ref.modelId })
+        assertTrue(!hit)
+    }
+
+    @Test
+    fun `list models http error throws IOException`() {
+        modelsHandler("""{"error":{"message":"nope"}}""", code = 401)
+        assertThrows(java.io.IOException::class.java) {
+            runBlocking { provider().listModels() }
+        }
+    }
+
+    @Test
+    fun `list models malformed json throws IOException`() {
+        modelsHandler("not json")
+        assertThrows(java.io.IOException::class.java) {
+            runBlocking { provider().listModels() }
+        }
+    }
+
+    @Test
+    fun `list models without data field throws IOException`() {
+        modelsHandler("""{"unexpected":[]}""")
+        assertThrows(java.io.IOException::class.java) {
+            runBlocking { provider().listModels() }
+        }
     }
 
     @Test
@@ -209,6 +260,31 @@ class AifProviderTest {
             try {
                 ex.sendResponseHeaders(200, -1)
                 release.await(30, TimeUnit.SECONDS)
+            } finally { ex.close() }
+        }
+        try {
+            val job: Job
+            runBlocking {
+                job = launch { provider().chat(req()).collect { } }
+            }
+            Thread.sleep(300)
+            runBlocking {
+                job.cancel()
+                withTimeout(2000) { job.join() }
+            }
+            assertTrue(job.isCompleted)
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
+    fun `cancel while connecting aborts promptly`() {
+        val release = CountDownLatch(1)
+        server.createContext("/api/proxy/v1/chat/completions") { ex ->
+            try {
+                release.await(30, TimeUnit.SECONDS)
+                ex.sendResponseHeaders(200, 0)
             } finally { ex.close() }
         }
         try {

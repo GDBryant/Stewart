@@ -54,6 +54,14 @@ object AifUrls {
         require(uri.query == null && uri.fragment == null) { "base URL must not contain query/fragment" }
         return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
     }
+
+    fun models(base: String): String {
+        val trimmed = base.trim().trimEnd('/')
+        require(trimmed.startsWith("http://") || trimmed.startsWith("https://")) { "base URL must be http(s)" }
+        val uri = URI(trimmed)
+        require(uri.query == null && uri.fragment == null) { "base URL must not contain query/fragment" }
+        return if (trimmed.endsWith("/models")) trimmed else "$trimmed/models"
+    }
 }
 
 object AifCredentials {
@@ -78,8 +86,30 @@ class AifProvider(
 
     override fun supportsNativeTools(model: String): Boolean = nativeTools(model)
 
-    override suspend fun listModels(): List<ModelInfo> =
-        models.map { ModelInfo(ModelRef(id, it), it) }
+    override suspend fun listModels(): List<ModelInfo> = withContext(Dispatchers.IO) {
+        val key = apiKey()
+        if (key.isNullOrBlank()) return@withContext emptyList()
+        val httpRequest = HttpRequest.newBuilder(URI.create(AifUrls.models(baseUrl)))
+            .GET()
+            .timeout(Duration.ofSeconds(10))
+            .header("Authorization", "Bearer $key")
+            .build()
+        val response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+        val body = response.body()
+        if (response.statusCode() !in 200..299) {
+            throw java.io.IOException(redact(extractError(body, "HTTP ${response.statusCode()}")))
+        }
+        val ids = try {
+            val data = json.parseToJsonElement(body).jsonObject["data"]
+                ?: throw java.io.IOException("malformed models response")
+            data.jsonArray.mapNotNull { (it as? JsonObject)?.get("id")?.jsonPrimitive?.content }
+        } catch (e: java.io.IOException) {
+            throw e
+        } catch (e: Exception) {
+            throw java.io.IOException("malformed models response", e)
+        }
+        (ids + models).distinct().map { ModelInfo(ModelRef(id, it), it) }
+    }
 
     override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
         val key = apiKey()
@@ -127,6 +157,7 @@ class AifProvider(
             }
             val response = f.join()
             stream = response.body()
+            currentCoroutineContext().ensureActive()
             if (response.statusCode() !in 200..299) {
                 val body = stream!!.bufferedReader().use { it.readText() }
                 emit(ProviderEvent.Failed(redact(extractError(body, "HTTP ${response.statusCode()}"))))

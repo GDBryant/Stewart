@@ -13,7 +13,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 | 7. Multi-model dispatch | Done (`6588202`) | `RoleRouting` binds each role to its `ModelRef` (unset → chat selection); `Orchestrator` takes per-level `LevelRoute`s; destination shown on each level header before dispatch; missing provider fails with no fallback; failures name `provider/model`; handoff text bounded (`maxHandoffChars`). 507 tests passed (4 live skipped); `koverVerify` and IDEA/PyCharm verification passed. |
 | 8. Hardening | Done (`820bb94`) | End-to-end cancellation (`RunCancelledException` keeps the partial transcript, uncertain tool outcomes reported, background process trees killed), per-project history persistence (retention setting, Clear button, atomic writes), token/cost display (usage summed over turns, compaction and failed/cancelled runs; cost only when provider-reported), error codes with hints. 576 tests passed (4 live skipped); `koverVerify` (line 96%, branch 81%), `buildPlugin` and IDEA 2025.1 / PyCharm 2025.3 `verifyPlugin` passed. Fixed: edits no longer force a non-undoable `reloadFromDisk`, so an approved edit is undoable from the editor. |
 | 9. Post-M8 open items | Done (`52edf9e`…`78eb17a`) | Worker briefing, Planner `ask_user`, modeless approval dialogs, branch-coverage headroom, `commitIfActive` refactor — see Post-M8 changes. 671 tests passed (4 live skipped); `koverVerify` (line 97%, branch 84.6%) and IDEA 2025.1 / PyCharm 2025.3 `verifyPlugin` passed. Native AIF live check passed on `glm-5-3-flash` (item 5); native is now the AIF default, shim deprecated (fallback). |
-| 10. Slash commands | Done (`824d5de`…`5fe43d3`) | `/help`, `/clear`, `/cost`, `/config`, `/model`, `/compact`, `/init`, `/review` + autocomplete; cancel-before-start fix (`96a5051`). 755 tests passed (5 live skipped); `koverVerify` (line 96.8%, branch 85.2%) and IDEA 2025.1 / PyCharm 2025.3 `verifyPlugin` passed. Manual `runIde` check of all 8 commands pending. |
+| 10. Slash commands | Done (`824d5de`…`5fe43d3`) | `/help`, `/clear`, `/cost`, `/config`, `/model`, `/compact`, `/init`, `/review` + autocomplete; cancel-before-start fix (`96a5051`). 755 tests passed (5 live skipped); `koverVerify` (line 96.8%, branch 85.2%) and IDEA 2025.1 / PyCharm 2025.3 `verifyPlugin` passed. Manual check of all 8 commands + autocomplete passed in PyCharm 2026-10-31. |
 
 ## Post-M8 changes
 
@@ -46,5 +46,6 @@ From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open
 
 Tracked in `docs/PLAN.md` → Open Items:
 
-- Manual `./gradlew runIde` check of the 8 slash commands and autocomplete keys (Tab, Esc in a tool window): pending.
+- ~~Manual `runIde` check of the 8 slash commands and autocomplete~~ — verified 2026-10-31 in PyCharm.
+- ~~AIF model discovery~~ — done 2026-10-31: `listModels()` queries `GET <base>/models`, unions API ids with configured extras; live `AifLiveTest.live aif lists models` passed. Remaining: Ollama native tools.
 - Deferred: `/resume`, `/memory` (history is per-project, so `/resume` is likely redundant).

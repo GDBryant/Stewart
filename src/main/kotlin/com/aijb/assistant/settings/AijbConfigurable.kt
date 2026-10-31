@@ -47,7 +47,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
                 cell(button)
             }
         }
-        row("AIF models (one per line):") { aifModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
+        row("AIF extra models (one per line):") { aifModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Claude CLI path:") { claudeCliPathField = textField().component }
         row("Claude models (one per line):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }

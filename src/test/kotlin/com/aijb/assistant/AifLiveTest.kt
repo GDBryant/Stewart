@@ -22,6 +22,14 @@ import org.junit.Test
 class AifLiveTest {
 
     @Test
+    fun `live aif lists models`() = runBlocking {
+        assumeTrue("AIF_LIVE not set", System.getenv("AIF_LIVE") == "1")
+        val models = AifProvider(System.getenv("AIF_BASE_URL")!!, emptyList(), { System.getenv("AIF_API_KEY") }, java.net.http.HttpClient.newHttpClient()).listModels()
+        assertTrue(models.isNotEmpty())
+        assertTrue(models.any { it.ref.modelId == System.getenv("AIF_MODEL") })
+    }
+
+    @Test
     fun `live aif drives a tool end to end`() = drive(ToolPath.SHIM)
 
     @Test

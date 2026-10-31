@@ -31,6 +31,12 @@ interface CommandContext {
     /** Sends [prompt] to the model as a normal message; false (with an error shown) when it cannot. */
     fun sendPrompt(prompt: String): Boolean
 
+    /**
+     * `/init`: ensure AGENTS.md and docs/ai_docs exist, then ask once whether to run the
+     * investigation; the model prompt is sent only when the user chooses to continue.
+     */
+    fun init(): Boolean
+
     /** Reads the diff off the EDT, then calls [SlashCommands.reviewRequest] and sends or shows the result. */
     fun review(focus: String?): Boolean
 }
@@ -109,11 +115,16 @@ object SlashCommands {
     /** Diff budget for `/review`; larger than the orchestrator's 2000-char handoff so a review is useful. */
     const val REVIEW_MAX_DIFF_CHARS = 20_000
 
+    /** Shown once after /init created or confirmed the files; option 0 sends [INIT_PROMPT]. */
+    const val INIT_QUESTION = "AGENTS.md and docs/ai_docs are in place. Investigate the project and fill them in now?"
+    const val INIT_INVESTIGATE = "Investigate and summarise the project"
+    const val INIT_STOP = "Stop here for now"
+
     const val INIT_PROMPT = "Inspect this project (layout, build files, README, main source and test directories) " +
-        "with the read-only tools, then write an AGENTS.md at the project root with WriteFile. Keep it brief: " +
-        "a one-line description, the build/test/run commands, the code layout, and the conventions you can " +
-        "confirm from the code. If AGENTS.md already exists, read it first and update it rather than replacing " +
-        "what is still accurate. Do not guess commands you could not confirm."
+        "with the read-only tools, then update AGENTS.md at the project root and the memory files under " +
+        "docs/ai_docs/ with EditFile or WriteFile. Keep them brief: a one-line description, the build/test/run " +
+        "commands, the code layout, and the conventions you can confirm from the code. If a file is still " +
+        "accurate, leave it alone. Do not guess commands you could not confirm."
 
     sealed interface ReviewRequest {
         data class Send(val prompt: String) : ReviewRequest
@@ -167,8 +178,8 @@ object SlashCommands {
         SlashCommand("compact", "[focus]", "Compact the conversation now, optionally keeping a focus", allowedWhileRunning = false) { ctx, args ->
             ctx.compact(args.ifEmpty { null })
         },
-        SlashCommand("init", "", "Ask the model to write AGENTS.md for this project", allowedWhileRunning = false) { ctx, _ ->
-            ctx.sendPrompt(INIT_PROMPT)
+        SlashCommand("init", "", "Prepare AGENTS.md and docs/ai_docs, then optionally investigate", allowedWhileRunning = false) { ctx, _ ->
+            ctx.init()
         },
         SlashCommand("review", "[focus]", "Review the uncommitted changes (git diff HEAD)", allowedWhileRunning = false) { ctx, args ->
             ctx.review(args.ifEmpty { null })

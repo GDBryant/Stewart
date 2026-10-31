@@ -8,8 +8,8 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 
 | # | Item | Kind |
 |---|------|------|
-| 1 | Manual `runIde` check of slash commands | verify |
-| 2 | AIF model discovery from the API | feature |
+| 1 | ~~Manual `runIde` check of slash commands~~ done 2026-10-31 (installed PyCharm) | done |
+| 2 | ~~AIF model discovery from the API~~ done 2026-10-31 | done |
 | 3 | ~~Qwen/AIF edit calls + post-write verification~~ done 2026-10-31 — see §3 note | done |
 | 4 | Ollama native tools | feature |
 | 5 | Visual Studio support | feasibility |
@@ -26,7 +26,8 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 
 ---
 
-## 1. Manual `runIde` check: slash commands
+## 1. Manual `runIde` check: slash commands — DONE (2026-10-31)
+Verified by the user in PyCharm with the installed plugin: all 8 slash commands and autocomplete (Tab/Esc/Enter/`//` escape, blocked-while-running) work as expected. Original steps kept below for regression reference.
 **Why.** M10 shipped with unit tests only; the autocomplete popup and key handling were never exercised in a real tool window.
 
 **Steps.** `./gradlew runIde` (IC 2025.1 sandbox), open the chat tool window, Ollama running locally.
@@ -39,12 +40,10 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 
 ---
 
-## 2. AIF model discovery
-**Current.** `AifProvider.listModels()` (`provider/aif/AifProvider.kt:81`) returns `models` from settings (`AijbSettings.State.aifModels`, edited as a text area in `AijbConfigurable.kt:50`). PLAN Open Question 7 says the account exposes a list. No code calls it.
+## 2. AIF model discovery — DONE (2026-10-31)
+`AifProvider.listModels()` calls `GET <base>/models` (10 s timeout, `Authorization` header). Missing/blank key → `emptyList()`, no request. HTTP error or malformed/`data`-less body → `IOException` (message redacted). Result is the union of API ids and configured `aifModels`, deduplicated. `AifUrls.models()` joins the URL like `chatCompletions` (no doubling). Settings label renamed to "AIF extra models (one per line)". Live `AifLiveTest.live aif lists models` passed against the account; the picker now shows `nemotron-3-embed-8b`, `qwen3-8-27b`, `glm-5-3-flash` without typing them.
 
-**Verified (2026-10-31).** `GET <aifBaseUrl>/models` returns 200 with the OpenAI `{"data":[{"id":"..."}]}` shape: `nemotron-3-embed-8b`, `qwen3-8-27b`, `glm-5-3-flash`.
-
-**Design.**
+**Original design (kept for reference).**
 - `AifUrls.models(base)`: same trimming/validation as `chatCompletions`; `<base>/models`, never doubled. Test URL joining (trailing slash, already-ending-in-`/models`).
 - `listModels()`: if the key is missing → `emptyList()` plus no exception (the picker already shows other providers when one fails, `ChatPanel.kt:664`). On HTTP error or parse failure → throw `IOException` with the redacted error, as `OllamaProvider.listModels` does. On success: union of API ids and configured `aifModels` (configured ids stay usable when the list omits them), stable order, no duplicates.
 - Timeout 10 s, `Dispatchers.IO`, same `client` as chat.

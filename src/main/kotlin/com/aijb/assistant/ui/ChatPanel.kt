@@ -5,6 +5,7 @@ import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
 import com.aijb.assistant.chat.GitDiff
+import com.aijb.assistant.chat.InitFiles
 import com.aijb.assistant.chat.SlashCommand
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
@@ -357,6 +358,61 @@ class ChatPanel @JvmOverloads constructor(
         refreshMessages()
     }
 
+    /** `/init` file check; replaced in tests. Runs off the EDT. */
+    internal var initFilesSource: () -> InitFiles.Result = {
+        InitFiles.ensure(project.basePath?.let { java.nio.file.Path.of(it) })
+    }
+
+    internal var choicePanel: JPanel? = null
+        private set
+
+    private fun showInitChoice(result: InitFiles.Result) {
+        if (result.error != null) {
+            addMessage("error", result.summary())
+            return
+        }
+        addMessage("system", "Init: ${result.summary()}")
+        showChoice(
+            SlashCommands.INIT_QUESTION,
+            listOf(SlashCommands.INIT_INVESTIGATE, SlashCommands.INIT_STOP),
+        ) { option ->
+            if (option == SlashCommands.INIT_INVESTIGATE) {
+                commandContext.sendPrompt(SlashCommands.INIT_PROMPT)
+            } else {
+                addMessage("system", "Init: stopped here.")
+            }
+        }
+    }
+
+    /** One-off inline choice (not a Planner question); the pick calls [onPick]. */
+    private fun showChoice(question: String, options: List<String>, onPick: (String) -> Unit) {
+        clearChoice()
+        val panel = JPanel(BorderLayout(0, 4))
+        panel.border = JBUI.Borders.empty(4, 8)
+        panel.alignmentX = LEFT_ALIGNMENT
+        panel.maximumSize = Dimension(Int.MAX_VALUE, 200)
+        val label = JTextArea(question)
+        label.isEditable = false
+        label.lineWrap = true
+        label.wrapStyleWord = true
+        label.background = UIUtil.getPanelBackground()
+        panel.add(label, BorderLayout.NORTH)
+        val row = JPanel()
+        options.forEach { option ->
+            row.add(JButton(option).also { it.addActionListener { clearChoice(); onPick(option) } })
+        }
+        panel.add(row, BorderLayout.CENTER)
+        choicePanel = panel
+        messagesPanel.add(panel)
+        refreshMessages()
+    }
+
+    internal fun clearChoice() {
+        choicePanel?.let { messagesPanel.remove(it) }
+        choicePanel = null
+        refreshMessages()
+    }
+
     private fun submitAnswer(text: String) {
         val answer = text.trim()
         if (answer.isEmpty()) return
@@ -374,6 +430,7 @@ class ChatPanel @JvmOverloads constructor(
         questionButtons = emptyList()
         questionAnswerButton = null
         refreshMessages()
+        clearChoice()
     }
 
     internal fun messageAreas(): List<JTextArea> =
@@ -445,6 +502,15 @@ class ChatPanel @JvmOverloads constructor(
         override fun sendPrompt(prompt: String): Boolean {
             val info = selectedModelOrError() ?: return false
             startSend(prompt, info)
+            return true
+        }
+
+        override fun init(): Boolean {
+            if (selectedModelOrError() == null) return false
+            scope.launch {
+                val result = initFilesSource()
+                withContext(Dispatchers.EDT) { showInitChoice(result) }
+            }
             return true
         }
 

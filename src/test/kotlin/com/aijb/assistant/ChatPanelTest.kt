@@ -845,14 +845,34 @@ class ChatPanelTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test init command sends the canned prompt`() {
+    private fun initChoice(panel: ChatPanel, option: String) {
+        assertTrue(pumpUntil { panel.choicePanel != null })
+        val button = com.intellij.util.ui.UIUtil.findComponentsOfType(panel.choicePanel, javax.swing.JButton::class.java)
+            .single { it.text == option }
+        button.doClick()
+        assertTrue(pumpUntil { panel.choicePanel == null })
+    }
+
+    fun `test init command asks once and investigate sends the canned prompt`() {
         val seen = mutableListOf<String>()
         val panel = newPanel(capturingProvider(seen))
+        panel.initFilesSource = { com.aijb.assistant.chat.InitFiles.Result(emptyList(), emptyList()) }
         panel.inputArea.text = "/init"
         enter(panel)
         assertEquals("", panel.inputArea.text)
+        initChoice(panel, com.aijb.assistant.chat.SlashCommands.INIT_INVESTIGATE)
         assertTrue(pumpUntil { panel.sendButton.text == "Send" && seen.isNotEmpty() })
         assertEquals(com.aijb.assistant.chat.SlashCommands.INIT_PROMPT, seen.single())
+    }
+
+    fun `test init command stop sends nothing`() {
+        val seen = mutableListOf<String>()
+        val panel = newPanel(capturingProvider(seen))
+        panel.initFilesSource = { com.aijb.assistant.chat.InitFiles.Result(emptyList(), emptyList()) }
+        panel.inputArea.text = "/init"
+        enter(panel)
+        initChoice(panel, com.aijb.assistant.chat.SlashCommands.INIT_STOP)
+        assertTrue(seen.isEmpty())
     }
 
     fun `test init command without a model keeps the input`() {
