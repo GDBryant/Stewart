@@ -125,11 +125,11 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Done when: settings persist across restarts; secrets are stored only through PasswordSafe and never serialised into plugin XML/JSON or logs.
 
 ### 5. Tools
-- Read/search tools (VFS + indexes) registered in `ToolRegistry`.
+- Read/search tools registered in `ToolRegistry`. `Search` walks the VFS inside project content with size and binary caps. It is deliberately not index-backed: the IDE word index holds whole words only, so a substring query (`ell` in `yellow`) cannot be answered from it, and `PsiSearchHelper.processElementsWithWord` hung under the tool execution model in the test harness. Search cost is therefore linear in project size; keep `path` and `max_results` narrow on large repositories.
 - Write/patch with diff preview + Approve/Reject. Recheck document versions and apply through undoable WriteCommandAction; handle unsaved editor buffers.
 - Command run via `GeneralCommandLine`/`OSProcessHandler` with captured output and approval gate; output displayed in the plugin, optionally mirrored to the IDE terminal (optional dependency).
 - Enforce project-root/symlink boundaries for file tools; test rejection, stale previews, cancellation, process cleanup and output limits. Resolve index-dependent search correctly during IDE indexing.
-- Done when: AIF native, AIF shim and Claude CLI paths each read, edit with approval and run a command with approval; native errors remain intercepted and do not trigger unapproved execution or an implicit shim retry.
+- Done when: AIF native, AIF shim and Claude CLI paths each read, edit with approval and run a command with approval; native errors remain intercepted and do not trigger unapproved execution or an implicit shim retry. Covered by `ToolsProviderMatrixTest` (all three paths, plus rejection cases).
 
 ### 6. Three-level orchestrator
 - Structured JSON messages (plan/task/result) between levels; single-model mode; role badges in chat.
