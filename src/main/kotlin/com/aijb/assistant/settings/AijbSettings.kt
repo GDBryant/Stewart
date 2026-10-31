@@ -1,5 +1,6 @@
 package com.aijb.assistant.settings
 
+import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.provider.ModelRef
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
@@ -29,6 +30,8 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
         var plannerModel by string()
         var executorModel by string()
         var workerModel by string()
+        var effort by string(EffortLevel.DEFAULT.name)
+        var roleEffort by map<String, String>()
         var autoCompactTokens by property(80000)
         var autoApproveEdits by property(false)
         var historyRetentionDays by property(30)
@@ -37,6 +40,12 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
 
     val effectiveClaudeModels: List<String>
         get() = state.claudeModels.ifEmpty { DEFAULT_CLAUDE_MODELS }
+
+    val effortLevel: EffortLevel
+        get() = EffortLevel.parse(state.effort) ?: EffortLevel.DEFAULT
+
+    fun effortFor(role: AgentRole): EffortLevel =
+        if (state.multiModel) effortLevel.forRole(role, state.roleEffort) else effortLevel
 
     fun toolPathOverride(ref: ModelRef): String? = state.toolPathOverrides[ref.encode()]
 
