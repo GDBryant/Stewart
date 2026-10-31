@@ -5,7 +5,7 @@ import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.ToolPath
 
 object ToolPathResolver {
-    val NATIVE_CAPABLE: Set<String> = setOf("aif")
+    val NATIVE_CAPABLE: Set<String> = setOf("aif", "ollama")
 
     fun resolve(ref: ModelRef, provider: ModelProvider, overrides: Map<String, String>): ToolPath {
         overrides[ref.encode()]?.let {

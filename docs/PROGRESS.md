@@ -47,5 +47,6 @@ From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open
 Tracked in `docs/PLAN.md` → Open Items:
 
 - ~~Manual `runIde` check of the 8 slash commands and autocomplete~~ — verified 2026-10-31 in PyCharm.
-- ~~AIF model discovery~~ — done 2026-10-31: `listModels()` queries `GET <base>/models`, unions API ids with configured extras; live `AifLiveTest.live aif lists models` passed. Remaining: Ollama native tools.
+- ~~AIF model discovery~~ — done 2026-10-31: `listModels()` queries `GET <base>/models`, unions API ids with configured extras; live `AifLiveTest.live aif lists models` passed.
+- ~~Ollama native tools~~ — done 2026-10-31 (uncommitted): capability discovery via `/api/tags` and cancellation-safe `/api/show` probes; native requests, ordered stream events, unique call IDs, and named tool results. Unknown capability uses the shim; explicit unsupported native calls fail without replay. Localhost fixture tests cover approved read/edit/command flows, rejection, malformed responses, and cancellation. Final gate: 812 tests / 0 failures / 7 skipped; `koverVerify`, `verifyPlugin`, and `buildPlugin` passed. Live `north-mini-code-1.0:latest`: list/stream, native round trip, and shim/native write-edit checks passed; the final native round trip was rerun after review.
 - Deferred: `/resume`, `/memory` (history is per-project, so `/resume` is likely redundant).

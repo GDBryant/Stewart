@@ -115,8 +115,14 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         assertInvalid { configurable.apply() }
     }
 
-    fun `test native override for non capable provider rejected`() {
+    fun `test native override for ollama accepted`() {
         configurable.overridesArea.text = "ollama/m=native"
+        configurable.apply()
+        assertEquals("NATIVE", AijbSettings.getInstance().state.toolPathOverrides["ollama/m"])
+    }
+
+    fun `test native override for non capable provider rejected`() {
+        configurable.overridesArea.text = "claude/m=native"
         assertInvalid { configurable.apply() }
     }
 

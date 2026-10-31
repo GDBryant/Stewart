@@ -181,7 +181,7 @@ M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/PROGR
 1. Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window.
 2. Deferred: `/resume` and `/memory` (history is per-project, so `/resume` is likely redundant). Add only if asked.
 3. Requested follow-ups from `docs/todo.txt`: Qwen/AIF file-edit compatibility, Visual Studio support and Nemotron investigation; work and acceptance criteria below.
-4. ~~AIF model discovery~~ (done 2026-10-31). Ollama native tools (path table row).
+4. ~~AIF model discovery~~ (done 2026-10-31). ~~Ollama native tools~~ (done 2026-10-31: `/api/show`/`/api/tags` capability probing, `tools` payload, `NativeToolCalls` parsing, `tool_name`+`tool_call_id` results, `native_tools_unsupported` on explicit 400).
 
 Per-item handoff plans: `docs/HANDOFF.md`.
 

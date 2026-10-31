@@ -23,7 +23,7 @@ class ToolPathResolverTest {
 
     @Test
     fun `native capable set`() {
-        assertEquals(setOf("aif"), ToolPathResolver.NATIVE_CAPABLE)
+        assertEquals(setOf("aif", "ollama"), ToolPathResolver.NATIVE_CAPABLE)
     }
 
     @Test

@@ -11,7 +11,7 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 | 1 | ~~Manual `runIde` check of slash commands~~ done 2026-10-31 (installed PyCharm) | done |
 | 2 | ~~AIF model discovery from the API~~ done 2026-10-31 | done |
 | 3 | ~~Qwen/AIF edit calls + post-write verification~~ done 2026-10-31 — see §3 note | done |
-| 4 | Ollama native tools | feature |
+| 4 | ~~Ollama native tools~~ (done 2026-10-31) | feature |
 | 5 | Visual Studio support | feasibility |
 | 6 | Nemotron model | investigation |
 
@@ -94,7 +94,7 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 ---
 
 ## 4. Ollama native tools
-**Current.** PLAN's path table promises native `tools` for capable Ollama models, but `OllamaProvider` (`provider/ollama/OllamaProvider.kt`) uses the `ModelProvider` default `supportsNativeTools = false` (`ModelProvider.kt:75`) and never sends `tools`; `ToolPathResolver.NATIVE_CAPABLE` is `{"aif"}`. Everything Ollama goes through the shim.
+**Done 2026-10-31** (uncommitted). `OllamaProvider` probes `tools` capability via `/api/tags` (with `/api/show` fallback), sends OpenAI-shape `tools`, parses `NativeToolCalls`, sends `tool_call_id`+`tool_name` results; `ollama` added to `NATIVE_CAPABLE`. The design below is historical context.
 
 **To verify first.** Against the local Ollama: `GET /api/show` with `{"name": "<model>"}` returns a `capabilities` array containing `"tools"` on recent servers; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` where `arguments` is a JSON **object** (not a string as in OpenAI); models without tool support answer HTTP 400 "… does not support tools". Confirm all three on the installed version and record the server version in `docs/COMPATIBILITY.md`.
 
