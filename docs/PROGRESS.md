@@ -39,7 +39,7 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open Items / Requested follow-ups):
 
 - Qwen/AIF file-write investigation — resolved 2026-10-31: `AifEditLiveTest` runs a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` on SHIM and NATIVE; the reported incompatibility did not reproduce. Post-write read-back added to `EditTool`: the saved file is re-read and compared with the approved `FileChange.after`; mismatch or missing file fails with uncertain side effects (tests: success, mismatch, missing, stale preview, cancellation).
-- Visual Studio: separate host feasibility (versions, packaging, UI, approval/undo model); the JetBrains verifier results do not cover it.
+- Visual Studio: resolved 2026-10-31 as a feasibility doc — `docs/VISUAL_STUDIO.md`; target chosen by the user is Visual Studio Code, recommendation is a separate TypeScript repo reusing this repo's fixtures. No code here.
 - Nemotron: resolved — the AIF model is `nemotron-3-embed-8b`, embeddings only; `/chat/completions` returns HTTP 404, so there is no chat/tool route.
 
 ## Open items
@@ -48,5 +48,7 @@ Tracked in `docs/PLAN.md` → Open Items:
 
 - ~~Manual `runIde` check of the 8 slash commands and autocomplete~~ — verified 2026-10-31 in PyCharm.
 - ~~AIF model discovery~~ — done 2026-10-31: `listModels()` queries `GET <base>/models`, unions API ids with configured extras; live `AifLiveTest.live aif lists models` passed.
-- ~~Ollama native tools~~ — done 2026-10-31 (uncommitted): capability discovery via `/api/tags` and cancellation-safe `/api/show` probes; native requests, ordered stream events, unique call IDs, and named tool results. Unknown capability uses the shim; explicit unsupported native calls fail without replay. Localhost fixture tests cover approved read/edit/command flows, rejection, malformed responses, and cancellation. Final gate: 812 tests / 0 failures / 7 skipped; `koverVerify`, `verifyPlugin`, and `buildPlugin` passed. Live `north-mini-code-1.0:latest`: list/stream, native round trip, and shim/native write-edit checks passed; the final native round trip was rerun after review.
+- ~~Ollama native tools~~ — done 2026-10-31 (`00ed330`): capability discovery via `/api/tags` and cancellation-safe `/api/show` probes; native requests, ordered stream events, unique call IDs, and named tool results. Unknown capability uses the shim; explicit unsupported native calls fail without replay. Localhost fixture tests cover approved read/edit/command flows, rejection, malformed responses, and cancellation. Final gate: 812 tests / 0 failures / 7 skipped; `koverVerify`, `verifyPlugin`, and `buildPlugin` passed. Live `north-mini-code-1.0:latest`: list/stream, native round trip, and shim/native write-edit checks passed; the final native round trip was rerun after review.
+- ~~Visual Studio support~~ — resolved 2026-10-31 as a feasibility doc (`docs/VISUAL_STUDIO.md`): VS Code, separate TypeScript repo, phased plan; no code in this repo.
+- ~~M5 acceptance matrix per provider path~~ — `ToolsProviderMatrixTest` covers AIF native, AIF shim and Claude CLI (read, approved edit, approved command, rejection). 824 tests / 0 failures / 7 skipped; `koverVerify` line 96.8%, branch 85.2%.
 - Deferred: `/resume`, `/memory` (history is per-project, so `/resume` is likely redundant).

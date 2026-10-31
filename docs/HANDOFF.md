@@ -1,7 +1,7 @@
 # Handoff — outstanding items (post-M10)
 
-State at handoff: `main` @ `0ee6ce2` plus uncommitted doc edits (`docs/PLAN.md`, `docs/PROGRESS.md`). M1–M10 done (`docs/PROGRESS.md`).
-Last recorded gate (`5fe43d3`): 755 tests passed (5 live skipped); `koverVerify` line 96.8%, branch 85.2%; `verifyPlugin` Compatible on IDEA 2025.1 and PyCharm 2025.3.
+State at handoff: `main` @ `189fdb4` plus uncommitted docs and `ToolsProviderMatrixTest`. M1–M10 done (`docs/PROGRESS.md`).
+Last recorded gate: 824 tests passed (7 live skipped); `koverVerify` line 96.8%, branch 85.2%. `verifyPlugin` Compatible on IDEA 2025.1 and PyCharm 2025.3 at `5fe43d3` (no platform/UI change since).
 The post-M9 handoff (cancel-before-start fix, slash commands) is done; its text is in git history (`0ee6ce2`).
 
 Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a written plan, not code.
@@ -12,7 +12,7 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 | 2 | ~~AIF model discovery from the API~~ done 2026-10-31 | done |
 | 3 | ~~Qwen/AIF edit calls + post-write verification~~ done 2026-10-31 — see §3 note | done |
 | 4 | ~~Ollama native tools~~ (done 2026-10-31) | feature |
-| 5 | Visual Studio support | feasibility |
+| 5 | ~~Visual Studio support~~ done 2026-10-31 — `docs/VISUAL_STUDIO.md` (VS Code) | feasibility |
 | 6 | Nemotron model | investigation |
 
 ## Rules for every item (from `AGENTS.md`)
@@ -94,7 +94,7 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 ---
 
 ## 4. Ollama native tools
-**Done 2026-10-31** (uncommitted). `OllamaProvider` probes `tools` capability via `/api/tags` (with `/api/show` fallback), sends OpenAI-shape `tools`, parses `NativeToolCalls`, sends `tool_call_id`+`tool_name` results; `ollama` added to `NATIVE_CAPABLE`. The design below is historical context.
+**Done 2026-10-31** (`00ed330`). `OllamaProvider` probes `tools` capability via `/api/tags` (with `/api/show` fallback), sends OpenAI-shape `tools`, parses `NativeToolCalls`, sends `tool_call_id`+`tool_name` results; `ollama` added to `NATIVE_CAPABLE`. The design below is historical context.
 
 **To verify first.** Against the local Ollama: `GET /api/show` with `{"name": "<model>"}` returns a `capabilities` array containing `"tools"` on recent servers; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` where `arguments` is a JSON **object** (not a string as in OpenAI); models without tool support answer HTTP 400 "… does not support tools". Confirm all three on the installed version and record the server version in `docs/COMPATIBILITY.md`.
 
@@ -111,7 +111,8 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 
 ---
 
-## 5. Visual Studio support (feasibility only)
+## 5. Visual Studio support — DONE (2026-10-31)
+Written up in `docs/VISUAL_STUDIO.md`. The user chose Visual Studio Code (not Visual Studio 2022); recommendation is go, as a separate TypeScript repo (`aijb-vscode`) reusing this repo's recorded fixtures, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. No code here; Scope still excludes non-JetBrains IDEs. The original feasibility questions are kept below for reference.
 Visual Studio is not a JetBrains host: the IntelliJ Platform ZIP, `plugin.xml`, VFS/PSI, `WriteCommandAction`, `PasswordSafe` and the Swing tool window do not exist there. This item ends in a written plan and a go/no-go, not code in this repo.
 
 **Questions to answer** (write to `docs/VISUAL_STUDIO.md`):

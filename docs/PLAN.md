@@ -178,18 +178,18 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ## Open Items
 M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/PROGRESS.md`). Remaining:
 
-1. Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window.
+1. ~~Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window~~ — verified 2026-10-31 in PyCharm.
 2. Deferred: `/resume` and `/memory` (history is per-project, so `/resume` is likely redundant). Add only if asked.
-3. Requested follow-ups from `docs/todo.txt`: Qwen/AIF file-edit compatibility, Visual Studio support and Nemotron investigation; work and acceptance criteria below.
+3. ~~Requested follow-ups from `docs/todo.txt`~~ — all resolved 2026-10-31: Qwen/AIF edits, Visual Studio feasibility, Nemotron. See below.
 4. ~~AIF model discovery~~ (done 2026-10-31). ~~Ollama native tools~~ (done 2026-10-31: `/api/show`/`/api/tags` capability probing, `tools` payload, `NativeToolCalls` parsing, `tool_name`+`tool_call_id` results, `native_tools_unsupported` on explicit 400).
 
 Per-item handoff plans: `docs/HANDOFF.md`.
 
-### Requested follow-ups (not implemented)
+### Requested follow-ups
 
 **Qwen/AIF edit calls and write verification — resolved 2026-10-31.** `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` through preview, approval and post-write read-back, on SHIM and NATIVE paths; approved content verified on disk on both. The reported incompatibility did not reproduce. `EditTool.applyChange` now re-reads the saved file and compares it with the approved `FileChange.after`; a mismatch or missing file fails with uncertain side effects rather than success, and there is no retry. If a future live run surfaces an unmapped Qwen call format, fail closed per the rule below; a CLI write remains a separate, explicitly approved `RunTerminal` action, never an automatic fallback.
 
-**Visual Studio support.** Treat this as a separate product/host integration, not a compatibility flag for the IntelliJ Platform ZIP. First define supported Visual Studio versions/OS, installation format, chat UI and approval/undo model; assess which provider/tool/orchestration contracts could be shared versus reimplemented. Create a separately scoped implementation and test/packaging plan after feasibility; the current JetBrains milestone and verifier results do not cover Visual Studio. No build or completion claim yet.
+**Visual Studio support — resolved 2026-10-31 as feasibility.** Target chosen: Visual Studio Code (not Visual Studio 2022). Decision and plan: `docs/VISUAL_STUDIO.md` — go, as a separate TypeScript repository (`aijb-vscode`) reusing this repo's recorded fixtures as a conformance corpus, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. Nothing in this repository changes; Scope still excludes non-JetBrains IDEs, and the verifier results here do not cover any VS Code build.
 
 **Nemotron model investigation.** Resolved: Nemotron on the AIF account is `nemotron-3-embed-8b`, embeddings only (HTTP 404 on `/chat/completions`). No chat/tool route exists; nothing to implement unless the account adds a chat Nemotron model.
 
