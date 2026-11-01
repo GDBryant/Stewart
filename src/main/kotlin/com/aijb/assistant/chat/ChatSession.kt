@@ -209,7 +209,7 @@ class ChatSession(
                     coroutineContext.ensureActive()
                     if (multiModel()) {
                         orchestrated = true
-                        runOrchestrator(text, ref, priorHistory, listener, thisJob)
+                        runOrchestrator(text, priorHistory, listener, thisJob)
                         return@startRun
                     }
                     val route = RoleRouting.routeFor(ref, providers(), toolPathOverrides())
@@ -340,18 +340,17 @@ class ChatSession(
 
     /**
      * Multi-model mode (M6/M7): runs the three-level orchestrator, each level bound to its
-     * configured model (unset roles use the chat selection). A role whose provider is
-     * missing fails the request; it is never rerouted to another provider.
+     * configured model. Every role must be set (the single-model picker is disabled in this
+     * mode and never consulted). A role whose provider is missing fails the request; it is
+     * never rerouted to another provider.
      */
     private suspend fun runOrchestrator(
         text: String,
-        ref: ModelRef,
         priorHistory: List<ChatMessage>,
         listener: ChatListener,
         thisJob: Job,
     ) {
         val routed = RoleRouting.resolve(
-            ref,
             roleModels(),
             providers(),
             toolPathOverrides(),

@@ -132,7 +132,10 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     private fun newSession(): ChatSession =
-        ChatSession(project, scope).also { it.tools = { ToolRegistry(emptyList()) } }
+        ChatSession(project, scope).also {
+            it.tools = { ToolRegistry(emptyList()) }
+            it.roleModels = { AgentRole.entries.associateWith { ModelRef("fake", "m") } }
+        }
 
     private fun pumpUntil(latch: CountDownLatch, timeoutMs: Long = 10_000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -303,7 +306,6 @@ class ChatSessionTest : BasePlatformTestCase() {
                 kotlinx.coroutines.awaitCancellation()
             }
         }) }
-        session.roleModels = { emptyMap() }
         repeat(10) { i ->
             val listener = RecordingListener()
             session.send("m$i", ModelRef("fake", "m"), listener)
@@ -534,7 +536,7 @@ class ChatSessionTest : BasePlatformTestCase() {
             mapOf(
                 AgentRole.PLANNER to ModelRef("p1", "big"),
                 AgentRole.EXECUTOR to ModelRef("p2", "small"),
-                AgentRole.WORKER to null,
+                AgentRole.WORKER to ModelRef("p2", "small"),
             )
         }
         val listener = RecordingListener()

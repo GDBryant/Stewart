@@ -1,5 +1,6 @@
 package com.aijb.assistant.ui
 
+import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
@@ -73,6 +74,7 @@ class ChatPanel @JvmOverloads constructor(
     internal val refreshButton = JButton("Refresh")
     internal val rolesButton = JButton("Roles")
     internal val clearButton = JButton("Clear")
+    internal val modeLabel = JLabel(" ")
     internal val statusLabel = JLabel(" ")
     internal val messagesPanel = MessagesContainer()
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
@@ -127,6 +129,7 @@ class ChatPanel @JvmOverloads constructor(
         headerButtons.add(clearButton)
         headerButtons.add(refreshButton)
         header.add(headerButtons, BorderLayout.EAST)
+        header.add(modeLabel, BorderLayout.SOUTH)
 
         inputArea.lineWrap = true
         inputArea.wrapStyleWord = true
@@ -189,9 +192,42 @@ class ChatPanel @JvmOverloads constructor(
         rolesButton.addActionListener { showRolesPopup() }
         clearButton.addActionListener { onClear() }
         ApplicationManager.getApplication().messageBus.connect(this)
-            .subscribe(AijbSettings.TOPIC, AijbSettingsListener { loadModels() })
+            .subscribe(AijbSettings.TOPIC, AijbSettingsListener {
+                updateSelectorState()
+                loadModels()
+            })
         renderTranscript()
+        updateSelectorState()
         loadModels()
+    }
+
+    /**
+     * Single-model mode: the main picker is the only selector. Multi-model mode: the three role
+     * selectors drive the levels, so the main picker is disabled rather than silently ignored.
+     */
+    internal fun updateSelectorState() {
+        val multi = settings.state.multiModel
+        modelCombo.isEnabled = !multi
+        modelCombo.toolTipText = if (multi) {
+            "Multi-model mode: set the Planner, Executor and Worker models in Roles"
+        } else {
+            "Model for this chat"
+        }
+        refreshModeLabel()
+    }
+
+    private fun refreshModeLabel() {
+        val st = settings.state
+        val effort = settings.effortLevel.label
+        modeLabel.text = if (st.multiModel) {
+            val routes = AgentRole.entries.joinToString(" · ") { role ->
+                "${role.name.lowercase()}→${settings.roleModel(role)?.encode() ?: "unset"}"
+            }
+            "mode=multi · effort=$effort · $routes"
+        } else {
+            val model = ModelRef.decode(st.chatModel)?.encode() ?: "unset"
+            "mode=single · effort=$effort · model=$model"
+        }
     }
 
     /** Wipes the chat, usage totals and the saved history file. */
@@ -204,13 +240,12 @@ class ChatPanel @JvmOverloads constructor(
 
     private fun onModelSelected() {
         val ref = (modelCombo.selectedItem as? ModelInfo)?.ref
-        val s = settings.state
-        s.chatModel = ref?.encode()
-        if (s.multiModel) s.plannerModel = ref?.encode()
+        settings.state.chatModel = ref?.encode()
+        refreshModeLabel()
     }
 
     internal fun showRolesPopup() {
-        val panel = RolesPanel(lastModels, settings)
+        val panel = RolesPanel(lastModels, settings) { refreshModeLabel() }
         val popup = JBPopupFactory.getInstance()
             .createComponentPopupBuilder(panel, panel)
             .setRequestFocus(true)
@@ -218,6 +253,7 @@ class ChatPanel @JvmOverloads constructor(
         popup.addListener(object : JBPopupListener {
             override fun onClosed(event: LightweightWindowEvent) {
                 panel.apply()
+                updateSelectorState()
             }
         })
         popup.showUnderneathOf(rolesButton)
@@ -484,6 +520,17 @@ class ChatPanel @JvmOverloads constructor(
 
         override val currentModel: ModelInfo?
             get() = modelCombo.selectedItem as? ModelInfo
+
+        override val multiModel: Boolean
+            get() = settings.state.multiModel
+
+        override fun roleModels(): Map<AgentRole, ModelRef?> =
+            AgentRole.entries.associateWith { settings.roleModel(it) }
+
+        override fun selectRoleModel(role: AgentRole, model: ModelInfo) {
+            settings.setRoleModel(role, model.ref)
+            refreshModeLabel()
+        }
 
         override fun clear() = onClear()
 
@@ -764,6 +811,7 @@ class ChatPanel @JvmOverloads constructor(
             models.isEmpty() -> "No models found"
             else -> " "
         }
+        refreshModeLabel()
     }
 
     override fun dispose() {

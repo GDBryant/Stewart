@@ -30,7 +30,6 @@ class RoleRoutingTest {
     @Test
     fun `each role resolves to its configured ref`() {
         val r = RoleRouting.resolve(
-            chat,
             mapOf(
                 AgentRole.PLANNER to ModelRef("claude", "opus"),
                 AgentRole.EXECUTOR to ModelRef("ollama", "mid"),
@@ -45,16 +44,22 @@ class RoleRoutingTest {
     }
 
     @Test
-    fun `unset roles use the chat selection`() {
-        val r = RoleRouting.resolve(chat, emptyMap(), providers, emptyMap()) as RoutingResult.Resolved
-        assertTrue(AgentRole.entries.all { r.routes.getValue(it).label == "ollama/q" })
+    fun `an unset role is an error not a fallback`() {
+        val r = RoleRouting.resolve(
+            mapOf(AgentRole.PLANNER to ModelRef("claude", "opus"), AgentRole.EXECUTOR to ModelRef("ollama", "mid")),
+            providers, emptyMap(),
+        )
+        assertEquals(RoutingResult.Unresolved("No model selected for worker"), r)
     }
 
     @Test
     fun `missing provider is an error not a fallback`() {
         val r = RoleRouting.resolve(
-            chat,
-            mapOf(AgentRole.WORKER to ModelRef("aif", "m")),
+            mapOf(
+                AgentRole.PLANNER to ModelRef("claude", "opus"),
+                AgentRole.EXECUTOR to ModelRef("claude", "opus"),
+                AgentRole.WORKER to ModelRef("aif", "m"),
+            ),
             providers, emptyMap(),
         )
         assertEquals(
@@ -64,15 +69,14 @@ class RoleRoutingTest {
     }
 
     @Test
-    fun `no chat selection and no role model is an error`() {
-        val r = RoleRouting.resolve(null, emptyMap(), providers, emptyMap())
+    fun `nothing configured reports the first role`() {
+        val r = RoleRouting.resolve(emptyMap(), providers, emptyMap())
         assertEquals(RoutingResult.Unresolved("No model selected for planner"), r)
     }
 
     @Test
-    fun `role set without a chat selection still resolves`() {
+    fun `all roles on one model resolves`() {
         val r = RoleRouting.resolve(
-            null,
             AgentRole.entries.associateWith { ModelRef("claude", "opus") },
             providers, emptyMap(),
         )

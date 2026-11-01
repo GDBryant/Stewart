@@ -47,6 +47,28 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
     fun effortFor(role: AgentRole): EffortLevel =
         if (state.multiModel) effortLevel.forRole(role, state.roleEffort) else effortLevel
 
+    fun roleModel(role: AgentRole): ModelRef? = ModelRef.decode(
+        when (role) {
+            AgentRole.PLANNER -> state.plannerModel
+            AgentRole.EXECUTOR -> state.executorModel
+            AgentRole.WORKER -> state.workerModel
+        }
+    )
+
+    fun setRoleModel(role: AgentRole, ref: ModelRef?) {
+        when (role) {
+            AgentRole.PLANNER -> state.plannerModel = ref?.encode()
+            AgentRole.EXECUTOR -> state.executorModel = ref?.encode()
+            AgentRole.WORKER -> state.workerModel = ref?.encode()
+        }
+    }
+
+    /** Fills unset role bindings from the single-model picker, so enabling multi-model starts coherent. */
+    fun seedRoleModels() {
+        val chat = ModelRef.decode(state.chatModel) ?: return
+        AgentRole.entries.filter { roleModel(it) == null }.forEach { setRoleModel(it, chat) }
+    }
+
     fun toolPathOverride(ref: ModelRef): String? = state.toolPathOverrides[ref.encode()]
 
     companion object {

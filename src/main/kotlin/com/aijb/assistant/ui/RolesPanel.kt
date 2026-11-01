@@ -15,6 +15,7 @@ import javax.swing.JPanel
 class RolesPanel(
     private val models: List<ModelInfo>,
     private val settings: AijbSettings,
+    private val onMultiModelChanged: (Boolean) -> Unit = {},
 ) : JPanel(GridBagLayout()) {
 
     data class RoleItem(val ref: ModelRef?, val label: String) {
@@ -47,8 +48,17 @@ class RolesPanel(
         plannerCombo.renderer = itemRenderer()
         executorCombo.renderer = itemRenderer()
         workerCombo.renderer = itemRenderer()
-        multiModelCheck.addActionListener { updateEnabled() }
+        multiModelCheck.addActionListener { onMultiModelToggled() }
         reset()
+    }
+
+    /** Enabling multi-model seeds unset roles from the single picker and re-enables the role combos. */
+    internal fun onMultiModelToggled() {
+        apply()
+        val on = multiModelCheck.isSelected
+        if (on) settings.seedRoleModels()
+        reset()
+        onMultiModelChanged(on)
     }
 
     private fun itemRenderer() = object : SimpleListCellRenderer<RoleItem>() {

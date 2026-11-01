@@ -1,5 +1,6 @@
 package com.aijb.assistant
 
+import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.GitDiff
 import com.aijb.assistant.chat.SlashCommands.ReviewRequest
@@ -28,6 +29,12 @@ class SlashCommandsTest {
         override var usage: Usage? = null
         override var models: List<ModelInfo> = emptyList()
         override var currentModel: ModelInfo? = null
+        override var multiModel: Boolean = false
+        val roles = mutableMapOf<AgentRole, ModelRef?>()
+        override fun roleModels(): Map<AgentRole, ModelRef?> = AgentRole.entries.associateWith { roles[it] }
+        override fun selectRoleModel(role: AgentRole, model: ModelInfo) {
+            roles[role] = model.ref
+        }
         var cleared = 0
         var settingsOpened = 0
         var pickerOpened = 0
@@ -231,6 +238,67 @@ class SlashCommandsTest {
             listOf("Unknown model x. Available: none loaded", "Unknown model x. Available: aif/glm"),
             ctx.errors,
         )
+    }
+
+    @Test
+    fun `model in multi mode without args lists the role bindings`() {
+        val ctx = FakeContext()
+        ctx.multiModel = true
+        ctx.roles[AgentRole.PLANNER] = aifGlm.ref
+        assertTrue(run(ctx, "/model"))
+        assertEquals(
+            listOf("Multi-model roles:\nplanner: aif/glm\nexecutor: unset\nworker: unset\nUse /model <planner|executor|worker> <provider/model>"),
+            ctx.shown,
+        )
+        assertEquals(0, ctx.pickerOpened)
+    }
+
+    @Test
+    fun `model with a role binds that role in multi mode`() {
+        val ctx = FakeContext()
+        ctx.multiModel = true
+        ctx.models = listOf(ollamaQwen, aifQwen, aifGlm)
+        assertTrue(run(ctx, "/model worker aif/qwen"))
+        assertTrue(run(ctx, "/model Planner glm"))
+        assertEquals(aifQwen.ref, ctx.roles[AgentRole.WORKER])
+        assertEquals(aifGlm.ref, ctx.roles[AgentRole.PLANNER])
+        assertNull(ctx.roles[AgentRole.EXECUTOR])
+        assertNull(ctx.currentModel)
+        assertEquals(listOf("worker: aif/qwen", "planner: aif/glm"), ctx.shown)
+    }
+
+    @Test
+    fun `model with a role rejects bad shapes and unknown models`() {
+        val ctx = FakeContext()
+        ctx.multiModel = true
+        ctx.models = listOf(aifGlm)
+        assertFalse(run(ctx, "/model worker"))
+        assertFalse(run(ctx, "/model worker a b"))
+        assertFalse(run(ctx, "/model worker nope"))
+        assertEquals(
+            listOf(
+                "Usage: /model worker <provider/model>",
+                "Usage: /model worker <provider/model>",
+                "Unknown model nope. Available: aif/glm",
+            ),
+            ctx.errors,
+        )
+        assertTrue(ctx.roles.isEmpty())
+    }
+
+    @Test
+    fun `model bare arg in multi mode and role arg in single mode are rejected`() {
+        val multi = FakeContext()
+        multi.multiModel = true
+        multi.models = listOf(aifGlm)
+        assertFalse(run(multi, "/model glm"))
+        assertEquals(listOf("Multi-model mode: use /model <planner|executor|worker> <provider/model>"), multi.errors)
+        assertNull(multi.currentModel)
+        val single = FakeContext()
+        single.models = listOf(aifGlm)
+        assertFalse(run(single, "/model worker glm"))
+        assertEquals(listOf("Role models apply in multi-model mode only; enable it in Roles"), single.errors)
+        assertTrue(single.roles.isEmpty())
     }
 
     @Test

@@ -62,6 +62,38 @@ class RolesPanelTest : BasePlatformTestCase() {
         assertTrue(panel.plannerCombo.isEnabled)
     }
 
+    fun `test toggling multi on seeds unset roles from the chat model and notifies`() {
+        val s = AijbSettings.getInstance().state
+        s.chatModel = "ollama/m1"
+        s.workerModel = "aif/m2"
+        val seen = mutableListOf<Boolean>()
+        val panel = RolesPanel(models, AijbSettings.getInstance()) { seen += it }
+        panel.multiModelCheck.isSelected = true
+        panel.onMultiModelToggled()
+        assertTrue(s.multiModel)
+        assertEquals("ollama/m1", s.plannerModel)
+        assertEquals("ollama/m1", s.executorModel)
+        assertEquals("aif/m2", s.workerModel)
+        assertEquals(ModelRef("ollama", "m1"), (panel.plannerCombo.selectedItem as RolesPanel.RoleItem).ref)
+        assertEquals(listOf(true), seen)
+        panel.multiModelCheck.isSelected = false
+        panel.onMultiModelToggled()
+        assertFalse(s.multiModel)
+        assertFalse(panel.plannerCombo.isEnabled)
+        assertEquals("ollama/m1", s.plannerModel)
+        assertEquals(listOf(true, false), seen)
+    }
+
+    fun `test toggling multi on without a chat model leaves roles unset`() {
+        val s = AijbSettings.getInstance().state
+        val panel = RolesPanel(models, AijbSettings.getInstance())
+        panel.multiModelCheck.isSelected = true
+        panel.onMultiModelToggled()
+        assertNull(s.plannerModel)
+        assertNull(s.executorModel)
+        assertNull(s.workerModel)
+    }
+
     fun `test unknown stored ref preserved`() {
         val s = AijbSettings.getInstance().state
         s.multiModel = true

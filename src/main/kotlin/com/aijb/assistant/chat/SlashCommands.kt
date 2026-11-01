@@ -1,6 +1,8 @@
 package com.aijb.assistant.chat
 
+import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.provider.ModelInfo
+import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Usage
 
 /** What a slash command can act on; `ChatPanel` implements it, tests use a fake. */
@@ -19,6 +21,14 @@ interface CommandContext {
     /** Models from the last load, in picker order. */
     val models: List<ModelInfo>
     val currentModel: ModelInfo?
+
+    /** True when the three-level orchestrator is in use; the main picker is then disabled. */
+    val multiModel: Boolean
+
+    /** Per-role bindings as `provider/model`, or null when a role is unset. */
+    fun roleModels(): Map<AgentRole, ModelRef?>
+
+    fun selectRoleModel(role: AgentRole, model: ModelInfo)
 
     fun clear()
     fun openSettings()
@@ -87,26 +97,55 @@ object SlashCommands {
 
     private fun listRefs(models: List<ModelInfo>): String = models.joinToString(", ") { it.ref.encode() }
 
+    private fun roleBindings(ctx: CommandContext): String =
+        ctx.roleModels().entries.joinToString("\n") { (role, ref) ->
+            "${role.name.lowercase()}: ${ref?.encode() ?: "unset"}"
+        }
+
     private fun model(ctx: CommandContext, arg: String): Boolean {
+        val words = arg.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val role = words.firstOrNull()?.let { w -> AgentRole.entries.firstOrNull { it.name.equals(w, true) } }
         if (arg.isEmpty()) {
+            if (ctx.multiModel) {
+                ctx.show("Multi-model roles:\n" + roleBindings(ctx) + "\nUse /model <planner|executor|worker> <provider/model>")
+                return true
+            }
             val current = ctx.currentModel
             if (current == null) ctx.error("No model selected") else ctx.show("Model: ${current.ref.encode()}")
             ctx.openModelPicker()
             return true
         }
-        return when (val match = matchModel(arg, ctx.models)) {
+        if (role != null && !ctx.multiModel) {
+            ctx.error("Role models apply in multi-model mode only; enable it in Roles")
+            return false
+        }
+        if (role == null && ctx.multiModel) {
+            ctx.error("Multi-model mode: use /model <planner|executor|worker> <provider/model>")
+            return false
+        }
+        if (role != null && words.size != 2) {
+            ctx.error("Usage: /model ${role.name.lowercase()} <provider/model>")
+            return false
+        }
+        val target = if (role != null) words[1] else arg
+        return when (val match = matchModel(target, ctx.models)) {
             is ModelMatch.Found -> {
-                ctx.selectModel(match.model)
-                ctx.show("Model: ${match.model.ref.encode()}")
+                if (role != null) {
+                    ctx.selectRoleModel(role, match.model)
+                    ctx.show("${role.name.lowercase()}: ${match.model.ref.encode()}")
+                } else {
+                    ctx.selectModel(match.model)
+                    ctx.show("Model: ${match.model.ref.encode()}")
+                }
                 true
             }
             is ModelMatch.Ambiguous -> {
-                ctx.error("Model $arg is ambiguous: ${listRefs(match.candidates)}")
+                ctx.error("Model $target is ambiguous: ${listRefs(match.candidates)}")
                 false
             }
             ModelMatch.NotFound -> {
                 val available = if (ctx.models.isEmpty()) "none loaded" else listRefs(ctx.models)
-                ctx.error("Unknown model $arg. Available: $available")
+                ctx.error("Unknown model $target. Available: $available")
                 false
             }
         }
@@ -184,7 +223,7 @@ object SlashCommands {
         SlashCommand("review", "[focus]", "Review the uncommitted changes (git diff HEAD)", allowedWhileRunning = false) { ctx, args ->
             ctx.review(args.ifEmpty { null })
         },
-        SlashCommand("model", "[provider/model]", "Show or switch the model", allowedWhileRunning = false, ::model),
+        SlashCommand("model", "[role] [provider/model]", "Show or switch the model (or a role's model in multi-model mode)", allowedWhileRunning = false, ::model),
         SlashCommand("config", "", "Open the plugin settings", allowedWhileRunning = false) { ctx, _ ->
             ctx.openSettings()
             true

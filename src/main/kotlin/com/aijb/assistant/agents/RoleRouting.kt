@@ -16,20 +16,20 @@ sealed interface RoutingResult {
 }
 
 /**
- * Binds each role to its configured ModelRef (M7). An unset role uses the chat-picker
- * selection. A configured ref whose provider is missing is an error: a role is never
- * silently moved to a different provider (e.g. local Ollama to a remote one).
+ * Binds each role to its configured ModelRef (M7). Every role must be set: a disabled selector
+ * must never influence a run, so there is no fallback to the single-model picker. A configured
+ * ref whose provider is missing is an error too: a role is never silently moved to a different
+ * provider (e.g. local Ollama to a remote one).
  */
 object RoleRouting {
     fun resolve(
-        chatRef: ModelRef?,
         configured: Map<AgentRole, ModelRef?>,
         providers: List<ModelProvider>,
         toolPathOverrides: Map<String, String>,
     ): RoutingResult {
         val routes = mutableMapOf<AgentRole, LevelRoute>()
         for (role in AgentRole.entries) {
-            val ref = configured[role] ?: chatRef
+            val ref = configured[role]
                 ?: return RoutingResult.Unresolved("No model selected for ${role.name.lowercase()}")
             routes[role] = routeFor(ref, providers, toolPathOverrides)
                 ?: return RoutingResult.Unresolved(

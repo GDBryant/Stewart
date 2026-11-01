@@ -364,13 +364,26 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("opus", (panel2.modelCombo.selectedItem as ModelInfo).ref.modelId)
     }
 
-    fun `test multi model selection also sets planner`() {
+    fun `test single mode enables main picker and never touches role models`() {
         val settings = AijbSettings.getInstance()
-        settings.state.multiModel = true
         val panel = newPanel(fakeProvider(id = "aif", models = listOf("m1", "m2")))
+        assertTrue(panel.modelCombo.isEnabled)
         selectModel(panel, "aif", "m2")
         assertEquals("aif/m2", settings.state.chatModel)
-        assertEquals("aif/m2", settings.state.plannerModel)
+        assertNull(settings.state.plannerModel)
+        assertTrue(panel.modeLabel.text.startsWith("mode=single · effort=medium · model=aif/m2"))
+    }
+
+    fun `test multi mode disables main picker and shows role bindings`() {
+        val settings = AijbSettings.getInstance()
+        settings.state.multiModel = true
+        settings.state.plannerModel = "aif/m1"
+        val panel = newPanel(fakeProvider(id = "aif", models = listOf("m1", "m2")))
+        assertFalse(panel.modelCombo.isEnabled)
+        assertTrue(panel.modeLabel.text, panel.modeLabel.text.startsWith("mode=multi · effort=medium · planner→aif/m1 · executor→unset · worker→unset"))
+        settings.state.multiModel = false
+        panel.updateSelectorState()
+        assertTrue(panel.modelCombo.isEnabled)
     }
 
     fun `test settings topic publish triggers reload`() {
@@ -1028,6 +1041,12 @@ class ChatPanelTest : BasePlatformTestCase() {
     }
 
     private fun settings(multi: Boolean) {
-        AijbSettings.getInstance().state.multiModel = multi
+        val s = AijbSettings.getInstance().state
+        s.multiModel = multi
+        if (multi) {
+            s.plannerModel = "fake/m1"
+            s.executorModel = "fake/m1"
+            s.workerModel = "fake/m1"
+        }
     }
 }
