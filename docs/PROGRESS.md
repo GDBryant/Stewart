@@ -35,6 +35,10 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 - Slash commands 2e (`5fe43d3`): autocomplete popup (non-focusable, keys stay in the input): Tab inserts, Enter inserts a partial name and runs a full one, Up/Down move, Esc hides until the text changes. 755 tests passed (5 live skipped); `koverVerify` (line 96.8%, branch 85.2%) and IDEA/PyCharm `verifyPlugin` passed.
 - Debug logging (`082244e`, `cacacd3`): opt-in `DebugLogSink` records requests, response chunks, HTTP error bodies, connection failures, incomplete streams and Claude stderr for Ollama, AIF and the Claude CLI; settings toggle and folder (relative paths under the IDE log directory); redaction, background buffered writer, shutdown flush, owner-only files, 7-day prune. `test`, `koverVerify` and `buildPlugin` passed. Docs: `docs/DEBUG_LOGGING.md`. Retention fixes (configurable 0–365 days, prune on configure, size rotation under lock file, reopen after external rename, ownership check, prune-failure reporting) implemented, uncommitted: `docs/DEBUG_RETENTION_PLAN.md`.
 
+## Post-M10 changes
+
+- Approval bypass (`f1c999f`, `3896abe` + follow-ups): per-category permissions (`EDITS`/`COMMANDS`/`OTHER`) — `ProjectPermissions` app-level store (`aijb-permissions.xml`, `SettingsCategory.SYSTEM`, no sync) with one-shot migration from `autoApproveEdits`; `SessionGrants` cleared with the chat; `IdeApprovalGate` checks tick → chat grant → every split program granted, fails closed; `ShellCommandSplitter` rejects substitution/redirection/launcher/dangerous-assignment constructs (POSIX + `cmd /c`); dialogs gain Remember (once/chat/always) and command scope (these programs / all commands) dropdowns; Bypass header toggle + status label with confirmation for Commands/Other; `PermissionsConfigurable` project page; `/permissions` list/clear/revoke/reset; Trusted checkbox removed from `AijbConfigurable`. Docs: `docs/PERMISSIONS.md`.
+
 ## Requested follow-ups (not started)
 
 From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open Items / Requested follow-ups):

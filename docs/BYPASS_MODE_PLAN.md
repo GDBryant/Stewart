@@ -1,6 +1,6 @@
 # Approval Bypass Mode — Plan
 
-Status: **planned**. Adds per-category bypass ticks and "allow for this chat / always" grants to the
+Status: **implemented**. Adds per-category bypass ticks and "allow for this chat / always" grants to the
 tool approval flow. Supersedes the sketch in `docs/PHASE2.md` item 5 (which proposed `alwaysAllow*`
 flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprovalGate`, dialogs),
 `tools/ToolLoop.kt` (calls the gate), `tools/ProjectTools.kt` (`WriteFile`, `EditFile`, `RunTerminal`).

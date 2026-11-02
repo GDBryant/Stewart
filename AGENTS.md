@@ -28,7 +28,8 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
 - Debug logging: `docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
 - Debug retention plan: `docs/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
-- Bypass mode plan: `docs/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching.
+- Bypass mode plan: `docs/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching (implemented).
+- Permissions: `docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
 
 ## Conventions
 - Stack: Kotlin, Gradle IntelliJ / PyCharm Platform Plugin.
