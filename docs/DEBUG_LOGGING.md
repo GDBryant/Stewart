@@ -40,8 +40,12 @@ treat the files as sensitive.
 - The target folder is resolved when a line is queued, so changing the setting cannot split one
   call across folders.
 - New files are created owner-only (`rw-------`) where the filesystem supports POSIX permissions.
-- Daily files older than `DebugLogSink.RETENTION_DAYS` (7) are deleted when a new file is opened;
-  other files in the folder are left alone.
+- Retention: when a new daily file is opened, files dated before `today - RETENTION_DAYS` (7) are
+  deleted, so today's file plus the previous 7 days are kept (8 files). Files not named
+  `yyyy-MM-dd.log` are left alone.
+- Known gaps: pruning only runs when a new file is opened; any `yyyy-MM-dd.log` in the folder is
+  deleted when stale, even one the sink did not write; there is no per-file size cap; prune
+  failures are not reported. Fixes are planned in `docs/DEBUG_RETENTION_PLAN.md`.
 - A shutdown hook flushes and closes the open file.
 - The first I/O failure is reported to the IDE log once; later failures are ignored. Logging never
   throws and never breaks a model call.
