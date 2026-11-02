@@ -207,6 +207,30 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test debug log retention applies and validates`() {
+        try {
+            assertEquals("7", configurable.debugLogRetentionField.text)
+            configurable.debugLogRetentionField.text = "30"
+            assertTrue(configurable.isModified)
+            configurable.apply()
+            assertEquals(30, AijbSettings.getInstance().state.debugLogRetentionDays)
+            assertEquals(30, com.aijb.assistant.debug.DebugLogSink.retentionDays)
+            assertFalse(configurable.isModified)
+            for (ok in listOf("0", "365")) {
+                configurable.debugLogRetentionField.text = ok
+                configurable.apply()
+                assertEquals(ok.toInt(), AijbSettings.getInstance().state.debugLogRetentionDays)
+            }
+            for (bad in listOf("-1", "366", "abc", "")) {
+                configurable.debugLogRetentionField.text = bad
+                assertInvalid { configurable.apply() }
+            }
+            assertEquals(365, AijbSettings.getInstance().state.debugLogRetentionDays)
+        } finally {
+            com.aijb.assistant.debug.DebugLogSink.configure(false, "./log/debug_logs/")
+        }
+    }
+
     fun `test check login reports signed in account`() {
         configurable.claudeCliPathField.text = "/opt/claude"
         var checkedPath: String? = null

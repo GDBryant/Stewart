@@ -106,7 +106,11 @@ class ChatPanel @JvmOverloads constructor(
 
     init {
         messagesPanel.layout = BoxLayout(messagesPanel, BoxLayout.Y_AXIS)
-        DebugLogSink.configure(settings.state.debugLogEnabled, settings.state.debugLogFolder.orEmpty())
+        DebugLogSink.configure(
+            settings.state.debugLogEnabled,
+            settings.state.debugLogFolder.orEmpty(),
+            settings.state.debugLogRetentionDays,
+        )
 
         modelCombo.renderer = object : SimpleListCellRenderer<ModelInfo>() {
             override fun customize(

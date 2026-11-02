@@ -40,14 +40,18 @@ treat the files as sensitive.
 - The target folder is resolved when a line is queued, so changing the setting cannot split one
   call across folders.
 - New files are created owner-only (`rw-------`) where the filesystem supports POSIX permissions.
-- Retention: when a new daily file is opened, files dated before `today - RETENTION_DAYS` (7) are
-  deleted, so today's file plus the previous 7 days are kept (8 files). Files not named
-  `yyyy-MM-dd.log` are left alone.
-- Known gaps: pruning only runs when a new file is opened; any `yyyy-MM-dd.log` in the folder is
-  deleted when stale, even one the sink did not write; there is no per-file size cap; prune
-  failures are not reported. Fixes are planned in `docs/DEBUG_RETENTION_PLAN.md`.
+- Retention (setting "Debug log retention", 0–365 days, default 7; invalid values are rejected):
+  `N > 0` keeps today plus the previous `N` days; `0` never prunes. Pruning runs when logging is
+  enabled via settings or panel init (no model traffic needed) and when a new daily file opens.
+- Only files the sink wrote are deleted: the first line must match the sink's line format.
+  Foreign or unreadable files are kept.
+- Rotation: a file reaching 50 MB (soft cap) is renamed to the first free `yyyy-MM-dd.N.log`
+  (`.1` oldest, base file newest; order numerically). Rotation happens only while holding the
+  exclusive lock on `<folder>/.aijb-debug.lock`; if another IDE instance holds it, the sink keeps
+  appending. A writer whose file was renamed away reopens a fresh base file. A day's chunks are
+  pruned together.
 - A shutdown hook flushes and closes the open file.
-- The first I/O failure is reported to the IDE log once; later failures are ignored. Logging never
+- The first write failure and the first prune failure are each reported to the IDE log once; later ones are ignored. Logging never
   throws and never breaks a model call.
 
 ## Coverage

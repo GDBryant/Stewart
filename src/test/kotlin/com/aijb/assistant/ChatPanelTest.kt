@@ -262,9 +262,11 @@ class ChatPanelTest : BasePlatformTestCase() {
     fun `test panel applies debug log settings to the sink`() {
         AijbSettings.getInstance().state.debugLogEnabled = true
         AijbSettings.getInstance().state.debugLogFolder = "/tmp/aijb-panel-debug"
+        AijbSettings.getInstance().state.debugLogRetentionDays = 12
         newPanel(fakeProvider())
         assertTrue(com.aijb.assistant.debug.DebugLogSink.isEnabled)
         assertEquals("/tmp/aijb-panel-debug", com.aijb.assistant.debug.DebugLogSink.logDirectory)
+        assertEquals(12, com.aijb.assistant.debug.DebugLogSink.retentionDays)
     }
 
     fun `test dispose cancels active job`() {

@@ -39,6 +39,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var autoApproveCheck: javax.swing.JCheckBox
     internal lateinit var debugLogCheck: javax.swing.JCheckBox
     internal lateinit var debugLogFolderField: JBTextField
+    internal lateinit var debugLogRetentionField: JBTextField
 
     override fun createPanel(): DialogPanel = panel {
         row("Ollama URL:") { ollamaUrlField = textField().component }
@@ -77,6 +78,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             debugLogCheck = checkBox("Debug log: record every model call (Ollama, AIF, Claude CLI)").component
         }
         row("Debug log folder:") { debugLogFolderField = textField().component }
+        row("Debug log retention (days, 0 = keep forever):") { debugLogRetentionField = textField().component }
     }
 
     internal var loginStatusCheck: suspend (String) -> ClaudeLoginState =
@@ -151,7 +153,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
             autoApproveCheck.isSelected != s.autoApproveEdits ||
             debugLogCheck.isSelected != s.debugLogEnabled ||
-            debugLogFolderField.text.trim() != s.debugLogFolder.orEmpty().trim()
+            debugLogFolderField.text.trim() != s.debugLogFolder.orEmpty().trim() ||
+            debugLogRetentionField.text.trim().toIntOrNull() != s.debugLogRetentionDays
     }
 
     override fun reset() {
@@ -171,6 +174,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         autoApproveCheck.isSelected = s.autoApproveEdits
         debugLogCheck.isSelected = s.debugLogEnabled
         debugLogFolderField.text = s.debugLogFolder
+        debugLogRetentionField.text = s.debugLogRetentionDays.toString()
     }
 
     override fun apply() {
@@ -191,6 +195,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             ?: throw ConfigurationException("Invalid token count: ${autoCompactField.text}")
         val retention = historyRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..3650 }
             ?: throw ConfigurationException("History retention must be a whole number of days from 0 to 3650")
+        val debugRetention = debugLogRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..365 }
+            ?: throw ConfigurationException("Debug log retention must be a whole number of days from 0 to 365")
 
         val s = settings.state
         s.ollamaUrl = ollama
@@ -205,7 +211,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         s.autoApproveEdits = autoApproveCheck.isSelected
         s.debugLogEnabled = debugLogCheck.isSelected
         s.debugLogFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
-        DebugLogSink.configure(s.debugLogEnabled, s.debugLogFolder.orEmpty())
+        s.debugLogRetentionDays = debugRetention
+        DebugLogSink.configure(s.debugLogEnabled, s.debugLogFolder.orEmpty(), s.debugLogRetentionDays)
 
         val key = String(apiKeyField.password)
         if (key.isNotEmpty()) {

@@ -38,6 +38,7 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
         var toolsEnabled by property(true)
         var debugLogEnabled by property(false)
         var debugLogFolder by string("./log/debug_logs/")
+        var debugLogRetentionDays by property(7)
     }
 
     val effectiveClaudeModels: List<String>

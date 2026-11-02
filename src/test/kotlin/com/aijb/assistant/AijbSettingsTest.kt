@@ -27,6 +27,7 @@ class AijbSettingsTest {
         assertEquals(80000, s.autoCompactTokens)
         assertEquals(false, s.debugLogEnabled)
         assertEquals("./log/debug_logs/", s.debugLogFolder)
+        assertEquals(7, s.debugLogRetentionDays)
         val settings = AijbSettings()
         assertEquals(listOf("sonnet", "opus", "haiku"), settings.effectiveClaudeModels)
         settings.state.claudeModels = mutableListOf("opus")
@@ -50,6 +51,7 @@ class AijbSettingsTest {
         s.autoCompactTokens = 120000
         s.debugLogEnabled = true
         s.debugLogFolder = "/tmp/aijb/debug/"
+        s.debugLogRetentionDays = 30
         val element = XmlSerializer.serialize(s)
         val restored = XmlSerializer.deserialize(element, AijbSettings.State::class.java)
         assertEquals(s.ollamaUrl, restored.ollamaUrl)
@@ -66,6 +68,7 @@ class AijbSettingsTest {
         assertEquals(s.autoCompactTokens, restored.autoCompactTokens)
         assertEquals(s.debugLogEnabled, restored.debugLogEnabled)
         assertEquals(s.debugLogFolder, restored.debugLogFolder)
+        assertEquals(30, restored.debugLogRetentionDays)
         val viaLoad = AijbSettings().also { it.loadState(restored) }
         assertEquals("aif/a", viaLoad.state.chatModel)
         assertEquals(true, viaLoad.state.debugLogEnabled)

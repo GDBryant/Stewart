@@ -10,6 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+private const val SINK_LINE = "[2000-01-01T00:00:00Z] [outgoing] [ollama] [m] [payload]\n"
+
 class DebugLogSinkTest {
 
     private lateinit var dir: Path
@@ -25,6 +27,8 @@ class DebugLogSinkTest {
 
     @After
     fun tearDown() {
+        DebugLogSink.maxFileBytes = 50L * 1024 * 1024
+        DebugLogSink.flushAndClose()
         DebugLogSink.configure(previousEnabled, previousDirectory)
     }
 
@@ -133,7 +137,7 @@ class DebugLogSinkTest {
         DebugLogSink.configure(true, dir.toString())
         val old = dir.resolve("2000-01-01.log")
         val notes = dir.resolve("notes.txt")
-        Files.writeString(old, "stale\n")
+        Files.writeString(old, SINK_LINE)
         Files.writeString(notes, "keep\n")
         DebugLogSink.log("outgoing", "ollama", "m", "payload", 0L)
         val fresh = dir.resolve("1970-01-01.log")
@@ -142,6 +146,166 @@ class DebugLogSinkTest {
         assertTrue(Files.exists(fresh))
         assertFalse(Files.exists(old))
         assertTrue(Files.exists(notes))
+    }
+
+    private val today = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+
+    private fun daysAgo(n: Long) = today.minusDays(n)
+
+    private fun sinkFile(day: java.time.LocalDate, suffix: String = ""): Path =
+        Files.writeString(dir.resolve("$day$suffix.log"), SINK_LINE)
+
+    private fun await(cond: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline && !cond()) Thread.sleep(10)
+        assertTrue("condition not met", cond())
+    }
+
+    @Test
+    fun `configure enabled prunes stale files without any log call`() {
+        val stale = sinkFile(daysAgo(30))
+        DebugLogSink.configure(true, dir.toString(), 7)
+        await { !Files.exists(stale) }
+    }
+
+    @Test
+    fun `configure disabled does not prune`() {
+        val stale = sinkFile(daysAgo(30))
+        DebugLogSink.configure(false, dir.toString(), 7)
+        Thread.sleep(150)
+        assertTrue(Files.exists(stale))
+    }
+
+    @Test
+    fun `retention boundary keeps N days and deletes older`() {
+        val kept = sinkFile(daysAgo(3))
+        val gone = sinkFile(daysAgo(4))
+        DebugLogSink.configure(false, dir.toString(), 3)
+        DebugLogSink.retentionDays = 3
+        DebugLogSink.pruneNow(dir)
+        assertTrue(Files.exists(kept))
+        assertFalse(Files.exists(gone))
+    }
+
+    @Test
+    fun `retention zero never prunes`() {
+        val ancient = dir.resolve("2000-01-01.log").also { Files.writeString(it, SINK_LINE) }
+        DebugLogSink.configure(true, dir.toString(), 0)
+        Thread.sleep(150)
+        DebugLogSink.pruneNow(dir)
+        assertTrue(Files.exists(ancient))
+    }
+
+    @Test
+    fun `foreign day-named file is kept`() {
+        val foreign = dir.resolve("2000-01-01.log").also { Files.writeString(it, "not ours\n") }
+        val empty = dir.resolve("2000-01-02.log").also { Files.writeString(it, "") }
+        DebugLogSink.retentionDays = 7
+        DebugLogSink.pruneNow(dir)
+        assertTrue(Files.exists(foreign))
+        assertTrue(Files.exists(empty))
+    }
+
+    @Test
+    fun `rotated chunks of a stale day are pruned with the base file`() {
+        val files = listOf("", ".1", ".2").map { sinkFile(daysAgo(30), it) }
+        val fresh = sinkFile(today, ".1")
+        DebugLogSink.retentionDays = 7
+        DebugLogSink.pruneNow(dir)
+        files.forEach { assertFalse(Files.exists(it)) }
+        assertTrue(Files.exists(fresh))
+    }
+
+    @Test
+    fun `prune failure is reported once independently of write failures`() {
+        val notADir = Files.createTempFile("aijb-sink-file", ".x")
+        DebugLogSink.failureReported.set(true)
+        DebugLogSink.pruneFailureReported.set(false)
+        DebugLogSink.retentionDays = 7
+        try {
+            DebugLogSink.pruneNow(notADir)
+            assertTrue(DebugLogSink.pruneFailureReported.get())
+            DebugLogSink.pruneNow(dir.resolve("missing"))
+        } finally {
+            DebugLogSink.failureReported.set(false)
+            DebugLogSink.pruneFailureReported.set(false)
+        }
+    }
+
+    @Test
+    fun `missing folder is not a prune failure`() {
+        DebugLogSink.pruneFailureReported.set(false)
+        DebugLogSink.pruneNow(dir.resolve("missing"))
+        assertFalse(DebugLogSink.pruneFailureReported.get())
+    }
+
+    /** Snapshot read; a file renamed by a concurrent rotation yields an empty list so callers retry. */
+    private fun logLines(folder: Path = dir): List<String> = try {
+        DebugLogSink.orderedLogs(folder).flatMap { Files.readAllLines(it) }
+    } catch (e: java.nio.file.NoSuchFileException) {
+        emptyList()
+    }
+
+    @Test
+    fun `full file rotates and line order is preserved`() {
+        DebugLogSink.configure(true, dir.toString())
+        DebugLogSink.maxFileBytes = 100
+        val ts = System.currentTimeMillis()
+        (1..6).forEach { DebugLogSink.log("outgoing", "ollama", "m", "msg-$it-" + "x".repeat(60), ts) }
+        await { logLines().size == 6 }
+        DebugLogSink.flush()
+        val day = DebugLogSink.orderedLogs(dir).map { it.fileName.toString() }
+        assertTrue(day.size >= 3)
+        assertTrue(day.contains("$today.1.log"))
+        assertTrue(day.contains("$today.2.log"))
+        assertEquals("$today.log", day.last())
+        assertEquals((1..6).map { "msg-$it-" }, logLines().map { Regex("msg-\\d+-").find(it)!!.value })
+    }
+
+    @Test
+    fun `ordering is numeric not lexical`() {
+        listOf(".10", ".9", ".2", "").forEach { sinkFile(today, it) }
+        assertEquals(
+            listOf("$today.2.log", "$today.9.log", "$today.10.log", "$today.log"),
+            DebugLogSink.orderedLogs(dir).map { it.fileName.toString() },
+        )
+    }
+
+    @Test
+    fun `rotation is skipped while the lock is held elsewhere`() {
+        DebugLogSink.configure(true, dir.toString())
+        DebugLogSink.maxFileBytes = 50
+        val ts = System.currentTimeMillis()
+        java.nio.channels.FileChannel.open(
+            dir.resolve(".aijb-debug.lock"),
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
+        ).use { ch ->
+            val held = ch.lock()
+            try {
+                (1..4).forEach { DebugLogSink.log("outgoing", "ollama", "m", "p$it-" + "x".repeat(40), ts) }
+                await { logLines().size == 4 }
+                assertEquals(
+                    listOf("$today.log"),
+                    DebugLogSink.orderedLogs(dir).map { it.fileName.toString() },
+                )
+            } finally {
+                held.release()
+            }
+        }
+    }
+
+    @Test
+    fun `externally renamed file is reopened as a fresh base file`() {
+        DebugLogSink.configure(true, dir.toString())
+        val ts = System.currentTimeMillis()
+        DebugLogSink.log("outgoing", "ollama", "m", "one", ts)
+        await { logLines().size == 1 }
+        val base = dir.resolve("$today.log")
+        Files.move(base, dir.resolve("$today.1.log"))
+        DebugLogSink.log("outgoing", "ollama", "m", "two", ts)
+        await { Files.exists(base) && Files.readAllLines(base).size == 1 }
+        assertTrue(Files.readAllLines(dir.resolve("$today.1.log")).single().endsWith("[one]"))
+        assertTrue(Files.readAllLines(base).single().endsWith("[two]"))
     }
 
     @Test

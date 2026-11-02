@@ -1,6 +1,6 @@
 # Debug Log Retention — Plan
 
-Status: **planned** (not yet implemented). Fixes gaps in the current retention behaviour in
+Status: **done**. Fixes gaps in the current retention behaviour in
 `src/main/kotlin/com/aijb/assistant/debug/DebugLogSink.kt`. Current behaviour is described in
 `docs/DEBUG_LOGGING.md`.
 

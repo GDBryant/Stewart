@@ -8,3 +8,8 @@ out/
 
 bin/
 .kotlin/
+
+# Debug logs may contain prompts and endpoint URLs
+log/
+debug_logs/
+*.log
