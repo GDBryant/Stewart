@@ -30,6 +30,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Debug retention plan: `docs/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
 - Bypass mode plan: `docs/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching (implemented).
 - Permissions: `docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
+- Rename plan: `docs/RENAME_PLAN.md` — AIJB Assistant → Stewart name map, persisted-key migration, steps, verification.
 - Chat UX plan: `docs/superpowers/plans/2026-11-02-chat-ux.md` — right-aligned user bubbles, busy/active-role label, collapsible tool rows, Up/Down prompt recall.
 
 ## Conventions
