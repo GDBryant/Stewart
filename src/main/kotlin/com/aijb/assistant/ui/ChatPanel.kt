@@ -163,7 +163,15 @@ class ChatPanel @JvmOverloads constructor(
                     e.consume()
                     return
                 }
-                if (e.keyCode == KeyEvent.VK_UP && (inputArea.text.isEmpty() || history.browsing)) {
+                // Recall only on plain Up/Down. While browsing, Up/Down move the caret within a
+                // multi-line prompt first and recall only from its first/last line. Up-recall puts
+                // the caret at the start and Down-recall at the end, so the same key keeps walking.
+                val plain = e.modifiersEx == 0
+                val text = inputArea.text
+                val caret = inputArea.caretPosition.coerceIn(0, text.length)
+                if (plain && e.keyCode == KeyEvent.VK_UP &&
+                    (text.isEmpty() || (history.browsing && '\n' !in text.substring(0, caret)))
+                ) {
                     if (!history.browsing) {
                         history.reset(
                             session.transcript
@@ -171,12 +179,12 @@ class ChatPanel @JvmOverloads constructor(
                                 .map { it.content },
                         )
                     }
-                    history.older()?.let { recall(it) }
+                    history.older()?.let { recall(it, atStart = true) }
                     e.consume()
                     return
                 }
-                if (e.keyCode == KeyEvent.VK_DOWN && history.browsing) {
-                    history.newer()?.let { recall(it) }
+                if (plain && e.keyCode == KeyEvent.VK_DOWN && history.browsing && '\n' !in text.substring(caret)) {
+                    history.newer()?.let { recall(it, atStart = false) }
                     e.consume()
                     return
                 }
@@ -439,11 +447,11 @@ class ChatPanel @JvmOverloads constructor(
     private var recalling = false
 
     /** Puts a recalled prompt in the input without ending the browse. */
-    private fun recall(text: String) {
+    private fun recall(text: String, atStart: Boolean) {
         recalling = true
         try {
             inputArea.text = text
-            inputArea.caretPosition = if (text.isEmpty()) 0 else text.length
+            inputArea.caretPosition = if (atStart) 0 else text.length
         } finally {
             recalling = false
         }

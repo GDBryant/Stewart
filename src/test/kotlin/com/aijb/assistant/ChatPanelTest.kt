@@ -1276,6 +1276,56 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("real", panel.inputArea.text)
     }
 
+    private fun modKey(panel: ChatPanel, code: Int, mods: Int) {
+        val e = KeyEvent(panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), mods, code, KeyEvent.CHAR_UNDEFINED)
+        panel.inputArea.keyListeners.forEach { it.keyPressed(e) }
+    }
+
+    fun `test modified up does not recall`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"))
+        for (m in listOf(KeyEvent.SHIFT_DOWN_MASK, KeyEvent.CTRL_DOWN_MASK, KeyEvent.ALT_DOWN_MASK)) {
+            modKey(panel, KeyEvent.VK_UP, m)
+            assertEquals("", panel.inputArea.text)
+        }
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("first", panel.inputArea.text)
+    }
+
+    fun `test modified down does not walk while browsing`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"), user("second"))
+        key(panel, KeyEvent.VK_UP)
+        key(panel, KeyEvent.VK_UP)
+        modKey(panel, KeyEvent.VK_DOWN, KeyEvent.SHIFT_DOWN_MASK)
+        assertEquals("first", panel.inputArea.text)
+    }
+
+    fun `test multi-line recall lets the caret move before walking`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("older"), user("l1\nl2"))
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("l1\nl2", panel.inputArea.text)
+        assertEquals(0, panel.inputArea.caretPosition)
+        // Down on the first line of a multi-line prompt is not consumed (caret moves instead).
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("l1\nl2", panel.inputArea.text)
+        // Caret on the second line: Up is not a recall.
+        panel.inputArea.caretPosition = 4
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("l1\nl2", panel.inputArea.text)
+        // Caret back on the first line: Up recalls the older prompt.
+        panel.inputArea.caretPosition = 1
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("older", panel.inputArea.text)
+        // Down from the last line of a single-line prompt walks newer, caret at the end.
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("l1\nl2", panel.inputArea.text)
+        assertEquals(5, panel.inputArea.caretPosition)
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("", panel.inputArea.text)
+    }
+
     private fun settings(multi: Boolean) {
         val s = AijbSettings.getInstance().state
         s.multiModel = multi
