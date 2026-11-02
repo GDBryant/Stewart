@@ -1412,4 +1412,36 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(bubbleWidth("word ".repeat(400)) <= 600 - 60)
     }
 
+    private fun toolCall(id: String) = com.aijb.assistant.provider.ToolCall(
+        id, "read_file", kotlinx.serialization.json.buildJsonObject { put("path", kotlinx.serialization.json.JsonPrimitive("a.txt")) },
+    )
+
+    fun `test restored tool message renders as a collapsed titled tool row`() {
+        session.seedTranscriptForTest(
+            user("go"),
+            com.aijb.assistant.provider.ChatMessage(Role.ASSISTANT, "", toolCalls = listOf(toolCall("c1"))),
+            com.aijb.assistant.provider.ChatMessage(Role.TOOL, "y".repeat(5000), toolCallId = "c1"),
+        )
+        val panel = newPanel(fakeProvider())
+        val row = panel.toolRows().single()
+        assertTrue(row.headerText.contains("read_file"))
+        assertFalse(row.bodyVisible)
+        assertEquals(2000, row.body.text.length)
+        assertEquals(listOf("go"), panel.messageAreas().filter { it !== row.body }.map { it.text })
+    }
+
+    fun `test restored assistant message with content and tool calls still renders`() {
+        session.seedTranscriptForTest(
+            com.aijb.assistant.provider.ChatMessage(Role.ASSISTANT, "looking", toolCalls = listOf(toolCall("c1"))),
+        )
+        val panel = newPanel(fakeProvider())
+        assertEquals(listOf("assistant: looking"), panel.messageAreas().map { it.text })
+    }
+
+    fun `test restored tool message with unknown call id gets a generic title`() {
+        session.seedTranscriptForTest(com.aijb.assistant.provider.ChatMessage(Role.TOOL, "out", toolCallId = "nope"))
+        val panel = newPanel(fakeProvider())
+        assertTrue(panel.toolRows().single().headerText.contains("tool"))
+    }
+
 }

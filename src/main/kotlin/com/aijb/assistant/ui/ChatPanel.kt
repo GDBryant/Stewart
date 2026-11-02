@@ -434,8 +434,18 @@ class ChatPanel @JvmOverloads constructor(
 
     private fun renderTranscript() {
         messagesPanel.removeAll()
+        val titles = session.transcript.flatMap { it.toolCalls }.associate {
+            it.id to "tool: ${it.name} ${it.arguments.toString().let { a -> if (a.length > 200) a.take(200) + "…" else a }}"
+        }
         session.transcript.forEach { msg ->
-            addMessage(msg.role.name.lowercase(), msg.content)
+            when {
+                msg.role == Role.TOOL -> {
+                    val row = addToolRow(titles[msg.toolCallId] ?: "tool")
+                    completeToolRow(row, com.aijb.assistant.tools.ToolOutcome.Success(msg.content))
+                }
+                msg.role == Role.ASSISTANT && msg.content.isBlank() && msg.toolCalls.isNotEmpty() -> Unit
+                else -> addMessage(msg.role.name.lowercase(), msg.content)
+            }
         }
         refreshMessages()
     }
