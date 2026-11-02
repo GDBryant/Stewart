@@ -613,11 +613,86 @@ class ChatPanel @JvmOverloads constructor(
         override fun getMaximumSize() = Dimension(Int.MAX_VALUE, preferredSize.height)
     }
 
+    /** One-line clickable header (`▸`/`▾`) over an output body that is hidden until expanded. */
+    internal class ToolRow(private val title: String) : JPanel(BorderLayout()) {
+        private val header = JLabel()
+        internal val body = JTextArea()
+        private var suffix = ""
+        val bodyVisible: Boolean get() = body.isVisible
+        val headerText: String get() = header.text
+
+        init {
+            isOpaque = false
+            alignmentX = LEFT_ALIGNMENT
+            header.font = UIUtil.getLabelFont()
+            header.border = JBUI.Borders.empty(2, 8)
+            header.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            header.addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) = toggle()
+            })
+            body.isEditable = false
+            body.lineWrap = true
+            body.wrapStyleWord = true
+            body.font = UIUtil.getLabelFont()
+            body.border = JBUI.Borders.empty(2, 20)
+            body.isVisible = false
+            add(header, BorderLayout.NORTH)
+            add(body, BorderLayout.CENTER)
+            render()
+        }
+
+        private fun render() {
+            header.text = (if (body.isVisible) "▾ " else "▸ ") + title + suffix
+        }
+
+        fun toggle() {
+            body.isVisible = !body.isVisible
+            render()
+            revalidate()
+            repaint()
+        }
+
+        fun complete(statusSuffix: String, bodyText: String, expand: Boolean) {
+            suffix = statusSuffix
+            body.text = bodyText.take(TOOL_OUTPUT_CHARS)
+            body.isVisible = expand
+            render()
+            revalidate()
+            repaint()
+        }
+
+        override fun getMaximumSize() = Dimension(Int.MAX_VALUE, preferredSize.height)
+    }
+
+    internal fun addToolRow(title: String): ToolRow {
+        val row = ToolRow(title)
+        messagesPanel.add(row)
+        refreshMessages()
+        return row
+    }
+
+    internal fun toolRows(): List<ToolRow> = messagesPanel.components.filterIsInstance<ToolRow>()
+
+    internal fun addToolRowForTest(name: String, args: String, outcome: com.aijb.assistant.tools.ToolOutcome): ToolRow =
+        addToolRow("tool: $name $args").also { completeToolRow(it, outcome) }
+
+    private fun completeToolRow(row: ToolRow, outcome: com.aijb.assistant.tools.ToolOutcome) {
+        val (suffix, body) = when (outcome) {
+            is com.aijb.assistant.tools.ToolOutcome.Success -> " · ✓" to outcome.content
+            is com.aijb.assistant.tools.ToolOutcome.Rejected -> " · Rejected" to outcome.reason
+            is com.aijb.assistant.tools.ToolOutcome.Failure -> " · Failed" to outcome.message
+            is com.aijb.assistant.tools.ToolOutcome.Invalid -> " · Invalid" to outcome.reason
+            is com.aijb.assistant.tools.ToolOutcome.Uncertain -> " · Uncertain" to outcome.reason
+        }
+        row.complete(suffix, body, outcome !is com.aijb.assistant.tools.ToolOutcome.Success)
+    }
+
     internal fun messageAreas(): List<JTextArea> =
         messagesPanel.components.flatMap { c ->
             when (c) {
                 is JTextArea -> listOf(c)
                 is MessageRow -> c.components.filterIsInstance<JTextArea>()
+                is ToolRow -> listOf(c.body)
                 else -> emptyList()
             }
         }
@@ -876,18 +951,6 @@ class ChatPanel @JvmOverloads constructor(
         startSend(text, info)
     }
 
-    /**
-     * Tool output in the bubble: the model already summarises it, so keep at most
-     * [TOOL_OUTPUT_LINES] lines and [TOOL_OUTPUT_CHARS] chars; the rest collapses to a count.
-     */
-    internal fun collapseToolOutput(content: String): String {
-        val capped = content.take(TOOL_OUTPUT_CHARS)
-        val lines = capped.lines()
-        if (lines.size <= TOOL_OUTPUT_LINES) return capped
-        return lines.take(TOOL_OUTPUT_LINES).joinToString("\n") +
-            "\n… ${lines.size - TOOL_OUTPUT_LINES} more lines"
-    }
-
     private fun startSend(text: String, info: ModelInfo) {
         addMessage("user", text)
         val initialArea = addMessage("assistant", "")
@@ -897,7 +960,7 @@ class ChatPanel @JvmOverloads constructor(
     }
 
     private class SendState(var deltaArea: JTextArea?) {
-        val toolAreas = mutableMapOf<String, Pair<JTextArea, String>>()
+        val toolRows = mutableMapOf<String, ToolRow>()
         val reply = StringBuilder()
         var compacted = false
         var compactionFailed = false
@@ -920,7 +983,7 @@ class ChatPanel @JvmOverloads constructor(
                 val args = call.arguments.toString().let {
                     if (it.length > 200) it.take(200) + "…" else it
                 }
-                st.toolAreas[call.id] = addMessage("tool", "${call.name} $args") to args
+                st.toolRows[call.id] = addToolRow("tool: ${call.name} $args")
                 st.deltaArea = null
                 st.reply.setLength(0)
             }
@@ -929,16 +992,7 @@ class ChatPanel @JvmOverloads constructor(
                 call: com.aijb.assistant.provider.ToolCall,
                 outcome: com.aijb.assistant.tools.ToolOutcome,
             ) {
-                val result = when (outcome) {
-                    is com.aijb.assistant.tools.ToolOutcome.Success -> collapseToolOutput(outcome.content)
-                    is com.aijb.assistant.tools.ToolOutcome.Rejected -> "Rejected: ${outcome.reason}"
-                    is com.aijb.assistant.tools.ToolOutcome.Failure -> "Failed: ${outcome.message}"
-                    is com.aijb.assistant.tools.ToolOutcome.Invalid -> "Invalid: ${outcome.reason}"
-                    is com.aijb.assistant.tools.ToolOutcome.Uncertain -> "Uncertain: ${outcome.reason}"
-                }
-                st.toolAreas[call.id]?.let { (area, args) ->
-                    area.text = "tool: ${call.name} $args\n$result"
-                }
+                st.toolRows[call.id]?.let { completeToolRow(it, outcome) }
                 activeTool = null
                 updateActivity()
                 refreshMessages()
@@ -1066,7 +1120,6 @@ class ChatPanel @JvmOverloads constructor(
 
     private companion object {
         val USER_BUBBLE_BG = JBColor(Color(0xDCE9FF), Color(0x2F4468))
-        const val TOOL_OUTPUT_LINES = 8
         const val TOOL_OUTPUT_CHARS = 2000
     }
 }

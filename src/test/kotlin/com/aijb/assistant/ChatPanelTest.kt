@@ -188,15 +188,33 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(opened)
     }
 
-    fun `test tool output collapses long content`() {
+    fun `test successful tool output is collapsed by default`() {
         val panel = newPanel(fakeProvider())
-        val content = (1..20).joinToString("\n") { "line$it" }
-        val collapsed = panel.collapseToolOutput(content)
-        assertTrue(collapsed.contains("line8"))
-        assertFalse(collapsed.contains("line9"))
-        assertTrue(collapsed.contains("12 more lines"))
-        val short = "a\nb"
-        assertEquals(short, panel.collapseToolOutput(short))
+        val row = panel.addToolRowForTest("RunTerminal", "{}", com.aijb.assistant.tools.ToolOutcome.Success("a\nb"))
+        assertFalse(row.bodyVisible)
+        assertEquals("▸ tool: RunTerminal {} · ✓", row.headerText)
+        row.toggle(); assertTrue(row.bodyVisible)
+        assertTrue(row.headerText.startsWith("▾"))
+        row.toggle(); assertFalse(row.bodyVisible)
+    }
+
+    fun `test non-success tool outcomes are expanded`() {
+        val panel = newPanel(fakeProvider())
+        for ((outcome, word) in listOf<Pair<com.aijb.assistant.tools.ToolOutcome, String>>(
+            com.aijb.assistant.tools.ToolOutcome.Failure("boom") to "Failed", com.aijb.assistant.tools.ToolOutcome.Rejected("no") to "Rejected",
+            com.aijb.assistant.tools.ToolOutcome.Invalid("bad") to "Invalid", com.aijb.assistant.tools.ToolOutcome.Uncertain("hm") to "Uncertain",
+        )) {
+            val row = panel.addToolRowForTest("RunTerminal", "{}", outcome)
+            assertTrue(word, row.bodyVisible)
+            assertTrue(row.headerText.endsWith(word))
+        }
+    }
+
+    fun `test tool body is capped`() {
+        val panel = newPanel(fakeProvider())
+        val row = panel.addToolRowForTest("T", "{}",
+            com.aijb.assistant.tools.ToolOutcome.Success("x".repeat(2500)))
+        assertEquals(2000, row.body.text.length)
     }
 
     fun `test models load into combo`() {
@@ -636,7 +654,8 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.sendButton.doClick()
         assertTrue(pumpUntil { panel.statusLabel.text == "Done" })
         val texts = panel.messageAreas().map { it.text }
-        assertTrue(texts.any { it.startsWith("tool: t") && it.contains("TOOL-OUT") })
+        assertTrue(texts.any { it.contains("TOOL-OUT") })
+        assertTrue(panel.toolRows().any { it.headerText.contains("tool: t") })
         assertEquals("assistant: final answer", texts.last())
     }
 
