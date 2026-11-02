@@ -10,6 +10,8 @@ import com.aijb.assistant.tools.permissions.Grant
 import com.aijb.assistant.tools.permissions.GrantScope
 import com.aijb.assistant.tools.permissions.GrantTarget
 import com.aijb.assistant.tools.permissions.PermissionsSnapshot
+import com.aijb.assistant.tools.permissions.ApprovalCategory
+import com.aijb.assistant.tools.permissions.ProjectPermissions
 import com.aijb.assistant.tools.permissions.PromptResult
 import com.aijb.assistant.tools.permissions.SessionGrants
 import com.aijb.assistant.tools.permissions.ShellCommandSplitter
@@ -22,11 +24,13 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.FlowLayout
 import java.awt.Font
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -53,7 +57,8 @@ class IdeApprovalGate(
     private val project: Project,
     private val permissions: () -> PermissionsSnapshot,
     private val grants: SessionGrants,
-    private val prompter: ApprovalPrompter = DialogPrompter(project),
+    private val prompter: ApprovalPrompter =
+        DialogPrompter(project, permissions = permissions, grants = grants),
     private val always: AlwaysGrantWriter = AlwaysGrantWriter.DEFAULT,
     private val splitPrograms: (String) -> List<String>? = { ShellCommandSplitter.programsOrNull(it) },
 ) : ApprovalGate {
@@ -136,21 +141,33 @@ fun interface DialogHost {
 class DialogPrompter(
     private val project: Project,
     private val host: DialogHost = DialogHost { it.show() },
+    private val permissions: () -> PermissionsSnapshot = {
+        ProjectPermissions.getInstance().forProject(project)
+    },
+    private val grants: SessionGrants = SessionGrants(),
+    private val parse: (String) -> ShellCommandSplitter.Result = { ShellCommandSplitter.split(it) },
 ) : ApprovalPrompter {
     override suspend fun confirmFile(call: ToolCall, change: ToolPreview.FileChange): PromptResult =
-        PromptResult(showDialog { FileApprovalDialog(project, call, change) })
+        showDialog { FileApprovalDialog(project, call, change) }
 
     override suspend fun confirmCommand(call: ToolCall, command: ToolPreview.Command): PromptResult =
-        PromptResult(showDialog { CommandApprovalDialog(project, call, command) })
+        showDialog {
+            val (programs, reason) = when (val r = parse(command.command)) {
+                is ShellCommandSplitter.Parsed -> r.programs to null
+                is ShellCommandSplitter.Unparseable -> null to r.reason
+            }
+            val granted = permissions().programs + grants.programs()
+            CommandApprovalDialog(project, call, command, programs, reason, granted)
+        }
 
     override suspend fun confirmGeneric(call: ToolCall): PromptResult =
-        PromptResult(showDialog { GenericApprovalDialog(project, call) })
+        showDialog { GenericApprovalDialog(project, call) }
 
-    private suspend fun showDialog(build: () -> ApprovalDialog): ApprovalDecision =
+    private suspend fun showDialog(build: () -> ApprovalDialog): PromptResult =
         withContext(Dispatchers.EDT) {
             suspendCancellableCoroutine { cont ->
                 val dialog = build()
-                dialog.onDecision = { decision -> if (cont.isActive) cont.resume(decision) }
+                dialog.onDecision = { d -> if (cont.isActive) cont.resume(dialog.resultFor(d)) }
                 cont.invokeOnCancellation {
                     ApplicationManager.getApplication().invokeLater(
                         { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) },
@@ -163,8 +180,48 @@ class DialogPrompter(
 }
 
 abstract class ApprovalDialog(project: Project) : DialogWrapper(project, true, IdeModalityType.MODELESS) {
+    enum class RememberChoice(private val label: String) {
+        ONCE("Just once"),
+        CHAT("Allow for this chat"),
+        ALWAYS("Always allow in this project");
+
+        override fun toString() = label
+    }
+
     /** Called once with the user's choice (OK, Cancel, Esc or the window close button). */
     var onDecision: ((ApprovalDecision) -> Unit)? = null
+
+    private val rememberCombo = ComboBox(RememberChoice.entries.toTypedArray())
+
+    internal var rememberChoice: RememberChoice
+        get() = rememberCombo.item
+        set(value) {
+            rememberCombo.item = value
+        }
+
+    /** What the current scope selection would grant; null when no program grant is expressible. */
+    protected abstract fun grantTarget(): GrantTarget?
+
+    internal fun resultFor(decision: ApprovalDecision): PromptResult {
+        val grant = if (decision is ApprovalDecision.Approved && rememberChoice != RememberChoice.ONCE) {
+            grantTarget()?.let {
+                Grant(
+                    if (rememberChoice == RememberChoice.ALWAYS) GrantScope.ALWAYS else GrantScope.CHAT,
+                    it,
+                )
+            }
+        } else {
+            null
+        }
+        return PromptResult(decision, grant)
+    }
+
+    override fun createSouthAdditionalPanel(): JPanel {
+        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
+        panel.add(JLabel("Remember:"))
+        panel.add(rememberCombo)
+        return panel
+    }
 
     override fun doOKAction() {
         super.doOKAction()
@@ -211,19 +268,55 @@ class FileApprovalDialog(
         panel.setRequest(request)
         return panel.component
     }
+
+    override fun grantTarget(): GrantTarget = GrantTarget.Category(ApprovalCategory.EDITS)
 }
 
 class CommandApprovalDialog(
     project: Project,
     private val call: ToolCall,
     private val command: ToolPreview.Command,
+    private val programs: List<String>? = ShellCommandSplitter.programsOrNull(command.command),
+    private val unparseableReason: String? = null,
+    private val grantedPrograms: Set<String> = emptySet(),
 ) : ApprovalDialog(project) {
+
+    enum class ScopeChoice {
+        PROGRAMS,
+        ALL,
+    }
+
+    private val ungranted: List<String> = programs.orEmpty().filter { it !in grantedPrograms }
+
+    private val scopeCombo = ComboBox(ScopeChoice.entries.toTypedArray()).apply {
+        renderer = javax.swing.ListCellRenderer { list, value, index, selected, focus ->
+            val label = when (value) {
+                ScopeChoice.PROGRAMS -> "These programs: ${ungranted.joinToString(", ")}"
+                ScopeChoice.ALL, null -> "All shell commands"
+            }
+            javax.swing.DefaultListCellRenderer().getListCellRendererComponent(
+                list, label, index, selected, focus,
+            )
+        }
+        isEnabled = !ungranted.isEmpty()
+    }
+
+    internal var scopeChoice: ScopeChoice
+        get() = if (scopeCombo.isEnabled) scopeCombo.item else ScopeChoice.ALL
+        set(value) {
+            if (scopeCombo.isEnabled || value == ScopeChoice.ALL) scopeCombo.item = value
+        }
 
     init {
         title = "Approve ${call.name}"
         setOKButtonText("Approve")
         setCancelButtonText("Reject")
         init()
+    }
+
+    override fun grantTarget(): GrantTarget = when (scopeChoice) {
+        ScopeChoice.PROGRAMS -> GrantTarget.Programs(ungranted.toSet())
+        ScopeChoice.ALL -> GrantTarget.Category(ApprovalCategory.COMMANDS)
     }
 
     override fun createCenterPanel(): JComponent {
@@ -235,6 +328,24 @@ class CommandApprovalDialog(
         area.lineWrap = true
         area.font = Font(Font.MONOSPACED, Font.PLAIN, area.font.size)
         panel.add(JBScrollPane(area), BorderLayout.CENTER)
+
+        val south = JPanel()
+        south.layout = javax.swing.BoxLayout(south, javax.swing.BoxLayout.Y_AXIS)
+        if (programs == null) {
+            south.add(JLabel("Cannot split safely${unparseableReason?.let { ": $it" } ?: ""}."))
+        } else {
+            val shown = programs.joinToString("  ") {
+                if (it in grantedPrograms) "<font color='gray'>$it</font>" else "<b>$it</b>"
+            }
+            south.add(JLabel("<html>Programs: $shown</html>"))
+        }
+        val scopeRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
+        scopeRow.add(JLabel("Scope:"))
+        scopeRow.add(scopeCombo)
+        south.add(scopeRow)
+        south.add(JLabel("<html><font color='gray'>A program grant covers every run of that " +
+            "program with any arguments.</font></html>"))
+        panel.add(south, BorderLayout.SOUTH)
         return panel
     }
 }
@@ -262,4 +373,6 @@ class GenericApprovalDialog(
         panel.add(JBScrollPane(area), BorderLayout.CENTER)
         return panel
     }
+
+    override fun grantTarget(): GrantTarget = GrantTarget.Category(ApprovalCategory.OTHER)
 }

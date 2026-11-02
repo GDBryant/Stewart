@@ -275,13 +275,91 @@ class ApprovalGateTest : BasePlatformTestCase() {
         assertEquals(DialogWrapper.CANCEL_EXIT_CODE, cancel.exitCode)
     }
 
+    // --- item 4: remember + scope selections map to grants ---
+
+    fun `test just once produces no grant`() {
+        val d = CommandApprovalDialog(project, call, command)
+        try {
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.ONCE
+            val r = d.resultFor(ApprovalDecision.Approved)
+            assertTrue(r.decision is ApprovalDecision.Approved)
+            assertNull(r.grant)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test chat remember maps to chat category grant for edits`() {
+        val d = FileApprovalDialog(project, call, fileChange)
+        try {
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.CHAT
+            val g = d.resultFor(ApprovalDecision.Approved).grant
+            assertEquals(Grant(GrantScope.CHAT, GrantTarget.Category(ApprovalCategory.EDITS)), g)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test always remember maps to always grant for other`() {
+        val d = GenericApprovalDialog(project, call)
+        try {
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.ALWAYS
+            val g = d.resultFor(ApprovalDecision.Approved).grant
+            assertEquals(Grant(GrantScope.ALWAYS, GrantTarget.Category(ApprovalCategory.OTHER)), g)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test command program scope grants only the ungranted programs`() {
+        val d = CommandApprovalDialog(
+            project, call, ToolPreview.Command("git log && rm x", "/p"),
+            programs = listOf("git", "rm"), grantedPrograms = setOf("git"),
+        )
+        try {
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.CHAT
+            val g = d.resultFor(ApprovalDecision.Approved).grant
+            assertEquals(Grant(GrantScope.CHAT, GrantTarget.Programs(setOf("rm"))), g)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test command all scope grants the commands category`() {
+        val d = CommandApprovalDialog(
+            project, call, command, programs = listOf("ls"),
+        )
+        try {
+            d.scopeChoice = CommandApprovalDialog.ScopeChoice.ALL
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.ALWAYS
+            val g = d.resultFor(ApprovalDecision.Approved).grant
+            assertEquals(Grant(GrantScope.ALWAYS, GrantTarget.Category(ApprovalCategory.COMMANDS)), g)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test program scope is disabled for unparseable commands`() {
+        val d = CommandApprovalDialog(
+            project, call, command, programs = null, unparseableReason = "unbalanced quote",
+        )
+        try {
+            d.scopeChoice = CommandApprovalDialog.ScopeChoice.PROGRAMS
+            assertEquals(CommandApprovalDialog.ScopeChoice.ALL, d.scopeChoice)
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.CHAT
+            val g = d.resultFor(ApprovalDecision.Approved).grant
+            assertEquals(Grant(GrantScope.CHAT, GrantTarget.Category(ApprovalCategory.COMMANDS)), g)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
+    fun `test rejection yields no grant even with remember set`() {
+        val d = CommandApprovalDialog(project, call, command, programs = listOf("ls"))
+        try {
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.ALWAYS
+            assertNull(d.resultFor(ApprovalDecision.Rejected("no")).grant)
+        } finally { com.intellij.openapi.util.Disposer.dispose(d.disposable) }
+    }
+
     // --- modeless dialogs: decision and cancel plumbing (fake DialogHost, no real window shown) ---
 
     private class Harness(project: com.intellij.openapi.project.Project) {
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
         @Volatile var shown: com.aijb.assistant.ui.ApprovalDialog? = null
         var shownCount = 0
-        val prompter = com.aijb.assistant.ui.DialogPrompter(project) { shownCount++; shown = it }
+        val prompter = com.aijb.assistant.ui.DialogPrompter(
+            project,
+            host = { shownCount++; shown = it },
+        )
     }
 
     private fun pumpUntil(cond: () -> Boolean): Boolean {
@@ -322,6 +400,24 @@ class ApprovalGateTest : BasePlatformTestCase() {
             val d = runBlocking { rejected.await() }
             assertEquals(ApprovalDecision.Rejected("rejected by user"), d.decision)
             assertEquals(2, h.shownCount)
+        } finally {
+            h.scope.cancel()
+        }
+    }
+
+    fun `test prompter returns the grant selected in the dialog`() {
+        val h = Harness(project)
+        try {
+            val result = h.scope.async { h.prompter.confirmCommand(call, command) }
+            assertTrue(pumpUntil { h.shown != null })
+            val d = h.shown as CommandApprovalDialog
+            d.rememberChoice = com.aijb.assistant.ui.ApprovalDialog.RememberChoice.CHAT
+            d.approve()
+            assertTrue(pumpUntil { result.isCompleted })
+            assertEquals(
+                Grant(GrantScope.CHAT, GrantTarget.Programs(setOf("ls"))),
+                runBlocking { result.await() }.grant,
+            )
         } finally {
             h.scope.cancel()
         }
