@@ -7,6 +7,7 @@ import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolPath
 import com.adb.stewart.provider.ToolSpec
 import com.adb.stewart.provider.Usage
+import com.adb.stewart.provider.claude.ClaudeModels
 import com.adb.stewart.provider.claude.ClaudeProvider
 import com.adb.stewart.provider.claude.ClaudeTranscript
 import com.adb.stewart.shim.ToolCallingProvider
@@ -60,6 +61,32 @@ class ClaudeTranscriptTest {
         val (_, stdin) = ClaudeTranscript.render(listOf(
             u("go"), ChatMessage(Role.TOOL, "res", toolCallId = "c1")))
         assertTrue(stdin.contains("<user>\nres\n</user>"))
+    }
+}
+
+class ClaudeModelsTest {
+
+    @Test
+    fun `display names map to family`() {
+        assertEquals("sonnet", ClaudeModels.normalize("Sonnet 5.5"))
+        assertEquals("opus", ClaudeModels.normalize("Opus 5.5"))
+        assertEquals("haiku", ClaudeModels.normalize("Haiku 5.5"))
+        assertEquals("opus", ClaudeModels.normalize("Claude Opus 5.5"))
+        assertEquals("sonnet", ClaudeModels.normalize("claude  sonnet 4"))
+    }
+
+    @Test
+    fun `already valid ids unchanged`() {
+        assertEquals("sonnet", ClaudeModels.normalize("sonnet"))
+        assertEquals("claude-haiku-5-5-20251001", ClaudeModels.normalize("claude-haiku-5-5-20251001"))
+        assertEquals("sonnet[1m]", ClaudeModels.normalize("sonnet[1m]"))
+        assertEquals("Sonnet", ClaudeModels.normalize("Sonnet"))
+    }
+
+    @Test
+    fun `unknown spaced name hyphenates`() {
+        assertEquals("my-custom-model", ClaudeModels.normalize("My  Custom   Model"))
+        assertEquals("x", ClaudeModels.normalize("  x  "))
     }
 }
 
@@ -190,6 +217,25 @@ class ClaudeProviderTest {
     @Test
     fun `listModels returns configured`() = runBlocking {
         assertEquals(listOf("sonnet", "opus", "haiku"), ClaudeProvider().listModels().map { it.ref.modelId })
+    }
+
+    @Test
+    fun `listModels normalizes and dedups`() = runBlocking {
+        val p = ClaudeProvider(models = listOf("Sonnet 5.5", "sonnet", "Claude Opus 5.5", "My Custom Model"))
+        assertEquals(listOf("sonnet", "opus", "my-custom-model"), p.listModels().map { it.ref.modelId })
+    }
+
+    @Test
+    fun `chat normalizes model in argv`() {
+        val rec = Files.createTempDirectory("stewart-rec-").toFile()
+        fakeFile.setExecutable(true)
+        runBlocking {
+            ClaudeProvider(cliPath = fake, extraEnv = mapOf(
+                "FAKE_RECORD" to rec.absolutePath,
+                "FAKE_FIXTURE" to "$fixtures/auth-stream.json",
+            )).chat(req().copy(model = "Sonnet 5.5")).toList()
+        }
+        assertTrue(File(rec, "argv-1").readText().contains("[--model]\n[sonnet]"))
     }
 
     @Test

@@ -50,7 +50,7 @@ class ClaudeProvider(
     override fun supportsNativeTools(model: String): Boolean = false
 
     override suspend fun listModels(): List<ModelInfo> =
-        models.map { ModelInfo(ModelRef(id, it), it) }
+        models.map { ClaudeModels.normalize(it) }.distinct().map { ModelInfo(ModelRef(id, it), it) }
 
     private fun childEnv(): Map<String, String> =
         (System.getenv() + extraEnv).toMutableMap().apply {
@@ -79,7 +79,7 @@ class ClaudeProvider(
                 cliPath, "-p", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--tools", "", "--safe-mode",
                 "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands",
-                "--model", request.model, "--system-prompt-file", promptFile.absolutePath,
+                "--model", ClaudeModels.normalize(request.model), "--system-prompt-file", promptFile.absolutePath,
             )
             val pb = ProcessBuilder(argv)
             pb.environment().clear()

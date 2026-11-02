@@ -2,6 +2,7 @@ package com.adb.stewart.settings
 
 import com.adb.stewart.agents.AgentRole
 import com.adb.stewart.provider.ModelRef
+import com.adb.stewart.provider.claude.ClaudeModels
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
@@ -49,6 +50,25 @@ class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(St
 
     internal fun migrateLegacy(file: Path): Boolean =
         LegacyMigration.migrateState(state, State(), file, LegacyMigration.SETTINGS_COMPONENT, ::loadState)
+
+    override fun loadState(state: State) {
+        super.loadState(state)
+        migrateClaudeModels()
+    }
+
+    internal fun migrateClaudeModels() {
+        state.claudeModels = state.claudeModels
+            .map { ClaudeModels.normalize(it) }.distinct().toMutableList()
+        fun migrateRef(value: String?): String? {
+            val ref = ModelRef.decode(value) ?: return value
+            if (ref.providerId != "claude") return value
+            return ModelRef("claude", ClaudeModels.normalize(ref.modelId)).encode()
+        }
+        state.chatModel = migrateRef(state.chatModel)
+        state.plannerModel = migrateRef(state.plannerModel)
+        state.executorModel = migrateRef(state.executorModel)
+        state.workerModel = migrateRef(state.workerModel)
+    }
 
     val effectiveClaudeModels: List<String>
         get() = state.claudeModels.ifEmpty { DEFAULT_CLAUDE_MODELS }
