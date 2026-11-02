@@ -17,9 +17,11 @@ import com.aijb.assistant.ui.RolesPanel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import java.awt.BorderLayout
 import java.awt.event.KeyEvent
 import javax.swing.JButton
 import javax.swing.JCheckBox
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -218,6 +220,32 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("m2", (panel.modelCombo.selectedItem as ModelInfo).ref.modelId)
     }
 
+    fun `test user message is right aligned and tinted`() {
+        val panel = newPanel(fakeProvider())
+        panel.addMessage("user", "hi")
+        panel.addMessage("assistant", "yo")
+        val (user, assistant) = panel.messageAreas()
+        assertEquals("hi", user.text)
+        assertEquals("assistant: yo", assistant.text)
+        val userRow = user.parent as JPanel
+        assertSame(user, (userRow.layout as BorderLayout).getLayoutComponent(BorderLayout.EAST))
+        assertFalse(user.background == assistant.background)
+    }
+
+    fun `test non user messages keep prefix, centered and untinted`() {
+        val panel = newPanel(fakeProvider())
+        panel.addMessage("system", "a")
+        panel.addMessage("error", "b")
+        val areas = panel.messageAreas()
+        assertEquals(listOf("system: a", "error: b"), areas.map { it.text })
+        areas.forEach {
+            val layout = (it.parent as JPanel).layout as BorderLayout
+            assertSame(it, layout.getLayoutComponent(BorderLayout.CENTER))
+            assertNull(layout.getLayoutComponent(BorderLayout.EAST))
+            assertEquals(com.intellij.util.ui.UIUtil.getPanelBackground(), it.background)
+        }
+    }
+
     fun `test send streams and toggles button`() {
         val panel = newPanel(fakeProvider())
         panel.inputArea.text = "hello"
@@ -225,7 +253,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         pump()
         assertTrue(pumpUntil { panel.sendButton.text == "Send" })
         val texts = panel.messageAreas().map { it.text }
-        assertEquals("user: hello", texts[0])
+        assertEquals("hello", texts[0])
         assertEquals("assistant: hi", texts[1])
         assertTrue(panel.statusLabel.text.startsWith("tokens:"))
         assertEquals("", panel.inputArea.text)
@@ -727,7 +755,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Waiting for your answer", panel.statusLabel.text)
         panel.questionButtons[0].doClick()
         assertNull(panel.questionPanel)
-        assertTrue(panel.messageAreas().any { it.text == "user: use pg" })
+        assertTrue(panel.messageAreas().any { it.text == "use pg" })
         assertTrue(pumpUntil { panel.sendButton.text == "Send" })
     }
 
@@ -743,7 +771,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.questionField!!.text = "use pg please"
         panel.questionAnswerButton!!.doClick()
         assertNull(panel.questionPanel)
-        assertTrue(panel.messageAreas().any { it.text == "user: use pg please" })
+        assertTrue(panel.messageAreas().any { it.text == "use pg please" })
     }
 
     fun `test stop while a question is open removes it and cancels`() {

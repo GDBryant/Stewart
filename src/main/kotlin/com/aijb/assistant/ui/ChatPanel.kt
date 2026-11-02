@@ -30,6 +30,7 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
+import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.awt.RelativePoint
@@ -39,6 +40,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Dimension
 import java.awt.Point
 import java.awt.Rectangle
@@ -597,20 +599,38 @@ class ChatPanel @JvmOverloads constructor(
         clearChoice()
     }
 
-    internal fun messageAreas(): List<JTextArea> =
-        messagesPanel.components.filterIsInstance<JTextArea>()
+    private class MessageRow : JPanel(BorderLayout()) {
+        override fun getMaximumSize() = Dimension(Int.MAX_VALUE, preferredSize.height)
+    }
 
-    private fun addMessage(role: String, content: String): JTextArea {
-        val area = JTextArea("$role: $content")
+    internal fun messageAreas(): List<JTextArea> =
+        messagesPanel.components.flatMap { c ->
+            when (c) {
+                is JTextArea -> listOf(c)
+                is MessageRow -> c.components.filterIsInstance<JTextArea>()
+                else -> emptyList()
+            }
+        }
+
+    internal fun addMessage(role: String, content: String): JTextArea {
+        val isUser = role == "user"
+        val area = JTextArea(if (isUser) content else "$role: $content")
         area.isEditable = false
         area.lineWrap = true
         area.wrapStyleWord = true
         area.font = UIUtil.getLabelFont()
-        area.background = UIUtil.getPanelBackground()
+        area.background = if (isUser) USER_BUBBLE_BG else UIUtil.getPanelBackground()
         area.border = JBUI.Borders.empty(4, 8)
-        area.maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
-        area.alignmentX = LEFT_ALIGNMENT
-        messagesPanel.add(area)
+        val row = MessageRow()
+        row.isOpaque = false
+        row.alignmentX = LEFT_ALIGNMENT
+        if (isUser) {
+            row.border = JBUI.Borders.emptyLeft(60)
+            row.add(area, BorderLayout.EAST)
+        } else {
+            row.add(area, BorderLayout.CENTER)
+        }
+        messagesPanel.add(row)
         refreshMessages()
         return area
     }
@@ -989,6 +1009,7 @@ class ChatPanel @JvmOverloads constructor(
     }
 
     private companion object {
+        val USER_BUBBLE_BG = JBColor(Color(0xDCE9FF), Color(0x2F4468))
         const val TOOL_OUTPUT_LINES = 8
         const val TOOL_OUTPUT_CHARS = 2000
     }
