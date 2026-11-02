@@ -8,7 +8,7 @@ plugins {
     alias(libs.plugins.kover)
 }
 
-group = "com.aijb.assistant"
+group = "com.adb.stewart"
 version = "0.1.0"
 
 repositories {
@@ -36,7 +36,7 @@ kotlin {
 
 intellijPlatform {
     pluginConfiguration {
-        id = "com.aijb.assistant"
+        id = "com.adb.stewart"
         name = "AIJB Assistant"
         version = project.version.toString()
         description = "Chat with local Ollama models and remote providers inside the IDE."

@@ -1,0 +1,115 @@
+package com.adb.stewart
+
+import com.adb.stewart.provider.ModelRef
+import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.TokenCount
+import com.intellij.util.xmlb.XmlSerializer
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class AijbSettingsTest {
+
+    @Test
+    fun `defaults`() {
+        val s = AijbSettings.State()
+        assertEquals("http://localhost:11434", s.ollamaUrl)
+        assertEquals("", s.aifBaseUrl)
+        assertEquals(emptyList<String>(), s.aifModels)
+        assertEquals("claude", s.claudeCliPath)
+        assertEquals(emptyList<String>(), s.claudeModels)
+        assertEquals(emptyMap<String, String>(), s.toolPathOverrides)
+        assertEquals(false, s.multiModel)
+        assertNull(s.chatModel)
+        assertNull(s.plannerModel)
+        assertNull(s.executorModel)
+        assertNull(s.workerModel)
+        assertEquals(80000, s.autoCompactTokens)
+        assertEquals(false, s.debugLogEnabled)
+        assertEquals("./log/debug_logs/", s.debugLogFolder)
+        assertEquals(7, s.debugLogRetentionDays)
+        val settings = AijbSettings()
+        assertEquals(listOf("sonnet", "opus", "haiku"), settings.effectiveClaudeModels)
+        settings.state.claudeModels = mutableListOf("opus")
+        assertEquals(listOf("opus"), settings.effectiveClaudeModels)
+    }
+
+    @Test
+    fun `state round trip preserves every field`() {
+        val s = AijbSettings.State()
+        s.ollamaUrl = "http://host:1"
+        s.aifBaseUrl = "https://aif.example/v1"
+        s.aifModels = mutableListOf("a", "b")
+        s.claudeCliPath = "/opt/claude"
+        s.claudeModels = mutableListOf("opus")
+        s.toolPathOverrides = mutableMapOf("aif/x" to "NATIVE", "ollama/y" to "SHIM")
+        s.multiModel = true
+        s.chatModel = "aif/a"
+        s.plannerModel = "claude/opus"
+        s.executorModel = "ollama/q"
+        s.workerModel = "ollama/w"
+        s.autoCompactTokens = 120000
+        s.debugLogEnabled = true
+        s.debugLogFolder = "/tmp/aijb/debug/"
+        s.debugLogRetentionDays = 30
+        val element = XmlSerializer.serialize(s)
+        val restored = XmlSerializer.deserialize(element, AijbSettings.State::class.java)
+        assertEquals(s.ollamaUrl, restored.ollamaUrl)
+        assertEquals(s.aifBaseUrl, restored.aifBaseUrl)
+        assertEquals(s.aifModels, restored.aifModels)
+        assertEquals(s.claudeCliPath, restored.claudeCliPath)
+        assertEquals(s.claudeModels, restored.claudeModels)
+        assertEquals(s.toolPathOverrides, restored.toolPathOverrides)
+        assertEquals(s.multiModel, restored.multiModel)
+        assertEquals(s.chatModel, restored.chatModel)
+        assertEquals(s.plannerModel, restored.plannerModel)
+        assertEquals(s.executorModel, restored.executorModel)
+        assertEquals(s.workerModel, restored.workerModel)
+        assertEquals(s.autoCompactTokens, restored.autoCompactTokens)
+        assertEquals(s.debugLogEnabled, restored.debugLogEnabled)
+        assertEquals(s.debugLogFolder, restored.debugLogFolder)
+        assertEquals(30, restored.debugLogRetentionDays)
+        val viaLoad = AijbSettings().also { it.loadState(restored) }
+        assertEquals("aif/a", viaLoad.state.chatModel)
+        assertEquals(true, viaLoad.state.debugLogEnabled)
+        assertEquals("/tmp/aijb/debug/", viaLoad.state.debugLogFolder)
+    }
+
+    @Test
+    fun `model ref encode decode`() {
+        assertEquals("ollama/m", ModelRef("ollama", "m").encode())
+        assertEquals(ModelRef("ollama", "hf.co/u/m:q4"), ModelRef.decode("ollama/hf.co/u/m:q4"))
+        assertEquals(ModelRef("aif", "x"), ModelRef.decode("aif/x"))
+        assertNull(ModelRef.decode(null))
+        assertNull(ModelRef.decode(""))
+        assertNull(ModelRef.decode("   "))
+        assertNull(ModelRef.decode("noslash"))
+        assertNull(ModelRef.decode("/x"))
+        assertNull(ModelRef.decode("x/"))
+    }
+
+    @Test
+    fun `token count parse`() {
+        assertEquals(80000, TokenCount.parse("80000"))
+        assertEquals(80000, TokenCount.parse("80k"))
+        assertEquals(80000, TokenCount.parse("80K"))
+        assertEquals(80000, TokenCount.parse(" 80k "))
+        assertEquals(1500, TokenCount.parse("1.5k"))
+        assertNull(TokenCount.parse("0"))
+        assertNull(TokenCount.parse("-5"))
+        assertNull(TokenCount.parse("80kb"))
+        assertNull(TokenCount.parse("k"))
+        assertNull(TokenCount.parse(""))
+        assertNull(TokenCount.parse("1.2345k"))
+        assertNull(TokenCount.parse("99999999999"))
+    }
+
+    @Test
+    fun `token count format round trips`() {
+        assertEquals("80k", TokenCount.format(80000))
+        assertEquals("12345", TokenCount.format(12345))
+        listOf(80000, 120000, 1, 999, 12345).forEach {
+            assertEquals(it, TokenCount.parse(TokenCount.format(it)))
+        }
+    }
+}
