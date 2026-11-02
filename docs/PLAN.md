@@ -87,7 +87,7 @@ Transport: **Claude Code CLI subprocess**, passed the M1 feasibility gate on CLI
 ### Persistence
 - Settings: `PersistentStateComponent` (provider URLs, per-role models, CLI path, shim toggles).
 - Secrets: AIF API key in `PasswordSafe`, not in project files.
-- Chat history: per-project JSON in the plugin state dir (not `.idea/`, which is often committed). Keep diagnostic logs free of credentials; provide history deletion and a retention setting.
+- Chat history: per-project JSON in the plugin state dir (not `.idea/`, which is often committed). Old AIJB settings, permissions, API key and history are migrated on first load (`docs/RENAME_PLAN.md`). Keep diagnostic logs free of credentials; provide history deletion and a retention setting.
 - Network: HTTP providers use the IDE proxy and certificate settings for corporate networks; configure and validate the subprocess network environment separately, since the CLI does not inherit IDE HTTP settings automatically.
 
 ## Milestones
@@ -145,7 +145,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 ### 8. Hardening
 - Cancellation end-to-end (stream + subprocess + tool run), error surfacing, token/cost display, chat-history persistence.
 - Cancellation: `ToolLoop` and `Orchestrator` throw `RunCancelledException` (a `CancellationException`) carrying the partial transcript; every unanswered tool call gets a result (`Outcome uncertain: cancelled; side effects unknown` for the one in flight, `Not executed` for the rest) and `ChatSession` appends `[Cancelled by user]`. Approval dialogs are modeless (M9) and close when the run is cancelled.
-- History: one JSON file per project under `<system dir>/aijb-assistant/history/`, atomic writes, system messages never stored; `historyRetentionDays` setting (default 30, `0` = do not save); corrupt/unknown-version files are set aside as `.corrupt`; "Clear" in the chat header wipes memory, usage and file.
+- History: one JSON file per project under `<system dir>/stewart/history/`, atomic writes, system messages never stored; `historyRetentionDays` setting (default 30, `0` = do not save); corrupt/unknown-version files are set aside as `.corrupt`; "Clear" in the chat header wipes memory, usage and file.
 - Usage/cost: token usage is summed across model turns, compaction requests and failed/cancelled runs, and across requests (session totals shown and persisted). Cost is shown only when the provider reports it (Claude CLI `total_cost_usd`); Ollama/AIF show `cost n/a`, never `$0`. No local price table.
 - Errors: provider/loop failure codes map to an actionable hint (`ErrorHints`) shown as an error message in the chat.
 - Done when: cancellation stops scheduling, closes streams and terminates owned process trees where supported; atomic IDE edits remain undoable, and completed or uncertain command side effects are reported rather than claimed to be rolled back.
@@ -189,7 +189,7 @@ Per-item handoff plans: `docs/HANDOFF.md`.
 
 **Qwen/AIF edit calls and write verification — resolved 2026-10-31.** `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3-8-27b` through preview, approval and post-write read-back, on SHIM and NATIVE paths; approved content verified on disk on both. The reported incompatibility did not reproduce. `EditTool.applyChange` now re-reads the saved file and compares it with the approved `FileChange.after`; a mismatch or missing file fails with uncertain side effects rather than success, and there is no retry. If a future live run surfaces an unmapped Qwen call format, fail closed per the rule below; a CLI write remains a separate, explicitly approved `RunTerminal` action, never an automatic fallback.
 
-**Visual Studio support — resolved 2026-10-31 as feasibility.** Target chosen: Visual Studio Code (not Visual Studio 2022). Decision and plan: `docs/VISUAL_STUDIO.md` — go, as a separate TypeScript repository (`aijb-vscode`) reusing this repo's recorded fixtures as a conformance corpus, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. Nothing in this repository changes; Scope still excludes non-JetBrains IDEs, and the verifier results here do not cover any VS Code build.
+**Visual Studio support — resolved 2026-10-31 as feasibility.** Target chosen: Visual Studio Code (not Visual Studio 2022). Decision and plan: `docs/VISUAL_STUDIO.md` — go, as a separate TypeScript repository (`stewart-vscode`) reusing this repo's recorded fixtures as a conformance corpus, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. Nothing in this repository changes; Scope still excludes non-JetBrains IDEs, and the verifier results here do not cover any VS Code build.
 
 **Nemotron model investigation.** Resolved: Nemotron on the AIF account is `nemotron-3-embed-8b`, embeddings only (HTTP 404 on `/chat/completions`). No chat/tool route exists; nothing to implement unless the account adds a chat Nemotron model.
 

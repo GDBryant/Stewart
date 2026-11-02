@@ -39,14 +39,14 @@ The command is unparseable (always prompts) when it contains:
 
 - **Just once** — approve this call only.
 - **Allow for this chat** — stored in `SessionGrants` (memory only); cleared with the conversation and never persisted.
-- **Always allow in this project** — persisted in `ProjectPermissions` (app-level `aijb-permissions.xml`, `SettingsCategory.SYSTEM`, excluded from Settings Sync).
+- **Always allow in this project** — persisted in `ProjectPermissions` (app-level `stewart-permissions.xml`, `SettingsCategory.SYSTEM`, excluded from Settings Sync).
 
 The command dialog offers two scopes: "These programs" (the ungranted programs of the parsed command; disabled when unparseable) and "All shell commands" (the `COMMANDS` category). File and generic dialogs grant their category (`EDITS` / `OTHER`).
 
 ## Revoke paths
 
 - Bypass popup (chat header): uncheck a category, "Clear chat grants", "Manage…" opens the project page
-- Project settings page (Settings → AIJB Assistant under project): ticks, program list, chat grants view, "Reset all projects"
+- Project settings page (Settings → Stewart under project): ticks, program list, chat grants view, "Reset all projects"
 - `/permissions` — list; `/permissions clear` — chat grants; `/permissions revoke <edits|commands|other|all|program>` — always + chat grants; `/permissions reset` — remove this project's entry
 
 ## Migration
@@ -59,4 +59,6 @@ Every auto-approved call writes a `DebugLogSink` record (`auto-approve`, tool na
 
 ## Storage
 
-Application-level `aijb-permissions.xml` maps `project.locationHash` → path, ticks, programs. It lives in the IDE config dir but is `SettingsCategory.SYSTEM`, so Settings Sync and export skip it — a location hash is meaningless on another machine.
+Application-level `stewart-permissions.xml` maps `project.locationHash` → path, ticks, programs. It lives in the IDE config dir but is `SettingsCategory.SYSTEM`, so Settings Sync and export skip it — a location hash is meaningless on another machine.
+
+Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `stewart-permissions.xml` (old file kept); see `docs/RENAME_PLAN.md`.

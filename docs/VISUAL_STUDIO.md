@@ -2,7 +2,7 @@
 
 Status: feasibility only, decision recorded 2026-10-31. **Target chosen: Visual Studio Code** (extension, TypeScript, cross-platform). Visual Studio 2022 (VSIX/.NET, Windows-only) is out of scope. Nothing in this repository changes; `docs/PLAN.md` Scope keeps non-JetBrains IDEs out until a separate project exists.
 
-Recommendation: **go**, as a separate repository (`aijb-vscode`) written in TypeScript, reusing this repo's provider fixtures as a conformance corpus. Not a port of this codebase.
+Recommendation: **go**, as a separate repository (`stewart-vscode`) written in TypeScript, reusing this repo's provider fixtures as a conformance corpus. Not a port of this codebase.
 
 ## 1. Target
 

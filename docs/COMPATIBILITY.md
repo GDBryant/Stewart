@@ -4,6 +4,7 @@
 
 | Setting | Value |
 |---------|-------|
+| Plugin id / name | `com.adb.stewart` / Stewart (vendor ADB; was `com.aijb.assistant` / AIJB Assistant) |
 | `since-build` | 251 |
 | `until-build` | unset (open) |
 | Declared dependency | `com.intellij.modules.platform` only |
@@ -41,6 +42,7 @@ Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 r
 
 `./gradlew verifyPlugin` — last run after commit `5fe43d3`: IDEA 2025.1 and
 PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
+To be refreshed after the Stewart rename (new plugin id `com.adb.stewart`, v0.2.0).
 
 ## Manual smoke (2026-10-26)
 

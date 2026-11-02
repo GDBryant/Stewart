@@ -1,11 +1,11 @@
 # Debug Logging
 
 Opt-in record of every model call, for diagnosing provider and prompt problems without a debugger.
-Implemented by `com.aijb.assistant.debug.DebugLogSink`.
+Implemented by `com.adb.stewart.debug.DebugLogSink`.
 
 ## Enabling
 
-Settings → Tools → AIJB Assistant:
+Settings → Tools → Stewart (settings stored in `stewart.xml`; old AIJB settings are migrated on first load, see `docs/RENAME_PLAN.md`):
 
 - **Debug log: record every model call (Ollama, AIF, Claude CLI)** — master switch, off by default.
 - **Debug log folder** — defaults to `./log/debug_logs/`. Relative paths resolve under the IDE log
@@ -35,7 +35,7 @@ treat the files as sensitive.
 
 ## Files and retention
 
-- Written on a single background thread (`AIJB-DebugLogSink-Writer`) through a reused buffered
+- Written on a single background thread (`Stewart-DebugLogSink-Writer`) through a reused buffered
   writer, flushed per line; the IDE/EDT thread is never touched.
 - The target folder is resolved when a line is queued, so changing the setting cannot split one
   call across folders.
@@ -47,7 +47,7 @@ treat the files as sensitive.
   Foreign or unreadable files are kept.
 - Rotation: a file reaching 50 MB (soft cap) is renamed to the first free `yyyy-MM-dd.N.log`
   (`.1` oldest, base file newest; order numerically). Rotation happens only while holding the
-  exclusive lock on `<folder>/.aijb-debug.lock`; if another IDE instance holds it, the sink keeps
+  exclusive lock on `<folder>/.stewart-debug.lock`; if another IDE instance holds it, the sink keeps
   appending. A writer whose file was renamed away reopens a fresh base file. A day's chunks are
   pruned together.
 - A shutdown hook flushes and closes the open file.

@@ -103,7 +103,7 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 - Request: when `request.tools` is non-empty, send `tools` in OpenAI function shape (same builder as `AifProvider.kt:96`). Ollama has no `tool_choice`; if `toolChoice` is `Required`/`Specific` and the model returns no call, let the existing `toolPolicyError` path report it. `parallel_tool_calls` is ignored.
 - Response: `OllamaNdjson.parseLine` emits `ProviderEvent.NativeToolCalls` when `message.tool_calls` is present; `arguments` object → serialised string for `RawToolCall`; synthesise ids `call_<n>` when absent (Ollama omits them), unique within the turn. Tool results go back as `role: "tool"` messages with `tool_call_id` where supported; verify the field name the server accepts.
 - HTTP 400 "does not support tools" → `Failed(code = "native_tools_unsupported")`, no retry on the shim in the same turn (contract). The user may set a `SHIM` override.
-- Add `"ollama"` to `ToolPathResolver.NATIVE_CAPABLE`: `AijbConfigurable.kt:80` rejects a `NATIVE` override for any provider outside that set, so without this the per-model override cannot be set. Update `ToolPathResolverTest`.
+- Add `"ollama"` to `ToolPathResolver.NATIVE_CAPABLE`: `StewartConfigurable.kt:80` rejects a `NATIVE` override for any provider outside that set, so without this the per-model override cannot be set. Update `ToolPathResolverTest`.
 
 **Tests.** `OllamaNdjsonTest`: tool_calls line (object arguments, missing id, two calls, `done` on a later line), malformed tool_calls (no name) → `Failed`, 400 body → `native_tools_unsupported`. `OllamaProviderTest` (fake `HttpClient`): payload contains `tools` only when offered; capability cache true/false/unknown. `ToolCallingProviderTest`: native path drives the fake tool; shim unchanged for a non-capable model. `ToolsE2ETest`: native read + approved edit + approved command with a fake Ollama (closes the M5 "each path" matrix together with AIF native). Live: `OllamaLiveTest` native variant gated by `OLLAMA_LIVE` and `OLLAMA_TOOL_MODEL`.
 
@@ -112,7 +112,7 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 ---
 
 ## 5. Visual Studio support — DONE (2026-10-31)
-Written up in `docs/VISUAL_STUDIO.md`. The user chose Visual Studio Code (not Visual Studio 2022); recommendation is go, as a separate TypeScript repo (`aijb-vscode`) reusing this repo's recorded fixtures, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. No code here; Scope still excludes non-JetBrains IDEs. The original feasibility questions are kept below for reference.
+Written up in `docs/VISUAL_STUDIO.md`. The user chose Visual Studio Code (not Visual Studio 2022); recommendation is go, as a separate TypeScript repo (`stewart-vscode`) reusing this repo's recorded fixtures, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. No code here; Scope still excludes non-JetBrains IDEs. The original feasibility questions are kept below for reference.
 Visual Studio is not a JetBrains host: the IntelliJ Platform ZIP, `plugin.xml`, VFS/PSI, `WriteCommandAction`, `PasswordSafe` and the Swing tool window do not exist there. This item ends in a written plan and a go/no-go, not code in this repo.
 
 **Questions to answer** (write to `docs/VISUAL_STUDIO.md`):

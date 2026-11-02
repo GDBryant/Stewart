@@ -27,11 +27,11 @@
 | **G3** | Claude `--effort` is **not a documented CLI flag**; passing an unknown flag makes the CLI exit non-zero and the whole turn fails. | argv built at `ClaudeProvider.kt:76-81`; any extra arg aborts the process. | Feature-detect once per CLI path (`claude --help` probe, cached), pass the flag only if present, otherwise no-op. Live-test gate: `CLAUDE_LIVE=1` run before shipping. |
 | **G4** | Provider effort support is model-specific, not provider-wide: AIF `reasoning_effort` and Ollama `think` are rejected/ignored by non-reasoning models. | Ollama capability probe already exists (`OllamaProvider.kt:101-118`, `capabilities` array); AIF has no capability list. | Ollama: send `think` only when `capabilities` contains `"thinking"`. AIF: send `reasoning_effort` only for models listed in a new optional setting (`aifReasoningModels`), empty by default → never sent. Unknown → omit the field (safe). |
 | **G5** | Exclusivity is planned as UI-only, but routing still lets a disabled selector win: the main picker overwrites `plannerModel`, and unset roles fall back to the chat selection. | `ChatPanel.kt:209` (`if (s.multiModel) s.plannerModel = ref`); `RoleRouting.kt:32` (`configured[role] ?: chatRef`). | Delete the overwrite; in multi mode seed each unset role from `chatModel` **once** when the toggle turns on, then require an explicit ref per role and fail with `Unresolved("No model selected for planner")` instead of falling back. |
-| **G6** | `RolesPanel` writes settings only when the popup closes, so the main combo cannot re-enable live while the popup is open. | `ChatPanel.kt:212-224` (`apply()` in `onClosed` only); `RolesPanel.kt:50,102-107`. | Add `RolesPanel.onMultiModelChanged: (Boolean) -> Unit` fired on checkbox toggle: writes `s.multiModel`, broadcasts `AijbSettings.TOPIC`, and `ChatPanel` re-runs `updateSelectorState()`. Popup close still applies the three model refs. |
+| **G6** | `RolesPanel` writes settings only when the popup closes, so the main combo cannot re-enable live while the popup is open. | `ChatPanel.kt:212-224` (`apply()` in `onClosed` only); `RolesPanel.kt:50,102-107`. | Add `RolesPanel.onMultiModelChanged: (Boolean) -> Unit` fired on checkbox toggle: writes `s.multiModel`, broadcasts `StewartSettings.TOPIC`, and `ChatPanel` re-runs `updateSelectorState()`. Popup close still applies the three model refs. |
 | **G7** | `/model` cannot address a role, but in multi mode the single picker is disabled. | `SlashCommands.kt:187` + `CommandContext.selectModel(model)` (`SlashCommands.kt:25`). | `/model` with no args in multi mode lists the three bindings; `/model <role> <provider/model>` sets one role. Requires `CommandContext.selectRoleModel(role, model)` and `roleModels()`. Reject role args in single mode and bare model args in multi mode. |
-| **G8** | Settings surface is incomplete: the plan names only `ChatPanel`/`RolesPanel`, but a persisted default effort also needs the settings dialog, and mode changes need a broadcast. | `AijbConfigurable.kt` has no effort row; `AijbSettings.TOPIC` is broadcast only from `apply()` (`AijbConfigurable.kt:202-203`). | Add an "Effort" combo to `AijbConfigurable` (`row("Agent effort:")`), include it in `isModified`/`reset`/`apply`, and broadcast `TOPIC` from `RolesPanel.onMultiModelChanged`. |
+| **G8** | Settings surface is incomplete: the plan names only `ChatPanel`/`RolesPanel`, but a persisted default effort also needs the settings dialog, and mode changes need a broadcast. | `StewartConfigurable.kt` has no effort row; `StewartSettings.TOPIC` is broadcast only from `apply()` (`StewartConfigurable.kt:202-203`). | Add an "Effort" combo to `StewartConfigurable` (`row("Agent effort:")`), include it in `isModified`/`reset`/`apply`, and broadcast `TOPIC` from `RolesPanel.onMultiModelChanged`. |
 | **G9** | Hardcoded limit strings leak into user-visible errors. | `ChatSession.kt:264`: `"Stopped: tool-turn limit reached (25)"`. | Interpolate the resolved limit; same for orchestrator limit messages. |
-| **G10** | Per-role effort needs a storage key and an inheritance rule; the plan says "optional per-role override" without a format. | `AijbSettings.State` (`AijbSettings.kt:20-36`). | `var effort by string("MEDIUM")` and `var roleEffort by map<String, String>()` keyed by `AgentRole.name`; absent/blank = inherit global. Overrides are honoured only when `multiModel` is on. |
+| **G10** | Per-role effort needs a storage key and an inheritance rule; the plan says "optional per-role override" without a format. | `StewartSettings.State` (`StewartSettings.kt:20-36`). | `var effort by string("MEDIUM")` and `var roleEffort by map<String, String>()` keyed by `AgentRole.name`; absent/blank = inherit global. Overrides are honoured only when `multiModel` is on. |
 | **G11** | Mid-run changes are undefined: mutating limits while an `Orchestrator` runs would be read per level. | `Orchestrator` captures `limits` at construction (`Orchestrator.kt:268`), but `ChatSession` builds them per run (`ChatSession.kt:392-405`). | Effort applies to the **next** run only; `/effort` is `allowedWhileRunning = false`. Documented in `/help` output. |
 | **G12** | Effort interacts with compaction; higher turns means bigger context. | `LoopLimits.compactAtTokens` from `autoCompactTokens` (`ChatSession.kt:238`), `maxContextChars` (`ToolLoop.kt:51`). | Compaction thresholds stay **fixed** (user-owned setting), not effort-scaled. Explicitly out of scope so token cost stays predictable. |
 | **G13** | Existing tests assert the literal numbers being replaced. | `LoopLimits` defaults (`ToolLoop.kt:47-55`), orchestrator limit tests, `SlashCommands.help()` assertions, `RolesPanel`/`ChatPanel` tests. | Treat as part of the change: update the literals, add positive+negative tests per the repo rule, keep `koverVerify` green. |
@@ -66,12 +66,12 @@ object EffortPresets {
 
 Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChars`, `maxToolOutputChars`, `maxContextChars`, `compactAtTokens`, `maxTruncationRetries`.
 
-### 3.2 Settings (`AijbSettings.kt`)
+### 3.2 Settings (`StewartSettings.kt`)
 
 - `var effort by string("MEDIUM")` — global default; unknown value falls back to `MEDIUM`.
 - `var roleEffort by map<String, String>()` — key `AgentRole.name`, value `EffortLevel` name; absent = inherit.
 - `fun effortFor(role: AgentRole): EffortLevel` — returns `roleEffort[role.name]` when `multiModel` and set, else global.
-- New fields need no migration (BaseState defaults apply); existing `aijb-assistant.xml` files keep working.
+- New fields need no migration (BaseState defaults apply); existing `stewart.xml` files keep working.
 
 ### 3.3 UI
 
@@ -88,7 +88,7 @@ Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChar
 - Per-role effort combo per row (`Planner effort`, `Executor effort`, `Worker effort`) with items `inherit` + 4 levels; enabled only when the multi checkbox is on; `apply()` writes `roleEffort`.
 - Keep the `(chat selection)` item **only** for the seeding path; in multi mode an unset role is a routing error (G5).
 
-**`AijbConfigurable`**
+**`StewartConfigurable`**
 - `row("Agent effort:")` combo + `roleEffort`-free (per-role stays in `RolesPanel`), wired into `isModified`/`reset`/`apply` (G8).
 
 **`SlashCommands`**
@@ -102,7 +102,7 @@ Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChar
 - `ChatSession.send` (`ChatSession.kt:210-241`): single mode builds `LoopLimits` from `EffortPresets.loopLimits(effort, autoCompactTokens())` instead of the literal 25; turn-limit message interpolates the limit (G9).
 - `ChatSession.runOrchestrator` (`ChatSession.kt:392-405`): pass `limits = EffortPresets.orchestratorLimits(effort)`; `Orchestrator` needs no signature change (already accepts `limits`).
 - `Orchestrator.runLevel` (`Orchestrator.kt:541-542`): keep `maxModelTurns = limits.maxLevelModelTurns`; per-role effort may later override per level — out of scope for M11 (single global + per-role preset only).
-- `ChatSession.effort`/`roleEffort` seams: `var effort: () -> EffortLevel` and `var effortForRole: (AgentRole) -> EffortLevel` (same pattern as `multiModel`, `ChatSession.kt:77`) so tests can inject without a real `AijbSettings`.
+- `ChatSession.effort`/`roleEffort` seams: `var effort: () -> EffortLevel` and `var effortForRole: (AgentRole) -> EffortLevel` (same pattern as `multiModel`, `ChatSession.kt:77`) so tests can inject without a real `StewartSettings`.
 
 ### 3.5 Provider forwarding
 
@@ -120,7 +120,7 @@ Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChar
 |---|---|---|
 | **M11.1** | `EffortLevel`, `EffortPresets`, settings fields, `effortFor`, unit tests for every preset and unknown-value fallback | `./gradlew test` |
 | **M11.2** | Exclusive selectors: `ChatPanel.updateSelectorState`, remove `plannerModel` overwrite, `RolesPanel.onMultiModelChanged` + live enable, `RoleRouting` no-fallback, `/model <role>` | tests for both modes + routing failure |
-| **M11.3** | Effort UI + `/effort` + status line + `AijbConfigurable` row | tests + `./gradlew verifyPlugin` |
+| **M11.3** | Effort UI + `/effort` + status line + `StewartConfigurable` row | tests + `./gradlew verifyPlugin` |
 | **M11.4** | Provider forwarding (`ChatRequest.effort`, shim copy, AIF/Ollama/Claude gates) + live smoke | tests + `OLLAMA_LIVE`/`AIF_LIVE`/`CLAUDE_LIVE` where available |
 
 ### 3.7 Test matrix (positive + negative, per repo rule)
@@ -158,14 +158,14 @@ Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChar
 2. **PSI symbol tools:** `FindSymbol`, `FindUsages`, `FileOutline` under read actions, complementing the linear VFS `Search` (`ProjectTools.kt:134`).
 3. **Multi-hunk `ApplyPatch`:** `EditFile` replaces one `old_string` (`ProjectTools.kt:343`); add an atomic multi-edit with one diff preview and one undoable `WriteCommandAction`.
 4. **Auto-loaded memory:** inject bounded root `AGENTS.md` + `docs/ai_docs/MEMORY.md` into the per-request system prompt; add `/memory` to view/edit durable facts.
-5. **Editor actions & `@`-mentions:** register "Add Selection to AIJB Chat", "Explain Code", "Fix Problem" in `plugin.xml`; `@file`, `@selection`, `@problems` completion in the input area.
+5. **Editor actions & `@`-mentions:** register "Add Selection to Stewart Chat", "Explain Code", "Fix Problem" in `plugin.xml`; `@file`, `@selection`, `@problems` completion in the input area.
 
 ### P2.5 — Provider Resilience & Enterprise Readiness
 1. **Claude CLI proxy/cert env:** bridge `JdkProxyProvider` + `CertificateManager` into `ClaudeProvider.childEnv()` (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`).
 2. **Streaming `RunTerminal`:** stream stdout/stderr chunks to the UI while running (`ProjectTools.kt:417`), optionally mirrored into the IDE Terminal tool window (optional `org.jetbrains.plugins.terminal` dependency).
 3. **Transient error backoff:** bounded exponential backoff for 429/502/503/504 in `AifProvider`/`OllamaProvider`/`ClaudeProvider`, honouring cancellation.
 4. **Multi-session history & `/resume`:** named conversations per project instead of one overwritten `ChatHistoryStore` file, selectable by header dropdown or `/resume`.
-5. **Approval bypass modes (per tool category):** *(superseded — implemented as `docs/BYPASS_MODE_PLAN.md`, see `docs/PERMISSIONS.md`)* every approval dialog (`FileApprovalDialog`, `CommandApprovalDialog`, `GenericApprovalDialog` in `ui/ApprovalDialogs.kt`) gains three choices instead of Approve/Reject only: **Approve once**, **Allow for this session**, **Allow always**. Scope is per tool category, not per call — file edits (`ToolPreview.FileChange`), shell commands (`ToolPreview.Command`), and a generic bucket for everything else. "Session" grants live in `IdeApprovalGate`'s in-memory set (cleared on project close / session end); "always" grants persist in `AijbSettings.State` (e.g. `alwaysAllowEdits`, `alwaysAllowCommands`, `alwaysAllowOther`) and subsume today's boolean `autoApproveEdits`. `IdeApprovalGate.review` short-circuits before prompting when the category is granted in either set. Settings page gets checkboxes to view/revoke "always" grants; `/approve` (or a `/permissions`) command lists and clears grants. Security note: "always" for commands must be opt-in per project and visibly indicated in the status line while active.
+5. **Approval bypass modes (per tool category):** *(superseded — implemented as `docs/BYPASS_MODE_PLAN.md`, see `docs/PERMISSIONS.md`)* every approval dialog (`FileApprovalDialog`, `CommandApprovalDialog`, `GenericApprovalDialog` in `ui/ApprovalDialogs.kt`) gains three choices instead of Approve/Reject only: **Approve once**, **Allow for this session**, **Allow always**. Scope is per tool category, not per call — file edits (`ToolPreview.FileChange`), shell commands (`ToolPreview.Command`), and a generic bucket for everything else. "Session" grants live in `IdeApprovalGate`'s in-memory set (cleared on project close / session end); "always" grants persist in `StewartSettings.State` (e.g. `alwaysAllowEdits`, `alwaysAllowCommands`, `alwaysAllowOther`) and subsume today's boolean `autoApproveEdits`. `IdeApprovalGate.review` short-circuits before prompting when the category is granted in either set. Settings page gets checkboxes to view/revoke "always" grants; `/approve` (or a `/permissions`) command lists and clears grants. Security note: "always" for commands must be opt-in per project and visibly indicated in the status line while active.
 
 ---
 

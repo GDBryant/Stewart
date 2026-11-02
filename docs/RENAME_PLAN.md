@@ -1,6 +1,6 @@
 # Rename plan: AIJB Assistant → Stewart
 
-Status: planned; decisions taken (below). Repo dir and GitHub remote (`GDBryant/Stewart`) are already named Stewart.
+Status: implemented on branch rename-stewart.
 
 ## Name mapping
 

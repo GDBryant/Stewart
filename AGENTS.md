@@ -1,4 +1,4 @@
-# AI_Jetbrains_Plugin
+# Stewart
 
 JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (native tools; deprecated tool-call shim kept as per-model fallback), 3-level agent orchestration.
 
@@ -7,7 +7,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 
 ## Commands
 - Build plugin: `./gradlew buildPlugin`
-- Install into local IDEs (2025.1+): `scripts/install-plugin.sh [--no-build] [IDE_DIR_NAME...]`; or IDE → Settings → Plugins → ⚙ → Install Plugin from Disk → `build/distributions/aijb-assistant-<ver>.zip`
+- Install into local IDEs (2025.1+): `scripts/install-plugin.sh [--no-build] [IDE_DIR_NAME...]`; or IDE → Settings → Plugins → ⚙ → Install Plugin from Disk → `build/distributions/stewart-<ver>.zip`
 - Tests: `./gradlew test`
 - Plugin Verifier: `./gradlew verifyPlugin`
 - Run IDE sandbox: `./gradlew runIde`

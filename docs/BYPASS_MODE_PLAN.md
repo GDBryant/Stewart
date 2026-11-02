@@ -2,7 +2,7 @@
 
 Status: **implemented**. Adds per-category bypass ticks and "allow for this chat / always" grants to the
 tool approval flow. Supersedes the sketch in `docs/PHASE2.md` item 5 (which proposed `alwaysAllow*`
-flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprovalGate`, dialogs),
+flags in `StewartSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprovalGate`, dialogs),
 `tools/ToolLoop.kt` (calls the gate), `tools/ProjectTools.kt` (`WriteFile`, `EditFile`, `RunTerminal`).
 
 ## Current behaviour
@@ -73,7 +73,7 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
   enabling `EDITS` does not. While anything is active a dedicated label next to the input shows
   `bypass: edits, cmds` for the whole run, not just the button.
 - **Migration:** the global `autoApproveEdits = true` seeds the `EDITS` tick **once, app-wide**. The
-  legacy checkbox is removed from `AijbConfigurable`; the field stays in the state class for
+  legacy checkbox is removed from `StewartConfigurable`; the field stays in the state class for
   migration, is never written again, and is not consulted after the one-shot flag is set. Projects
   created later start with no ticks.
 - **Views and revoke:** you can see and revoke grants in three places.
@@ -89,9 +89,9 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
    - Add `data object Other : ToolPreview` to `tools/Tools.kt`; the generic dialog renders it like
      today's null case. `AskUser` and read tools stay `requiresApproval = false`.
    - `ProjectPermissions` is an app-level service: `@Service(Service.Level.APP)` +
-     `@State(name = "AijbPermissions", storages = [Storage("aijb-permissions.xml")],
+     `@State(name = "StewartPermissions", storages = [Storage("stewart-permissions.xml")],
      category = SettingsCategory.SYSTEM)`, extending `SimplePersistentStateComponent`. No
-     `plugin.xml` service entry (same pattern as `AijbSettings`).
+     `plugin.xml` service entry (same pattern as `StewartSettings`).
      - `State(migrated: Boolean, entries: MutableMap<String, Entry>)`;
        `Entry(path: String, ticks: MutableList<String>, programs: MutableList<String>)`. Category
        names are stored as strings so the XML survives enum renames.
@@ -102,7 +102,7 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
      - `migrated` is a single app-wide flag, not per project.
    - `SessionGrants` holds the same shape (categories and programs) in memory on `ChatSession`.
      `clearHistory()` clears it; so does replacing the transcript with a restored conversation.
-   - `PermissionsListener` is a `Topic` constant (same pattern as `AijbSettings.TOPIC`; no
+   - `PermissionsListener` is a `Topic` constant (same pattern as `StewartSettings.TOPIC`; no
      `plugin.xml` topic entry). `ChatPanel` subscribes with `messageBus.connect(this)`.
 2. **Gate** (`IdeApprovalGate.review`)
    - The bypass check runs inside the gate, **after** ToolLoop has built the preview. The preview is
@@ -191,10 +191,10 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
      `bypass: edits, cmds` while active. Do not reuse `statusLabel`, which carries run messages.
    - The label refreshes through `PermissionsListener`; the tooltip shows the auto-approved count.
 6. **Project settings page**
-   - `AijbConfigurable` is an `applicationConfigurable`, so a project page cannot be its child.
+   - `StewartConfigurable` is an `applicationConfigurable`, so a project page cannot be its child.
      Register a separate top-level page instead:
      `projectConfigurable instance="...PermissionsConfigurable"
-     id="com.aijb.assistant.settings.permissions" displayName="AIJB Assistant"`.
+     id="com.adb.stewart.settings.permissions" displayName="Stewart"`.
      "Manage…" opens it with `ShowSettingsUtil.showSettingsDialog(project, PermissionsConfigurable::class.java)`.
    - The page shows:
      - the three ticks
@@ -203,8 +203,8 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
      - the stored project path
      - a read-only list of this chat's grants, with a Clear button
      - "Reset all projects" (confirmation)
-   - Remove the "Trusted mode" checkbox from `AijbConfigurable`: the field, the three reads/writes
-     (`isModified`, `reset`, `apply`) and the `AijbConfigurableTest` assertion.
+   - Remove the "Trusted mode" checkbox from `StewartConfigurable`: the field, the three reads/writes
+     (`isModified`, `reset`, `apply`) and the `StewartConfigurableTest` assertion.
 7. **`/permissions` slash command** (allowed while running)
    - `/permissions` lists the ticks, the always programs, the stored path and the chat grants.
    - `/permissions clear` clears the chat grants.
@@ -236,7 +236,7 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
 Each item needs positive and negative cases. Existing seams that must be updated, not just added
 to: `ApprovalGateTest` (`RecordingPrompter`, `Harness`, the `IdeApprovalGate(project, { … }, …)`
 calls), `ChatSessionTest`, `ToolsProviderMatrixTest`, `OrchestratorTest`, `ToolLoopTest`, the
-`ToolsE2E`/provider E2E tests, `AijbConfigurableTest` and the fake `CommandContext`.
+`ToolsE2E`/provider E2E tests, `StewartConfigurableTest` and the fake `CommandContext`.
 
 - **`ShellCommandSplitter`**
   - Splitting:
@@ -271,7 +271,7 @@ calls), `ChatSessionTest`, `ToolsProviderMatrixTest`, `OrchestratorTest`, `ToolL
 - **`ProjectPermissions`**
   - Projects are isolated by `locationHash`.
   - XML round trip, including enum names stored as strings.
-  - A planted `.idea/aijb*.xml` file in the project dir does not enable bypass (negative).
+  - A planted `.idea/stewart*.xml` file in the project dir does not enable bypass (negative).
   - Concurrent read and write do not throw and the reader sees a consistent snapshot.
   - A moved project (new hash) starts empty and does not re-seed `EDITS`.
   - `resetProject` and `resetAll` clear only what they should.
@@ -315,4 +315,4 @@ calls), `ChatSessionTest`, `ToolsProviderMatrixTest`, `OrchestratorTest`, `ToolL
     In another project, edits still prompt.
   - Revoke Edits, move the project directory, reopen it: Edits stays off.
   - Debug logging on: the auto-approved calls appear in the log.
-  - `aijb-permissions.xml` is not carried by Settings Sync (check the sync log on a second IDE).
+  - `stewart-permissions.xml` is not carried by Settings Sync (check the sync log on a second IDE).

@@ -1,7 +1,7 @@
 # Debug Log Retention — Plan
 
 Status: **done**. Fixes gaps in the current retention behaviour in
-`src/main/kotlin/com/aijb/assistant/debug/DebugLogSink.kt`. Current behaviour is described in
+`src/main/kotlin/com/adb/stewart/debug/DebugLogSink.kt`. Current behaviour is described in
 `docs/DEBUG_LOGGING.md`.
 
 ## Current behaviour
@@ -22,7 +22,7 @@ Status: **done**. Fixes gaps in the current retention behaviour in
 - **Retention semantics:** `N > 0` keeps today plus the previous `N` days (unchanged). `0` means
   **never prune** — an explicit branch, not `cutoff = today`.
 - **Rotation across IDE instances:** rotation happens only while holding an exclusive
-  `FileChannel.tryLock()` on `<folder>/.aijb-debug.lock`. If the lock is not acquired, skip
+  `FileChannel.tryLock()` on `<folder>/.stewart-debug.lock`. If the lock is not acquired, skip
   rotation and keep appending (the size cap is soft). Writers detect a rotated-away file and
   reopen (item 4).
 - **Failure reporting:** prune failures get their own one-shot flag (`pruneFailureReported`),
@@ -32,15 +32,15 @@ Status: **done**. Fixes gaps in the current retention behaviour in
 
 1. **Prune independently of file open**
    - `pruneNow(dir: Path)` runs `pruneOldLogs` on the writer thread.
-   - `configure()` calls it when `enabled=true`. Both call sites (`AijbConfigurable.apply` and
+   - `configure()` calls it when `enabled=true`. Both call sites (`StewartConfigurable.apply` and
      `ChatPanel` init) therefore enforce retention without any model traffic.
 
 2. **Configurable retention**
-   - `AijbSettings.State.debugLogRetentionDays by property(7)`.
-   - `AijbConfigurable`: row "Debug log retention (days, 0 = keep forever):"; `isModified`,
+   - `StewartSettings.State.debugLogRetentionDays by property(7)`.
+   - `StewartConfigurable`: row "Debug log retention (days, 0 = keep forever):"; `isModified`,
      `reset`, `apply` wiring; validation per Decisions.
    - `DebugLogSink.configure(enabled, directory, retentionDays = RETENTION_DAYS)`; stored in a
-     `@Volatile var retentionDays`. Update both call sites, `AijbConfigurable.apply` and
+     `@Volatile var retentionDays`. Update both call sites, `StewartConfigurable.apply` and
      `ChatPanel` init, to pass the setting.
 
 3. **Per-file size cap / rotation**
@@ -84,8 +84,8 @@ Status: **done**. Fixes gaps in the current retention behaviour in
   - base file renamed externally: next write reopens and lands in a fresh base file
   - foreign `yyyy-MM-dd.log` without the sink's first-line format is kept
   - a prune failure is reported once and does not depend on the write-failure flag
-- `AijbSettingsTest`: `debugLogRetentionDays` default and XML round-trip.
-- `AijbConfigurableTest`: reset/apply/`isModified`; `-1`, `366`, `abc` rejected; `0` and `365`
+- `StewartSettingsTest`: `debugLogRetentionDays` default and XML round-trip.
+- `StewartConfigurableTest`: reset/apply/`isModified`; `-1`, `366`, `abc` rejected; `0` and `365`
   accepted; apply pushes the value to `DebugLogSink.retentionDays`.
 - `ChatPanelTest`: panel init passes `debugLogRetentionDays` to the sink.
 
