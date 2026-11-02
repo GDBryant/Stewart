@@ -81,13 +81,13 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
 
     fun setTick(project: Project, category: ApprovalCategory, enabled: Boolean) {
         ensureMigrated()
-        synchronized(sync) { state.paths[project.locationHash] = project.basePath.orEmpty() }
+        synchronized(sync) { writePath(project.locationHash, project.basePath.orEmpty()) }
         setTickForHash(project.locationHash, category, enabled)
     }
 
     fun addProgram(project: Project, program: String) {
         ensureMigrated()
-        synchronized(sync) { state.paths[project.locationHash] = project.basePath.orEmpty() }
+        synchronized(sync) { writePath(project.locationHash, project.basePath.orEmpty()) }
         addProgramForHash(project.locationHash, program)
     }
 
@@ -99,9 +99,9 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
 
     fun resetAll() {
         synchronized(sync) {
-            state.paths.clear()
-            state.ticks.clear()
-            state.programs.clear()
+            state.paths = mutableMapOf()
+            state.ticks = mutableMapOf()
+            state.programs = mutableMapOf()
             rebuild()
         }
         publish("")
@@ -137,9 +137,9 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
 
     internal fun resetHash(hash: String) {
         synchronized(sync) {
-            state.paths.remove(hash)
-            state.ticks.remove(hash)
-            state.programs.remove(hash)
+            state.paths = state.paths.toMutableMap().apply { remove(hash) }
+            state.ticks = state.ticks.toMutableMap().apply { remove(hash) }
+            state.programs = state.programs.toMutableMap().apply { remove(hash) }
             rebuild()
         }
         publish(hash)
@@ -168,7 +168,7 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
                 emptyList()
             }
             for (p in projects) {
-                state.paths[p.locationHash] = p.basePath.orEmpty()
+                writePath(p.locationHash, p.basePath.orEmpty())
                 val set = tickSet(p.locationHash)
                 if (set.add(ApprovalCategory.EDITS.name)) writeTicks(p.locationHash, set)
             }
@@ -181,15 +181,27 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
     private fun tickSet(hash: String): MutableSet<String> =
         state.ticks[hash]?.split(',')?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
 
+    /**
+     * All writes replace the top-level property: mutating the nested map in place never bumps the
+     * component's modification count, so the change would silently not be saved.
+     */
+    private fun writePath(hash: String, path: String) {
+        state.paths = state.paths.toMutableMap().apply { put(hash, path) }
+    }
+
     private fun writeTicks(hash: String, set: Set<String>) {
-        if (set.isEmpty()) state.ticks.remove(hash) else state.ticks[hash] = set.sorted().joinToString(",")
+        val map = state.ticks.toMutableMap()
+        if (set.isEmpty()) map.remove(hash) else map[hash] = set.sorted().joinToString(",")
+        state.ticks = map
     }
 
     private fun programSet(hash: String): MutableSet<String> =
         state.programs[hash]?.split('\n')?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
 
     private fun writePrograms(hash: String, set: Set<String>) {
-        if (set.isEmpty()) state.programs.remove(hash) else state.programs[hash] = set.sorted().joinToString("\n")
+        val map = state.programs.toMutableMap()
+        if (set.isEmpty()) map.remove(hash) else map[hash] = set.sorted().joinToString("\n")
+        state.programs = map
     }
 
     private fun rebuild() {
@@ -214,9 +226,9 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
 
     internal fun resetForTest() {
         synchronized(sync) {
-            state.paths.clear()
-            state.ticks.clear()
-            state.programs.clear()
+            state.paths = mutableMapOf()
+            state.ticks = mutableMapOf()
+            state.programs = mutableMapOf()
             state.migrated = false
             rebuild()
             autoApproveEdits = defaultAutoApprove

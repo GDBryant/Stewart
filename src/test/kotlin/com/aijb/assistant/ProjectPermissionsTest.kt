@@ -44,6 +44,15 @@ class ProjectPermissionsTest : BasePlatformTestCase() {
         assertTrue(other.programs.isEmpty())
     }
 
+    fun `test writes bump the modification count so the state is saved`() {
+        val before = permissions.state.modificationCount
+        permissions.setTick(project, ApprovalCategory.EDITS, true)
+        permissions.addProgram(project, "git")
+        permissions.removeProgram(project, "git")
+        permissions.resetProject(project)
+        assertTrue(permissions.state.modificationCount > before)
+    }
+
     fun `test xml round trip`() {
         val state = ProjectPermissions.State()
         state.migrated = true

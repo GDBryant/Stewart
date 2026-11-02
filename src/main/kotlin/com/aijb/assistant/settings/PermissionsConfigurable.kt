@@ -4,7 +4,6 @@ import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.tools.permissions.ApprovalCategory
 import com.aijb.assistant.tools.permissions.ProjectPermissions
 import com.intellij.openapi.options.BoundConfigurable
-import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.Messages
@@ -109,9 +108,17 @@ class PermissionsConfigurable(
         }
     }
 
+    /** Shown instead of throwing: a listener exception becomes an IDE fatal error. */
+    internal var programError: (String) -> Unit = {
+        Messages.showErrorDialog(project, it, "AIJB Permissions")
+    }
+
     internal fun addProgram() {
         val program = programField.text.trim()
-        if (program.isEmpty()) throw ConfigurationException("Program cannot be blank")
+        if (program.isEmpty()) {
+            programError("Program cannot be blank")
+            return
+        }
         if (!(0 until programsModel.size).any { programsModel.get(it) == program }) {
             programsModel.addElement(program)
         }

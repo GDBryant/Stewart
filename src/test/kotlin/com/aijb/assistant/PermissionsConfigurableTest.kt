@@ -57,13 +57,11 @@ class PermissionsConfigurableTest : BasePlatformTestCase() {
     }
 
     fun `test blank program is rejected`() {
+        val errors = mutableListOf<String>()
+        configurable.programError = { errors += it }
         configurable.programField.text = "   "
-        try {
-            configurable.addProgram()
-            fail("expected ConfigurationException")
-        } catch (e: ConfigurationException) {
-            // expected
-        }
+        configurable.addProgram()
+        assertEquals(listOf("Program cannot be blank"), errors)
         assertEquals(0, configurable.programsModel.size)
     }
 
