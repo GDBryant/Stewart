@@ -186,6 +186,17 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(opened)
     }
 
+    fun `test tool output collapses long content`() {
+        val panel = newPanel(fakeProvider())
+        val content = (1..20).joinToString("\n") { "line$it" }
+        val collapsed = panel.collapseToolOutput(content)
+        assertTrue(collapsed.contains("line8"))
+        assertFalse(collapsed.contains("line9"))
+        assertTrue(collapsed.contains("12 more lines"))
+        val short = "a\nb"
+        assertEquals(short, panel.collapseToolOutput(short))
+    }
+
     fun `test models load into combo`() {
         val panel = newPanel(fakeProvider())
         assertEquals(2, panel.modelCombo.itemCount)

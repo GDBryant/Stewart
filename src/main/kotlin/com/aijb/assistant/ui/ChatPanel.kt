@@ -818,6 +818,18 @@ class ChatPanel @JvmOverloads constructor(
         startSend(text, info)
     }
 
+    /**
+     * Tool output in the bubble: the model already summarises it, so keep at most
+     * [TOOL_OUTPUT_LINES] lines and [TOOL_OUTPUT_CHARS] chars; the rest collapses to a count.
+     */
+    internal fun collapseToolOutput(content: String): String {
+        val capped = content.take(TOOL_OUTPUT_CHARS)
+        val lines = capped.lines()
+        if (lines.size <= TOOL_OUTPUT_LINES) return capped
+        return lines.take(TOOL_OUTPUT_LINES).joinToString("\n") +
+            "\n… ${lines.size - TOOL_OUTPUT_LINES} more lines"
+    }
+
     private fun startSend(text: String, info: ModelInfo) {
         addMessage("user", text)
         var deltaArea: JTextArea? = addMessage("assistant", "")
@@ -849,7 +861,7 @@ class ChatPanel @JvmOverloads constructor(
                 outcome: com.aijb.assistant.tools.ToolOutcome,
             ) {
                 val result = when (outcome) {
-                    is com.aijb.assistant.tools.ToolOutcome.Success -> outcome.content.take(2000)
+                    is com.aijb.assistant.tools.ToolOutcome.Success -> collapseToolOutput(outcome.content)
                     is com.aijb.assistant.tools.ToolOutcome.Rejected -> "Rejected: ${outcome.reason}"
                     is com.aijb.assistant.tools.ToolOutcome.Failure -> "Failed: ${outcome.message}"
                     is com.aijb.assistant.tools.ToolOutcome.Invalid -> "Invalid: ${outcome.reason}"
@@ -974,5 +986,10 @@ class ChatPanel @JvmOverloads constructor(
         hideCompletionPopup()
         session.cancel()
         scope.cancel()
+    }
+
+    private companion object {
+        const val TOOL_OUTPUT_LINES = 8
+        const val TOOL_OUTPUT_CHARS = 2000
     }
 }
