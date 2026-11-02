@@ -17,7 +17,7 @@ import com.adb.stewart.provider.ProviderRegistry
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolCall
 import com.adb.stewart.provider.Usage
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.adb.stewart.tools.ApprovalGate
 import com.adb.stewart.tools.LoopLimits
 import com.adb.stewart.tools.LoopListener
@@ -75,13 +75,13 @@ class ChatSession(
 ) : Disposable {
 
     var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
-    var autoCompactTokens: () -> Int = { AijbSettings.getInstance().state.autoCompactTokens }
-    var multiModel: () -> Boolean = { AijbSettings.getInstance().state.multiModel }
+    var autoCompactTokens: () -> Int = { StewartSettings.getInstance().state.autoCompactTokens }
+    var multiModel: () -> Boolean = { StewartSettings.getInstance().state.multiModel }
     var toolPathOverrides: () -> Map<String, String> = {
-        AijbSettings.getInstance().state.toolPathOverrides
+        StewartSettings.getInstance().state.toolPathOverrides
     }
     var tools: () -> ToolRegistry = {
-        ProjectTools.registry(project, AijbSettings.getInstance().state.toolsEnabled)
+        ProjectTools.registry(project, StewartSettings.getInstance().state.toolsEnabled)
     }
     /** Chat-scoped approvals ("allow for this chat"); cleared with the conversation. */
     internal val sessionGrants = SessionGrants()
@@ -91,7 +91,7 @@ class ChatSession(
         sessionGrants,
     )
     var roleModels: () -> Map<AgentRole, ModelRef?> = {
-        val st = AijbSettings.getInstance().state
+        val st = StewartSettings.getInstance().state
         mapOf(
             AgentRole.PLANNER to ModelRef.decode(st.plannerModel),
             AgentRole.EXECUTOR to ModelRef.decode(st.executorModel),
@@ -101,7 +101,7 @@ class ChatSession(
     internal var compactor = ContextCompactor()
 
     /** Days to keep saved history; 0 disables persistence. */
-    var historyRetentionDays: () -> Int = { AijbSettings.getInstance().state.historyRetentionDays }
+    var historyRetentionDays: () -> Int = { StewartSettings.getInstance().state.historyRetentionDays }
 
     /** Null disables persistence (always the case in unit-test mode unless a test sets a store). */
     var historyStore: ChatHistoryStore? = defaultHistoryStore(project)

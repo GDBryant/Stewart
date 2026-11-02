@@ -2,7 +2,7 @@ package com.adb.stewart
 
 import com.adb.stewart.agents.AgentRole
 import com.adb.stewart.agents.OrchestratorLimits
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.adb.stewart.settings.EffortLevel
 import com.adb.stewart.settings.EffortPresets
 import com.adb.stewart.settings.forRole
@@ -97,8 +97,8 @@ class EffortLevelTest {
 
     @Test
     fun `settings default to medium and ignore role overrides in single mode`() {
-        val settings = AijbSettings()
-        settings.loadState(AijbSettings.State())
+        val settings = StewartSettings()
+        settings.loadState(StewartSettings.State())
         assertEquals(EffortLevel.MEDIUM, settings.effortLevel)
         settings.state.roleEffort = mutableMapOf(AgentRole.PLANNER.name to "MAX")
         assertEquals(EffortLevel.MEDIUM, settings.effortFor(AgentRole.PLANNER))
@@ -109,8 +109,8 @@ class EffortLevelTest {
 
     @Test
     fun `settings fall back to medium for an unknown stored value`() {
-        val settings = AijbSettings()
-        settings.loadState(AijbSettings.State().also { it.effort = "turbo" })
+        val settings = StewartSettings()
+        settings.loadState(StewartSettings.State().also { it.effort = "turbo" })
         assertEquals(EffortLevel.MEDIUM, settings.effortLevel)
         settings.state.effort = "high"
         assertEquals(EffortLevel.HIGH, settings.effortLevel)

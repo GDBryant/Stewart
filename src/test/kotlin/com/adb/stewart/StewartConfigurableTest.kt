@@ -2,9 +2,9 @@ package com.adb.stewart
 
 import com.adb.stewart.provider.aif.AifCredentials
 import com.adb.stewart.provider.claude.ClaudeLoginState
-import com.adb.stewart.settings.AijbConfigurable
-import com.adb.stewart.settings.AijbSettings
-import com.adb.stewart.settings.AijbSettingsListener
+import com.adb.stewart.settings.StewartConfigurable
+import com.adb.stewart.settings.StewartSettings
+import com.adb.stewart.settings.StewartSettingsListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.util.JDOMUtil
@@ -12,22 +12,22 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.xmlb.XmlSerializer
 
-class AijbConfigurableTest : BasePlatformTestCase() {
+class StewartConfigurableTest : BasePlatformTestCase() {
 
-    private lateinit var configurable: AijbConfigurable
+    private lateinit var configurable: StewartConfigurable
 
     override fun setUp() {
         super.setUp()
-        AijbSettings.getInstance().loadState(AijbSettings.State())
+        StewartSettings.getInstance().loadState(StewartSettings.State())
         AifCredentials.set(null)
-        configurable = AijbConfigurable()
+        configurable = StewartConfigurable()
         configurable.createPanel()
         configurable.reset()
     }
 
     override fun tearDown() {
         try {
-            AijbSettings.getInstance().loadState(AijbSettings.State())
+            StewartSettings.getInstance().loadState(StewartSettings.State())
             AifCredentials.set(null)
         } finally {
             super.tearDown()
@@ -35,14 +35,14 @@ class AijbConfigurableTest : BasePlatformTestCase() {
     }
 
     private fun assertInvalid(block: () -> Unit) {
-        val before = JDOMUtil.writeElement(XmlSerializer.serialize(AijbSettings.getInstance().state))
+        val before = JDOMUtil.writeElement(XmlSerializer.serialize(StewartSettings.getInstance().state))
         try {
             block()
             fail("expected ConfigurationException")
         } catch (e: ConfigurationException) {
             // expected
         }
-        assertEquals(before, JDOMUtil.writeElement(XmlSerializer.serialize(AijbSettings.getInstance().state)))
+        assertEquals(before, JDOMUtil.writeElement(XmlSerializer.serialize(StewartSettings.getInstance().state)))
     }
 
     fun `test reset populates fields`() {
@@ -67,7 +67,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         configurable.autoCompactField.text = "120000"
         assertTrue(configurable.isModified)
         configurable.apply()
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         assertEquals("http://remote:11434", s.ollamaUrl)
         assertEquals("https://aif.example/v1", s.aifBaseUrl)
         assertEquals(listOf("m1", "m2"), s.aifModels)
@@ -85,7 +85,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         assertEquals("super-secret-key", AifCredentials.get())
         assertEquals("", String(configurable.apiKeyField.password))
         assertEquals("Stored", configurable.apiKeyStatus.text)
-        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(AijbSettings.getInstance().state))
+        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(StewartSettings.getInstance().state))
         assertFalse(xml.contains("super-secret-key"))
     }
 
@@ -122,7 +122,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
     fun `test native override for ollama accepted`() {
         configurable.overridesArea.text = "ollama/m=native"
         configurable.apply()
-        assertEquals("NATIVE", AijbSettings.getInstance().state.toolPathOverrides["ollama/m"])
+        assertEquals("NATIVE", StewartSettings.getInstance().state.toolPathOverrides["ollama/m"])
     }
 
     fun `test native override for non capable provider rejected`() {
@@ -142,7 +142,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         configurable.toolsEnabledCheck.isSelected = false
         assertTrue(configurable.isModified)
         configurable.apply()
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         assertFalse(s.toolsEnabled)
         configurable.reset()
         assertFalse(configurable.toolsEnabledCheck.isSelected)
@@ -151,7 +151,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
     fun `test apply publishes topic`() {
         var fired = false
         ApplicationManager.getApplication().messageBus.connect(project)
-            .subscribe(AijbSettings.TOPIC, AijbSettingsListener { fired = true })
+            .subscribe(StewartSettings.TOPIC, StewartSettingsListener { fired = true })
         configurable.ollamaUrlField.text = "http://h:11434"
         configurable.apply()
         assertTrue(fired)
@@ -162,11 +162,11 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         configurable.historyRetentionField.text = "7"
         assertTrue(configurable.isModified)
         configurable.apply()
-        assertEquals(7, AijbSettings.getInstance().state.historyRetentionDays)
+        assertEquals(7, StewartSettings.getInstance().state.historyRetentionDays)
         assertFalse(configurable.isModified)
         configurable.historyRetentionField.text = "0"
         configurable.apply()
-        assertEquals(0, AijbSettings.getInstance().state.historyRetentionDays)
+        assertEquals(0, StewartSettings.getInstance().state.historyRetentionDays)
     }
 
     fun `test invalid history retention rejected`() {
@@ -185,7 +185,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
             configurable.debugLogFolderField.text = "  /tmp/aijb-debug  "
             assertTrue(configurable.isModified)
             configurable.apply()
-            val s = AijbSettings.getInstance().state
+            val s = StewartSettings.getInstance().state
             assertTrue(s.debugLogEnabled)
             assertEquals("/tmp/aijb-debug", s.debugLogFolder)
             assertTrue(com.adb.stewart.debug.DebugLogSink.isEnabled)
@@ -196,7 +196,7 @@ class AijbConfigurableTest : BasePlatformTestCase() {
             assertEquals("/tmp/aijb-debug", configurable.debugLogFolderField.text)
             configurable.debugLogFolderField.text = "   "
             configurable.apply()
-            assertEquals("./log/debug_logs/", AijbSettings.getInstance().state.debugLogFolder)
+            assertEquals("./log/debug_logs/", StewartSettings.getInstance().state.debugLogFolder)
             assertEquals("./log/debug_logs/", com.adb.stewart.debug.DebugLogSink.logDirectory)
         } finally {
             com.adb.stewart.debug.DebugLogSink.configure(false, "./log/debug_logs/")
@@ -209,19 +209,19 @@ class AijbConfigurableTest : BasePlatformTestCase() {
             configurable.debugLogRetentionField.text = "30"
             assertTrue(configurable.isModified)
             configurable.apply()
-            assertEquals(30, AijbSettings.getInstance().state.debugLogRetentionDays)
+            assertEquals(30, StewartSettings.getInstance().state.debugLogRetentionDays)
             assertEquals(30, com.adb.stewart.debug.DebugLogSink.retentionDays)
             assertFalse(configurable.isModified)
             for (ok in listOf("0", "365")) {
                 configurable.debugLogRetentionField.text = ok
                 configurable.apply()
-                assertEquals(ok.toInt(), AijbSettings.getInstance().state.debugLogRetentionDays)
+                assertEquals(ok.toInt(), StewartSettings.getInstance().state.debugLogRetentionDays)
             }
             for (bad in listOf("-1", "366", "abc", "")) {
                 configurable.debugLogRetentionField.text = bad
                 assertInvalid { configurable.apply() }
             }
-            assertEquals(365, AijbSettings.getInstance().state.debugLogRetentionDays)
+            assertEquals(365, StewartSettings.getInstance().state.debugLogRetentionDays)
         } finally {
             com.adb.stewart.debug.DebugLogSink.configure(false, "./log/debug_logs/")
         }

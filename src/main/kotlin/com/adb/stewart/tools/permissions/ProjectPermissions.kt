@@ -1,6 +1,6 @@
 package com.adb.stewart.tools.permissions
 
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
@@ -56,7 +56,7 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
         var programs by map<String, String>()
     }
 
-    private val defaultAutoApprove: () -> Boolean = { AijbSettings.getInstance().state.autoApproveEdits }
+    private val defaultAutoApprove: () -> Boolean = { StewartSettings.getInstance().state.autoApproveEdits }
     private val defaultOpenProjects: () -> List<Project> = { ProjectManager.getInstance().openProjects.toList() }
 
     /** Test seams for the legacy setting and the open-project list used by migration. */

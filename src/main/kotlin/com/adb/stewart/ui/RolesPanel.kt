@@ -2,7 +2,7 @@ package com.adb.stewart.ui
 
 import com.adb.stewart.provider.ModelInfo
 import com.adb.stewart.provider.ModelRef
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.util.ui.JBUI
 import java.awt.GridBagConstraints
@@ -14,7 +14,7 @@ import javax.swing.JPanel
 
 class RolesPanel(
     private val models: List<ModelInfo>,
-    private val settings: AijbSettings,
+    private val settings: StewartSettings,
     private val onMultiModelChanged: (Boolean) -> Unit = {},
 ) : JPanel(GridBagLayout()) {
 

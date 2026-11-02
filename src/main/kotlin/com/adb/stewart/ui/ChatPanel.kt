@@ -19,9 +19,9 @@ import com.adb.stewart.debug.DebugLogSink
 import com.adb.stewart.provider.ModelInfo
 import com.adb.stewart.provider.ModelRef
 import com.adb.stewart.provider.Usage
-import com.adb.stewart.settings.AijbSettings
-import com.adb.stewart.settings.AijbConfigurable
-import com.adb.stewart.settings.AijbSettingsListener
+import com.adb.stewart.settings.StewartSettings
+import com.adb.stewart.settings.StewartConfigurable
+import com.adb.stewart.settings.StewartSettingsListener
 import com.adb.stewart.tools.permissions.ApprovalCategory
 import com.adb.stewart.tools.permissions.PermissionsListener
 import com.adb.stewart.tools.permissions.ProjectPermissions
@@ -79,7 +79,7 @@ import kotlinx.coroutines.withContext
 class ChatPanel @JvmOverloads constructor(
     private val project: Project,
     internal val session: ChatSession = ChatSession.getInstance(project),
-    private val settings: AijbSettings = AijbSettings.getInstance(),
+    private val settings: StewartSettings = StewartSettings.getInstance(),
 ) : JPanel(BorderLayout()), Disposable {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -260,7 +260,7 @@ class ChatPanel @JvmOverloads constructor(
         clearButton.addActionListener { onClear() }
         bypassButton.addActionListener { showBypassPopup() }
         ApplicationManager.getApplication().messageBus.connect(this)
-            .subscribe(AijbSettings.TOPIC, AijbSettingsListener {
+            .subscribe(StewartSettings.TOPIC, StewartSettingsListener {
                 updateSelectorState()
                 loadModels()
             })
@@ -1000,7 +1000,7 @@ class ChatPanel @JvmOverloads constructor(
 
     /** Opens the plugin's Settings page; replaced in tests. */
     internal var openSettingsPage: () -> Unit = {
-        ShowSettingsUtil.getInstance().showSettingsDialog(project, AijbConfigurable::class.java)
+        ShowSettingsUtil.getInstance().showSettingsDialog(project, StewartConfigurable::class.java)
     }
 
     /** The button: Stop while running, otherwise submit. */

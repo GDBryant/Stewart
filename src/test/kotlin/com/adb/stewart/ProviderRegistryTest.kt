@@ -1,7 +1,7 @@
 package com.adb.stewart
 
 import com.adb.stewart.provider.ProviderRegistry
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -12,8 +12,8 @@ import org.junit.Test
 
 class ProviderRegistryTest {
 
-    private fun registry(configure: AijbSettings.State.() -> Unit = {}): ProviderRegistry {
-        val state = AijbSettings.State().apply(configure)
+    private fun registry(configure: StewartSettings.State.() -> Unit = {}): ProviderRegistry {
+        val state = StewartSettings.State().apply(configure)
         return ProviderRegistry { state }
     }
 
@@ -42,7 +42,7 @@ class ProviderRegistryTest {
 
     @Test
     fun `instances rebuilt after config change`() {
-        val state = AijbSettings.State()
+        val state = StewartSettings.State()
         val r = ProviderRegistry { state }
         val first = r.provider("ollama")
         state.ollamaUrl = "http://other:11434"
@@ -52,7 +52,7 @@ class ProviderRegistryTest {
 
     @Test
     fun `aif added when base url later set`() {
-        val state = AijbSettings.State()
+        val state = StewartSettings.State()
         val r = ProviderRegistry { state }
         assertNull(r.provider("aif"))
         state.aifBaseUrl = "https://aif.example/v1"
@@ -61,7 +61,7 @@ class ProviderRegistryTest {
 
     @Test
     fun `aif is native unless overridden to shim`() {
-        val state = AijbSettings.State().apply {
+        val state = StewartSettings.State().apply {
             aifBaseUrl = "https://aif.example/v1"
             toolPathOverrides = mutableMapOf("aif/m1" to "shim", "aif/m3" to "NATIVE")
         }

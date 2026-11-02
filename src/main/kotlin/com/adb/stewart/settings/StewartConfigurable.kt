@@ -18,9 +18,9 @@ import com.intellij.ui.dsl.builder.panel
 import javax.swing.JButton
 import javax.swing.JLabel
 
-class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
+class StewartConfigurable : BoundConfigurable("AIJB Assistant") {
 
-    private val settings get() = AijbSettings.getInstance()
+    private val settings get() = StewartSettings.getInstance()
 
     internal lateinit var ollamaUrlField: JBTextField
     internal lateinit var aifBaseUrlField: JBTextField
@@ -214,7 +214,7 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             apiKeyStatus.text = "Stored"
         }
         ApplicationManager.getApplication().messageBus
-            .syncPublisher(AijbSettings.TOPIC).settingsChanged()
+            .syncPublisher(StewartSettings.TOPIC).settingsChanged()
     }
 }
 

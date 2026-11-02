@@ -3,13 +3,13 @@ package com.adb.stewart.provider
 import com.adb.stewart.provider.aif.AifProvider
 import com.adb.stewart.provider.claude.ClaudeProvider
 import com.adb.stewart.provider.ollama.OllamaProvider
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 
 @Service(Service.Level.APP)
 class ProviderRegistry @JvmOverloads constructor(
-    private val settingsState: () -> AijbSettings.State = { AijbSettings.getInstance().state },
+    private val settingsState: () -> StewartSettings.State = { StewartSettings.getInstance().state },
 ) {
 
     private data class Snapshot(
@@ -31,7 +31,7 @@ class ProviderRegistry @JvmOverloads constructor(
             aifBaseUrl = s.aifBaseUrl ?: "",
             aifModels = s.aifModels.toList(),
             claudeCliPath = s.claudeCliPath ?: "claude",
-            claudeModels = s.claudeModels.ifEmpty { AijbSettings.DEFAULT_CLAUDE_MODELS },
+            claudeModels = s.claudeModels.ifEmpty { StewartSettings.DEFAULT_CLAUDE_MODELS },
             toolPathOverrides = s.toolPathOverrides.toMap(),
         )
     }

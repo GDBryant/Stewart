@@ -5,7 +5,7 @@
     <depends>com.intellij.modules.platform</depends>
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="AIJB Assistant" anchor="right" factoryClass="com.adb.stewart.ui.ChatToolWindowFactory"/>
-        <applicationConfigurable parentId="tools" instance="com.adb.stewart.settings.AijbConfigurable" id="com.adb.stewart.settings" displayName="AIJB Assistant"/>
+        <applicationConfigurable parentId="tools" instance="com.adb.stewart.settings.StewartConfigurable" id="com.adb.stewart.settings" displayName="AIJB Assistant"/>
         <projectConfigurable instance="com.adb.stewart.settings.PermissionsConfigurable" id="com.adb.stewart.settings.permissions" displayName="AIJB Assistant"/>
     </extensions>
 </idea-plugin>

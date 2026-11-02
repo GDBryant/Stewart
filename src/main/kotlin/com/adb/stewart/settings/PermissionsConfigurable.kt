@@ -19,7 +19,7 @@ import javax.swing.JList
 /**
  * Project-level bypass settings: category ticks and always-granted programs for this project, a
  * read-only view of the chat's session grants and the global reset. Registered as a top-level
- * project page; it cannot be a child of the application-level [AijbConfigurable].
+ * project page; it cannot be a child of the application-level [StewartConfigurable].
  */
 class PermissionsConfigurable(
     private val project: Project,

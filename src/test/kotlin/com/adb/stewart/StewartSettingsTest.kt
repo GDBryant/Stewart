@@ -1,18 +1,18 @@
 package com.adb.stewart
 
 import com.adb.stewart.provider.ModelRef
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.adb.stewart.settings.TokenCount
 import com.intellij.util.xmlb.XmlSerializer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class AijbSettingsTest {
+class StewartSettingsTest {
 
     @Test
     fun `defaults`() {
-        val s = AijbSettings.State()
+        val s = StewartSettings.State()
         assertEquals("http://localhost:11434", s.ollamaUrl)
         assertEquals("", s.aifBaseUrl)
         assertEquals(emptyList<String>(), s.aifModels)
@@ -28,7 +28,7 @@ class AijbSettingsTest {
         assertEquals(false, s.debugLogEnabled)
         assertEquals("./log/debug_logs/", s.debugLogFolder)
         assertEquals(7, s.debugLogRetentionDays)
-        val settings = AijbSettings()
+        val settings = StewartSettings()
         assertEquals(listOf("sonnet", "opus", "haiku"), settings.effectiveClaudeModels)
         settings.state.claudeModels = mutableListOf("opus")
         assertEquals(listOf("opus"), settings.effectiveClaudeModels)
@@ -36,7 +36,7 @@ class AijbSettingsTest {
 
     @Test
     fun `state round trip preserves every field`() {
-        val s = AijbSettings.State()
+        val s = StewartSettings.State()
         s.ollamaUrl = "http://host:1"
         s.aifBaseUrl = "https://aif.example/v1"
         s.aifModels = mutableListOf("a", "b")
@@ -53,7 +53,7 @@ class AijbSettingsTest {
         s.debugLogFolder = "/tmp/aijb/debug/"
         s.debugLogRetentionDays = 30
         val element = XmlSerializer.serialize(s)
-        val restored = XmlSerializer.deserialize(element, AijbSettings.State::class.java)
+        val restored = XmlSerializer.deserialize(element, StewartSettings.State::class.java)
         assertEquals(s.ollamaUrl, restored.ollamaUrl)
         assertEquals(s.aifBaseUrl, restored.aifBaseUrl)
         assertEquals(s.aifModels, restored.aifModels)
@@ -69,7 +69,7 @@ class AijbSettingsTest {
         assertEquals(s.debugLogEnabled, restored.debugLogEnabled)
         assertEquals(s.debugLogFolder, restored.debugLogFolder)
         assertEquals(30, restored.debugLogRetentionDays)
-        val viaLoad = AijbSettings().also { it.loadState(restored) }
+        val viaLoad = StewartSettings().also { it.loadState(restored) }
         assertEquals("aif/a", viaLoad.state.chatModel)
         assertEquals(true, viaLoad.state.debugLogEnabled)
         assertEquals("/tmp/aijb/debug/", viaLoad.state.debugLogFolder)

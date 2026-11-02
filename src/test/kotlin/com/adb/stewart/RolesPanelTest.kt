@@ -2,7 +2,7 @@ package com.adb.stewart
 
 import com.adb.stewart.provider.ModelInfo
 import com.adb.stewart.provider.ModelRef
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.adb.stewart.ui.RolesPanel
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
@@ -15,22 +15,22 @@ class RolesPanelTest : BasePlatformTestCase() {
 
     override fun setUp() {
         super.setUp()
-        AijbSettings.getInstance().loadState(AijbSettings.State())
+        StewartSettings.getInstance().loadState(StewartSettings.State())
     }
 
     override fun tearDown() {
         try {
-            AijbSettings.getInstance().loadState(AijbSettings.State())
+            StewartSettings.getInstance().loadState(StewartSettings.State())
         } finally {
             super.tearDown()
         }
     }
 
     fun `test reset reflects settings`() {
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         s.multiModel = true
         s.plannerModel = "ollama/m1"
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         assertTrue(panel.multiModelCheck.isSelected)
         assertTrue(panel.plannerCombo.isEnabled)
         assertEquals(ModelRef("ollama", "m1"), (panel.plannerCombo.selectedItem as RolesPanel.RoleItem).ref)
@@ -38,12 +38,12 @@ class RolesPanelTest : BasePlatformTestCase() {
     }
 
     fun `test apply writes back`() {
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         panel.multiModelCheck.isSelected = true
         panel.executorCombo.selectedIndex = 2
         panel.workerCombo.selectedIndex = 1
         panel.apply()
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         assertTrue(s.multiModel)
         assertEquals("aif/m2", s.executorModel)
         assertEquals("ollama/m1", s.workerModel)
@@ -51,7 +51,7 @@ class RolesPanelTest : BasePlatformTestCase() {
     }
 
     fun `test combos disabled when multi model off`() {
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         assertFalse(panel.plannerCombo.isEnabled)
         assertFalse(panel.executorCombo.isEnabled)
         assertFalse(panel.workerCombo.isEnabled)
@@ -63,11 +63,11 @@ class RolesPanelTest : BasePlatformTestCase() {
     }
 
     fun `test toggling multi on seeds unset roles from the chat model and notifies`() {
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         s.chatModel = "ollama/m1"
         s.workerModel = "aif/m2"
         val seen = mutableListOf<Boolean>()
-        val panel = RolesPanel(models, AijbSettings.getInstance()) { seen += it }
+        val panel = RolesPanel(models, StewartSettings.getInstance()) { seen += it }
         panel.multiModelCheck.isSelected = true
         panel.onMultiModelToggled()
         assertTrue(s.multiModel)
@@ -85,8 +85,8 @@ class RolesPanelTest : BasePlatformTestCase() {
     }
 
     fun `test toggling multi on without a chat model leaves roles unset`() {
-        val s = AijbSettings.getInstance().state
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val s = StewartSettings.getInstance().state
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         panel.multiModelCheck.isSelected = true
         panel.onMultiModelToggled()
         assertNull(s.plannerModel)
@@ -95,18 +95,18 @@ class RolesPanelTest : BasePlatformTestCase() {
     }
 
     fun `test unknown stored ref preserved`() {
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         s.multiModel = true
         s.workerModel = "gone/x9"
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         val item = panel.workerCombo.selectedItem as RolesPanel.RoleItem
         assertEquals(ModelRef("gone", "x9"), item.ref)
         panel.apply()
-        assertEquals("gone/x9", AijbSettings.getInstance().state.workerModel)
+        assertEquals("gone/x9", StewartSettings.getInstance().state.workerModel)
     }
 
     fun `test first combo item is chat selection`() {
-        val panel = RolesPanel(models, AijbSettings.getInstance())
+        val panel = RolesPanel(models, StewartSettings.getInstance())
         assertNull(panel.plannerCombo.getItemAt(0).ref)
         assertEquals("(chat selection)", panel.plannerCombo.getItemAt(0).label)
         assertEquals(3, panel.plannerCombo.itemCount)

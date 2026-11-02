@@ -10,13 +10,13 @@ import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.util.messages.Topic
 
-fun interface AijbSettingsListener {
+fun interface StewartSettingsListener {
     fun settingsChanged()
 }
 
 @Service(Service.Level.APP)
 @State(name = "AijbAssistantSettings", storages = [Storage("aijb-assistant.xml")])
-class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State()) {
+class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(State()) {
 
     class State : BaseState() {
         var ollamaUrl by string("http://localhost:11434")
@@ -77,9 +77,9 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
     companion object {
         val DEFAULT_CLAUDE_MODELS = listOf("sonnet", "opus", "haiku")
 
-        val TOPIC: Topic<AijbSettingsListener> =
-            Topic(AijbSettingsListener::class.java, Topic.BroadcastDirection.NONE)
+        val TOPIC: Topic<StewartSettingsListener> =
+            Topic(StewartSettingsListener::class.java, Topic.BroadcastDirection.NONE)
 
-        fun getInstance(): AijbSettings = service()
+        fun getInstance(): StewartSettings = service()
     }
 }

@@ -9,7 +9,7 @@ import com.adb.stewart.provider.ModelRef
 import com.adb.stewart.provider.ProviderEvent
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.Usage
-import com.adb.stewart.settings.AijbSettings
+import com.adb.stewart.settings.StewartSettings
 import com.adb.stewart.tools.permissions.ApprovalCategory
 import com.adb.stewart.tools.permissions.ProjectPermissions
 import com.adb.stewart.ui.ChatPanel
@@ -41,13 +41,13 @@ class ChatPanelTest : BasePlatformTestCase() {
         session = ChatSession(project, scope).also {
             it.tools = { com.adb.stewart.tools.ToolRegistry(emptyList()) }
         }
-        AijbSettings.getInstance().loadState(AijbSettings.State())
+        StewartSettings.getInstance().loadState(StewartSettings.State())
         ProjectPermissions.getInstance().resetForTest()
     }
 
     override fun tearDown() {
         try {
-            AijbSettings.getInstance().loadState(AijbSettings.State())
+            StewartSettings.getInstance().loadState(StewartSettings.State())
             ProjectPermissions.getInstance().resetForTest()
             com.adb.stewart.debug.DebugLogSink.configure(false, "./log/debug_logs/")
             scope.cancel()
@@ -385,9 +385,9 @@ class ChatPanelTest : BasePlatformTestCase() {
     }
 
     fun `test panel applies debug log settings to the sink`() {
-        AijbSettings.getInstance().state.debugLogEnabled = true
-        AijbSettings.getInstance().state.debugLogFolder = "/tmp/aijb-panel-debug"
-        AijbSettings.getInstance().state.debugLogRetentionDays = 12
+        StewartSettings.getInstance().state.debugLogEnabled = true
+        StewartSettings.getInstance().state.debugLogFolder = "/tmp/aijb-panel-debug"
+        StewartSettings.getInstance().state.debugLogRetentionDays = 12
         newPanel(fakeProvider())
         assertTrue(com.adb.stewart.debug.DebugLogSink.isEnabled)
         assertEquals("/tmp/aijb-panel-debug", com.adb.stewart.debug.DebugLogSink.logDirectory)
@@ -530,14 +530,14 @@ class ChatPanelTest : BasePlatformTestCase() {
     fun `test selection persisted and restored in new panel`() {
         val panel = newPanel(fakeProvider(id = "claude", models = listOf("sonnet", "opus")))
         selectModel(panel, "claude", "opus")
-        assertEquals("claude/opus", AijbSettings.getInstance().state.chatModel)
+        assertEquals("claude/opus", StewartSettings.getInstance().state.chatModel)
         val panel2 = ChatPanel(project, session)
         assertTrue(pumpUntil { panel2.statusLabel.text != "Loading models..." })
         assertEquals("opus", (panel2.modelCombo.selectedItem as ModelInfo).ref.modelId)
     }
 
     fun `test single mode enables main picker and never touches role models`() {
-        val settings = AijbSettings.getInstance()
+        val settings = StewartSettings.getInstance()
         val panel = newPanel(fakeProvider(id = "aif", models = listOf("m1", "m2")))
         assertTrue(panel.modelCombo.isEnabled)
         selectModel(panel, "aif", "m2")
@@ -547,7 +547,7 @@ class ChatPanelTest : BasePlatformTestCase() {
     }
 
     fun `test multi mode disables main picker and shows role bindings`() {
-        val settings = AijbSettings.getInstance()
+        val settings = StewartSettings.getInstance()
         settings.state.multiModel = true
         settings.state.plannerModel = "aif/m1"
         val panel = newPanel(fakeProvider(id = "aif", models = listOf("m1", "m2")))
@@ -563,7 +563,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals(listOf("old"), modelIds(panel))
         session.providers = { listOf(fakeProvider(models = listOf("new"))) }
         ApplicationManager.getApplication().messageBus
-            .syncPublisher(AijbSettings.TOPIC).settingsChanged()
+            .syncPublisher(StewartSettings.TOPIC).settingsChanged()
         assertTrue(pumpUntil { modelIds(panel) == listOf("new") })
     }
 
@@ -662,7 +662,7 @@ class ChatPanelTest : BasePlatformTestCase() {
     fun `test roles button builds roles panel`() {
         val panel = newPanel(fakeProvider())
         assertEquals("Roles", panel.rolesButton.text)
-        val roles = RolesPanel(panel.lastModels, AijbSettings.getInstance())
+        val roles = RolesPanel(panel.lastModels, StewartSettings.getInstance())
         assertNotNull(roles.multiModelCheck)
     }
 
@@ -938,7 +938,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.inputArea.text = "/model fake/m2"
         enter(panel)
         assertEquals("m2", (panel.modelCombo.selectedItem as ModelInfo).ref.modelId)
-        assertEquals("fake/m2", AijbSettings.getInstance().state.chatModel)
+        assertEquals("fake/m2", StewartSettings.getInstance().state.chatModel)
         assertEquals("system: Model: fake/m2", panel.messageAreas().last().text)
         panel.inputArea.text = "/model"
         enter(panel)
@@ -1327,7 +1327,7 @@ class ChatPanelTest : BasePlatformTestCase() {
     }
 
     private fun settings(multi: Boolean) {
-        val s = AijbSettings.getInstance().state
+        val s = StewartSettings.getInstance().state
         s.multiModel = multi
         if (multi) {
             s.plannerModel = "fake/m1"
