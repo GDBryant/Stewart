@@ -656,6 +656,20 @@ class ChatPanel @JvmOverloads constructor(
         clearChoice()
     }
 
+    /** Wrapping text area whose width follows its longest line, capped at the row width minus the left inset. */
+    private class BubbleArea(text: String) : JTextArea(text) {
+        override fun getPreferredSize(): Dimension {
+            val row = parent
+            val avail = if (row != null && row.width > 0) row.width - row.insets.left - row.insets.right else Int.MAX_VALUE
+            val fm = getFontMetrics(font)
+            val ins = insets
+            val widest = (text.split('\n').maxOfOrNull { fm.stringWidth(it) } ?: 0) + ins.left + ins.right + 2
+            val w = maxOf(1, minOf(widest, avail))
+            setSize(w, Short.MAX_VALUE.toInt())
+            return Dimension(w, super.getPreferredSize().height)
+        }
+    }
+
     private class MessageRow : JPanel(BorderLayout()) {
         override fun getMaximumSize() = Dimension(Int.MAX_VALUE, preferredSize.height)
     }
@@ -746,7 +760,7 @@ class ChatPanel @JvmOverloads constructor(
 
     internal fun addMessage(role: String, content: String): JTextArea {
         val isUser = role == "user"
-        val area = JTextArea(if (isUser) content else "$role: $content")
+        val area = if (isUser) BubbleArea(content) else JTextArea("$role: $content")
         area.isEditable = false
         area.lineWrap = true
         area.wrapStyleWord = true
@@ -759,6 +773,9 @@ class ChatPanel @JvmOverloads constructor(
         if (isUser) {
             row.border = JBUI.Borders.emptyLeft(60)
             row.add(area, BorderLayout.EAST)
+            row.addComponentListener(object : java.awt.event.ComponentAdapter() {
+                override fun componentResized(e: java.awt.event.ComponentEvent) = area.revalidate()
+            })
         } else {
             row.add(area, BorderLayout.CENTER)
         }

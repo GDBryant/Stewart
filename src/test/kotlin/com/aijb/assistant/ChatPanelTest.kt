@@ -1388,4 +1388,28 @@ class ChatPanelTest : BasePlatformTestCase() {
         panel.dispose()
         assertTrue(com.intellij.openapi.util.Disposer.isDisposed(panel.busyIcon))
     }
+
+    // --- final review fixes ---
+
+    private fun bubbleWidth(text: String): Int {
+        val panel = newPanel(fakeProvider())
+        val area = panel.addMessage("user", text)
+        val row = area.parent as JPanel
+        row.setSize(600, 2000)
+        row.doLayout()
+        return area.width
+    }
+
+    fun `test short user bubble hugs its text`() {
+        assertTrue(bubbleWidth("hi") < 100)
+    }
+
+    fun `test longer user bubble is wider than a short one`() {
+        assertTrue(bubbleWidth("x".repeat(60) + " " + "y".repeat(50)) > 300)
+    }
+
+    fun `test very long user bubble never exceeds row width minus inset`() {
+        assertTrue(bubbleWidth("word ".repeat(400)) <= 600 - 60)
+    }
+
 }
