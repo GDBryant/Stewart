@@ -164,6 +164,35 @@ class AifProviderTest {
     }
 
     @Test
+    fun `json null content in qwen tool call deltas is not emitted as text`() = runBlocking {
+        // Verbatim qwen3-8-27b native stream (2026-11-02): every tool_calls delta carries "content":null.
+        handler(
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":null,\"role\":\"assistant\",\"content\":\"\"},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}]}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Read it.\"},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}]}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":null,\"content\":\"\\n\\n\",\"reasoning_content\":null,\"tool_calls\":null},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}],\"usage\":null}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":null,\"content\":null,\"reasoning_content\":null,\"tool_calls\":[{\"id\":\"call_6a8a\",\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"ReadFile\",\"arguments\":\"\"}}]},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}],\"usage\":null}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":null,\"content\":null,\"reasoning_content\":null,\"tool_calls\":[{\"id\":null,\"index\":0,\"type\":\"function\",\"function\":{\"name\":null,\"arguments\":\"{\"}}]},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}],\"usage\":null}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":null,\"content\":null,\"reasoning_content\":null,\"tool_calls\":[{\"id\":null,\"index\":0,\"type\":\"function\",\"function\":{\"name\":null,\"arguments\":\"\\\"path\\\": \\\"README.md\\\"\"}}]},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}],\"usage\":null}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"role\":null,\"content\":null,\"reasoning_content\":null,\"tool_calls\":[{\"id\":null,\"index\":0,\"type\":\"function\",\"function\":{\"name\":null,\"arguments\":\"}\"}}]},\"logprobs\":null,\"finish_reason\":null,\"matched_stop\":null}],\"usage\":null}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":null},\"logprobs\":null,\"finish_reason\":\"tool_calls\",\"matched_stop\":248046}]}\n" +
+            "data: {\"id\":\"23fb\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen3-8-27b\",\"choices\":[],\"usage\":{\"prompt_tokens\":319,\"total_tokens\":373,\"completion_tokens\":54,\"prompt_tokens_details\":null,\"reasoning_tokens\":26}}\n" +
+            "data: [DONE]\n"
+        )
+        val events = collect(provider())
+        assertEquals(listOf(ProviderEvent.TextDelta("\n\n")), events.filterIsInstance<ProviderEvent.TextDelta>())
+        assertTrue(events.any { it == ProviderEvent.ReasoningDelta("Read it.") })
+        assertTrue(events.any { it is ProviderEvent.NativeToolCalls })
+        assertEquals("tool_calls", (events.last() as ProviderEvent.Completed).finishReason)
+    }
+
+    @Test
+    fun `literal null string content is still emitted`() = runBlocking {
+        handler("data: {\"choices\":[{\"delta\":{\"content\":\"null\"},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")
+        val events = collect(provider())
+        assertEquals(listOf(ProviderEvent.TextDelta("null")), events.filterIsInstance<ProviderEvent.TextDelta>())
+    }
+
+    @Test
     fun `reasoning content forwarded`() = runBlocking {
         handler("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think\"}}]}\n" +
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")

@@ -250,7 +250,8 @@ class AifProvider(
                             return@flow
                         }
                         if (fr is JsonPrimitive && fr.isString) finish = fr.content
-                        (content as? JsonPrimitive)?.content?.takeIf { it.isNotEmpty() }?.let {
+                        // JsonNull is a JsonPrimitive whose .content is "null"; only real strings are text.
+                        (content as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }?.let {
                             emit(ProviderEvent.TextDelta(it))
                         }
                         (delta["reasoning_content"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotEmpty() }?.let {

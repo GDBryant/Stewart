@@ -66,7 +66,10 @@ SHIM and NATIVE passed on `glm-5-3-flash` and `qwen3-8-27b`.
 HTTP 404 `{"detail":"Not Found"}`, so it is not usable for chat.
 Qwen native stream: standard OpenAI deltas, `id` on the first chunk then
 null, string `arguments`, `finish_reason: tool_calls`, plus
-`reasoning_content` deltas.
+`reasoning_content` deltas. Reasoning chunks omit `content`; every
+`tool_calls` chunk sends `"content":null` (2026-11-02 live capture). That
+JSON null was once rendered as the text `"null"` — `AifProvider` now treats
+only string `content` as text.
 
 2026-10-31 edit-flow check: `AifEditLiveTest` drove a real
 `WriteFile` + `EditFile` cycle on `qwen3-8-27b` through preview,
