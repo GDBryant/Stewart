@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.adb.stewart"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -37,11 +37,11 @@ kotlin {
 intellijPlatform {
     pluginConfiguration {
         id = "com.adb.stewart"
-        name = "AIJB Assistant"
+        name = "Stewart"
         version = project.version.toString()
         description = "Chat with local Ollama models and remote providers inside the IDE."
         vendor {
-            name = "AIJB"
+            name = "ADB"
         }
         ideaVersion {
             sinceBuild = "251"

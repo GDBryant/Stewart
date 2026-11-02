@@ -224,6 +224,15 @@ class HistoryAndFormatTest {
     }
 
     @Test
+    fun `settings hints point at the Stewart settings page`() {
+        listOf("cli_not_found", "missing_api_key", "provider_missing").forEach {
+            assertTrue(it, ErrorHints.hint(it)!!.contains("Settings → Tools → Stewart"))
+        }
+        val all = listOf("auth", "cli_not_found", "missing_api_key", "provider_missing", "turn_limit")
+        all.forEach { assertFalse(it, ErrorHints.hint(it)!!.contains("AIJB")) }
+    }
+
+    @Test
     fun `format appends the hint only when one exists`() {
         assertTrue(ErrorHints.format("boom", "cli_not_found").startsWith("boom — "))
         assertTrue(ErrorHints.format("boom", "cli_not_found").contains("Settings"))

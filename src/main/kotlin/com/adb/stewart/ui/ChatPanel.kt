@@ -344,7 +344,7 @@ class ChatPanel @JvmOverloads constructor(
             project,
             "Bypass ${category.name.lowercase()} approvals for this project? " +
                 "Every guard for this category is disabled until you turn it off.",
-            "AIJB Permissions",
+            "Stewart Permissions",
             "Enable",
             "Cancel",
             null,

@@ -243,7 +243,7 @@ abstract class EditTool(project: Project, paths: ProjectPaths) : ProjectTool(pro
         }
         var failure: RuntimeException? = null
         var writtenVf: VirtualFile? = null
-        writeCommand(project, "AIJB: edit ${resolved.fileName}") {
+        writeCommand(project, "Stewart: edit ${resolved.fileName}") {
             try {
                 val rechecked = paths.resolve(rawPath)
                 if (rechecked.toString() != change.path) {

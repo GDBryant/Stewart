@@ -18,7 +18,7 @@ import com.intellij.ui.dsl.builder.panel
 import javax.swing.JButton
 import javax.swing.JLabel
 
-class StewartConfigurable : BoundConfigurable("AIJB Assistant") {
+class StewartConfigurable : BoundConfigurable("Stewart") {
 
     private val settings get() = StewartSettings.getInstance()
 

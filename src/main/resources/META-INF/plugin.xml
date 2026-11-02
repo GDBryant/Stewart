@@ -1,11 +1,11 @@
 <idea-plugin>
     <id>com.adb.stewart</id>
-    <name>AIJB Assistant</name>
-    <vendor>AIJB</vendor>
+    <name>Stewart</name>
+    <vendor>ADB</vendor>
     <depends>com.intellij.modules.platform</depends>
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="AIJB Assistant" anchor="right" factoryClass="com.adb.stewart.ui.ChatToolWindowFactory"/>
-        <applicationConfigurable parentId="tools" instance="com.adb.stewart.settings.StewartConfigurable" id="com.adb.stewart.settings" displayName="AIJB Assistant"/>
-        <projectConfigurable instance="com.adb.stewart.settings.PermissionsConfigurable" id="com.adb.stewart.settings.permissions" displayName="AIJB Assistant"/>
+        <toolWindow id="Stewart" anchor="right" factoryClass="com.adb.stewart.ui.ChatToolWindowFactory"/>
+        <applicationConfigurable parentId="tools" instance="com.adb.stewart.settings.StewartConfigurable" id="com.adb.stewart.settings" displayName="Stewart"/>
+        <projectConfigurable instance="com.adb.stewart.settings.PermissionsConfigurable" id="com.adb.stewart.settings.permissions" displayName="Stewart"/>
     </extensions>
 </idea-plugin>

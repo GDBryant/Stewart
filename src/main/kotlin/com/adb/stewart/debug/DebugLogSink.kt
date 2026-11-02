@@ -89,14 +89,14 @@ object DebugLogSink {
     /** Single background writer thread: keeps file writes off the Main/EDT thread and ordered. */
     private val writer: ExecutorService by lazy {
         Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "AIJB-DebugLogSink-Writer").apply { isDaemon = true }
+            Thread(runnable, "Stewart-DebugLogSink-Writer").apply { isDaemon = true }
         }
     }
 
     init {
         runCatching {
             Runtime.getRuntime().addShutdownHook(
-                Thread({ runCatching { flushAndClose() } }, "AIJB-DebugLogSink-Flush"))
+                Thread({ runCatching { flushAndClose() } }, "Stewart-DebugLogSink-Flush"))
         }
     }
 
@@ -171,12 +171,12 @@ object DebugLogSink {
 
     private fun reportFailure(e: Throwable) {
         if (!failureReported.compareAndSet(false, true)) return
-        warn("AIJB debug log write failed; further failures are not reported", e)
+        warn("Stewart debug log write failed; further failures are not reported", e)
     }
 
     private fun reportPruneFailure(e: Throwable) {
         if (!pruneFailureReported.compareAndSet(false, true)) return
-        warn("AIJB debug log prune failed; further prune failures are not reported", e)
+        warn("Stewart debug log prune failed; further prune failures are not reported", e)
     }
 
     private fun warn(message: String, e: Throwable) {

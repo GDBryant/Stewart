@@ -10,7 +10,7 @@ class ChatToolWindowFactoryTest : BasePlatformTestCase() {
 
     fun `test factory adds one chat panel content`() {
         val manager = ToolWindowManager.getInstance(project) as ToolWindowHeadlessManagerImpl
-        val toolWindow = manager.doRegisterToolWindow("AIJB Assistant")
+        val toolWindow = manager.doRegisterToolWindow("Stewart")
         ChatToolWindowFactory().createToolWindowContent(project, toolWindow)
         val contents = toolWindow.contentManager.contents
         assertEquals(1, contents.size)

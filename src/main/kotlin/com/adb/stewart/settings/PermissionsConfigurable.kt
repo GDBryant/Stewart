@@ -23,7 +23,7 @@ import javax.swing.JList
  */
 class PermissionsConfigurable(
     private val project: Project,
-) : BoundConfigurable("AIJB Assistant") {
+) : BoundConfigurable("Stewart") {
 
     private val permissions get() = ProjectPermissions.getInstance()
     private val session get() = ChatSession.getInstance(project)
@@ -44,7 +44,7 @@ class PermissionsConfigurable(
         Messages.showYesNoDialog(
             project,
             "Remove every project's bypass ticks and program grants? Chat grants are kept.",
-            "AIJB Permissions",
+            "Stewart Permissions",
             "Reset all",
             "Cancel",
             null,
@@ -110,7 +110,7 @@ class PermissionsConfigurable(
 
     /** Shown instead of throwing: a listener exception becomes an IDE fatal error. */
     internal var programError: (String) -> Unit = {
-        Messages.showErrorDialog(project, it, "AIJB Permissions")
+        Messages.showErrorDialog(project, it, "Stewart Permissions")
     }
 
     internal fun addProgram() {
