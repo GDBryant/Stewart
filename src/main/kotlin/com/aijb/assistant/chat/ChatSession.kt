@@ -117,6 +117,10 @@ class ChatSession(
     val transcript: List<ChatMessage>
         get() = synchronized(lock) { transcriptBacking.toList() }
 
+    internal fun seedTranscriptForTest(vararg messages: ChatMessage) {
+        synchronized(lock) { transcriptBacking.addAll(messages) }
+    }
+
     /** Tokens and cost summed over every completed request in this chat (restored with history). */
     val sessionUsage: Usage?
         get() = synchronized(lock) { usageBacking }

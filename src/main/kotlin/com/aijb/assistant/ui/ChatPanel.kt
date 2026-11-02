@@ -7,7 +7,10 @@ import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
 import com.aijb.assistant.chat.GitDiff
+import com.aijb.assistant.chat.ContextCompactor
 import com.aijb.assistant.chat.InitFiles
+import com.aijb.assistant.chat.PromptHistory
+import com.aijb.assistant.provider.Role
 import com.aijb.assistant.chat.PermissionsView
 import com.aijb.assistant.chat.SlashCommand
 import com.aijb.assistant.chat.SlashCommands
@@ -160,6 +163,23 @@ class ChatPanel @JvmOverloads constructor(
                     e.consume()
                     return
                 }
+                if (e.keyCode == KeyEvent.VK_UP && (inputArea.text.isEmpty() || history.browsing)) {
+                    if (!history.browsing) {
+                        history.reset(
+                            session.transcript
+                                .filter { it.role == Role.USER && !it.content.startsWith(ContextCompactor.SUMMARY_PREFIX) }
+                                .map { it.content },
+                        )
+                    }
+                    history.older()?.let { recall(it) }
+                    e.consume()
+                    return
+                }
+                if (e.keyCode == KeyEvent.VK_DOWN && history.browsing) {
+                    history.newer()?.let { recall(it) }
+                    e.consume()
+                    return
+                }
                 if (e.keyCode == KeyEvent.VK_ENTER) {
                     e.consume()
                     if (e.isShiftDown) inputArea.replaceSelection("\n") else onSubmit()
@@ -179,9 +199,14 @@ class ChatPanel @JvmOverloads constructor(
             }
         })
         inputArea.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent) = updateCompletions()
-            override fun removeUpdate(e: DocumentEvent) = updateCompletions()
-            override fun changedUpdate(e: DocumentEvent) = updateCompletions()
+            override fun insertUpdate(e: DocumentEvent) = edited()
+            override fun removeUpdate(e: DocumentEvent) = edited()
+            override fun changedUpdate(e: DocumentEvent) = edited()
+
+            private fun edited() {
+                if (!recalling) history.stopBrowsing()
+                updateCompletions()
+            }
         })
         completionList.cellRenderer = object : SimpleListCellRenderer<SlashCommand>() {
             override fun customize(
@@ -409,6 +434,20 @@ class ChatPanel @JvmOverloads constructor(
 
     internal val completionItems: List<SlashCommand>
         get() = (0 until completionList.model.size).map { completionList.model.getElementAt(it) }
+
+    private val history = PromptHistory()
+    private var recalling = false
+
+    /** Puts a recalled prompt in the input without ending the browse. */
+    private fun recall(text: String) {
+        recalling = true
+        try {
+            inputArea.text = text
+            inputArea.caretPosition = if (text.isEmpty()) 0 else text.length
+        } finally {
+            recalling = false
+        }
+    }
 
     internal fun updateCompletions() {
         val text = inputArea.text
@@ -948,6 +987,7 @@ class ChatPanel @JvmOverloads constructor(
         if (text.isEmpty()) return
         val info = selectedModelOrError() ?: return
         inputArea.text = ""
+        history.stopBrowsing()
         startSend(text, info)
     }
 

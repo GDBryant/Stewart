@@ -1213,6 +1213,69 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("/c\n", panel.inputArea.text)
     }
 
+    private fun user(text: String) = com.aijb.assistant.provider.ChatMessage(Role.USER, text)
+
+    fun `test up recalls prompts on empty input and down walks back to empty`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"), com.aijb.assistant.provider.ChatMessage(Role.ASSISTANT, "r"), user("second"))
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("second", panel.inputArea.text)
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("first", panel.inputArea.text)
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("first", panel.inputArea.text)
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("second", panel.inputArea.text)
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("", panel.inputArea.text)
+    }
+
+    fun `test up does not replace typed text`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"))
+        panel.inputArea.text = "typing"
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("typing", panel.inputArea.text)
+    }
+
+    fun `test editing a recalled prompt stops browsing`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"), user("second"))
+        key(panel, KeyEvent.VK_UP)
+        panel.inputArea.text = "second edited"
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("second edited", panel.inputArea.text)
+    }
+
+    fun `test up is ignored while the completion popup is open`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"))
+        panel.inputArea.text = "/"
+        assertTrue(names(panel).isNotEmpty())
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("/", panel.inputArea.text)
+    }
+
+    fun `test up with empty history leaves input empty`() {
+        val panel = newPanel(fakeProvider())
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("", panel.inputArea.text)
+    }
+
+    fun `test down when not browsing does nothing`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("first"))
+        key(panel, KeyEvent.VK_DOWN)
+        assertEquals("", panel.inputArea.text)
+    }
+
+    fun `test compaction summary is not recalled`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("real"), user(ContextCompactor.SUMMARY_PREFIX + "\nstuff"))
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("real", panel.inputArea.text)
+    }
+
     private fun settings(multi: Boolean) {
         val s = AijbSettings.getInstance().state
         s.multiModel = multi
