@@ -460,8 +460,10 @@ class ChatPanel @JvmOverloads constructor(
     private fun recall(text: String, atStart: Boolean) {
         recalling = true
         try {
-            inputArea.text = text
-            inputArea.caretPosition = if (atStart) 0 else text.length
+            // Stored prompts had their `//` escape collapsed; re-escape so Enter cannot run them as commands.
+            val shown = if (text.startsWith("/")) "/$text" else text
+            inputArea.text = shown
+            inputArea.caretPosition = if (atStart) 0 else shown.length
         } finally {
             recalling = false
         }

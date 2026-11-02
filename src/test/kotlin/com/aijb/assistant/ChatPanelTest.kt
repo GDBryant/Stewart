@@ -1444,4 +1444,22 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertTrue(panel.toolRows().single().headerText.contains("tool"))
     }
 
+    fun `test recalled slash prompt is re-escaped and does not open completions or clear`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("/clear the cache"))
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("//clear the cache", panel.inputArea.text)
+        assertTrue(names(panel).isEmpty())
+        key(panel, KeyEvent.VK_ENTER)
+        pump()
+        assertFalse(panel.statusLabel.text == "History cleared")
+        assertTrue(session.transcript.any { it.content == "/clear the cache" })
+    }
+
+    fun `test recalled ordinary prompt is unchanged`() {
+        val panel = newPanel(fakeProvider())
+        session.seedTranscriptForTest(user("clear the cache"))
+        key(panel, KeyEvent.VK_UP)
+        assertEquals("clear the cache", panel.inputArea.text)
+    }
 }
