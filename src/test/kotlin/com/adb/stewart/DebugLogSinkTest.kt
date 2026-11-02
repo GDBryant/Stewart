@@ -20,7 +20,7 @@ class DebugLogSinkTest {
 
     @Before
     fun setUp() {
-        dir = Files.createTempDirectory("aijb-sink-")
+        dir = Files.createTempDirectory("stewart-sink-")
         previousEnabled = DebugLogSink.isEnabled
         previousDirectory = DebugLogSink.logDirectory
     }
@@ -224,7 +224,7 @@ class DebugLogSinkTest {
 
     @Test
     fun `prune failure is reported once independently of write failures`() {
-        val notADir = Files.createTempFile("aijb-sink-file", ".x")
+        val notADir = Files.createTempFile("stewart-sink-file", ".x")
         DebugLogSink.failureReported.set(true)
         DebugLogSink.pruneFailureReported.set(false)
         DebugLogSink.retentionDays = 7
@@ -339,7 +339,7 @@ class DebugLogSinkTest {
 
     @Test
     fun `write failures are swallowed`() {
-        val blocker = Files.createTempFile("aijb-sink-blocker", ".log")
+        val blocker = Files.createTempFile("stewart-sink-blocker", ".log")
         DebugLogSink.configure(true, blocker.toString())
         DebugLogSink.log("outgoing", "ollama", "m", "payload", 0L)
         DebugLogSink.log("outgoing", "ollama", "m", "payload", 0L)

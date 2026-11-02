@@ -74,7 +74,7 @@ class ClaudeLiveTest {
     @Test
     fun `live isolation in disposable dir`() = runBlocking {
         skip()
-        val dir = Files.createTempDirectory("aijb-live-iso-").toFile()
+        val dir = Files.createTempDirectory("stewart-live-iso-").toFile()
         val sentinel = java.io.File(dir, "sentinel.txt")
         sentinel.writeText("untouched")
         try {

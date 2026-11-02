@@ -859,7 +859,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     private fun tempStore(): ChatHistoryStore =
-        ChatHistoryStore(ChatHistoryStore.pathFor(java.nio.file.Files.createTempDirectory("aijb-sess-"), "p"))
+        ChatHistoryStore(ChatHistoryStore.pathFor(java.nio.file.Files.createTempDirectory("stewart-sess-"), "p"))
 
     private fun sendAndWait(session: ChatSession, text: String) {
         val listener = RecordingListener()
@@ -956,7 +956,7 @@ class ChatSessionTest : BasePlatformTestCase() {
     }
 
     fun `test storage failures never break the chat`() {
-        val failing = object : ChatHistoryStore(java.nio.file.Files.createTempDirectory("aijb-f-").resolve("h.json")) {
+        val failing = object : ChatHistoryStore(java.nio.file.Files.createTempDirectory("stewart-f-").resolve("h.json")) {
             override fun save(messages: List<ChatMessage>, usage: Usage?, now: Long) = throw java.io.IOException("disk full")
             override fun load(retentionDays: Int, now: Long): com.adb.stewart.chat.LoadedChat? = throw java.io.IOException("unreadable")
             override fun delete() = throw java.io.IOException("locked")

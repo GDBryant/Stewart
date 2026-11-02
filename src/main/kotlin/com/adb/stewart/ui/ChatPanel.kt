@@ -96,7 +96,7 @@ class ChatPanel @JvmOverloads constructor(
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
     internal val inputArea = JBTextArea(3, 40)
     internal val sendButton = JButton("Send")
-    internal val busyIcon = AsyncProcessIcon("aijb-busy").apply { isVisible = false; suspend() }
+    internal val busyIcon = AsyncProcessIcon("stewart-busy").apply { isVisible = false; suspend() }
     internal val activityLabel = JLabel(" ")
 
     /** Slash-command autocomplete: the list lives in a non-focusable popup; keys stay in the input. */

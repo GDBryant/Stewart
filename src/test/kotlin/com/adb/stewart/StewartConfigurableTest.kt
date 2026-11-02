@@ -182,18 +182,18 @@ class StewartConfigurableTest : BasePlatformTestCase() {
             assertEquals("./log/debug_logs/", configurable.debugLogFolderField.text)
             assertFalse(configurable.isModified)
             configurable.debugLogCheck.isSelected = true
-            configurable.debugLogFolderField.text = "  /tmp/aijb-debug  "
+            configurable.debugLogFolderField.text = "  /tmp/stewart-debug  "
             assertTrue(configurable.isModified)
             configurable.apply()
             val s = StewartSettings.getInstance().state
             assertTrue(s.debugLogEnabled)
-            assertEquals("/tmp/aijb-debug", s.debugLogFolder)
+            assertEquals("/tmp/stewart-debug", s.debugLogFolder)
             assertTrue(com.adb.stewart.debug.DebugLogSink.isEnabled)
-            assertEquals("/tmp/aijb-debug", com.adb.stewart.debug.DebugLogSink.logDirectory)
+            assertEquals("/tmp/stewart-debug", com.adb.stewart.debug.DebugLogSink.logDirectory)
             assertFalse(configurable.isModified)
             configurable.reset()
             assertTrue(configurable.debugLogCheck.isSelected)
-            assertEquals("/tmp/aijb-debug", configurable.debugLogFolderField.text)
+            assertEquals("/tmp/stewart-debug", configurable.debugLogFolderField.text)
             configurable.debugLogFolderField.text = "   "
             configurable.apply()
             assertEquals("./log/debug_logs/", StewartSettings.getInstance().state.debugLogFolder)

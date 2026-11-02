@@ -79,7 +79,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `full lifecycle via fake cli`() {
-        val rec = Files.createTempDirectory("aijb-rec-").toFile()
+        val rec = Files.createTempDirectory("stewart-rec-").toFile()
         fakeFile.setExecutable(true)
         val evs = runBlocking {
             ClaudeProvider(cliPath = fake, extraEnv = mapOf(
@@ -99,7 +99,7 @@ class ClaudeProviderTest {
         assertFalse(envText.contains("ANTHROPIC_API_KEY"))
         assertFalse(envText.contains("ANTHROPIC_AUTH_TOKEN"))
         assertTrue(envText.contains("KEEP_ME=1"))
-        val sysPath = argv.lines().first { it.contains("/tmp/aijb-claude-prompt") }.trim('[', ']')
+        val sysPath = argv.lines().first { it.contains("/tmp/stewart-claude-prompt") }.trim('[', ']')
         assertFalse(File(sysPath).exists())
         val cwd = File(rec, "pwd-1").readText().trim()
         assertTrue(cwd.startsWith(System.getProperty("java.io.tmpdir")))
@@ -165,7 +165,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `isolation violation on tools in init`() {
-        val f = Files.createTempFile("aijb-viol", ".json").toFile()
+        val f = Files.createTempFile("stewart-viol", ".json").toFile()
         f.writeText("{\"type\":\"system\",\"subtype\":\"init\",\"tools\":[\"Bash\"],\"mcp_servers\":[]}\n" +
             "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{}}\n")
         val evs = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
@@ -194,7 +194,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `cancellation kills process tree`() {
-        val dir = Files.createTempDirectory("aijb-cancel-").toFile()
+        val dir = Files.createTempDirectory("stewart-cancel-").toFile()
         fakeFile.setExecutable(true)
         val pidFile = java.io.File(dir, "pids.txt")
         val p = ClaudeProvider(cliPath = fake,
@@ -252,8 +252,8 @@ class ClaudeProviderTest {
 
     @Test
     fun `end to end through shim and tool loop`() = runBlocking {
-        val recDir = Files.createTempDirectory("aijb-e2e-").toFile()
-        val fixDir = Files.createTempDirectory("aijb-e2efix-").toFile()
+        val recDir = Files.createTempDirectory("stewart-e2e-").toFile()
+        val fixDir = Files.createTempDirectory("stewart-e2efix-").toFile()
         File(fixDir, "1.json").writeText(
             "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"<tool_call> {\\\"name\\\":\\\"get_key\\\",\\\"arguments\\\":{}} </tool_call>\"}}}\n" +
             "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}\n")
@@ -327,7 +327,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `executed tool result kills process`() {
-        val f = Files.createTempFile("aijb-exec", ".json").toFile()
+        val f = Files.createTempFile("stewart-exec", ".json").toFile()
         f.writeText("{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"is_error\":false}]}}\n" +
             "{\"type\":\"result\",\"is_error\":false,\"usage\":{}}\n")
         val evs = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
@@ -336,7 +336,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `debug log records stdin and every stdout line`() {
-        val dir = Files.createTempDirectory("aijb-claude-debug")
+        val dir = Files.createTempDirectory("stewart-claude-debug")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(true, dir.toString())
         try {
@@ -358,7 +358,7 @@ class ClaudeProviderTest {
 
     @Test
     fun `debug log captures stderr on cli failure`() {
-        val dir = Files.createTempDirectory("aijb-claude-stderr")
+        val dir = Files.createTempDirectory("stewart-claude-stderr")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(true, dir.toString())
         try {

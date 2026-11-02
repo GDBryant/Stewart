@@ -69,11 +69,11 @@ class ClaudeProvider(
         }
         val (system, stdinText) = ClaudeTranscript.render(request.messages)
         DebugLogSink.log("outgoing", id, request.model, stdinText)
-        val cwd = Files.createTempDirectory("aijb-claude-").toFile()
+        val cwd = Files.createTempDirectory("stewart-claude-").toFile()
         var promptFile: File? = null
         var process: Process? = null
         try {
-            promptFile = Files.createTempFile("aijb-claude-prompt", ".txt").toFile()
+            promptFile = Files.createTempFile("stewart-claude-prompt", ".txt").toFile()
             promptFile.writeText(system, Charsets.UTF_8)
             val argv = listOf(
                 cliPath, "-p", "--output-format", "stream-json", "--verbose",
@@ -192,7 +192,7 @@ class ClaudeProvider(
     }
 
     suspend fun loginStatus(): ClaudeLoginState = withContext(Dispatchers.IO) {
-        val cwd = Files.createTempDirectory("aijb-claude-").toFile()
+        val cwd = Files.createTempDirectory("stewart-claude-").toFile()
         var process: Process? = null
         try {
             val pb = ProcessBuilder(cliPath, "auth", "status")

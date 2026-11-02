@@ -43,7 +43,7 @@ class ProjectPathsTest {
 
     @Test
     fun `absolute outside rejected`() {
-        val outside = Files.createTempDirectory("aijb-out-")
+        val outside = Files.createTempDirectory("stewart-out-")
         val f = Files.write(outside.resolve("x.txt"), "x".toByteArray())
         assertThrows(IllegalArgumentException::class.java) {
             paths().resolve(f.toString())
@@ -52,7 +52,7 @@ class ProjectPathsTest {
 
     @Test
     fun `symlink file pointing outside rejected`() {
-        val outside = Files.createTempDirectory("aijb-out-")
+        val outside = Files.createTempDirectory("stewart-out-")
         val target = Files.write(outside.resolve("sec.txt"), "s".toByteArray())
         val link = tmp.root.toPath().resolve("link.txt")
         try {
@@ -67,7 +67,7 @@ class ProjectPathsTest {
 
     @Test
     fun `symlink dir pointing outside rejected`() {
-        val outside = Files.createTempDirectory("aijb-out-")
+        val outside = Files.createTempDirectory("stewart-out-")
         val link = tmp.root.toPath().resolve("linked")
         try {
             Files.createSymbolicLink(link, outside)
@@ -100,7 +100,7 @@ class ProjectPathsTest {
 
     @Test
     fun `new file under symlinked outside dir rejected`() {
-        val outside = Files.createTempDirectory("aijb-out-")
+        val outside = Files.createTempDirectory("stewart-out-")
         try {
             Files.createSymbolicLink(tmp.root.toPath().resolve("linked"), outside)
         } catch (e: Exception) {
@@ -120,7 +120,7 @@ class ProjectPathsTest {
     fun `relative for display`() {
         val base = tmp.root.toPath().toRealPath()
         assertEquals("x/y.txt", paths().relative(base.resolve("x/y.txt")))
-        val outside = Files.createTempDirectory("aijb-out-").toRealPath()
+        val outside = Files.createTempDirectory("stewart-out-").toRealPath()
         assertEquals(outside.resolve("z").toString(), paths().relative(outside.resolve("z")))
     }
 }

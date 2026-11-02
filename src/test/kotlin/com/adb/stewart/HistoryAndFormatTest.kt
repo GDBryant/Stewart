@@ -30,7 +30,7 @@ class HistoryAndFormatTest {
 
     @Before
     fun setUp() {
-        dir = Files.createTempDirectory("aijb-history-")
+        dir = Files.createTempDirectory("stewart-history-")
         file = ChatHistoryStore.pathFor(dir, "abc123")
         store = ChatHistoryStore(file)
     }

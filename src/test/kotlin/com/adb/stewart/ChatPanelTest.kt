@@ -386,11 +386,11 @@ class ChatPanelTest : BasePlatformTestCase() {
 
     fun `test panel applies debug log settings to the sink`() {
         StewartSettings.getInstance().state.debugLogEnabled = true
-        StewartSettings.getInstance().state.debugLogFolder = "/tmp/aijb-panel-debug"
+        StewartSettings.getInstance().state.debugLogFolder = "/tmp/stewart-panel-debug"
         StewartSettings.getInstance().state.debugLogRetentionDays = 12
         newPanel(fakeProvider())
         assertTrue(com.adb.stewart.debug.DebugLogSink.isEnabled)
-        assertEquals("/tmp/aijb-panel-debug", com.adb.stewart.debug.DebugLogSink.logDirectory)
+        assertEquals("/tmp/stewart-panel-debug", com.adb.stewart.debug.DebugLogSink.logDirectory)
         assertEquals(12, com.adb.stewart.debug.DebugLogSink.retentionDays)
     }
 

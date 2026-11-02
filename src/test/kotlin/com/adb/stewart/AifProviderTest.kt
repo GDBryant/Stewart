@@ -605,7 +605,7 @@ class AifProviderTest {
 
     @Test
     fun `debug log records the outgoing payload and every sse line`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-aif-debug")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(true, dir.toString())
         try {
@@ -628,7 +628,7 @@ class AifProviderTest {
 
     @Test
     fun `debug log disabled writes nothing for aif`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug-off")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-aif-debug-off")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(false, dir.toString())
         try {
@@ -642,7 +642,7 @@ class AifProviderTest {
 
     @Test
     fun `debug log records http error body`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug-err")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-aif-debug-err")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(true, dir.toString())
         try {

@@ -15,7 +15,7 @@ class DebugLogSinkIdeTest : BasePlatformTestCase() {
     }
 
     fun `test absolute folder is unchanged`() {
-        val abs = Path.of(System.getProperty("java.io.tmpdir"), "aijb-abs")
+        val abs = Path.of(System.getProperty("java.io.tmpdir"), "stewart-abs")
         assertEquals(abs, DebugLogSink.resolveDirectory(abs.toString()))
     }
 }

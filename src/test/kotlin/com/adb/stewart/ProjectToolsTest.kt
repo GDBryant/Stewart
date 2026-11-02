@@ -371,7 +371,7 @@ class ProjectToolsTest : BasePlatformTestCase() {
     }
 
     fun `test symlink swap inside to outside rejected on apply`() {
-        val outside = java.nio.file.Files.createTempDirectory("aijb-out-").toRealPath()
+        val outside = java.nio.file.Files.createTempDirectory("stewart-out-").toRealPath()
         java.nio.file.Files.writeString(outside.resolve("sec.txt"), "SECRET")
         val link = java.nio.file.Paths.get(baseDir.absolutePath, "link.txt")
         try {
@@ -388,7 +388,7 @@ class ProjectToolsTest : BasePlatformTestCase() {
     }
 
     fun `test search excludes symlinked outside file`() {
-        val outside = java.nio.file.Files.createTempDirectory("aijb-out-").toRealPath()
+        val outside = java.nio.file.Files.createTempDirectory("stewart-out-").toRealPath()
         java.nio.file.Files.writeString(outside.resolve("esc.txt"), "needle secret")
         writeContent("in/a.txt", "needle here")
         try {

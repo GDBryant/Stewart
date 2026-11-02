@@ -645,7 +645,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug disabled produces no log file`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-off")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-off")
         com.adb.stewart.debug.DebugLogSink.logDirectory = dir.toString()
         com.adb.stewart.debug.DebugLogSink.isEnabled = false
         server.createContext("/api/chat") { ex ->
@@ -661,7 +661,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug enabled logs outgoing request and model`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-out")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-out")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.logDirectory = dir.resolve("nested/").toString()
         sink.isEnabled = true
@@ -689,7 +689,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug enabled logs every ndjson chunk with chunk model`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-chunk")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-chunk")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.logDirectory = dir.toString()
         sink.isEnabled = true
@@ -718,7 +718,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug chunk log falls back to request model when chunk omits model`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-fallback")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-fallback")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.logDirectory = dir.toString()
         sink.isEnabled = true
@@ -744,7 +744,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug log records http error body`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-err")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-err")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.configure(true, dir.toString())
         try {
@@ -779,7 +779,7 @@ class OllamaProviderTest {
 
     @Test
     fun `debug logging failure does not break chat`() {
-        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-blocked")
+        val dir = java.nio.file.Files.createTempDirectory("stewart-debug-blocked")
         val sink = com.adb.stewart.debug.DebugLogSink
         sink.logDirectory = dir.resolve("file.log").toString()
         sink.isEnabled = true

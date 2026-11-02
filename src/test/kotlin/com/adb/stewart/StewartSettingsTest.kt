@@ -50,7 +50,7 @@ class StewartSettingsTest {
         s.workerModel = "ollama/w"
         s.autoCompactTokens = 120000
         s.debugLogEnabled = true
-        s.debugLogFolder = "/tmp/aijb/debug/"
+        s.debugLogFolder = "/tmp/stewart/debug/"
         s.debugLogRetentionDays = 30
         val element = XmlSerializer.serialize(s)
         val restored = XmlSerializer.deserialize(element, StewartSettings.State::class.java)
@@ -72,7 +72,7 @@ class StewartSettingsTest {
         val viaLoad = StewartSettings().also { it.loadState(restored) }
         assertEquals("aif/a", viaLoad.state.chatModel)
         assertEquals(true, viaLoad.state.debugLogEnabled)
-        assertEquals("/tmp/aijb/debug/", viaLoad.state.debugLogFolder)
+        assertEquals("/tmp/stewart/debug/", viaLoad.state.debugLogFolder)
     }
 
     @Test
