@@ -175,7 +175,7 @@ class HistoryAndFormatTest {
     @Test
     fun `path lives under the plugin dir keyed by project`() {
         val p = ChatHistoryStore.pathFor(dir, "h")
-        assertEquals(dir.resolve("aijb-assistant").resolve("history").resolve("h.json"), p)
+        assertEquals(dir.resolve("stewart").resolve("history").resolve("h.json"), p)
     }
 
     // --- usage format ---

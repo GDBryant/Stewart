@@ -1,5 +1,6 @@
 package com.adb.stewart.tools.permissions
 
+import com.adb.stewart.settings.LegacyMigration
 import com.adb.stewart.settings.StewartSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.BaseState
@@ -13,6 +14,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.messages.Topic
+import java.nio.file.Path
 
 fun interface PermissionsListener {
     /** [projectHash] is the changed project's locationHash; empty means every project. */
@@ -39,8 +41,8 @@ data class PermissionsSnapshot(
  */
 @Service(Service.Level.APP)
 @State(
-    name = "AijbPermissions",
-    storages = [Storage("aijb-permissions.xml")],
+    name = "StewartPermissions",
+    storages = [Storage("stewart-permissions.xml")],
     category = SettingsCategory.SYSTEM,
 )
 class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.State>(State()) {
@@ -67,6 +69,25 @@ class ProjectPermissions : SimplePersistentStateComponent<ProjectPermissions.Sta
 
     @Volatile
     private var snapshots: Map<String, PermissionsSnapshot> = emptyMap()
+
+    /** Snapshots are derived state: rebuild them whenever stored state is (re)loaded. */
+    override fun loadState(state: State) {
+        synchronized(sync) {
+            super.loadState(state)
+            rebuild()
+        }
+    }
+
+    /**
+     * No `stewart-permissions.xml` yet: adopt the pre-rename `aijb-permissions.xml` once. Its `migrated`
+     * flag comes along, so the legacy trusted-mode seeding is not run a second time.
+     */
+    override fun noStateLoaded() {
+        migrateLegacy(LegacyMigration.optionsFile(LegacyMigration.PERMISSIONS_FILE))
+    }
+
+    internal fun migrateLegacy(file: Path): Boolean =
+        LegacyMigration.migrateState(state, State(), file, LegacyMigration.PERMISSIONS_COMPONENT, ::loadState)
 
     /** The project's snapshot; the first call after upgrade runs the one-shot migration. */
     fun forProject(project: Project): PermissionsSnapshot {

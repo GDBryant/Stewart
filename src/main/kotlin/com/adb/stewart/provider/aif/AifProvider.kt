@@ -12,6 +12,7 @@ import com.adb.stewart.provider.RawToolCall
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolChoice
 import com.adb.stewart.provider.Usage
+import com.adb.stewart.settings.LegacyMigration
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.Credentials
 import com.intellij.credentialStore.generateServiceName
@@ -66,12 +67,27 @@ object AifUrls {
 }
 
 object AifCredentials {
-    private val attributes = CredentialAttributes(generateServiceName("AIJB Assistant", "AIF API key"))
+    private val attributes = CredentialAttributes(generateServiceName("Stewart", "AIF API key"))
+    private val legacyAttributes =
+        CredentialAttributes(generateServiceName(LegacyMigration.CREDENTIAL_SUBSYSTEM, "AIF API key"))
 
-    fun get(): String? = PasswordSafe.instance.get(attributes)?.getPasswordAsString()
+    /** The legacy key is looked up once per session; `get()` runs on the debug-log redaction path. */
+    @Volatile
+    private var legacyChecked = false
 
+    fun get(): String? {
+        if (legacyChecked) return PasswordSafe.instance.get(attributes)?.getPasswordAsString()
+        legacyChecked = true
+        return LegacyMigration.migrateCredential(
+            attributes, legacyAttributes, { PasswordSafe.instance.get(it) }, { a, c -> PasswordSafe.instance.set(a, c) },
+        )?.getPasswordAsString()
+    }
+
+    /** Clearing also clears the legacy entry, or the next session would migrate it straight back. */
     fun set(key: String?) {
+        legacyChecked = true
         PasswordSafe.instance.set(attributes, key?.let { Credentials("aif", it) })
+        if (key == null) PasswordSafe.instance.set(legacyAttributes, null)
     }
 }
 

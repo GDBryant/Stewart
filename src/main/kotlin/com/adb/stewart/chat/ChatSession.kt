@@ -468,6 +468,7 @@ class ChatSession(
             if (ApplicationManager.getApplication().isUnitTestMode) {
                 null
             } else {
+                ChatHistoryStore.migrateLegacy(PathManager.getSystemDir())
                 ChatHistoryStore(ChatHistoryStore.pathFor(PathManager.getSystemDir(), project.locationHash))
             }
     }

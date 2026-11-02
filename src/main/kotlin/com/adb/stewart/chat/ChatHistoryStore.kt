@@ -4,6 +4,7 @@ import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolCall
 import com.adb.stewart.provider.Usage
+import com.adb.stewart.settings.LegacyMigration
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -138,7 +139,14 @@ open class ChatHistoryStore(val file: Path) {
         const val VERSION = 1
 
         fun pathFor(systemDir: Path, projectHash: String): Path =
-            systemDir.resolve("aijb-assistant").resolve("history").resolve("$projectHash.json")
+            historyDir(systemDir).resolve("$projectHash.json")
+
+        fun historyDir(systemDir: Path): Path = systemDir.resolve("stewart").resolve("history")
+
+        /** Copies the pre-rename history dir once, when the new one does not exist yet; true if it copied. */
+        fun migrateLegacy(systemDir: Path): Boolean = LegacyMigration.copyDir(
+            systemDir.resolve(LegacyMigration.HISTORY_DIR).resolve("history"), historyDir(systemDir),
+        )
         private val JSON = Json { ignoreUnknownKeys = false }
 
         /** Deletes history files in [dir] (any project) not modified within [retentionDays]. */

@@ -283,7 +283,7 @@ class DebugLogSinkTest {
         DebugLogSink.maxFileBytes = 50
         val ts = System.currentTimeMillis()
         java.nio.channels.FileChannel.open(
-            dir.resolve(".aijb-debug.lock"),
+            dir.resolve(".stewart-debug.lock"),
             java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE,
         ).use { ch ->
             val held = ch.lock()

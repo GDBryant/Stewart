@@ -1,5 +1,6 @@
 package com.adb.stewart
 
+import com.adb.stewart.settings.LegacyMigration
 import com.adb.stewart.tools.ToolPreview
 import com.adb.stewart.tools.permissions.ApprovalCategory
 import com.adb.stewart.tools.permissions.ProjectPermissions
@@ -70,14 +71,89 @@ class ProjectPermissionsTest : BasePlatformTestCase() {
     fun `test a planted idea file does not enable bypass`() {
         val idea = File(project.basePath, ".idea")
         idea.mkdirs()
-        File(idea, "aijb-permissions.xml").writeText(
-            "<application><component name=\"AijbPermissions\">" +
-                "<option name=\"ticks\"><map><entry key=\"x\" value=\"EDITS\"/></map></option>" +
+        File(idea, "stewart-permissions.xml").writeText(
+            "<application><component name=\"StewartPermissions\">" +
+                "<option name=\"ticks\"><map><entry key=\"${project.locationHash}\" value=\"EDITS\"/></map></option>" +
                 "</component></application>")
         val snapshot = permissions.forProject(project)
         assertTrue(snapshot.ticks.isEmpty())
         assertTrue(snapshot.programs.isEmpty())
     }
+
+    fun `test a planted legacy idea file is not migrated`() {
+        val idea = File(project.basePath, ".idea")
+        idea.mkdirs()
+        File(idea, LegacyMigration.PERMISSIONS_FILE).writeText(legacyXml(migrated = true, ticks = "EDITS"))
+        assertFalse(LegacyMigration.optionsFile(LegacyMigration.PERMISSIONS_FILE).startsWith(project.basePath!!))
+        permissions.noStateLoaded()
+        assertTrue(permissions.forProject(project).ticks.isEmpty())
+    }
+
+    fun `test legacy file migrates grants and keeps the old file`() {
+        val old = legacyFile(legacyXml(migrated = true, ticks = "COMMANDS,EDITS", programs = "git"))
+        val fresh = ProjectPermissions()
+        assertTrue(fresh.migrateLegacy(old))
+        assertTrue(fresh.state.migrated)
+        assertEquals(setOf(ApprovalCategory.COMMANDS, ApprovalCategory.EDITS), fresh.forHash(project.locationHash).ticks)
+        assertEquals(setOf("git"), fresh.forHash(project.locationHash).programs)
+        assertTrue(old.toFile().exists())
+    }
+
+    fun `test migrated flag from the legacy file prevents reseeding`() {
+        val old = legacyFile(legacyXml(migrated = true, ticks = "COMMANDS"))
+        val fresh = ProjectPermissions()
+        fresh.autoApproveEdits = { true }
+        fresh.openProjects = { listOf(project) }
+        assertTrue(fresh.migrateLegacy(old))
+        assertEquals(setOf(ApprovalCategory.COMMANDS), fresh.forProject(project).ticks)
+    }
+
+    fun `test legacy file without the migrated flag still seeds once`() {
+        val old = legacyFile(legacyXml(migrated = false, ticks = "COMMANDS"))
+        val fresh = ProjectPermissions()
+        fresh.autoApproveEdits = { true }
+        fresh.openProjects = { listOf(project) }
+        assertTrue(fresh.migrateLegacy(old))
+        assertEquals(setOf(ApprovalCategory.COMMANDS, ApprovalCategory.EDITS), fresh.forProject(project).ticks)
+    }
+
+    fun `test legacy migration skips when the old file is absent`() {
+        val fresh = ProjectPermissions()
+        assertFalse(fresh.migrateLegacy(File(createTempDir(), "missing.xml").toPath()))
+        assertFalse(fresh.state.migrated)
+        assertTrue(fresh.forHash(project.locationHash).ticks.isEmpty())
+    }
+
+    fun `test legacy migration skips when new state is already set`() {
+        val old = legacyFile(legacyXml(migrated = true, ticks = "EDITS"))
+        val fresh = ProjectPermissions()
+        fresh.addProgramForHash("h2", "make")
+        assertFalse(fresh.migrateLegacy(old))
+        assertTrue(fresh.forHash(project.locationHash).ticks.isEmpty())
+        assertEquals(setOf("make"), fresh.forHash("h2").programs)
+    }
+
+    fun `test loadState rebuilds snapshots`() {
+        val state = ProjectPermissions.State()
+        state.migrated = true
+        state.ticks["h1"] = "EDITS"
+        val fresh = ProjectPermissions()
+        fresh.loadState(state)
+        assertEquals(setOf(ApprovalCategory.EDITS), fresh.forHash("h1").ticks)
+    }
+
+    private fun legacyXml(migrated: Boolean, ticks: String, programs: String? = null): String {
+        val h = project.locationHash
+        return "<application><component name=\"${LegacyMigration.PERMISSIONS_COMPONENT}\">" +
+            (if (migrated) "<option name=\"migrated\" value=\"true\"/>" else "") +
+            "<option name=\"ticks\"><map><entry key=\"$h\" value=\"$ticks\"/></map></option>" +
+            (programs?.let { "<option name=\"programs\"><map><entry key=\"$h\" value=\"$it\"/></map></option>" } ?: "") +
+            "</component></application>"
+    }
+
+    private fun legacyFile(xml: String) = File(createTempDir(), LegacyMigration.PERMISSIONS_FILE).apply { writeText(xml) }.toPath()
+
+    private fun createTempDir(): File = java.nio.file.Files.createTempDirectory("stewart-perms-").toFile().also { it.deleteOnExit() }
 
     fun `test concurrent reads and writes stay consistent`() {
         val failures = Collections.synchronizedList(mutableListOf<Throwable>())

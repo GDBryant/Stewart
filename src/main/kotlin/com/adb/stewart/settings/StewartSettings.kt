@@ -9,13 +9,14 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.util.messages.Topic
+import java.nio.file.Path
 
 fun interface StewartSettingsListener {
     fun settingsChanged()
 }
 
 @Service(Service.Level.APP)
-@State(name = "AijbAssistantSettings", storages = [Storage("aijb-assistant.xml")])
+@State(name = "StewartSettings", storages = [Storage("stewart.xml")])
 class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(State()) {
 
     class State : BaseState() {
@@ -40,6 +41,14 @@ class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(St
         var debugLogFolder by string("./log/debug_logs/")
         var debugLogRetentionDays by property(7)
     }
+
+    /** No `stewart.xml` yet: adopt the pre-rename `aijb-assistant.xml` once. */
+    override fun noStateLoaded() {
+        migrateLegacy(LegacyMigration.optionsFile(LegacyMigration.SETTINGS_FILE))
+    }
+
+    internal fun migrateLegacy(file: Path): Boolean =
+        LegacyMigration.migrateState(state, State(), file, LegacyMigration.SETTINGS_COMPONENT, ::loadState)
 
     val effectiveClaudeModels: List<String>
         get() = state.claudeModels.ifEmpty { DEFAULT_CLAUDE_MODELS }

@@ -343,7 +343,7 @@ object DebugLogSink {
     private val SINK_LINE: Regex =
         Regex("^\\[\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z\\] \\[[a-z]+\\] \\[[^\\]]*\\] \\[[^\\]]*\\] \\[")
 
-    private const val LOCK_FILE_NAME = ".aijb-debug.lock"
+    private const val LOCK_FILE_NAME = ".stewart-debug.lock"
 
     // `Authorization: <value>` (header style) or `"Authorization": "<value>"` (JSON style);
     // the value stops at quote, comma, closing brace or end of line.
