@@ -27,6 +27,7 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Phase 2: `docs/PHASE2.md` — Phase 1 plan/build audit, missing items, and Phase 2 multi-layered agent roadmap (M11–M15).
 - Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
 - Debug logging: `docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
+- Debug retention plan: `docs/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
 
 ## Conventions
 - Stack: Kotlin, Gradle IntelliJ / PyCharm Platform Plugin.
