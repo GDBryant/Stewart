@@ -1,6 +1,7 @@
 package com.aijb.assistant.ui
 
 import com.aijb.assistant.agents.AgentRole
+import com.aijb.assistant.chat.ActivityFormat
 import com.aijb.assistant.chat.ChatListener
 import com.aijb.assistant.chat.ChatSession
 import com.aijb.assistant.chat.CommandContext
@@ -34,6 +35,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -91,6 +93,8 @@ class ChatPanel @JvmOverloads constructor(
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
     internal val inputArea = JBTextArea(3, 40)
     internal val sendButton = JButton("Send")
+    internal val busyIcon = AsyncProcessIcon("aijb-busy").apply { isVisible = false; suspend() }
+    internal val activityLabel = JLabel(" ")
 
     /** Slash-command autocomplete: the list lives in a non-focusable popup; keys stay in the input. */
     internal val completionList = JBList<SlashCommand>()
@@ -198,11 +202,17 @@ class ChatPanel @JvmOverloads constructor(
         val inputPanel = JPanel(BorderLayout())
         inputPanel.border = JBUI.Borders.empty(4)
         inputPanel.add(JBScrollPane(inputArea), BorderLayout.CENTER)
-        inputPanel.add(sendButton, BorderLayout.EAST)
+        val sendPanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0))
+        sendPanel.add(sendButton)
+        sendPanel.add(busyIcon)
+        inputPanel.add(sendPanel, BorderLayout.EAST)
 
         val south = JPanel(BorderLayout())
         val labels = JPanel(BorderLayout())
-        labels.add(statusLabel, BorderLayout.CENTER)
+        val statusRow = JPanel(BorderLayout(8, 0))
+        statusRow.add(activityLabel, BorderLayout.WEST)
+        statusRow.add(statusLabel, BorderLayout.CENTER)
+        labels.add(statusRow, BorderLayout.CENTER)
         labels.add(bypassLabel, BorderLayout.EAST)
         south.add(labels, BorderLayout.NORTH)
         south.add(inputPanel, BorderLayout.CENTER)
@@ -265,7 +275,7 @@ class ChatPanel @JvmOverloads constructor(
     /** Wipes the chat, usage totals and the saved history file. */
     internal fun onClear() {
         session.clearHistory()
-        sendButton.text = "Send"
+        setBusy(false)
         renderTranscript()
         refreshBypassState()
         statusLabel.text = "History cleared"
@@ -644,6 +654,34 @@ class ChatPanel @JvmOverloads constructor(
         }
     }
 
+    private var activeRole: AgentRole? = null
+    private var activeContext: String? = null
+    private var activeTool: String? = null
+
+    private fun setBusy(on: Boolean) {
+        sendButton.text = if (on) "Stop" else "Send"
+        busyIcon.isVisible = on
+        if (on) {
+            busyIcon.resume()
+        } else {
+            busyIcon.suspend()
+            activeRole = null
+            activeContext = null
+            activeTool = null
+        }
+        updateActivity()
+    }
+
+    private fun updateActivity() {
+        activityLabel.text = if (running) ActivityFormat.label(activeRole, activeContext, activeTool) else " "
+    }
+
+    /** Test hook: drives the level-started callback as the session would. */
+    internal fun simulateLevelStartedForTest(role: AgentRole, context: String) {
+        setBusy(true)
+        chatListener().onLevelStarted(role, context)
+    }
+
     private val running: Boolean
         get() = sendButton.text == "Stop"
 
@@ -778,7 +816,7 @@ class ChatPanel @JvmOverloads constructor(
 
     private fun startCompaction(focus: String?): Boolean {
         val info = selectedModelOrError() ?: return false
-        sendButton.text = "Stop"
+        setBusy(true)
         statusLabel.text = "Compacting..."
         session.compact(info.ref, focus, object : ChatListener {
             override fun onDelta(text: String) {}
@@ -792,17 +830,17 @@ class ChatPanel @JvmOverloads constructor(
             }
 
             override fun onCompleted(usage: Usage?) {
-                sendButton.text = "Send"
+                setBusy(false)
                 statusLabel.text = UsageFormat.status(usage, session.sessionUsage)
             }
 
             override fun onFailed(message: String) {
-                sendButton.text = "Send"
+                setBusy(false)
                 statusLabel.text = "Failed: $message"
             }
 
             override fun onCancelled() {
-                sendButton.text = "Send"
+                setBusy(false)
                 statusLabel.text = "Cancelled"
             }
         })
@@ -852,28 +890,39 @@ class ChatPanel @JvmOverloads constructor(
 
     private fun startSend(text: String, info: ModelInfo) {
         addMessage("user", text)
-        var deltaArea: JTextArea? = addMessage("assistant", "")
+        val initialArea = addMessage("assistant", "")
+        setBusy(true)
+        statusLabel.text = " "
+        session.send(text, info.ref, chatListener(initialArea))
+    }
+
+    private class SendState(var deltaArea: JTextArea?) {
         val toolAreas = mutableMapOf<String, Pair<JTextArea, String>>()
         val reply = StringBuilder()
-        sendButton.text = "Stop"
-        statusLabel.text = " "
         var compacted = false
         var compactionFailed = false
-        session.send(text, info.ref, object : ChatListener {
+    }
+
+    /** The listener driving the transcript and status for one send. */
+    internal fun chatListener(initialArea: JTextArea? = null): ChatListener {
+        val st = SendState(initialArea)
+        return object : ChatListener {
             override fun onDelta(text: String) {
-                reply.append(text)
-                if (deltaArea == null) deltaArea = addMessage("assistant", "")
-                deltaArea!!.text = "assistant: $reply"
+                st.reply.append(text)
+                if (st.deltaArea == null) st.deltaArea = addMessage("assistant", "")
+                st.deltaArea!!.text = "assistant: ${st.reply}"
                 refreshMessages()
             }
 
             override fun onToolRequested(call: com.aijb.assistant.provider.ToolCall) {
+                activeTool = call.name.ifBlank { null }
+                updateActivity()
                 val args = call.arguments.toString().let {
                     if (it.length > 200) it.take(200) + "…" else it
                 }
-                toolAreas[call.id] = addMessage("tool", "${call.name} $args") to args
-                deltaArea = null
-                reply.setLength(0)
+                st.toolAreas[call.id] = addMessage("tool", "${call.name} $args") to args
+                st.deltaArea = null
+                st.reply.setLength(0)
             }
 
             override fun onToolOutcome(
@@ -887,48 +936,54 @@ class ChatPanel @JvmOverloads constructor(
                     is com.aijb.assistant.tools.ToolOutcome.Invalid -> "Invalid: ${outcome.reason}"
                     is com.aijb.assistant.tools.ToolOutcome.Uncertain -> "Uncertain: ${outcome.reason}"
                 }
-                toolAreas[call.id]?.let { (area, args) ->
+                st.toolAreas[call.id]?.let { (area, args) ->
                     area.text = "tool: ${call.name} $args\n$result"
                 }
+                activeTool = null
+                updateActivity()
                 refreshMessages()
             }
 
             override fun onLevelStarted(role: com.aijb.assistant.agents.AgentRole, context: String) {
-                deltaArea = null
-                reply.setLength(0)
+                st.deltaArea = null
+                st.reply.setLength(0)
                 addMessage("${role.name.lowercase()} · $context", "")
+                activeRole = role
+                activeContext = context
+                activeTool = null
+                updateActivity()
             }
 
             override fun onQuestion(question: String, options: List<String>) {
-                deltaArea = null
-                reply.setLength(0)
+                st.deltaArea = null
+                st.reply.setLength(0)
                 showQuestion(question, options)
             }
 
             override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
-                compacted = true
+                st.compacted = true
                 statusLabel.text = "Context compacted (~$beforeTokens → ~$afterTokens tokens)"
             }
 
             override fun onCompactionFailed(message: String) {
-                compactionFailed = true
+                st.compactionFailed = true
                 statusLabel.text = "Compaction failed: $message"
             }
 
             override fun onCompleted(usage: Usage?) {
                 clearQuestion()
-                sendButton.text = "Send"
+                setBusy(false)
                 val base = UsageFormat.status(usage, session.sessionUsage)
                 statusLabel.text = base + when {
-                    compacted -> " · context compacted"
-                    compactionFailed -> " · compaction failed"
+                    st.compacted -> " · context compacted"
+                    st.compactionFailed -> " · compaction failed"
                     else -> ""
                 }
             }
 
             override fun onFailed(message: String) {
                 clearQuestion()
-                sendButton.text = "Send"
+                setBusy(false)
                 statusLabel.text = "Failed: $message"
             }
 
@@ -940,7 +995,7 @@ class ChatPanel @JvmOverloads constructor(
 
             override fun onCancelled() {
                 clearQuestion()
-                sendButton.text = "Send"
+                setBusy(false)
                 statusLabel.text = "Cancelled"
             }
 
@@ -951,7 +1006,7 @@ class ChatPanel @JvmOverloads constructor(
                         "side effects not rolled back"
                 }
             }
-        })
+        }
     }
 
     internal fun loadModels() {

@@ -10,7 +10,7 @@ object ActivityFormat {
         val name = role.name.lowercase().replaceFirstChar { it.uppercase() }
         val ctx = context?.substringBefore(" → ")?.substringBefore(":")?.trim()?.take(MAX)?.ifEmpty { null }
         // tool name wins over context while a tool runs
-        val detail = tool ?: ctx
+        val detail = tool?.trim()?.ifEmpty { null } ?: ctx
         return if (detail == null) name else "$name · $detail"
     }
 }

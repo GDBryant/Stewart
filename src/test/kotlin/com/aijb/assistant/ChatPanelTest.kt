@@ -1203,4 +1203,50 @@ class ChatPanelTest : BasePlatformTestCase() {
             s.workerModel = "fake/m1"
         }
     }
+
+    fun `test busy indicator hidden when idle`() {
+        val panel = newPanel(fakeProvider())
+        assertFalse(panel.busyIcon.isVisible)
+        assertEquals(" ", panel.activityLabel.text)
+    }
+
+    fun `test busy indicator shows role while running`() {
+        val panel = newPanel(fakeProvider())
+        panel.simulateLevelStartedForTest(com.aijb.assistant.agents.AgentRole.WORKER, "task t1")
+        assertTrue(panel.busyIcon.isVisible)
+        assertEquals("Worker · task t1", panel.activityLabel.text)
+        assertEquals("Stop", panel.sendButton.text)
+    }
+
+    fun `test busy indicator shows tool name then reverts and ignores blank tool`() {
+        val panel = newPanel(fakeProvider())
+        panel.simulateLevelStartedForTest(com.aijb.assistant.agents.AgentRole.WORKER, "task t1")
+        val l = panel.chatListener()
+        val blank = com.aijb.assistant.provider.ToolCall("c0", "", kotlinx.serialization.json.JsonObject(emptyMap()))
+        l.onToolRequested(blank)
+        assertEquals("Worker · task t1", panel.activityLabel.text)
+        val call = com.aijb.assistant.provider.ToolCall("c1", "ReadFile", kotlinx.serialization.json.JsonObject(emptyMap()))
+        l.onToolRequested(call)
+        assertEquals("Worker · ReadFile", panel.activityLabel.text)
+        l.onToolOutcome(call, com.aijb.assistant.tools.ToolOutcome.Success("ok"))
+        assertEquals("Worker · task t1", panel.activityLabel.text)
+    }
+
+    fun `test busy cleared on completion failure and cancel`() {
+        val role = com.aijb.assistant.agents.AgentRole.WORKER
+        val ends = listOf<(com.aijb.assistant.chat.ChatListener) -> Unit>(
+            { it.onCompleted(null) },
+            { it.onFailed("boom") },
+            { it.onCancelled() },
+        )
+        for (end in ends) {
+            val panel = newPanel(fakeProvider())
+            panel.simulateLevelStartedForTest(role, "task t1")
+            assertTrue(panel.busyIcon.isVisible)
+            end(panel.chatListener())
+            assertFalse(panel.busyIcon.isVisible)
+            assertEquals(" ", panel.activityLabel.text)
+            assertEquals("Send", panel.sendButton.text)
+        }
+    }
 }

@@ -29,4 +29,8 @@ class ActivityFormatTest {
         assertEquals("Working…", ActivityFormat.label(null, "task t1", "RunTerminal"))
     @Test fun colonOnlyContextFallsBackToRole() =
         assertEquals("Executor", ActivityFormat.label(AgentRole.EXECUTOR, ": detail", null))
+    @Test fun blankToolFallsBackToContext() =
+        assertEquals("Worker · task t1", ActivityFormat.label(AgentRole.WORKER, "task t1", ""))
+    @Test fun blankToolAndNoContextIsRoleOnly() =
+        assertEquals("Worker", ActivityFormat.label(AgentRole.WORKER, null, "  "))
 }
