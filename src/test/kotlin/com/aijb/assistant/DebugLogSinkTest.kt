@@ -104,9 +104,15 @@ class DebugLogSinkTest {
         DebugLogSink.log("outgoing", "ollama", "m", "one", 1_704_164_645_000L)
         DebugLogSink.log("incoming", "ollama", "m", "two", 1_704_164_646_000L)
         val file = awaitFile()
-        assertEquals(2, Files.readAllLines(file).size)
-        assertTrue(Files.readAllLines(file)[0].endsWith("[one]"))
-        assertTrue(Files.readAllLines(file)[1].endsWith("[two]"))
+        val deadline = System.currentTimeMillis() + 10_000
+        var lines = Files.readAllLines(file)
+        while (lines.size < 2 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+            lines = Files.readAllLines(file)
+        }
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].endsWith("[one]"))
+        assertTrue(lines[1].endsWith("[two]"))
     }
 
     @Test

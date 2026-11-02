@@ -2,10 +2,31 @@ package com.aijb.assistant.chat
 
 import com.aijb.assistant.agents.AgentRole
 import com.aijb.assistant.provider.ModelInfo
+import com.aijb.assistant.tools.permissions.ApprovalCategory
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Usage
 
 /** What a slash command can act on; `ChatPanel` implements it, tests use a fake. */
+/** Project and chat permission state for `/permissions`; `ChatPanel` implements it. */
+interface PermissionsView {
+    val ticks: Set<ApprovalCategory>
+    val alwaysPrograms: Set<String>
+    val projectPath: String?
+    val chatCategories: Set<ApprovalCategory>
+    val chatPrograms: Set<String>
+
+    fun clearChat()
+
+    /** Removes the project tick and the chat category grant. */
+    fun revokeCategory(category: ApprovalCategory)
+
+    /** Removes the always grant and the chat grant for one program (verbatim). */
+    fun revokeProgram(program: String)
+
+    /** Removes this project's whole entry (ticks + programs). */
+    fun resetProject()
+}
+
 interface CommandContext {
     /** True while a chat run is active. */
     val running: Boolean
@@ -49,6 +70,9 @@ interface CommandContext {
 
     /** Reads the diff off the EDT, then calls [SlashCommands.reviewRequest] and sends or shows the result. */
     fun review(focus: String?): Boolean
+
+    /** Approval permissions for `/permissions`. */
+    val permissions: PermissionsView
 }
 
 /** A local command; [handler] gets the trimmed args and returns false to keep the input text. */
@@ -193,6 +217,75 @@ object SlashCommands {
             focusLine + "\n```diff\n" + bounded + (if (bounded.endsWith("\n")) "" else "\n") + "```" + note
     }
 
+    private const val PERMISSIONS_USAGE =
+        "Usage: /permissions [clear|reset|revoke <edits|commands|other|all|program>]"
+
+    private fun describePermissions(v: PermissionsView): String {
+        fun names(set: Set<ApprovalCategory>) =
+            set.joinToString(", ") { it.name.lowercase() }.ifEmpty { "(none)" }
+        fun progs(set: Set<String>) = set.sorted().joinToString(", ").ifEmpty { "(none)" }
+        return "Permissions for ${v.projectPath ?: "this project"}:\n" +
+            "ticks: ${names(v.ticks)}\n" +
+            "always programs: ${progs(v.alwaysPrograms)}\n" +
+            "chat categories: ${names(v.chatCategories)}\n" +
+            "chat programs: ${progs(v.chatPrograms)}"
+    }
+
+    private fun permissions(ctx: CommandContext, args: String): Boolean {
+        val view = ctx.permissions
+        val note = if (ctx.running) " (applies to the next tool call in this run)" else ""
+        return when {
+            args.isEmpty() -> {
+                ctx.show(describePermissions(view))
+                true
+            }
+            args == "clear" -> {
+                view.clearChat()
+                ctx.show("Chat grants cleared$note")
+                true
+            }
+            args == "reset" -> {
+                view.resetProject()
+                ctx.show("Project permissions removed$note")
+                true
+            }
+            args == "revoke" || args.startsWith("revoke ") -> {
+                val target = args.removePrefix("revoke").trim()
+                when {
+                    target.isEmpty() -> {
+                        ctx.error(PERMISSIONS_USAGE)
+                        false
+                    }
+                    target == "all" -> {
+                        view.resetProject()
+                        ctx.show("Project permissions removed$note")
+                        true
+                    }
+                    else -> {
+                        val category = ApprovalCategory.entries.firstOrNull { it.name.equals(target, true) }
+                        if (category != null) {
+                            val had = view.ticks.contains(category) || view.chatCategories.contains(category)
+                            view.revokeCategory(category)
+                            ctx.show(
+                                (if (had) "Revoked ${category.name.lowercase()}"
+                                else "No ${category.name.lowercase()} grant") + note,
+                            )
+                        } else {
+                            val had = view.alwaysPrograms.contains(target) || view.chatPrograms.contains(target)
+                            view.revokeProgram(target)
+                            ctx.show((if (had) "Revoked $target" else "No grant for $target") + note)
+                        }
+                        true
+                    }
+                }
+            }
+            else -> {
+                ctx.error(PERMISSIONS_USAGE)
+                false
+            }
+        }
+    }
+
     private fun cost(ctx: CommandContext) {
         val usage = ctx.usage
         ctx.show(
@@ -228,6 +321,7 @@ object SlashCommands {
             ctx.openSettings()
             true
         },
+        SlashCommand("permissions", "[clear|reset|revoke <target>]", "List or change approval permissions", allowedWhileRunning = true, ::permissions),
     )
 
     fun find(name: String): SlashCommand? = all.firstOrNull { it.name == name }

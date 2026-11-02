@@ -6,5 +6,6 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="AIJB Assistant" anchor="right" factoryClass="com.aijb.assistant.ui.ChatToolWindowFactory"/>
         <applicationConfigurable parentId="tools" instance="com.aijb.assistant.settings.AijbConfigurable" id="com.aijb.assistant.settings" displayName="AIJB Assistant"/>
+        <projectConfigurable instance="com.aijb.assistant.settings.PermissionsConfigurable" id="com.aijb.assistant.settings.permissions" displayName="AIJB Assistant"/>
     </extensions>
 </idea-plugin>

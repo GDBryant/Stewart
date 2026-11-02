@@ -7,6 +7,7 @@ import com.aijb.assistant.chat.CommandContext
 import com.aijb.assistant.chat.ErrorHints
 import com.aijb.assistant.chat.GitDiff
 import com.aijb.assistant.chat.InitFiles
+import com.aijb.assistant.chat.PermissionsView
 import com.aijb.assistant.chat.SlashCommand
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
@@ -17,6 +18,9 @@ import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
 import com.aijb.assistant.settings.AijbConfigurable
 import com.aijb.assistant.settings.AijbSettingsListener
+import com.aijb.assistant.tools.permissions.ApprovalCategory
+import com.aijb.assistant.tools.permissions.PermissionsListener
+import com.aijb.assistant.tools.permissions.ProjectPermissions
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
@@ -27,6 +31,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -43,6 +48,7 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -77,6 +83,8 @@ class ChatPanel @JvmOverloads constructor(
     internal val clearButton = JButton("Clear")
     internal val modeLabel = JLabel(" ")
     internal val statusLabel = JLabel(" ")
+    internal val bypassButton = JButton("Bypass")
+    internal val bypassLabel = JLabel(" ")
     internal val messagesPanel = MessagesContainer()
     internal val scrollPane: JScrollPane = JBScrollPane(messagesPanel)
     internal val inputArea = JBTextArea(3, 40)
@@ -131,6 +139,7 @@ class ChatPanel @JvmOverloads constructor(
         header.border = JBUI.Borders.empty(4)
         header.add(modelCombo, BorderLayout.CENTER)
         val headerButtons = JPanel()
+        headerButtons.add(bypassButton)
         headerButtons.add(rolesButton)
         headerButtons.add(clearButton)
         headerButtons.add(refreshButton)
@@ -190,7 +199,10 @@ class ChatPanel @JvmOverloads constructor(
         inputPanel.add(sendButton, BorderLayout.EAST)
 
         val south = JPanel(BorderLayout())
-        south.add(statusLabel, BorderLayout.NORTH)
+        val labels = JPanel(BorderLayout())
+        labels.add(statusLabel, BorderLayout.CENTER)
+        labels.add(bypassLabel, BorderLayout.EAST)
+        south.add(labels, BorderLayout.NORTH)
         south.add(inputPanel, BorderLayout.CENTER)
 
         add(header, BorderLayout.NORTH)
@@ -201,11 +213,19 @@ class ChatPanel @JvmOverloads constructor(
         refreshButton.addActionListener { loadModels() }
         rolesButton.addActionListener { showRolesPopup() }
         clearButton.addActionListener { onClear() }
+        bypassButton.addActionListener { showBypassPopup() }
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(AijbSettings.TOPIC, AijbSettingsListener {
                 updateSelectorState()
                 loadModels()
             })
+        ApplicationManager.getApplication().messageBus.connect(this)
+            .subscribe(ProjectPermissions.TOPIC, PermissionsListener { hash ->
+                if (hash.isEmpty() || hash == project.locationHash) {
+                    ApplicationManager.getApplication().invokeLater { refreshBypassState() }
+                }
+            })
+        refreshBypassState()
         renderTranscript()
         updateSelectorState()
         loadModels()
@@ -245,6 +265,7 @@ class ChatPanel @JvmOverloads constructor(
         session.clearHistory()
         sendButton.text = "Send"
         renderTranscript()
+        refreshBypassState()
         statusLabel.text = "History cleared"
     }
 
@@ -267,6 +288,103 @@ class ChatPanel @JvmOverloads constructor(
             }
         })
         popup.showUnderneathOf(rolesButton)
+    }
+
+    private val permissions: ProjectPermissions
+        get() = ProjectPermissions.getInstance()
+
+    /** Asks before a Commands/Other tick is enabled; replaced in tests. */
+    internal var confirmBypass: (ApprovalCategory) -> Boolean = { category ->
+        Messages.showYesNoDialog(
+            project,
+            "Bypass ${category.name.lowercase()} approvals for this project? " +
+                "Every guard for this category is disabled until you turn it off.",
+            "AIJB Permissions",
+            "Enable",
+            "Cancel",
+            null,
+        ) == Messages.YES
+    }
+
+    /** Opens the permissions settings page; replaced in tests. */
+    internal var openPermissionsPage: () -> Unit = {
+        ShowSettingsUtil.getInstance()
+            .showSettingsDialog(project, com.aijb.assistant.settings.PermissionsConfigurable::class.java)
+    }
+
+    /** Writes a project tick, asking first for Commands/Other. */
+    internal fun setBypassTick(category: ApprovalCategory, enabled: Boolean) {
+        if (enabled && category != ApprovalCategory.EDITS && !confirmBypass(category)) return
+        permissions.setTick(project, category, enabled)
+    }
+
+    /** Clears this chat's session grants. */
+    internal fun clearChatGrants() {
+        session.sessionGrants.clear()
+        refreshBypassState()
+    }
+
+    private fun categoryLabel(category: ApprovalCategory): String = when (category) {
+        ApprovalCategory.EDITS -> "edits"
+        ApprovalCategory.COMMANDS -> "cmds"
+        ApprovalCategory.OTHER -> "other"
+    }
+
+    /** Active categories (tick or chat grant) plus the total program grant count. */
+    internal fun bypassSummary(): Pair<List<String>, Int> {
+        val snap = permissions.forProject(project)
+        val cats = ApprovalCategory.entries
+            .filter { snap.covers(it) || session.sessionGrants.covers(it) }
+            .map(::categoryLabel)
+        val programs = (snap.programs + session.sessionGrants.programs()).size
+        return cats to programs
+    }
+
+    internal fun refreshBypassState() {
+        val (cats, programs) = bypassSummary()
+        val text = cats.joinToString(", ") + if (programs > 0) {
+            (if (cats.isEmpty()) "" else " ") + "+$programs"
+        } else {
+            ""
+        }
+        bypassButton.text = if (text.isEmpty()) "Bypass" else "Bypass: $text"
+        bypassButton.toolTipText =
+            "${session.sessionGrants.autoApprovedCount()} call(s) auto-approved this chat"
+        bypassLabel.text = if (text.isEmpty()) " " else "bypass: $text"
+    }
+
+    /** The popup contents; exposed so tests can drive the checkboxes without a real popup. */
+    internal fun bypassPanel(): JPanel {
+        val snap = permissions.forProject(project)
+        val panel = JPanel()
+        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.border = JBUI.Borders.empty(8)
+        for (category in ApprovalCategory.entries) {
+            val box = JCheckBox(
+                "Always allow ${category.name.lowercase()} in this project",
+                snap.covers(category),
+            )
+            box.addActionListener {
+                if (box.isSelected && category != ApprovalCategory.EDITS && !confirmBypass(category)) {
+                    box.isSelected = false
+                } else {
+                    permissions.setTick(project, category, box.isSelected)
+                }
+            }
+            panel.add(box)
+        }
+        panel.add(JButton("Clear chat grants").also { it.addActionListener { clearChatGrants() } })
+        panel.add(JButton("Manage…").also { it.addActionListener { openPermissionsPage() } })
+        return panel
+    }
+
+    internal fun showBypassPopup() {
+        val panel = bypassPanel()
+        JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(panel, panel)
+            .setRequestFocus(true)
+            .createPopup()
+            .showUnderneathOf(bypassButton)
     }
 
     private fun renderTranscript() {
@@ -579,6 +697,34 @@ class ChatPanel @JvmOverloads constructor(
                 withContext(Dispatchers.EDT) { onReviewDiff(diff, focus) }
             }
             return true
+        }
+
+        override val permissions = object : PermissionsView {
+            private val store get() = ProjectPermissions.getInstance()
+            override val ticks get() = store.forProject(project).ticks
+            override val alwaysPrograms get() = store.forProject(project).programs
+            override val projectPath get() = store.pathFor(project)
+            override val chatCategories get() = session.sessionGrants.categories()
+            override val chatPrograms get() = session.sessionGrants.programs()
+
+            override fun clearChat() = clearChatGrants()
+
+            override fun revokeCategory(category: ApprovalCategory) {
+                store.setTick(project, category, false)
+                session.sessionGrants.revoke(category)
+                refreshBypassState()
+            }
+
+            override fun revokeProgram(program: String) {
+                store.removeProgram(project, program)
+                session.sessionGrants.revokeProgram(program)
+                refreshBypassState()
+            }
+
+            override fun resetProject() {
+                store.resetProject(project)
+                refreshBypassState()
+            }
         }
     }
 

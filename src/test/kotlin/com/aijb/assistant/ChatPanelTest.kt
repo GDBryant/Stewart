@@ -10,12 +10,16 @@ import com.aijb.assistant.provider.ProviderEvent
 import com.aijb.assistant.provider.Role
 import com.aijb.assistant.provider.Usage
 import com.aijb.assistant.settings.AijbSettings
+import com.aijb.assistant.tools.permissions.ApprovalCategory
+import com.aijb.assistant.tools.permissions.ProjectPermissions
 import com.aijb.assistant.ui.ChatPanel
 import com.aijb.assistant.ui.RolesPanel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.event.KeyEvent
+import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -36,11 +40,13 @@ class ChatPanelTest : BasePlatformTestCase() {
             it.tools = { com.aijb.assistant.tools.ToolRegistry(emptyList()) }
         }
         AijbSettings.getInstance().loadState(AijbSettings.State())
+        ProjectPermissions.getInstance().resetForTest()
     }
 
     override fun tearDown() {
         try {
             AijbSettings.getInstance().loadState(AijbSettings.State())
+            ProjectPermissions.getInstance().resetForTest()
             com.aijb.assistant.debug.DebugLogSink.configure(false, "./log/debug_logs/")
             scope.cancel()
         } finally {
@@ -116,6 +122,68 @@ class ChatPanelTest : BasePlatformTestCase() {
             item.ref.providerId == providerId && item.ref.modelId == modelId
         }
         panel.modelCombo.selectedIndex = idx
+    }
+
+    private fun checkbox(panel: javax.swing.JPanel, text: String): JCheckBox =
+        panel.components.filterIsInstance<JCheckBox>().first { it.text.contains(text, true) }
+
+    fun `test bypass tick writes through to project permissions`() {
+        val panel = newPanel(fakeProvider())
+        val p = panel.bypassPanel()
+        val edits = checkbox(p, "edits")
+        edits.isSelected = true
+        edits.actionListeners.forEach { it.actionPerformed(null) }
+        assertTrue(
+            ProjectPermissions.getInstance().forProject(project).covers(ApprovalCategory.EDITS),
+        )
+        assertTrue(pumpUntil { panel.bypassLabel.text == "bypass: edits" })
+    }
+
+    fun `test enabling commands asks for confirmation and cancel leaves tick off`() {
+        val panel = newPanel(fakeProvider())
+        panel.confirmBypass = { false }
+        val p = panel.bypassPanel()
+        val cmds = checkbox(p, "commands")
+        cmds.isSelected = true
+        cmds.actionListeners.forEach { it.actionPerformed(null) }
+        assertFalse(
+            ProjectPermissions.getInstance().forProject(project).covers(ApprovalCategory.COMMANDS),
+        )
+
+        panel.confirmBypass = { true }
+        cmds.isSelected = true
+        cmds.actionListeners.forEach { it.actionPerformed(null) }
+        assertTrue(
+            ProjectPermissions.getInstance().forProject(project).covers(ApprovalCategory.COMMANDS),
+        )
+    }
+
+    fun `test clear chat grants empties the indicator`() {
+        val panel = newPanel(fakeProvider())
+        session.sessionGrants.grant(ApprovalCategory.EDITS)
+        panel.refreshBypassState()
+        assertEquals("bypass: edits", panel.bypassLabel.text)
+        panel.clearChatGrants()
+        assertEquals(" ", panel.bypassLabel.text)
+        assertEquals("Bypass", panel.bypassButton.text)
+    }
+
+    fun `test program grants show as plus count`() {
+        val panel = newPanel(fakeProvider())
+        session.sessionGrants.grant(listOf("git", "grep"))
+        panel.refreshBypassState()
+        assertEquals("bypass: +2", panel.bypassLabel.text)
+        assertEquals("Bypass: +2", panel.bypassButton.text)
+    }
+
+    fun `test manage opens the permissions page`() {
+        val panel = newPanel(fakeProvider())
+        var opened = false
+        panel.openPermissionsPage = { opened = true }
+        val p = panel.bypassPanel()
+        p.components.filterIsInstance<JButton>().first { it.text.startsWith("Manage") }
+            .actionListeners.forEach { it.actionPerformed(null) }
+        assertTrue(opened)
     }
 
     fun `test models load into combo`() {

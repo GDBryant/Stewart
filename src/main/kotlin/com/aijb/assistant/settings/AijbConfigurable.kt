@@ -36,7 +36,6 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var autoCompactField: JBTextField
     internal lateinit var historyRetentionField: JBTextField
     internal lateinit var toolsEnabledCheck: javax.swing.JCheckBox
-    internal lateinit var autoApproveCheck: javax.swing.JCheckBox
     internal lateinit var debugLogCheck: javax.swing.JCheckBox
     internal lateinit var debugLogFolderField: JBTextField
     internal lateinit var debugLogRetentionField: JBTextField
@@ -70,9 +69,6 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         row("Keep chat history (days, 0 = don't save):") { historyRetentionField = textField().component }
         row {
             toolsEnabledCheck = checkBox("Enable tools (read, search, edit, run commands)").component
-        }
-        row {
-            autoApproveCheck = checkBox("Trusted mode: auto-approve file edits (commands always ask)").component
         }
         row {
             debugLogCheck = checkBox("Debug log: record every model call (Ollama, AIF, Claude CLI)").component
@@ -151,7 +147,6 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             TokenCount.parse(autoCompactField.text) != s.autoCompactTokens ||
             historyRetentionField.text.trim().toIntOrNull() != s.historyRetentionDays ||
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
-            autoApproveCheck.isSelected != s.autoApproveEdits ||
             debugLogCheck.isSelected != s.debugLogEnabled ||
             debugLogFolderField.text.trim() != s.debugLogFolder.orEmpty().trim() ||
             debugLogRetentionField.text.trim().toIntOrNull() != s.debugLogRetentionDays
@@ -171,7 +166,6 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         autoCompactField.text = TokenCount.format(s.autoCompactTokens)
         historyRetentionField.text = s.historyRetentionDays.toString()
         toolsEnabledCheck.isSelected = s.toolsEnabled
-        autoApproveCheck.isSelected = s.autoApproveEdits
         debugLogCheck.isSelected = s.debugLogEnabled
         debugLogFolderField.text = s.debugLogFolder
         debugLogRetentionField.text = s.debugLogRetentionDays.toString()
@@ -208,7 +202,6 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         s.autoCompactTokens = autoCompact
         s.historyRetentionDays = retention
         s.toolsEnabled = toolsEnabledCheck.isSelected
-        s.autoApproveEdits = autoApproveCheck.isSelected
         s.debugLogEnabled = debugLogCheck.isSelected
         s.debugLogFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
         s.debugLogRetentionDays = debugRetention

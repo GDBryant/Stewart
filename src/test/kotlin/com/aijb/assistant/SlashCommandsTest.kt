@@ -8,7 +8,9 @@ import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.SlashCommands.ModelMatch
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelRef
+import com.aijb.assistant.chat.PermissionsView
 import com.aijb.assistant.provider.Usage
+import com.aijb.assistant.tools.permissions.ApprovalCategory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -72,6 +74,37 @@ class SlashCommandsTest {
         override fun review(focus: String?): Boolean {
             reviews += focus
             return accepts
+        }
+
+        val ticks = mutableSetOf<ApprovalCategory>()
+        val alwaysPrograms = mutableSetOf<String>()
+        var path: String? = "/p"
+        val chatCategories = mutableSetOf<ApprovalCategory>()
+        val chatPrograms = mutableSetOf<String>()
+        var resets = 0
+        override val permissions = object : PermissionsView {
+            override val ticks get() = this@FakeContext.ticks
+            override val alwaysPrograms get() = this@FakeContext.alwaysPrograms
+            override val projectPath get() = path
+            override val chatCategories get() = this@FakeContext.chatCategories
+            override val chatPrograms get() = this@FakeContext.chatPrograms
+            override fun clearChat() {
+                chatCategories.clear()
+                chatPrograms.clear()
+            }
+            override fun revokeCategory(category: ApprovalCategory) {
+                ticks.remove(category)
+                chatCategories.remove(category)
+            }
+            override fun revokeProgram(program: String) {
+                alwaysPrograms.remove(program)
+                chatPrograms.remove(program)
+            }
+            override fun resetProject() {
+                resets++
+                ticks.clear()
+                alwaysPrograms.clear()
+            }
         }
     }
 
@@ -413,5 +446,90 @@ class SlashCommandsTest {
         assertTrue(SlashCommands.complete("help").isEmpty())
         assertTrue(SlashCommands.complete("//h").isEmpty())
         assertTrue(SlashCommands.complete("").isEmpty())
+    }
+
+    @Test
+    fun `permissions lists state`() {
+        val ctx = FakeContext()
+        ctx.ticks += ApprovalCategory.EDITS
+        ctx.alwaysPrograms += "git"
+        ctx.chatCategories += ApprovalCategory.COMMANDS
+        ctx.chatPrograms += "grep"
+        assertTrue(run(ctx, "/permissions"))
+        val out = ctx.shown.single()
+        assertTrue(out.contains("/p"))
+        assertTrue(out.contains("edits"))
+        assertTrue(out.contains("git"))
+        assertTrue(out.contains("commands"))
+        assertTrue(out.contains("grep"))
+    }
+
+    @Test
+    fun `permissions clear empties chat grants`() {
+        val ctx = FakeContext()
+        ctx.chatCategories += ApprovalCategory.EDITS
+        ctx.chatPrograms += "git"
+        assertTrue(run(ctx, "/permissions clear"))
+        assertTrue(ctx.chatCategories.isEmpty() && ctx.chatPrograms.isEmpty())
+        assertTrue(ctx.ticks.isEmpty())
+        assertTrue(ctx.shown.single().contains("cleared"))
+    }
+
+    @Test
+    fun `permissions revoke removes tick and chat category`() {
+        val ctx = FakeContext()
+        ctx.ticks += ApprovalCategory.EDITS
+        ctx.chatCategories += ApprovalCategory.EDITS
+        assertTrue(run(ctx, "/permissions revoke edits"))
+        assertTrue(ctx.ticks.isEmpty() && ctx.chatCategories.isEmpty())
+        assertTrue(ctx.shown.single().startsWith("Revoked"))
+    }
+
+    @Test
+    fun `permissions revoke reports unknown entries`() {
+        val ctx = FakeContext()
+        assertTrue(run(ctx, "/permissions revoke other"))
+        assertTrue(ctx.shown.single().startsWith("No other grant"))
+        assertTrue(run(ctx, "/permissions revoke missing-tool"))
+        assertTrue(ctx.shown.last().startsWith("No grant for missing-tool"))
+    }
+
+    @Test
+    fun `permissions revoke takes the rest of the line verbatim`() {
+        val ctx = FakeContext()
+        ctx.alwaysPrograms += "C:\\Program Files\\tool\\t.exe"
+        assertTrue(run(ctx, "/permissions revoke C:\\Program Files\\tool\\t.exe"))
+        assertTrue(ctx.alwaysPrograms.isEmpty())
+    }
+
+    @Test
+    fun `permissions revoke all and reset clear the project entry`() {
+        val ctx = FakeContext()
+        ctx.ticks += ApprovalCategory.COMMANDS
+        ctx.alwaysPrograms += "git"
+        assertTrue(run(ctx, "/permissions revoke all"))
+        assertEquals(1, ctx.resets)
+        assertTrue(ctx.ticks.isEmpty() && ctx.alwaysPrograms.isEmpty())
+        ctx.ticks += ApprovalCategory.EDITS
+        assertTrue(run(ctx, "/permissions reset"))
+        assertEquals(2, ctx.resets)
+    }
+
+    @Test
+    fun `permissions unknown arguments show usage`() {
+        val ctx = FakeContext()
+        assertFalse(run(ctx, "/permissions revoke"))
+        assertFalse(run(ctx, "/permissions bogus"))
+        assertEquals(2, ctx.errors.size)
+        assertTrue(ctx.errors.all { it.startsWith("Usage: /permissions") })
+    }
+
+    @Test
+    fun `permissions runs while running and notes the mid-run effect`() {
+        val ctx = FakeContext(running = true)
+        ctx.chatPrograms += "git"
+        assertTrue(run(ctx, "/permissions clear"))
+        assertTrue(ctx.shown.single().contains("next tool call"))
+        assertTrue(run(ctx, "/permissions"))
     }
 }
