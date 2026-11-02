@@ -1,1 +1,1 @@
-rootProject.name = "aijb-assistant"
+rootProject.name = "stewart"

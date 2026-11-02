@@ -17,7 +17,7 @@ jobs:
       - run: chmod +x gradlew && ./gradlew buildPlugin check verifyPlugin koverXmlReport
       - uses: actions/upload-artifact@v4
         with:
-          name: aijb-assistant-plugin
+          name: stewart-plugin
           path: build/distributions/*.zip
       - uses: actions/upload-artifact@v4
         with:
