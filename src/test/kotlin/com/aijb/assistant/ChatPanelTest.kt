@@ -1249,4 +1249,11 @@ class ChatPanelTest : BasePlatformTestCase() {
             assertEquals("Send", panel.sendButton.text)
         }
     }
+
+    fun `test dispose disposes busy icon`() {
+        val panel = newPanel(fakeProvider())
+        assertFalse(com.intellij.openapi.util.Disposer.isDisposed(panel.busyIcon))
+        panel.dispose()
+        assertTrue(com.intellij.openapi.util.Disposer.isDisposed(panel.busyIcon))
+    }
 }

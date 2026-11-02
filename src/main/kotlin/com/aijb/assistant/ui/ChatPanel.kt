@@ -1061,6 +1061,7 @@ class ChatPanel @JvmOverloads constructor(
         hideCompletionPopup()
         session.cancel()
         scope.cancel()
+        com.intellij.openapi.util.Disposer.dispose(busyIcon)
     }
 
     private companion object {
