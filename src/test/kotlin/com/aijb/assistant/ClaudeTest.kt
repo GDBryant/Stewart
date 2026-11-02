@@ -333,4 +333,39 @@ class ClaudeProviderTest {
         val evs = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
         assertEquals("isolation_violation", (evs.last() as ProviderEvent.Failed).code)
     }
+
+    @Test
+    fun `debug log records stdin and every stdout line`() {
+        val dir = Files.createTempDirectory("aijb-claude-debug")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(true, dir.toString())
+        try {
+            fakeFile.setExecutable(true)
+            events(ClaudeProvider(cliPath = fake, extraEnv = cliArgs()))
+            val content = debugLogContent(dir)
+            val outgoing = content.lines().filter { it.contains("[outgoing]") }
+            assertEquals(1, outgoing.size)
+            assertTrue(outgoing[0].contains("[claude]"))
+            assertTrue(outgoing[0].contains("[haiku]"))
+            assertTrue(outgoing[0].contains("say ok"))
+            val incoming = content.lines().filter { it.contains("[incoming]") }
+            assertTrue(incoming.isNotEmpty())
+            assertTrue(incoming.any { it.contains("content_block_delta") })
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    private fun debugLogContent(dir: java.nio.file.Path): String {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val files = Files.list(dir).use { it.toList() }
+            if (files.isNotEmpty()) {
+                return files.sortedBy { it.fileName.toString() }
+                    .joinToString("\n") { Files.readString(it) }
+            }
+            Thread.sleep(10)
+        }
+        throw AssertionError("no debug log file was written")
+    }
 }

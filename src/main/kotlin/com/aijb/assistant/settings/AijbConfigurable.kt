@@ -1,5 +1,6 @@
 package com.aijb.assistant.settings
 
+import com.aijb.assistant.debug.DebugLogSink
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.aif.AifCredentials
 import com.aijb.assistant.provider.aif.AifUrls
@@ -36,6 +37,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
     internal lateinit var historyRetentionField: JBTextField
     internal lateinit var toolsEnabledCheck: javax.swing.JCheckBox
     internal lateinit var autoApproveCheck: javax.swing.JCheckBox
+    internal lateinit var debugLogCheck: javax.swing.JCheckBox
+    internal lateinit var debugLogFolderField: JBTextField
 
     override fun createPanel(): DialogPanel = panel {
         row("Ollama URL:") { ollamaUrlField = textField().component }
@@ -70,6 +73,10 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         row {
             autoApproveCheck = checkBox("Trusted mode: auto-approve file edits (commands always ask)").component
         }
+        row {
+            debugLogCheck = checkBox("Debug log: record every model call (Ollama, AIF, Claude CLI)").component
+        }
+        row("Debug log folder:") { debugLogFolderField = textField().component }
     }
 
     internal var loginStatusCheck: suspend (String) -> ClaudeLoginState =
@@ -142,7 +149,9 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
             TokenCount.parse(autoCompactField.text) != s.autoCompactTokens ||
             historyRetentionField.text.trim().toIntOrNull() != s.historyRetentionDays ||
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
-            autoApproveCheck.isSelected != s.autoApproveEdits
+            autoApproveCheck.isSelected != s.autoApproveEdits ||
+            debugLogCheck.isSelected != s.debugLogEnabled ||
+            debugLogFolderField.text.trim() != s.debugLogFolder.orEmpty().trim()
     }
 
     override fun reset() {
@@ -160,6 +169,8 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         historyRetentionField.text = s.historyRetentionDays.toString()
         toolsEnabledCheck.isSelected = s.toolsEnabled
         autoApproveCheck.isSelected = s.autoApproveEdits
+        debugLogCheck.isSelected = s.debugLogEnabled
+        debugLogFolderField.text = s.debugLogFolder
     }
 
     override fun apply() {
@@ -192,6 +203,9 @@ class AijbConfigurable : BoundConfigurable("AIJB Assistant") {
         s.historyRetentionDays = retention
         s.toolsEnabled = toolsEnabledCheck.isSelected
         s.autoApproveEdits = autoApproveCheck.isSelected
+        s.debugLogEnabled = debugLogCheck.isSelected
+        s.debugLogFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
+        DebugLogSink.configure(s.debugLogEnabled, s.debugLogFolder.orEmpty())
 
         val key = String(apiKeyField.password)
         if (key.isNotEmpty()) {

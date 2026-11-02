@@ -10,6 +10,7 @@ import com.aijb.assistant.chat.InitFiles
 import com.aijb.assistant.chat.SlashCommand
 import com.aijb.assistant.chat.SlashCommands
 import com.aijb.assistant.chat.UsageFormat
+import com.aijb.assistant.debug.DebugLogSink
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelRef
 import com.aijb.assistant.provider.Usage
@@ -105,6 +106,7 @@ class ChatPanel @JvmOverloads constructor(
 
     init {
         messagesPanel.layout = BoxLayout(messagesPanel, BoxLayout.Y_AXIS)
+        DebugLogSink.configure(settings.state.debugLogEnabled, settings.state.debugLogFolder.orEmpty())
 
         modelCombo.renderer = object : SimpleListCellRenderer<ModelInfo>() {
             override fun customize(
@@ -139,13 +141,17 @@ class ChatPanel @JvmOverloads constructor(
                     e.consume()
                     return
                 }
-                if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
+                if (e.keyCode == KeyEvent.VK_ENTER) {
                     e.consume()
-                    onSubmit()
+                    if (e.isShiftDown) inputArea.replaceSelection("\n") else onSubmit()
                 }
             }
 
             override fun keyTyped(e: KeyEvent) {
+                if (e.keyChar == '\n') {
+                    e.consume()
+                    return
+                }
                 // The Tab that inserted a completion must not also type a tab character.
                 if (e.keyChar == '\t' && swallowTab) {
                     swallowTab = false

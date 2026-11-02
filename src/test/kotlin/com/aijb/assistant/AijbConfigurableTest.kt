@@ -52,6 +52,8 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         assertEquals("Not set", configurable.apiKeyStatus.text)
         assertEquals("claude", configurable.claudeCliPathField.text)
         assertEquals("80k", configurable.autoCompactField.text)
+        assertFalse(configurable.debugLogCheck.isSelected)
+        assertEquals("./log/debug_logs/", configurable.debugLogFolderField.text)
         assertFalse(configurable.isModified)
     }
 
@@ -175,6 +177,33 @@ class AijbConfigurableTest : BasePlatformTestCase() {
         for (bad in listOf("abc", "-1", "4000", "", "1.5")) {
             configurable.historyRetentionField.text = bad
             assertInvalid { configurable.apply() }
+        }
+    }
+
+    fun `test debug log settings reset and apply`() {
+        try {
+            assertFalse(configurable.debugLogCheck.isSelected)
+            assertEquals("./log/debug_logs/", configurable.debugLogFolderField.text)
+            assertFalse(configurable.isModified)
+            configurable.debugLogCheck.isSelected = true
+            configurable.debugLogFolderField.text = "  /tmp/aijb-debug  "
+            assertTrue(configurable.isModified)
+            configurable.apply()
+            val s = AijbSettings.getInstance().state
+            assertTrue(s.debugLogEnabled)
+            assertEquals("/tmp/aijb-debug", s.debugLogFolder)
+            assertTrue(com.aijb.assistant.debug.DebugLogSink.isEnabled)
+            assertEquals("/tmp/aijb-debug", com.aijb.assistant.debug.DebugLogSink.logDirectory)
+            assertFalse(configurable.isModified)
+            configurable.reset()
+            assertTrue(configurable.debugLogCheck.isSelected)
+            assertEquals("/tmp/aijb-debug", configurable.debugLogFolderField.text)
+            configurable.debugLogFolderField.text = "   "
+            configurable.apply()
+            assertEquals("./log/debug_logs/", AijbSettings.getInstance().state.debugLogFolder)
+            assertEquals("./log/debug_logs/", com.aijb.assistant.debug.DebugLogSink.logDirectory)
+        } finally {
+            com.aijb.assistant.debug.DebugLogSink.configure(false, "./log/debug_logs/")
         }
     }
 

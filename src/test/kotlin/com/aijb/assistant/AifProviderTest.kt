@@ -25,6 +25,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -600,5 +601,55 @@ class AifProviderTest {
         assertTrue(body.contains("\"role\":\"tool\""))
         assertTrue(!body.contains("tool_call_id"))
         assertTrue(!body.contains("\"tool_calls\""))
+    }
+
+    @Test
+    fun `debug log records the outgoing payload and every sse line`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(true, dir.toString())
+        try {
+            handler("data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\ndata: [DONE]\n")
+            collect(provider())
+            val content = debugLogContent(dir)
+            val outgoing = content.lines().filter { it.contains("[outgoing]") }
+            assertEquals(1, outgoing.size)
+            assertTrue(outgoing[0].contains("[aif]"))
+            assertTrue(outgoing[0].contains("\"model\":\"m\""))
+            assertFalse(outgoing[0].contains("test-api-key"))
+            val incoming = content.lines().filter { it.contains("[incoming]") }
+            assertEquals(2, incoming.size)
+            assertTrue(incoming[0].contains("content"))
+            assertTrue(incoming[1].contains("[DONE]"))
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    @Test
+    fun `debug log disabled writes nothing for aif`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug-off")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(false, dir.toString())
+        try {
+            handler(stopChunk)
+            collect(provider())
+            assertTrue(java.nio.file.Files.list(dir).use { it.toList() }.isEmpty())
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    private fun debugLogContent(dir: java.nio.file.Path): String {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val files = java.nio.file.Files.list(dir).use { it.toList() }
+            if (files.isNotEmpty()) {
+                return files.sortedBy { it.fileName.toString() }
+                    .joinToString("\n") { java.nio.file.Files.readString(it) }
+            }
+            Thread.sleep(10)
+        }
+        throw AssertionError("no debug log file was written")
     }
 }

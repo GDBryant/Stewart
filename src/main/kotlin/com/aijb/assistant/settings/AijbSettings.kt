@@ -36,6 +36,8 @@ class AijbSettings : SimplePersistentStateComponent<AijbSettings.State>(State())
         var autoApproveEdits by property(false)
         var historyRetentionDays by property(30)
         var toolsEnabled by property(true)
+        var debugLogEnabled by property(false)
+        var debugLogFolder by string("./log/debug_logs/")
     }
 
     val effectiveClaudeModels: List<String>

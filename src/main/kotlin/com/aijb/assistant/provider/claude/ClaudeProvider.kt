@@ -1,5 +1,6 @@
 package com.aijb.assistant.provider.claude
 
+import com.aijb.assistant.debug.DebugLogSink
 import com.aijb.assistant.provider.ChatRequest
 import com.aijb.assistant.provider.ModelInfo
 import com.aijb.assistant.provider.ModelProvider
@@ -67,6 +68,7 @@ class ClaudeProvider(
             return@channelFlow
         }
         val (system, stdinText) = ClaudeTranscript.render(request.messages)
+        DebugLogSink.log("outgoing", id, request.model, stdinText)
         val cwd = Files.createTempDirectory("aijb-claude-").toFile()
         var promptFile: File? = null
         var process: Process? = null
@@ -118,6 +120,9 @@ class ClaudeProvider(
                 runCatching {
                     proc.inputStream.bufferedReader().useLines { lines ->
                         for (line in lines) {
+                            if (DebugLogSink.isEnabled) {
+                                DebugLogSink.log("incoming", id, request.model, line)
+                            }
                             for (ev in parser.feed(line)) {
                                 if (!isClosedForSend) send(ev)
                             }

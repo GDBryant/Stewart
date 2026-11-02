@@ -1,5 +1,6 @@
 package com.aijb.assistant.provider.ollama
 
+import com.aijb.assistant.debug.DebugLogSink
 import com.aijb.assistant.http.IdeHttpClients
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
@@ -43,6 +44,14 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 private val json = Json { ignoreUnknownKeys = true }
+
+/** Model name for debug logs: the chunk's `model` field if present, else the request model. */
+internal fun chunkModel(line: String, fallback: String): String = try {
+    val el = json.parseToJsonElement(line).jsonObject["model"]
+    (el as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }?.content ?: fallback
+} catch (e: Exception) {
+    fallback
+}
 
 class OllamaProvider(
     private val baseUrl: String = "http://localhost:11434",
@@ -164,6 +173,7 @@ class OllamaProvider(
                 }
             }
         })
+        DebugLogSink.log("outgoing", id, request.model, payload.toString())
         val httpRequest = HttpRequest.newBuilder(URI.create("$baseUrl/api/chat"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
@@ -200,6 +210,9 @@ class OllamaProvider(
                 for (line in lines) {
                     currentCoroutineContext().ensureActive()
                     if (line.isBlank()) continue
+                    if (DebugLogSink.isEnabled) {
+                        DebugLogSink.log("incoming", id, chunkModel(line, request.model), line)
+                    }
                     for (event in OllamaNdjson.parseLineEvents(line) { _ -> callIdPrefix + callSeq++ }) {
                         if (event is ProviderEvent.NativeToolCalls) {
                             if (event.calls.any { it.id in seenCallIds }) {

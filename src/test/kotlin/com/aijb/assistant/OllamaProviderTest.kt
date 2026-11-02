@@ -640,4 +640,125 @@ class OllamaProviderTest {
                 listOf(spec), com.aijb.assistant.provider.ToolChoice.Function("read_file"))).collect { events.add(it) }
         assertEquals(listOf(spec), sent!!.tools)
     }
+
+    // --- Debug logging (DebugLogSink) ---
+
+    @Test
+    fun `debug disabled produces no log file`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-off")
+        com.aijb.assistant.debug.DebugLogSink.logDirectory = dir.toString()
+        com.aijb.assistant.debug.DebugLogSink.isEnabled = false
+        server.createContext("/api/chat") { ex ->
+            val body = """{"message":{"content":"x"},"done":true,"done_reason":"stop"}""" + "\n"
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        runBlocking { provider.chat(request()).collect { } }
+        assertTrue(java.nio.file.Files.list(dir).use { it.count().toLong() } == 0L)
+        assertEquals(0L, java.nio.file.Files.list(dir).use { it.count().toLong() })
+        assertTrue(java.nio.file.Files.walk(dir).use { it.count().toLong() } == 1L)
+    }
+
+    @Test
+    fun `debug enabled logs outgoing request and model`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-out")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.logDirectory = dir.resolve("nested/").toString()
+        sink.isEnabled = true
+        try {
+            server.createContext("/api/chat") { ex ->
+                val body = """{"message":{"content":"x"},"done":true,"done_reason":"stop"}""" + "\n"
+                ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(body.toByteArray()) }
+            }
+            runBlocking { provider.chat(request()).collect { } }
+            val files = java.nio.file.Files.list(dir.resolve("nested")).use { it.toList() }
+            assertEquals(1, files.size)
+            val content = java.nio.file.Files.readAllLines(files[0]).joinToString("\n")
+            val outLines = content.lines().filter { it.contains("[outgoing]") }
+            assertEquals(1, outLines.size)
+            assertTrue(outLines[0].contains("[ollama]"))
+            assertTrue(outLines[0].contains("[m]"))
+            assertTrue(outLines[0].contains("\"model\":\"m\""))
+            assertTrue(outLines[0].contains("\"stream\":true"))
+            assertTrue(outLines[0].contains("[" + java.time.LocalDate.now() + "T"))
+        } finally {
+            sink.isEnabled = false
+        }
+    }
+
+    @Test
+    fun `debug enabled logs every ndjson chunk with chunk model`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-chunk")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.logDirectory = dir.toString()
+        sink.isEnabled = true
+        try {
+            server.createContext("/api/chat") { ex ->
+                val body = """{"model":"chunky","message":{"content":"a"},"done":false}""" + "\n" +
+                    "\n" +
+                    """{"model":"chunky","done":true,"done_reason":"stop"}""" + "\n"
+                ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(body.toByteArray()) }
+            }
+            runBlocking { provider.chat(request()).collect { } }
+            val files = java.nio.file.Files.list(dir).use { it.toList() }
+            assertEquals(1, files.size)
+            val content = java.nio.file.Files.readAllLines(files[0]).joinToString("\n")
+            val inLines = content.lines().filter { it.contains("[incoming]") }
+            assertEquals(2, inLines.size)
+            assertTrue(inLines.all { it.contains("[chunky]") })
+            assertTrue(inLines[0].contains("\"content\":\"a\""))
+            val escaped = inLines[0].replace("\\n", "<NL>")
+            org.junit.Assert.assertEquals(1, escaped.split("<NL>").size)
+        } finally {
+            sink.isEnabled = false
+        }
+    }
+
+    @Test
+    fun `debug chunk log falls back to request model when chunk omits model`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-fallback")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.logDirectory = dir.toString()
+        sink.isEnabled = true
+        try {
+            server.createContext("/api/chat") { ex ->
+                val body = """{"message":{"content":"a"},"done":true,"done_reason":"stop"}""" + "\n"
+                ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(body.toByteArray()) }
+            }
+            runBlocking { provider.chat(request()).collect { } }
+            val content = java.nio.file.Files.list(dir).use { files ->
+                files.map { java.nio.file.Files.readAllLines(it).joinToString("\n") }.toList().joinToString("\n")
+            }
+            val inLines = content.lines().filter { it.contains("[incoming]") }
+            assertEquals(1, inLines.size)
+            assertTrue(inLines[0].contains("[m]"))
+            val fallback = com.aijb.assistant.provider.ollama.chunkModel("{bad", "req-model")
+            assertEquals("req-model", fallback)
+        } finally {
+            sink.isEnabled = false
+        }
+    }
+
+    @Test
+    fun `debug logging failure does not break chat`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-blocked")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.logDirectory = dir.resolve("file.log").toString()
+        sink.isEnabled = true
+        try {
+            server.createContext("/api/chat") { ex ->
+                val body = """{"message":{"content":"x"},"done":true,"done_reason":"stop"}""" + "\n"
+                ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(body.toByteArray()) }
+            }
+            val events = mutableListOf<ProviderEvent>()
+            runBlocking { provider.chat(request()).collect { events.add(it) } }
+            assertTrue(events.last() is ProviderEvent.Completed)
+        } finally {
+            sink.isEnabled = false
+        }
+    }
 }

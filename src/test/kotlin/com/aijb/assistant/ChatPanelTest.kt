@@ -41,6 +41,7 @@ class ChatPanelTest : BasePlatformTestCase() {
     override fun tearDown() {
         try {
             AijbSettings.getInstance().loadState(AijbSettings.State())
+            com.aijb.assistant.debug.DebugLogSink.configure(false, "./log/debug_logs/")
             scope.cancel()
         } finally {
             super.tearDown()
@@ -220,6 +221,50 @@ class ChatPanelTest : BasePlatformTestCase() {
         )
         panel.inputArea.keyListeners.forEach { it.keyPressed(enter) }
         assertTrue(pumpUntil { panel.messageAreas().isNotEmpty() })
+    }
+
+    fun `test shift enter inserts newline without sending`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "hi"
+        val shiftEnter = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(),
+            KeyEvent.SHIFT_DOWN_MASK, KeyEvent.VK_ENTER, '\n',
+        )
+        panel.inputArea.keyListeners.forEach { it.keyPressed(shiftEnter) }
+        val typed = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_TYPED, System.currentTimeMillis(),
+            KeyEvent.SHIFT_DOWN_MASK, KeyEvent.VK_UNDEFINED, '\n',
+        )
+        panel.inputArea.keyListeners.forEach { it.keyTyped(typed) }
+        assertEquals("hi\n", panel.inputArea.text)
+        assertTrue(typed.isConsumed)
+        pump()
+        assertTrue(panel.messageAreas().isEmpty())
+    }
+
+    fun `test plain enter typed newline is swallowed`() {
+        val panel = newPanel(fakeProvider())
+        panel.inputArea.text = "hi"
+        val enter = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(),
+            0, KeyEvent.VK_ENTER, '\n',
+        )
+        panel.inputArea.keyListeners.forEach { it.keyPressed(enter) }
+        val typed = KeyEvent(
+            panel.inputArea, KeyEvent.KEY_TYPED, System.currentTimeMillis(),
+            0, KeyEvent.VK_UNDEFINED, '\n',
+        )
+        panel.inputArea.keyListeners.forEach { it.keyTyped(typed) }
+        assertTrue(typed.isConsumed)
+        assertTrue(pumpUntil { panel.messageAreas().isNotEmpty() })
+    }
+
+    fun `test panel applies debug log settings to the sink`() {
+        AijbSettings.getInstance().state.debugLogEnabled = true
+        AijbSettings.getInstance().state.debugLogFolder = "/tmp/aijb-panel-debug"
+        newPanel(fakeProvider())
+        assertTrue(com.aijb.assistant.debug.DebugLogSink.isEnabled)
+        assertEquals("/tmp/aijb-panel-debug", com.aijb.assistant.debug.DebugLogSink.logDirectory)
     }
 
     fun `test dispose cancels active job`() {
@@ -1037,7 +1082,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         val e = KeyEvent(panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_A, 'a')
         assertFalse(panel.handleCompletionKey(e))
         key(panel, KeyEvent.VK_ENTER, shift = true)
-        assertEquals("/c", panel.inputArea.text)
+        assertEquals("/c\n", panel.inputArea.text)
     }
 
     private fun settings(multi: Boolean) {

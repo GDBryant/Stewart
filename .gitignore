@@ -5,3 +5,6 @@ build/
 *.iml
 out/
 .env
+
+bin/
+.kotlin/

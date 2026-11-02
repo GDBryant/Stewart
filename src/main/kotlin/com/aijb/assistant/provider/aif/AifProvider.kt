@@ -1,5 +1,6 @@
 package com.aijb.assistant.provider.aif
 
+import com.aijb.assistant.debug.DebugLogSink
 import com.aijb.assistant.http.IdeHttpClients
 import com.aijb.assistant.provider.ChatMessage
 import com.aijb.assistant.provider.ChatRequest
@@ -140,6 +141,7 @@ class AifProvider(
                 request.parallelToolCalls?.let { put("parallel_tool_calls", it) }
             }
         }
+        DebugLogSink.log("outgoing", id, request.model, payload.toString())
         val httpRequest = HttpRequest.newBuilder(URI.create(AifUrls.chatCompletions(baseUrl)))
             .timeout(Duration.ofSeconds(60))
             .header("Content-Type", "application/json")
@@ -169,6 +171,10 @@ class AifProvider(
             stream!!.bufferedReader().useLines { lines ->
                 for (line in lines) {
                     currentCoroutineContext().ensureActive()
+                    if (line.isBlank()) continue
+                    if (DebugLogSink.isEnabled) {
+                        DebugLogSink.log("incoming", id, request.model, line)
+                    }
                     if (!line.startsWith("data:")) continue
                     val data = line.substring(5).trim()
                     if (data == "[DONE]") break
