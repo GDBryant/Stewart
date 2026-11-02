@@ -63,7 +63,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
                 cell(button)
             }
         }
-        row("Claude models (one per line):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
+        row("Claude models (one per line, CLI alias or ID):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Auto-compact context at (tokens):") { autoCompactField = textField().component }
         row("Keep chat history (days, 0 = don't save):") { historyRetentionField = textField().component }
@@ -134,6 +134,22 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         return map
     }
 
+    /** Model ids are passed verbatim to the CLI as `--model`: display names like "Haiku 5.5" break the call. */
+    private fun parseClaudeModels(text: String): List<String> {
+        val models = mutableListOf<String>()
+        text.lines().forEachIndexed { i, raw ->
+            val line = raw.trim()
+            if (line.isEmpty()) return@forEachIndexed
+            if (line.any { it.isWhitespace() } || '/' in line) {
+                throw ConfigurationException(
+                    "Invalid Claude model line ${i + 1}: \"$line\" — " +
+                        "use a CLI model alias or ID without spaces or '/' (e.g. sonnet, claude-haiku-5-5)")
+            }
+            models += line
+        }
+        return models
+    }
+
     override fun isModified(): Boolean {
         if (!::ollamaUrlField.isInitialized) return false
         val s = settings.state
@@ -185,6 +201,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
             }
         }
         val overrides = parseOverrides(overridesArea.text)
+        val claudeModels = parseClaudeModels(claudeModelsArea.text)
         val autoCompact = TokenCount.parse(autoCompactField.text)
             ?: throw ConfigurationException("Invalid token count: ${autoCompactField.text}")
         val retention = historyRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..3650 }
@@ -197,7 +214,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         s.aifBaseUrl = aifBase
         s.aifModels = aifModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
         s.claudeCliPath = claudeCliPathField.text.trim().ifBlank { "claude" }
-        s.claudeModels = claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+        s.claudeModels = claudeModels.toMutableList()
         s.toolPathOverrides = overrides.toMutableMap()
         s.autoCompactTokens = autoCompact
         s.historyRetentionDays = retention

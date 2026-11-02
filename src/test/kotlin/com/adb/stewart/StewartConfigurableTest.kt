@@ -119,6 +119,25 @@ class StewartConfigurableTest : BasePlatformTestCase() {
         assertInvalid { configurable.apply() }
     }
 
+    fun `test valid claude model lines accepted`() {
+        configurable.claudeModelsArea.text = "opus\nsonnet\nhaiku\nsonnet[1m]\nclaude-haiku-5-5-20251001\n"
+        configurable.apply()
+        assertEquals(
+            listOf("opus", "sonnet", "haiku", "sonnet[1m]", "claude-haiku-5-5-20251001"),
+            StewartSettings.getInstance().state.claudeModels)
+    }
+
+    fun `test invalid claude model line rejected`() {
+        configurable.claudeModelsArea.text = "Haiku 5.5\nhaiku"
+        assertInvalid { configurable.apply() }
+        assertEquals(emptyList<String>(), StewartSettings.getInstance().state.claudeModels)
+        configurable.claudeModelsArea.text = "claude/sonnet"
+        assertInvalid { configurable.apply() }
+        configurable.claudeModelsArea.text = "sonnet "
+        configurable.apply()
+        assertEquals(listOf("sonnet"), StewartSettings.getInstance().state.claudeModels)
+    }
+
     fun `test native override for ollama accepted`() {
         configurable.overridesArea.text = "ollama/m=native"
         configurable.apply()
