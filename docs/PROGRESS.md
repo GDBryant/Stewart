@@ -39,6 +39,8 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 - Approval bypass (`f1c999f`, `3896abe` + follow-ups): per-category permissions (`EDITS`/`COMMANDS`/`OTHER`) — `ProjectPermissions` app-level store (`aijb-permissions.xml`, `SettingsCategory.SYSTEM`, no sync) with one-shot migration from `autoApproveEdits`; `SessionGrants` cleared with the chat; `IdeApprovalGate` checks tick → chat grant → every split program granted, fails closed; `ShellCommandSplitter` rejects substitution/redirection/launcher/dangerous-assignment constructs (POSIX + `cmd /c`); dialogs gain Remember (once/chat/always) and command scope (these programs / all commands) dropdowns; Bypass header toggle + status label with confirmation for Commands/Other; `PermissionsConfigurable` project page; `/permissions` list/clear/revoke/reset; Trusted checkbox removed from `AijbConfigurable`. Docs: `docs/PERMISSIONS.md`.
 
+- Chat UX (`chat-ux` branch, plan `docs/superpowers/plans/2026-11-02-chat-ux.md`): right-aligned tinted user bubbles; busy indicator showing the active role and tool (e.g. "Worker · RunTerminal"); collapsible tool-output rows with the assistant summary not repeating them; Up/Down prompt recall (Up on empty input or with no popup open; popup navigation keeps priority). Manual `runIde` visual check pending.
+
 ## Requested follow-ups (not started)
 
 From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open Items / Requested follow-ups):
