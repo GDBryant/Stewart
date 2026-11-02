@@ -162,6 +162,7 @@ class AifProvider(
             currentCoroutineContext().ensureActive()
             if (response.statusCode() !in 200..299) {
                 val body = stream!!.bufferedReader().use { it.readText() }
+                DebugLogSink.log("error", id, request.model, "HTTP ${response.statusCode()} $body")
                 emit(ProviderEvent.Failed(redact(extractError(body, "HTTP ${response.statusCode()}"))))
                 return@flow
             }
@@ -244,6 +245,7 @@ class AifProvider(
                 }
             }
             if (finish == null) {
+                DebugLogSink.log("error", id, request.model, "stream ended before completion")
                 emit(ProviderEvent.Failed("stream ended before completion", code = "incomplete_stream"))
                 return@flow
             }
@@ -253,9 +255,11 @@ class AifProvider(
             throw e
         } catch (e: java.util.concurrent.CompletionException) {
             if (e.cause is CancellationException) throw CancellationException()
+            DebugLogSink.log("error", id, request.model, e.cause?.message ?: "request failed")
             emit(ProviderEvent.Failed(redact(e.cause?.message ?: "request failed"), e.cause ?: e))
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
+            DebugLogSink.log("error", id, request.model, e.message ?: "request failed")
             emit(ProviderEvent.Failed(redact(e.message ?: "request failed"), e))
         } finally {
             runCatching { stream?.close() }

@@ -192,6 +192,7 @@ class OllamaProvider(
             currentCoroutineContext().ensureActive()
             if (response.statusCode() !in 200..299) {
                 val body = stream!!.bufferedReader().use { it.readText() }
+                DebugLogSink.log("error", id, request.model, "HTTP ${response.statusCode()} $body")
                 val message = OllamaNdjson.extractError(body, "HTTP ${response.statusCode()}")
                 val code = if (response.statusCode() == 400 &&
                     message.contains("does not support tools", ignoreCase = true)) {
@@ -233,14 +234,19 @@ class OllamaProvider(
                 }
             }
             currentCoroutineContext().ensureActive()
-            if (!sawDone) emit(ProviderEvent.Failed("stream ended before completion"))
+            if (!sawDone) {
+                DebugLogSink.log("error", id, request.model, "stream ended before completion")
+                emit(ProviderEvent.Failed("stream ended before completion"))
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: java.util.concurrent.CompletionException) {
             currentCoroutineContext().ensureActive(); if (e.cause is CancellationException) throw CancellationException()
+            DebugLogSink.log("error", id, request.model, e.cause?.message ?: "request failed")
             emit(ProviderEvent.Failed(e.cause?.message ?: "request failed", e.cause ?: e))
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
+            DebugLogSink.log("error", id, request.model, e.message ?: "request failed")
             emit(ProviderEvent.Failed(e.message ?: "request failed", e))
         } finally {
             runCatching { stream?.close() }

@@ -640,6 +640,21 @@ class AifProviderTest {
         }
     }
 
+    @Test
+    fun `debug log records http error body`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-aif-debug-err")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(true, dir.toString())
+        try {
+            handler("{\"error\":{\"message\":\"nope\"}}", 500)
+            collect(provider())
+            val errors = debugLogContent(dir).lines().filter { it.contains("[error]") }
+            assertTrue(errors.any { it.contains("HTTP 500") && it.contains("nope") })
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
     private fun debugLogContent(dir: java.nio.file.Path): String {
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {

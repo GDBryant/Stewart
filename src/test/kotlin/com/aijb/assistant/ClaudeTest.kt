@@ -356,6 +356,21 @@ class ClaudeProviderTest {
         }
     }
 
+    @Test
+    fun `debug log captures stderr on cli failure`() {
+        val dir = Files.createTempDirectory("aijb-claude-stderr")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(true, dir.toString())
+        try {
+            val evs = withScript(mapOf("FAKE_FIXTURE" to "", "FAKE_EXIT" to "1", "FAKE_STDERR" to "boom-stderr"))
+            assertTrue(evs.last() is ProviderEvent.Failed)
+            val stderrLines = debugLogContent(dir).lines().filter { it.contains("[stderr]") }
+            assertTrue(stderrLines.any { it.contains("boom-stderr") })
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
     private fun debugLogContent(dir: java.nio.file.Path): String {
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {

@@ -743,6 +743,41 @@ class OllamaProviderTest {
     }
 
     @Test
+    fun `debug log records http error body`() {
+        val dir = java.nio.file.Files.createTempDirectory("aijb-debug-err")
+        val sink = com.aijb.assistant.debug.DebugLogSink
+        sink.configure(true, dir.toString())
+        try {
+            server.createContext("/api/chat") { ex ->
+                val body = """{"error":"model not found"}"""
+                ex.sendResponseHeaders(500, body.toByteArray().size.toLong())
+                ex.responseBody.use { it.write(body.toByteArray()) }
+            }
+            runBlocking { provider.chat(request()).collect { } }
+            val content = debugLogContent(dir)
+            val errors = content.lines().filter { it.contains("[error]") }
+            assertTrue(errors.any { it.contains("HTTP 500") && it.contains("model not found") })
+        } finally {
+            sink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    private fun debugLogContent(dir: java.nio.file.Path): String {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            if (java.nio.file.Files.isDirectory(dir)) {
+                val files = java.nio.file.Files.list(dir).use { it.toList() }
+                if (files.isNotEmpty()) {
+                    return files.sortedBy { it.fileName.toString() }
+                        .joinToString("\n") { java.nio.file.Files.readString(it) }
+                }
+            }
+            Thread.sleep(10)
+        }
+        throw AssertionError("no debug log file was written")
+    }
+
+    @Test
     fun `debug logging failure does not break chat`() {
         val dir = java.nio.file.Files.createTempDirectory("aijb-debug-blocked")
         val sink = com.aijb.assistant.debug.DebugLogSink

@@ -88,6 +88,7 @@ class ClaudeProvider(
             val proc = try {
                 pb.start()
             } catch (e: java.io.IOException) {
+                DebugLogSink.log("error", id, request.model, "cannot start Claude CLI at $cliPath: ${e.message}")
                 send(ProviderEvent.Failed("cannot start Claude CLI at $cliPath: ${e.message}", e, "cli_not_found"))
                 return@channelFlow
             }
@@ -146,10 +147,14 @@ class ClaudeProvider(
                 if (proc.isAlive) -1 else proc.exitValue()
             }
             kotlinx.coroutines.joinAll(readerJob, stderrJob, stdinJob)
+            if (stderr.isNotEmpty()) {
+                DebugLogSink.log("stderr", id, request.model, stderr.toString())
+            }
             if (!parser.failedEmitted) {
                 when {
                     !parser.resultSeen -> {
                         if (exitCode == 0) {
+                            DebugLogSink.log("error", id, request.model, "stream ended before completion")
                             send(ProviderEvent.Failed("stream ended before completion", code = "incomplete_stream"))
                         } else {
                             val tail = stderr.toString().takeLast(2000)
