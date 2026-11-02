@@ -57,7 +57,7 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
   - Ticks and the always-list are stored in **application-level** state, keyed by
     `project.locationHash`, with the project path kept for display. They are not kept in `.idea/`
     or any project file.
-  - `roamingType = RoamingType.DISABLED`, so Settings Sync does not carry bypass state to another
+  - `category = SettingsCategory.SYSTEM`, so Settings Sync does not carry bypass state to another
     machine where the hash means nothing. The file is not part of "Export settings".
   - A cloned repo therefore cannot ship "bypass on".
   - Entries are not pruned automatically. A moved or renamed project gets a new hash and loses its
@@ -90,7 +90,7 @@ flags in `AijbSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprova
      today's null case. `AskUser` and read tools stay `requiresApproval = false`.
    - `ProjectPermissions` is an app-level service: `@Service(Service.Level.APP)` +
      `@State(name = "AijbPermissions", storages = [Storage("aijb-permissions.xml")],
-     roamingType = RoamingType.DISABLED)`, extending `SimplePersistentStateComponent`. No
+     category = SettingsCategory.SYSTEM)`, extending `SimplePersistentStateComponent`. No
      `plugin.xml` service entry (same pattern as `AijbSettings`).
      - `State(migrated: Boolean, entries: MutableMap<String, Entry>)`;
        `Entry(path: String, ticks: MutableList<String>, programs: MutableList<String>)`. Category

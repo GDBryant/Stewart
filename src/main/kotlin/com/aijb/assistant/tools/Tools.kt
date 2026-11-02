@@ -15,6 +15,8 @@ import kotlinx.serialization.json.jsonPrimitive
 sealed interface ToolPreview {
     data class FileChange(val path: String, val before: String?, val after: String) : ToolPreview
     data class Command(val command: String, val cwd: String) : ToolPreview
+    /** Opt-in marker for the OTHER bypass category; an approval tool without a preview is never bypassed. */
+    data object Other : ToolPreview
 }
 
 interface Tool {

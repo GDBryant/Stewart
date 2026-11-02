@@ -17,6 +17,10 @@ import com.aijb.assistant.tools.ApprovalGate
 import com.aijb.assistant.tools.ProjectTools
 import com.aijb.assistant.tools.ToolOutcome
 import com.aijb.assistant.tools.ToolPreview
+import com.aijb.assistant.tools.permissions.ApprovalCategory
+import com.aijb.assistant.tools.permissions.PermissionsSnapshot
+import com.aijb.assistant.tools.permissions.PromptResult
+import com.aijb.assistant.tools.permissions.SessionGrants
 import com.aijb.assistant.ui.ApprovalPrompter
 import com.aijb.assistant.ui.IdeApprovalGate
 import com.intellij.testFramework.PlatformTestUtil
@@ -209,20 +213,25 @@ class ToolsE2ETest : BasePlatformTestCase() {
                 listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null)),
             ))
         }
-        session.approval = IdeApprovalGate(project, { true }, object : ApprovalPrompter {
-            override suspend fun confirmFile(call: ToolCall, change: ToolPreview.FileChange): ApprovalDecision {
-                prompts += "file"
-                return ApprovalDecision.Approved
-            }
-            override suspend fun confirmCommand(call: ToolCall, command: ToolPreview.Command): ApprovalDecision {
-                prompts += "command"
-                return ApprovalDecision.Approved
-            }
-            override suspend fun confirmGeneric(call: ToolCall): ApprovalDecision {
-                prompts += "generic"
-                return ApprovalDecision.Approved
-            }
-        })
+        session.approval = IdeApprovalGate(
+            project,
+            { PermissionsSnapshot(ticks = setOf(ApprovalCategory.EDITS)) },
+            SessionGrants(),
+            object : ApprovalPrompter {
+                override suspend fun confirmFile(call: ToolCall, change: ToolPreview.FileChange): PromptResult {
+                    prompts += "file"
+                    return PromptResult(ApprovalDecision.Approved)
+                }
+                override suspend fun confirmCommand(call: ToolCall, command: ToolPreview.Command): PromptResult {
+                    prompts += "command"
+                    return PromptResult(ApprovalDecision.Approved)
+                }
+                override suspend fun confirmGeneric(call: ToolCall): PromptResult {
+                    prompts += "generic"
+                    return PromptResult(ApprovalDecision.Approved)
+                }
+            },
+        )
         send("go")
         assertEquals("ccc", File(baseDir, "e.txt").readText())
         assertTrue(File(baseDir, "cmd.txt").exists())

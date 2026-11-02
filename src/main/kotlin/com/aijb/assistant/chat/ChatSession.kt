@@ -27,6 +27,8 @@ import com.aijb.assistant.tools.RunCancelledException
 import com.aijb.assistant.tools.ToolLoop
 import com.aijb.assistant.tools.ToolOutcome
 import com.aijb.assistant.tools.ToolRegistry
+import com.aijb.assistant.tools.permissions.ProjectPermissions
+import com.aijb.assistant.tools.permissions.SessionGrants
 import com.aijb.assistant.ui.IdeApprovalGate
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -81,8 +83,13 @@ class ChatSession(
     var tools: () -> ToolRegistry = {
         ProjectTools.registry(project, AijbSettings.getInstance().state.toolsEnabled)
     }
-    var approval: ApprovalGate = IdeApprovalGate(project,
-        { AijbSettings.getInstance().state.autoApproveEdits })
+    /** Chat-scoped approvals ("allow for this chat"); cleared with the conversation. */
+    internal val sessionGrants = SessionGrants()
+    var approval: ApprovalGate = IdeApprovalGate(
+        project,
+        { ProjectPermissions.getInstance().forProject(project) },
+        sessionGrants,
+    )
     var roleModels: () -> Map<AgentRole, ModelRef?> = {
         val st = AijbSettings.getInstance().state
         mapOf(
@@ -138,6 +145,7 @@ class ChatSession(
             if (activeJob == null && transcriptBacking.isEmpty()) {
                 transcriptBacking.addAll(loaded.messages)
                 usageBacking = loaded.usage
+                sessionGrants.clear()
             }
         }
     }
@@ -165,6 +173,7 @@ class ChatSession(
             usageBacking = null
             lastPromptTokens = null
         }
+        sessionGrants.clear()
         try {
             historyStore?.delete()
         } catch (e: Exception) {
