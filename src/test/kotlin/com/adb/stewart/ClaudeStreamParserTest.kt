@@ -45,6 +45,217 @@ class ClaudeStreamParserTest {
     }
 
     @Test
+    fun `error tool_result after tool_use ends the turn`() {
+        val p = ClaudeStreamParser()
+        feed(p, "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"x\",\"input\":{}}]}}")
+        assertTrue(feed(p,
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t\",\"is_error\":true,\"content\":\"No such tool available\"}]}}").isEmpty())
+        assertTrue(p.cutPending && !p.toolTurnEnded)
+        assertEquals("tool_calls", p.finishReason)
+        assertTrue(feed(p, "{\"type\":\"assistant\",\"message\":{\"id\":\"m2\",\"content\":[{\"type\":\"text\",\"text\":\"sorry\"}]}}").isEmpty())
+        assertTrue(p.toolTurnEnded)
+        assertTrue(feed(p, "{\"type\":\"result\",\"is_error\":true,\"result\":\"x\"}").isEmpty())
+    }
+
+    private fun tu(id: String?, name: String, msg: String? = "m1") =
+        "{\"type\":\"assistant\",\"message\":{" + (msg?.let { "\"id\":\"$it\"," } ?: "") +
+            "\"content\":[{\"type\":\"tool_use\"," + (id?.let { "\"id\":\"$it\"," } ?: "") +
+            "\"name\":\"$name\",\"input\":{\"k\":\"$name\"}}]}}"
+
+    private fun err(id: String) =
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"$id\",\"is_error\":true}]}}"
+
+    private fun se(type: String, extra: String = "", msg: String = "m1") =
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"$type\"$extra},\"api_message_id\":\"$msg\"}"
+
+    private fun start(msg: String, usage: String) =
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\",\"message\":{\"id\":\"$msg\",\"usage\":$usage}}}"
+
+    private fun mdelta(msg: String, usage: String) =
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":$usage},\"api_message_id\":\"$msg\"}"
+
+    @Test
+    fun `cut turn takes usage from the stream without double counting`() {
+        val p = ClaudeStreamParser()
+        feed(p,
+            start("m1", "{\"input_tokens\":5,\"cache_creation_input_tokens\":10,\"cache_read_input_tokens\":100,\"output_tokens\":1}"),
+            tu("t1", "a"),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":10,\"cache_read_input_tokens\":100,\"output_tokens\":4},\"content\":[]}}",
+            err("t1"),
+            mdelta("m1", "{\"output_tokens\":42}"),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"usage\":{\"input_tokens\":5,\"output_tokens\":4},\"content\":[]}}",
+            start("m2", "{\"input_tokens\":999,\"output_tokens\":999}"))
+        assertTrue(p.toolTurnEnded)
+        assertNull(p.usage)
+        assertEquals(com.adb.stewart.provider.Usage(115, 42), p.turnUsage())
+    }
+
+    @Test
+    fun `cut turn without any usage stays null`() {
+        val p = ClaudeStreamParser()
+        feed(p, start("m1", "null"), tu("t1", "a"), err("t1"), mdelta("m1", "\"bad\""), se("message_stop"))
+        assertTrue(p.toolTurnEnded)
+        assertNull(p.turnUsage())
+        val q = ClaudeStreamParser()
+        feed(q, mdelta("m1", "{\"service_tier\":\"x\"}"))
+        assertEquals(com.adb.stewart.provider.Usage(null, null), q.turnUsage())
+    }
+
+    @Test
+    fun `result usage wins over stream usage`() {
+        val p = ClaudeStreamParser()
+        feed(p, start("m1", "{\"input_tokens\":1,\"output_tokens\":1}"), tu("t1", "a"), err("t1"),
+            "{\"type\":\"result\",\"is_error\":false,\"usage\":{\"input_tokens\":7,\"output_tokens\":8},\"total_cost_usd\":0.5}")
+        assertEquals(com.adb.stewart.provider.Usage(7, 8, 0.5), p.turnUsage())
+        val q = ClaudeStreamParser()
+        feed(q, start("m1", "{\"input_tokens\":1,\"output_tokens\":2}"),
+            "{\"type\":\"result\",\"is_error\":false}")
+        assertEquals(com.adb.stewart.provider.Usage(1, 2), q.turnUsage())
+    }
+
+    @Test
+    fun `usage of several messages in one turn is summed`() {
+        val p = ClaudeStreamParser()
+        feed(p,
+            start("m1", "{\"input_tokens\":10,\"output_tokens\":1}"), mdelta("m1", "{\"output_tokens\":3}"),
+            start("m2", "{\"input_tokens\":20}"), mdelta("m2", "{\"output_tokens\":5}"),
+            "{\"type\":\"assistant\",\"message\":{\"content\":[],\"usage\":{\"output_tokens\":2}}}")
+        assertEquals(com.adb.stewart.provider.Usage(30, 10), p.turnUsage())
+    }
+
+    @Test
+    fun `parallel tool_use blocks with per block rejections all surface`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p,
+            tu("t1", "a"), err("t1"),
+            se("content_block_stop"),
+            tu("t2", "b"), err("t2"),
+            se("content_block_stop"),
+            se("message_delta", ",\"delta\":{\"stop_reason\":\"tool_use\"}"),
+            se("message_stop"),
+            se("content_block_delta", ",\"delta\":{\"type\":\"text_delta\",\"text\":\"refusal\"}", "m2"),
+            "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"end_turn\"}")
+        assertEquals(listOf("t1", "t2"), evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }.map { it.id })
+        assertTrue(evs.none { it is ProviderEvent.TextDelta })
+        assertTrue(p.toolTurnEnded && !p.resultSeen)
+        assertEquals("tool_calls", p.finishReason)
+    }
+
+    @Test
+    fun `non error tool_result between parallel calls is violation`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p, tu("t1", "a"), err("t1"), tu("t2", "b"),
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t2\"}]}}")
+        assertEquals("isolation_violation", (evs.last() as ProviderEvent.Failed).code)
+        assertTrue(p.failedEmitted && !p.toolTurnEnded)
+    }
+
+    @Test
+    fun `cut ends on new message stream events but not same message ones`() {
+        var p = ClaudeStreamParser()
+        feed(p, tu("t1", "a"), err("t1"), se("content_block_stop"), "{\"type\":\"stream_event\",\"event\":{\"type\":\"ping\"}}", "{\"type\":\"system\"}")
+        assertTrue(p.cutPending && !p.toolTurnEnded)
+        feed(p, se("content_block_start", ",\"content_block\":{\"type\":\"text\"}", "m2"))
+        assertTrue(p.toolTurnEnded)
+        p = ClaudeStreamParser()
+        feed(p, tu("t1", "a"), err("t1"), "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\",\"message\":{\"id\":\"m2\"}}}")
+        assertTrue(p.toolTurnEnded)
+        p = ClaudeStreamParser()
+        feed(p, tu("t1", "a"), err("t1"), "{\"type\":\"stream_event\"}")
+        assertTrue(!p.toolTurnEnded)
+    }
+
+    @Test
+    fun `result after rejected tool_use keeps usage and tool_calls`() {
+        val p = ClaudeStreamParser()
+        feed(p, tu("t1", "a"), err("t1"),
+            "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{\"output_tokens\":3}}")
+        assertTrue(p.resultSeen && !p.toolTurnEnded)
+        assertEquals("tool_calls", p.finishReason)
+        assertEquals(3, p.usage?.completionTokens)
+    }
+
+    @Test
+    fun `repeated tool_use id is not surfaced twice`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p, tu("t1", "a"), tu("t1", "a"), tu(null, "b"), tu(null, "b"))
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(listOf("a", "b", "b"), calls.map { it.name })
+        assertEquals(3, p.nativeCalls.size)
+    }
+
+    @Test
+    fun `tool_use across messages and without message id`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p, tu("t1", "a", null), tu(null, "b", null), err("t1"), tu("t3", "c", null),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m9\",\"content\":[]}}")
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(listOf("a", "b", "c"), calls.map { it.name })
+        assertEquals(null, calls[1].id)
+        assertEquals("{\"k\":\"b\"}", calls[1].arguments)
+        assertTrue(p.toolTurnEnded)
+    }
+
+    @Test
+    fun `thinking deltas suppress the whole assistant thinking block`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p,
+            se("content_block_delta", ",\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hmm\"}"),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"}]}}")
+        assertEquals(listOf<ProviderEvent>(ProviderEvent.ReasoningDelta("hmm")), evs)
+        val q = ClaudeStreamParser()
+        assertEquals(listOf<ProviderEvent>(ProviderEvent.ReasoningDelta("solo")), feed(q,
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"solo\"}]}}"))
+    }
+
+    @Test
+    fun `shim text call without native tool_use stays text`() {
+        val p = ClaudeStreamParser()
+        val evs = feed(p,
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"text\",\"text\":\"<tool_call>{}</tool_call>\"}]}}",
+            "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"end_turn\"}")
+        assertEquals(listOf<ProviderEvent>(ProviderEvent.TextDelta("<tool_call>{}</tool_call>")), evs)
+        assertEquals("stop", p.finishReason)
+        assertTrue(!p.cutPending && !p.toolTurnEnded)
+    }
+
+    @Test
+    fun `error tool_result without tool_use is ignored`() {
+        val p = ClaudeStreamParser()
+        assertTrue(feed(p,
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"is_error\":true}]}}").isEmpty())
+        assertTrue(!p.toolTurnEnded)
+        assertNull(p.finishReason)
+    }
+
+    @Test
+    fun `non error tool_result wins over pending calls`() {
+        val p = ClaudeStreamParser()
+        feed(p, "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"x\",\"input\":{}}]}}")
+        val v = feed(p,
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"is_error\":false}]}}").single()
+            as ProviderEvent.Failed
+        assertEquals("isolation_violation", v.code)
+        assertTrue(!p.toolTurnEnded)
+    }
+
+    @Test
+    fun `result with pending native calls finishes tool_calls`() {
+        val p = ClaudeStreamParser()
+        feed(p,
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"x\",\"input\":{}}]}}",
+            "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{\"output_tokens\":1}}")
+        assertEquals("tool_calls", p.finishReason)
+        val q = ClaudeStreamParser()
+        val qevs = feed(q,
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"x\",\"input\":{}}]}}",
+            "{\"type\":\"result\",\"is_error\":true,\"result\":\"boom\"}")
+        assertEquals("cli_error", (qevs.last() as ProviderEvent.Failed).code)
+        assertTrue(q.resultIsError)
+        assertNull(q.finishReason)
+    }
+
+    @Test
     fun `content block start tool_use is not violation`() {
         val p = ClaudeStreamParser()
         assertTrue(feed(p,
@@ -70,10 +281,18 @@ class ClaudeStreamParserTest {
     }
 
     @Test
-    fun `assistant tool_use ignored server tool gated`() {
+    fun `assistant tool_use surfaced server tool gated`() {
         var p = ClaudeStreamParser()
+        val native = feed(p,
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t\",\"name\":\"bash\",\"input\":{\"c\":1}}]}}")
+            .single() as ProviderEvent.NativeToolCalls
+        assertEquals("bash", native.calls.single().name)
+        assertEquals("{\"c\":1}", native.calls.single().arguments)
         assertTrue(feed(p,
-            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"name\":\"bash\"}]}}").isEmpty())
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"name\":\"\"},{\"type\":\"tool_use\"}]}}").isEmpty())
+        assertEquals("{}", (feed(ClaudeStreamParser(),
+            "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"x\"}]}}").single()
+            as ProviderEvent.NativeToolCalls).calls.single().arguments)
         p = ClaudeStreamParser()
         assertEquals("isolation_violation", (feed(p,
             "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"server_tool_use\",\"name\":\"web_fetch\"}]}}").single()
@@ -196,13 +415,14 @@ class ClaudeStreamParserTest {
     }
 
     @Test
-    fun `refused tool fixture parses cleanly`() {
+    fun `refused tool fixture surfaces the tool_use and ends the turn`() {
         val p = ClaudeStreamParser()
         val evs = feed(p, *java.io.File("src/test/resources/claude/refused-tool-stream.json").readLines().toTypedArray())
         assertTrue(evs.none { it is ProviderEvent.Failed })
-        assertTrue(evs.any { it is ProviderEvent.TextDelta && it.text.contains("I can't") || it is ProviderEvent.TextDelta })
-        assertTrue(p.resultSeen && !p.resultIsError)
-        assertEquals("stop", p.finishReason)
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(listOf("bash"), calls.map { it.name })
+        assertTrue(p.toolTurnEnded)
+        assertEquals("tool_calls", p.finishReason)
     }
 
     @Test

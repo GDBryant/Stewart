@@ -9,7 +9,10 @@ object ToolPathResolver {
 
     fun resolve(ref: ModelRef, provider: ModelProvider, overrides: Map<String, String>): ToolPath {
         overrides[ref.encode()]?.let {
-            return if (it.equals("NATIVE", ignoreCase = true)) ToolPath.NATIVE else ToolPath.SHIM
+            if (it.equals("NATIVE", ignoreCase = true) && ref.providerId in NATIVE_CAPABLE) {
+                return ToolPath.NATIVE
+            }
+            if (!it.equals("NATIVE", ignoreCase = true)) return ToolPath.SHIM
         }
         return if (provider.supportsNativeTools(ref.modelId)) ToolPath.NATIVE else ToolPath.SHIM
     }

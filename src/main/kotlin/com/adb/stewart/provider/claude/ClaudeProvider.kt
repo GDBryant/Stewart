@@ -127,7 +127,9 @@ class ClaudeProvider(
                             for (ev in parser.feed(line)) {
                                 if (!isClosedForSend) send(ev)
                             }
-                            if (parser.failedEmitted) {
+                            if (parser.failedEmitted || parser.toolTurnEnded) {
+                                // Kill children first: an orphan holding stderr would block joinAll.
+                                proc.descendants().forEach { it.destroyForcibly() }
                                 proc.destroy()
                                 break
                             }
@@ -152,6 +154,9 @@ class ClaudeProvider(
             }
             if (!parser.failedEmitted) {
                 when {
+                    parser.toolTurnEnded || (parser.cutPending && !parser.resultSeen) -> {
+                        send(ProviderEvent.Completed("tool_calls", parser.turnUsage()))
+                    }
                     !parser.resultSeen -> {
                         if (exitCode == 0) {
                             DebugLogSink.log("error", id, request.model, "stream ended before completion")
@@ -167,7 +172,7 @@ class ClaudeProvider(
                         send(ProviderEvent.Failed("Claude CLI exited with code $exitCode", code = "cli_exit"))
                     }
                     else -> {
-                        send(ProviderEvent.Completed(parser.finishReason, parser.usage))
+                        send(ProviderEvent.Completed(parser.finishReason, parser.turnUsage()))
                     }
                 }
             }

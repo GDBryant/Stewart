@@ -34,6 +34,16 @@ class ToolPathResolverTest {
     }
 
     @Test
+    fun `native override on non capable provider falls to shim`() {
+        val p = provider("claude", native = false)
+        assertEquals(ToolPath.SHIM,
+            ToolPathResolver.resolve(ModelRef("claude", "sonnet"), p, mapOf("claude/sonnet" to "NATIVE")))
+        val p2 = provider("ollama", native = false)
+        assertEquals(ToolPath.NATIVE,
+            ToolPathResolver.resolve(ModelRef("ollama", "m"), p2, mapOf("ollama/m" to "NATIVE")))
+    }
+
+    @Test
     fun `override shim wins over native support`() {
         val p = provider("aif", native = true)
         assertEquals(ToolPath.SHIM,

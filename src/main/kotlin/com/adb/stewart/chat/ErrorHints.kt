@@ -16,6 +16,7 @@ object ErrorHints {
         "context_limit" -> "The conversation is too large; clear history or lower the auto-compact threshold."
         "truncated" -> "The reply hit the output limit; ask for a shorter answer or split the task."
         "turn_limit" -> "Ask the assistant to continue, or break the task into smaller steps."
+        "server_error" -> "The provider had a server error; retry shortly or try another model."
         "provider_missing" -> "Configure the provider in Settings → Tools → Stewart."
         else -> null
     }

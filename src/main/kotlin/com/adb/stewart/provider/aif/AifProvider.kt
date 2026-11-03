@@ -138,7 +138,7 @@ class AifProvider(
             put("model", request.model)
             put("stream", true)
             putJsonArray("messages") {
-                request.messages.forEach { msg -> add(messageJson(msg)) }
+                AifHistory.sanitize(request.messages).forEach { msg -> add(messageJson(msg)) }
             }
             if (request.tools.isNotEmpty()) {
                 putJsonArray("tools") {
@@ -179,7 +179,8 @@ class AifProvider(
             if (response.statusCode() !in 200..299) {
                 val body = stream!!.bufferedReader().use { it.readText() }
                 DebugLogSink.log("error", id, request.model, "HTTP ${response.statusCode()} $body")
-                emit(ProviderEvent.Failed(redact(extractError(body, "HTTP ${response.statusCode()}"))))
+                emit(ProviderEvent.Failed(redact(extractError(body, "HTTP ${response.statusCode()}")),
+                    code = com.adb.stewart.provider.httpErrorCode(response.statusCode())))
                 return@flow
             }
             var finish: String? = null
@@ -332,4 +333,49 @@ class AifProvider(
     } catch (e: Exception) {
         body.ifBlank { fallback }.take(500)
     }
+}
+
+/**
+ * OpenAI-style APIs reject an assistant `tool_calls` block unless each call has a unique id answered
+ * by exactly one following `tool` message. History from another provider (or an older store) may not
+ * pair cleanly; such blocks, and orphan tool results, are degraded to plain text instead.
+ */
+object AifHistory {
+    fun sanitize(messages: List<ChatMessage>): List<ChatMessage> {
+        val out = mutableListOf<ChatMessage>()
+        var i = 0
+        while (i < messages.size) {
+            val msg = messages[i]
+            if (msg.role == Role.ASSISTANT && msg.toolCalls.isNotEmpty()) {
+                var j = i + 1
+                while (j < messages.size && messages[j].role == Role.TOOL) j++
+                val results = messages.subList(i + 1, j)
+                if (pairs(msg, results)) {
+                    out.add(msg)
+                    out.addAll(results)
+                } else {
+                    val names = msg.toolCalls.associate { it.id to it.name }
+                    out.add(ChatMessage(Role.ASSISTANT, (listOf(msg.content) + msg.toolCalls.map {
+                        "[called tool ${it.name} ${it.arguments}]"
+                    }).filter { it.isNotBlank() }.joinToString("\n")))
+                    results.forEach { out.add(asText(it, names[it.toolCallId])) }
+                }
+                i = j
+                continue
+            }
+            out.add(if (msg.role == Role.TOOL) asText(msg, null) else msg)
+            i++
+        }
+        return out
+    }
+
+    private fun pairs(call: ChatMessage, results: List<ChatMessage>): Boolean {
+        val ids = call.toolCalls.map { it.id }
+        if (ids.any { it.isBlank() } || ids.toSet().size != ids.size) return false
+        val answered = results.map { it.toolCallId }
+        return answered.size == ids.size && answered.toSet() == ids.toSet()
+    }
+
+    private fun asText(result: ChatMessage, name: String?): ChatMessage =
+        ChatMessage(Role.USER, "[tool result ${name ?: "unknown"}] ${result.content}")
 }

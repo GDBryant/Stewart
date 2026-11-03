@@ -13,10 +13,25 @@ internal object ClaudeTranscript {
             return system to rest[0].content
         }
         val body = StringBuilder("The conversation so far is below. Reply as the assistant to the last user message.")
+        // Raw tool history (e.g. from another provider) is rendered as neutral notes, not as a callable format.
+        val callNames = mutableMapOf<String, String>()
         for (msg in rest) {
-            body.append("\n\n<").append(if (msg.role == Role.ASSISTANT) "assistant" else "user")
-            body.append(">\n").append(msg.content).append("\n</")
-            body.append(if (msg.role == Role.ASSISTANT) "assistant" else "user").append(">")
+            val tag = when (msg.role) {
+                Role.ASSISTANT -> "assistant"
+                Role.TOOL -> "tool_result"
+                else -> "user"
+            }
+            body.append("\n\n<").append(tag)
+            if (msg.role == Role.TOOL) {
+                callNames[msg.toolCallId]?.let { body.append(" tool=\"").append(it).append('"') }
+            }
+            body.append(">\n").append(msg.content)
+            for (call in msg.toolCalls) {
+                callNames[call.id] = call.name
+                body.append("\n[called tool ").append(call.name).append(" with arguments ")
+                    .append(call.arguments.toString()).append("]")
+            }
+            body.append("\n</").append(tag).append(">")
         }
         return system to body.toString()
     }

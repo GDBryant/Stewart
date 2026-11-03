@@ -647,6 +647,30 @@ class ToolLoopTest {
         assertTrue(r is LoopResult.Completed)
         assertEquals("c1", (r as LoopResult.Completed).submitted?.id)
         assertEquals(1, fake.calls)
+        // A lone terminal call gets exactly one result.
+        assertEquals(1, r.messages.count { it.role == Role.TOOL })
+    }
+
+    @Test
+    fun `calls after a terminal call are answered as not executed`() {
+        var ran = 0
+        val other = tool(name = "t", run = { ran++; "ok" })
+        val fake = Fake(
+            ProviderEvent.ToolCalls(listOf(
+                ToolCall("c1", "submit_plan", JsonObject(mapOf("goal" to JsonPrimitive("g")))),
+                ToolCall("c2", "t", JsonObject(emptyMap())))),
+            ProviderEvent.Completed("tool_calls", null),
+        )
+        val r = runBlocking {
+            ToolLoop(fake, ToolRegistry(listOf(terminalPlanTool(), other)), approve(), LoopLimits(),
+                terminalTools = setOf("submit_plan"),
+            ).run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        }
+        assertEquals("c1", (r as LoopResult.Completed).submitted?.id)
+        assertEquals(0, ran)
+        val results = r.messages.filter { it.role == Role.TOOL }
+        assertEquals(listOf("c1", "c2"), results.map { it.toolCallId })
+        assertEquals("Not executed: 'submit_plan' ended the turn", results[1].content)
     }
 
     @Test

@@ -216,7 +216,7 @@ class HistoryAndFormatTest {
             "auth", "cli_not_found", "cli_exit", "cli_error", "model_unavailable", "rate_limited",
             "isolation_violation", "missing_api_key", "native_tools_unsupported",
             "invalid_upstream_response", "incomplete_stream", "protocol_error", "empty_turn",
-            "context_limit", "truncated", "turn_limit", "provider_missing",
+            "context_limit", "truncated", "turn_limit", "provider_missing", "server_error",
         )
         codes.forEach { assertNotNull(it, ErrorHints.hint(it)) }
         assertNull(ErrorHints.hint("nope"))

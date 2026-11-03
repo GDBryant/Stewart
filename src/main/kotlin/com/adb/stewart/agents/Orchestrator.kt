@@ -569,7 +569,21 @@ class Orchestrator(
                 LevelStatus.Failed("${route.label}: ${result.message}")
             }
         }
-        return LevelRun(result.messages, result.usage, status, submitted)
+        return LevelRun(closeSkippedCalls(result.messages, submitted), result.usage, status, submitted)
+    }
+
+    /**
+     * A terminal call ends the level mid-turn (ToolLoop returns on it), so later calls of the same
+     * turn have no result. Answer them so the history replayed to the next round, and saved to the
+     * chat, stays a valid call/result sequence for every provider.
+     */
+    private fun closeSkippedCalls(messages: List<ChatMessage>, submitted: ToolCall?): List<ChatMessage> {
+        if (submitted == null) return messages
+        val turn = messages.indexOfLast { m -> m.toolCalls.any { it.id == submitted.id } }
+        val answered = messages.drop(turn + 1).mapNotNull { it.toolCallId }.toSet()
+        return messages + messages[turn].toolCalls.filter { it.id !in answered }.map {
+            ChatMessage(Role.TOOL, "Not executed: ${submitted.name} already ended this level", toolCallId = it.id)
+        }
     }
 
     private fun askHint(askTool: AskUserTool?) = if (askTool != null) Protocol.ASK_USER_HINT else ""

@@ -5,6 +5,7 @@ import com.adb.stewart.provider.ChatRequest
 import com.adb.stewart.provider.ProviderEvent
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolPath
+import com.adb.stewart.provider.ToolCall
 import com.adb.stewart.provider.ToolSpec
 import com.adb.stewart.provider.Usage
 import com.adb.stewart.provider.claude.ClaudeModels
@@ -29,9 +30,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,10 +61,30 @@ class ClaudeTranscriptTest {
     }
 
     @Test
-    fun `tool role renders as user`() {
+    fun `tool result without matching call renders unlabeled`() {
         val (_, stdin) = ClaudeTranscript.render(listOf(
-            u("go"), ChatMessage(Role.TOOL, "res", toolCallId = "c1")))
-        assertTrue(stdin.contains("<user>\nres\n</user>"))
+            u("go"), ChatMessage(Role.TOOL, "res", toolCallId = "c1"), ChatMessage(Role.TOOL, "r2")))
+        assertTrue(stdin.contains("<tool_result>\nres\n</tool_result>"))
+        assertTrue(stdin.contains("<tool_result>\nr2\n</tool_result>"))
+        assertFalse(stdin.contains("<user>\nres"))
+    }
+
+    @Test
+    fun `assistant tool calls and results keep names and arguments`() {
+        val args = buildJsonObject { put("path", "a.txt") }
+        val (_, stdin) = ClaudeTranscript.render(listOf(
+            u("go"),
+            ChatMessage(Role.ASSISTANT, "", toolCalls = listOf(
+                ToolCall("x1", "read_file", args), ToolCall("x2", "list", JsonObject(emptyMap())))),
+            ChatMessage(Role.TOOL, "hello", toolCallId = "x1"),
+            ChatMessage(Role.TOOL, "[]", toolCallId = "x2"),
+            ChatMessage(Role.TOOL, "stray", toolCallId = "other-provider-id")))
+        assertTrue(stdin.contains("[called tool read_file with arguments {\"path\":\"a.txt\"}]"))
+        assertTrue(stdin.contains("[called tool list with arguments {}]"))
+        assertTrue(stdin.contains("<tool_result tool=\"read_file\">\nhello\n</tool_result>"))
+        assertTrue(stdin.contains("<tool_result tool=\"list\">\n[]\n</tool_result>"))
+        assertTrue(stdin.contains("<tool_result>\nstray\n</tool_result>"))
+        assertFalse(stdin.contains("<tool_call>"))
     }
 }
 
@@ -365,10 +389,213 @@ class ClaudeProviderTest {
     }
 
     @Test
-    fun `refused tool stream completes`() {
+    fun `refused tool stream cuts at offered tool_use`() {
         val evs = withScript(mapOf("FAKE_FIXTURE" to "$fixtures/refused-tool-stream.json"))
-        assertTrue(evs.any { it is ProviderEvent.TextDelta && it.text.contains("I can't create") })
-        assertTrue(evs.last() is ProviderEvent.Completed)
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(listOf("bash"), calls.map { it.name })
+        assertTrue(evs.none { it is ProviderEvent.TextDelta && it.text.contains("I can't create") })
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+        assertEquals(Usage(4568, 300), (evs.last() as ProviderEvent.Completed).usage)
+    }
+
+    private fun parallelFixture(): File {
+        val f = Files.createTempFile("stewart-par-", ".json").toFile()
+        fun se(t: String, m: String = "m1") = "{\"type\":\"stream_event\",\"event\":{\"type\":\"$t\"},\"api_message_id\":\"$m\"}"
+        fun tu(id: String, n: String) = "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"$id\",\"name\":\"$n\",\"input\":{}}]}}"
+        fun er(id: String) = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"$id\",\"is_error\":true}]}}"
+        f.writeText(listOf(
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"plan\"}},\"api_message_id\":\"m1\"}",
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"text\",\"text\":\"plan\"}]}}",
+            tu("t1", "a"), er("t1"), se("content_block_stop"), tu("t2", "b"), er("t2"),
+            se("message_delta"), se("message_stop"),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m2\",\"content\":[{\"type\":\"text\",\"text\":\"refusal\"}]}}",
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{}}",
+        ).joinToString("\n", postfix = "\n"))
+        return f
+    }
+
+    @Test
+    fun `parallel tool_use blocks reach provider once each with one completion`() {
+        val evs = withScript(mapOf("FAKE_FIXTURE" to parallelFixture().absolutePath))
+        assertEquals(listOf("t1", "t2"), evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }.map { it.id })
+        assertEquals(listOf("plan"), evs.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals(1, evs.count { it is ProviderEvent.Completed })
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+        assertTrue(evs.none { it is ProviderEvent.Failed })
+        assertNull((evs.last() as ProviderEvent.Completed).usage)
+    }
+
+    @Test
+    fun `tool turn cut kills a cli that keeps running`() {
+        val pidFile = Files.createTempFile("stewart-pid-", ".txt").toFile()
+        val evs = runBlocking {
+            withTimeout(10.seconds) {
+                fakeFile.setExecutable(true)
+                ClaudeProvider(cliPath = fake, extraEnv = mapOf(
+                    "FAKE_FIXTURE" to "$fixtures/tooluse-stream.json", "FAKE_SLEEP_AFTER" to "60",
+                    "FAKE_CHILD" to "1", "FAKE_PID_FILE" to pidFile.absolutePath)).chat(req()).toList()
+            }
+        }
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+        val pids = pidFile.readLines().filter { it.isNotBlank() }.map { it.trim().toLong() }
+        runBlocking { delay(200) }
+        for (pid in pids) assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+    }
+
+    @Test
+    fun `clean eof after rejected tool_use completes with tool_calls`() {
+        val f = Files.createTempFile("stewart-eof-", ".json").toFile()
+        f.writeText(
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"a\",\"input\":{}}]}}\n" +
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"is_error\":true}]}}\n")
+        val evs = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+        assertNull((evs.last() as ProviderEvent.Completed).usage)
+        assertEquals(1, evs.count { it is ProviderEvent.Completed })
+        f.writeText(
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\",\"message\":{\"id\":\"m1\",\"usage\":{\"input_tokens\":6,\"output_tokens\":1}}}}\n" +
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"a\",\"input\":{}}]}}\n" +
+            "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"is_error\":true}]}}\n")
+        assertEquals(Usage(6, 1), (withScript(mapOf("FAKE_FIXTURE" to f.absolutePath)).last() as ProviderEvent.Completed).usage)
+        // Negative: a tool_use with no rejection and no result is still an incomplete stream.
+        f.writeText(
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"a\",\"input\":{}}]}}\n")
+        val bad = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
+        assertEquals("incomplete_stream", (bad.last() as ProviderEvent.Failed).code)
+    }
+
+    @Test
+    fun `cross provider tool history reaches claude through shim and raw paths`() = runBlocking {
+        fakeFile.setExecutable(true)
+        val history = listOf(
+            ChatMessage(Role.USER, "go"),
+            ChatMessage(Role.ASSISTANT, "", toolCalls = listOf(
+                ToolCall("ollama-1", "get_key", buildJsonObject { put("a", 1) }))),
+            ChatMessage(Role.TOOL, "k-7", toolCallId = "ollama-1"),
+            ChatMessage(Role.TOOL, "orphan", toolCallId = "aif-x"),
+            ChatMessage(Role.USER, "next"))
+        val spec = ToolSpec("get_key", "d", buildJsonObject { put("type", "object") })
+        val rec = Files.createTempDirectory("stewart-xp-").toFile()
+        val claude = ClaudeProvider(cliPath = fake, extraEnv = mapOf(
+            "FAKE_RECORD" to rec.absolutePath, "FAKE_FIXTURE" to "$fixtures/auth-stream.json"))
+        ToolCallingProvider(claude, ToolPath.SHIM).chat(ChatRequest("m", history, tools = listOf(spec))).toList()
+        val shim = File(rec, "stdin-1").readText()
+        assertTrue(shim.contains("{\"name\":\"get_key\",\"arguments\":{\"a\":1}}"))
+        assertTrue(shim.contains("{\"name\":\"get_key\",\"content\":\"k-7\"}"))
+        assertTrue(shim.contains("{\"name\":\"unknown\",\"content\":\"orphan\"}"))
+        ToolCallingProvider(claude, ToolPath.SHIM).chat(ChatRequest("m", history)).toList()
+        val raw = File(rec, "stdin-2").readText()
+        assertTrue(raw.contains("[called tool get_key with arguments {\"a\":1}]"))
+        assertTrue(raw.contains("<tool_result tool=\"get_key\">\nk-7\n</tool_result>"))
+        assertTrue(raw.contains("<tool_result>\norphan\n</tool_result>"))
+    }
+
+    @Test
+    fun `model tool_use surfaces as native call`() {
+        val evs = withScript(mapOf("FAKE_FIXTURE" to "$fixtures/tooluse-stream.json"))
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(1, calls.size)
+        assertEquals("submit_plan", calls[0].name)
+        assertEquals("toolu_1", calls[0].id)
+        assertTrue(calls[0].arguments.contains("\"goal\":\"g\""))
+        val done = evs.last() as ProviderEvent.Completed
+        assertEquals("tool_calls", done.finishReason)
+        assertTrue(evs.none { it is ProviderEvent.TextDelta && it.text.contains("call failed") })
+    }
+
+    @Test
+    fun `shim cuts the cli turn at an offered tool_use`() = runBlocking {
+        fakeFile.setExecutable(true)
+        val claude = ClaudeProvider(cliPath = fake, extraEnv = mapOf("FAKE_FIXTURE" to "$fixtures/tooluse-stream.json"))
+        val spec = ToolSpec("submit_plan", "d", buildJsonObject { put("type", "object") })
+        val evs = ToolCallingProvider(claude, ToolPath.SHIM)
+            .chat(ChatRequest("m", listOf(ChatMessage(Role.USER, "go")), tools = listOf(spec))).toList()
+        val call = evs.filterIsInstance<ProviderEvent.ToolCalls>().single().calls.single()
+        assertEquals("submit_plan", call.name)
+        assertEquals("g", call.arguments["goal"]?.jsonPrimitive?.content)
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+        assertTrue(evs.any { it is ProviderEvent.TextDelta && it.text.contains("I will submit the plan.") })
+        assertTrue(evs.none { it is ProviderEvent.TextDelta && it.text.contains("call failed") })
+    }
+
+    @Test
+    fun `end to end native tool_use through shim and tool loop`() = runBlocking {
+        val recDir = Files.createTempDirectory("stewart-e2e-").toFile()
+        val fixDir = Files.createTempDirectory("stewart-e2efix-").toFile()
+        File(fixDir, "1.json").writeText(
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[" +
+                "{\"type\":\"tool_use\",\"id\":\"toolu_9\",\"name\":\"get_key\",\"input\":{\"a\":1}}]}}\n" +
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}\n")
+        File(fixDir, "2.json").writeText(
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}}\n" +
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}\n")
+        var ran = 0
+        var seenA: kotlinx.serialization.json.JsonElement? = null
+        val tool = object : Tool {
+            override val spec = ToolSpec("get_key", "d", buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject { put("a", buildJsonObject { put("type", "integer") }) })
+            })
+            override val requiresApproval = false
+            override suspend fun execute(arguments: JsonObject, preview: com.adb.stewart.tools.ToolPreview?): String {
+                ran++
+                seenA = arguments["a"]
+                return "k-7"
+            }
+        }
+        fakeFile.setExecutable(true)
+        val claude = ClaudeProvider(cliPath = fake, extraEnv = mapOf(
+            "FAKE_RECORD" to recDir.absolutePath, "FAKE_FIXTURE_DIR" to fixDir.absolutePath))
+        val loop = ToolLoop(ToolCallingProvider(claude, ToolPath.SHIM),
+            ToolRegistry(listOf(tool)), ApprovalGate { _, _ -> ApprovalDecision.Approved })
+        val result = loop.run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        assertEquals(1, ran)
+        assertEquals(1, seenA?.jsonPrimitive?.intOrNull)
+        assertTrue(result is LoopResult.Completed)
+        val stdin2 = File(recDir, "stdin-2").readText()
+        assertTrue(stdin2.contains("k-7"))
+        assertTrue(stdin2.contains("<tool_response>\n{\"name\":\"get_key\""))
+        assertTrue(stdin2.contains("<assistant>\n<tool_call>\n{\"name\":\"get_key\",\"arguments\":{\"a\":1}}"))
+    }
+
+    @Test
+    fun `unoffered native tool_use is passed on as an unknown call through shim`() = runBlocking {
+        val fixDir = Files.createTempDirectory("stewart-e2efix-").toFile()
+        File(fixDir, "1.json").writeText(
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[" +
+                "{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"bash\",\"input\":{}}]}}\n" +
+            "{\"type\":\"user\",\"message\":{\"content\":[" +
+                "{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"is_error\":true,\"content\":\"No such tool available\"}]}}\n" +
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{}}\n")
+        fakeFile.setExecutable(true)
+        val claude = ClaudeProvider(cliPath = fake, extraEnv = mapOf(
+            "FAKE_FIXTURE_DIR" to fixDir.absolutePath,
+            "FAKE_RECORD" to Files.createTempDirectory("stewart-e2e-").toFile().absolutePath))
+        val evs = ToolCallingProvider(claude, ToolPath.SHIM)
+            .chat(ChatRequest("m", listOf(ChatMessage(Role.USER, "go")),
+                tools = listOf(ToolSpec("get_key", "d", JsonObject(emptyMap()))))).toList()
+        // ToolLoop answers it with "unknown tool" so the model can recover instead of the run failing.
+        assertTrue(evs.none { it is ProviderEvent.Failed })
+        assertEquals(listOf("bash"), evs.filterIsInstance<ProviderEvent.ToolCalls>().single().calls.map { it.name })
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
+    }
+
+    @Test
+    fun `parallel tool_use across assistant events surfaces all calls`() {
+        val f = Files.createTempFile("stewart-par", ".json").toFile()
+        f.writeText(
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[" +
+                "{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"a\",\"input\":{\"x\":1}}]}}\n" +
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[" +
+                "{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"b\",\"input\":{\"y\":2}}]}}\n" +
+            "{\"type\":\"user\",\"message\":{\"content\":[" +
+                "{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"is_error\":true,\"content\":\"No such tool available\"}," +
+                "{\"type\":\"tool_result\",\"tool_use_id\":\"t2\",\"is_error\":true,\"content\":\"No such tool available\"}]}}\n" +
+            "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"stop_reason\":\"end_turn\",\"usage\":{}}\n")
+        val evs = withScript(mapOf("FAKE_FIXTURE" to f.absolutePath))
+        val calls = evs.filterIsInstance<ProviderEvent.NativeToolCalls>().flatMap { it.calls }
+        assertEquals(listOf("a", "b"), calls.map { it.name })
+        assertEquals("tool_calls", (evs.last() as ProviderEvent.Completed).finishReason)
     }
 
     @Test

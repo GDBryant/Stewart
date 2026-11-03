@@ -34,4 +34,5 @@ if [ -n "$FAKE_FIXTURE_DIR" ]; then
 elif [ -n "$FAKE_FIXTURE" ]; then
   cat "$FAKE_FIXTURE"
 fi
+[ -n "$FAKE_SLEEP_AFTER" ] && sleep "$FAKE_SLEEP_AFTER"
 exit "${FAKE_EXIT:-0}"

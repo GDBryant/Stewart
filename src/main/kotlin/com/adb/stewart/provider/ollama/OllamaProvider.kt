@@ -198,7 +198,7 @@ class OllamaProvider(
                     message.contains("does not support tools", ignoreCase = true)) {
                     "native_tools_unsupported"
                 } else {
-                    null
+                    com.adb.stewart.provider.httpErrorCode(response.statusCode())
                 }
                 emit(ProviderEvent.Failed(message, code = code))
                 return@flow

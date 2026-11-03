@@ -4,14 +4,19 @@ import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.ChatRequest
 import com.adb.stewart.provider.ModelInfo
 import com.adb.stewart.provider.ModelProvider
+import com.adb.stewart.provider.ModelRef
 import com.adb.stewart.provider.ProviderEvent
+import com.adb.stewart.provider.RawToolCall
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolCall
 import com.adb.stewart.provider.ToolChoice
 import com.adb.stewart.provider.ToolPath
 import com.adb.stewart.provider.Usage
+import com.adb.stewart.settings.ToolPathResolver
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 class ToolCallingProvider(
     private val inner: ModelProvider,
@@ -36,11 +41,20 @@ class ToolCallingProvider(
             inner.chat(
                 request.copy(tools = emptyList(), toolChoice = ToolChoice.Auto, parallelToolCalls = null)
             ).collect { ev ->
-                if (ev !is ProviderEvent.NativeToolCalls) emit(ev)
+                when {
+                    ev is ProviderEvent.NativeToolCalls -> {}
+                    // No tools were offered, so dropped native calls must not end the turn as "tool_calls".
+                    ev is ProviderEvent.Completed && ev.finishReason == "tool_calls" -> emit(ev.copy(finishReason = "stop"))
+                    else -> emit(ev)
+                }
             }
             return@flow
         }
-        if (path == ToolPath.NATIVE && !inner.supportsNativeTools(request.model)) {
+        // A NATIVE path for a native-capable provider is authoritative (it may come from a forced override
+        // before capabilities are known); the upstream rejects truly unsupported models itself.
+        if (path == ToolPath.NATIVE && inner.id !in ToolPathResolver.NATIVE_CAPABLE &&
+            !inner.supportsNativeTools(request.model)
+        ) {
             emit(ProviderEvent.Failed("provider does not support native tools", code = "native_tools_unsupported"))
             return@flow
         }
@@ -87,7 +101,9 @@ class ToolCallingProvider(
                                     try {
                                         nativeCalls.addAll(ToolCallParser.repairNativeCall(raw, schema))
                                     } catch (e: ToolCallParseException) {
-                                        failed = ProviderEvent.Failed("invalid_tool_call", e, "invalid_tool_call")
+                                        val unknown = unknownToolCall(raw, schema)
+                                        if (unknown != null) nativeCalls.add(unknown)
+                                        else failed = ProviderEvent.Failed("invalid_tool_call", e, "invalid_tool_call")
                                     }
                                 }
                             }
@@ -129,7 +145,9 @@ class ToolCallingProvider(
                 emit(ProviderEvent.TextDelta(result.clean))
             }
             if (result.reasoning != null) emit(ProviderEvent.ReasoningDelta(result.reasoning))
-            val calls = nativeCalls + result.calls
+            // A model may emit the same call natively and as text (e.g. Claude on the shim path): run it once.
+            val nativeKeys = nativeCalls.map { it.name to it.arguments }.toSet()
+            val calls = nativeCalls + result.calls.filter { (it.name to it.arguments) !in nativeKeys }
             val content = streamed.toString()
             if (attempt < retries && path == ToolPath.SHIM &&
                 (RequestTranslator.needsRetry(content, calls, true) ||
@@ -154,13 +172,30 @@ class ToolCallingProvider(
         }
     }
 
+    /**
+     * A well-formed call to a tool that was not offered (e.g. Claude inventing `bash`) is passed on so
+     * the tool loop answers it with an "unknown tool" result and the model can recover; a malformed
+     * call to an offered tool is still an invalid_tool_call.
+     */
+    private fun unknownToolCall(raw: RawToolCall, schema: Map<String, JsonObject>): ToolCall? {
+        if (raw.name in schema || !TOOL_NAME.matches(raw.name)) return null
+        val args = try {
+            Json.parseToJsonElement(raw.arguments.ifBlank { "{}" }) as? JsonObject
+        } catch (e: Exception) {
+            null
+        } ?: return null
+        return ToolCall(raw.id?.takeIf { it.isNotBlank() } ?: ToolCallParser.newCallId(), raw.name, args)
+    }
+
+    private companion object {
+        val TOOL_NAME = Regex("[A-Za-z0-9_.:-]{1,128}")
+    }
 }
 
+/** Same rule as [ToolPathResolver], for callers holding a typed override instead of the settings map. */
 object ToolPaths {
     fun resolve(provider: ModelProvider, model: String, override: ToolPath?): ToolPath {
-        if (override == ToolPath.NATIVE && !provider.supportsNativeTools(model)) {
-            throw IllegalArgumentException("native tools unsupported for $model")
-        }
-        return override ?: if (provider.supportsNativeTools(model)) ToolPath.NATIVE else ToolPath.SHIM
+        val ref = ModelRef(provider.id, model)
+        return ToolPathResolver.resolve(ref, provider, override?.let { mapOf(ref.encode() to it.name) } ?: emptyMap())
     }
 }

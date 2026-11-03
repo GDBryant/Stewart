@@ -136,7 +136,7 @@ class AifProviderTest {
 
     @Test
     fun `native route malformed call fails`() = runBlocking {
-        handler("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"mystery\",\"arguments\":\"{}\"}}]}}]}\n" +
+        handler("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"mystery\",\"arguments\":\"[1]\"}}]}}]}\n" +
             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\ndata: [DONE]\n")
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
             listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(),
@@ -151,7 +151,9 @@ class AifProviderTest {
     }
 
     @Test
-    fun `native route denied for a model with native tools disabled`() = runBlocking {
+    fun `resolved native route is honoured even when the model reports no native tools`() = runBlocking {
+        // aif is native-capable: a NATIVE path (e.g. forced override) is authoritative; upstream rejects if unsupported.
+        handler("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n")
         val aif = AifProvider("http://127.0.0.1:${server.address.port}/api/proxy/v1",
             listOf("m"), { "k" }, java.net.http.HttpClient.newHttpClient(), nativeTools = { false })
         val spec = ToolSpec("read_file", "d", JsonObject(mapOf("type" to JsonPrimitive("object"),
@@ -159,8 +161,8 @@ class AifProviderTest {
         val events = mutableListOf<ProviderEvent>()
         ToolCallingProvider(aif, com.adb.stewart.provider.ToolPath.NATIVE)
             .chat(req().copy(tools = listOf(spec))).collect { events.add(it) }
-        val last = events.last()
-        assertTrue(last is ProviderEvent.Failed && last.code == "native_tools_unsupported")
+        assertTrue(events.last() is ProviderEvent.Completed)
+        assertTrue(body.contains("\"tools\""))
     }
 
     @Test
@@ -612,7 +614,9 @@ class AifProviderTest {
             try {
                 val p = AifProvider("http://127.0.0.1:${h.address.port}/api/proxy/v1", listOf("m"), { "k" },
                     java.net.http.HttpClient.newHttpClient())
-                assertEquals(resp, expected, (collect(p).single() as ProviderEvent.Failed).message)
+                val f = collect(p).single() as ProviderEvent.Failed
+                assertEquals(resp, expected, f.message)
+                assertEquals(resp, when (code) { 429 -> "rate_limited"; 400 -> null; else -> "server_error" }, f.code)
             } finally { h.stop(0) }
         }
     }
@@ -624,10 +628,12 @@ class AifProviderTest {
     }
 
     @Test
-    fun `tool role message without call id omits tool_call_id`() = runBlocking {
+    fun `tool role message without call id is sent as user text`() = runBlocking {
+        // An unpaired tool message is invalid for OpenAI-style APIs, so it is degraded to text.
         handler(stopChunk)
         collect(provider(), req().copy(messages = listOf(ChatMessage(Role.TOOL, "res"))))
-        assertTrue(body.contains("\"role\":\"tool\""))
+        assertTrue(!body.contains("\"role\":\"tool\""))
+        assertTrue(body.contains("[tool result unknown] res"))
         assertTrue(!body.contains("tool_call_id"))
         assertTrue(!body.contains("\"tool_calls\""))
     }

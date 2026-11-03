@@ -22,7 +22,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -179,7 +178,7 @@ class ToolCallingProviderTest {
     @Test
     fun `native invalid call fails`() {
         val inner = Fake(listOf(
-            ProviderEvent.NativeToolCalls(listOf(RawToolCall("x", "mystery", "{}"))),
+            ProviderEvent.NativeToolCalls(listOf(RawToolCall("x", "mystery", "[1]"))),
             ProviderEvent.Completed("tool_calls", null)), nativeSupport = true)
         val events = collect(ToolCallingProvider(inner, ToolPath.NATIVE), req(Role.USER to "go"))
         assertEquals("invalid_tool_call", (events.last() as ProviderEvent.Failed).code)
@@ -200,9 +199,61 @@ class ToolCallingProviderTest {
         assertEquals(ToolPath.NATIVE, ToolPaths.resolve(native, "m", null))
         assertEquals(ToolPath.SHIM, ToolPaths.resolve(Fake(), "m", null))
         assertEquals(ToolPath.SHIM, ToolPaths.resolve(native, "m", ToolPath.SHIM))
-        assertThrows(IllegalArgumentException::class.java) {
-            ToolPaths.resolve(Fake(), "m", ToolPath.NATIVE)
+        // Agrees with ToolPathResolver: a NATIVE override on a non-capable provider falls through.
+        assertEquals(ToolPath.SHIM, ToolPaths.resolve(Fake(), "m", ToolPath.NATIVE))
+        assertEquals(ToolPath.NATIVE, ToolPaths.resolve(Named("ollama"), "m", ToolPath.NATIVE))
+        assertEquals(ToolPath.SHIM, ToolPaths.resolve(Named("claude"), "m", ToolPath.NATIVE))
+    }
+
+    private class Named(override val id: String, val evs: List<ProviderEvent> = emptyList()) : ModelProvider {
+        val requests = mutableListOf<ChatRequest>()
+        override suspend fun listModels() = emptyList<ModelInfo>()
+        override fun supportsNativeTools(model: String) = false
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+            requests.add(request)
+            evs.forEach { emit(it) }
         }
+    }
+
+    @Test
+    fun `forced native on capable provider is honoured before capabilities are known`() {
+        val inner = Named("ollama", listOf(
+            ProviderEvent.NativeToolCalls(listOf(RawToolCall("i", "read_file", "{}"))),
+            ProviderEvent.Completed("stop", null)))
+        val events = collect(ToolCallingProvider(inner, ToolPath.NATIVE), req(Role.USER to "go"))
+        assertEquals("read_file", events.filterIsInstance<ProviderEvent.ToolCalls>().single().calls.single().name)
+        assertEquals(listOf(spec), inner.requests.single().tools)
+    }
+
+    @Test
+    fun `native path on non capable provider still refused`() {
+        val inner = Named("claude", listOf(ProviderEvent.Completed("stop", null)))
+        val events = collect(ToolCallingProvider(inner, ToolPath.NATIVE), req(Role.USER to "go"))
+        assertEquals("native_tools_unsupported", (events.single() as ProviderEvent.Failed).code)
+        assertTrue(inner.requests.isEmpty())
+    }
+
+    @Test
+    fun `no tools offered drops native calls and normalizes tool_calls finish`() {
+        val inner = Named("claude", listOf(
+            ProviderEvent.NativeToolCalls(listOf(RawToolCall("i", "read_file", "{}"))),
+            ProviderEvent.Completed("tool_calls", null)))
+        val events = collect(ToolCallingProvider(inner, ToolPath.SHIM), req(Role.USER to "go", tools = emptyList()))
+        assertEquals(listOf<ProviderEvent>(ProviderEvent.Completed("stop", null)), events)
+        val other = Named("claude", listOf(ProviderEvent.Completed("length", null)))
+        assertEquals(listOf<ProviderEvent>(ProviderEvent.Completed("length", null)),
+            collect(ToolCallingProvider(other, ToolPath.SHIM), req(Role.USER to "go", tools = emptyList())))
+    }
+
+    @Test
+    fun `shim keeps distinct native and textual calls but drops identical duplicates`() {
+        val same = Fake(listOf(
+            ProviderEvent.NativeToolCalls(listOf(RawToolCall("x", "read_file", "{\"path\":\"a\"}"))),
+            ProviderEvent.TextDelta("<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}</tool_call>"),
+            ProviderEvent.Completed("stop", null)))
+        val calls = collect(ToolCallingProvider(same, ToolPath.SHIM), req(Role.USER to "go"))
+            .filterIsInstance<ProviderEvent.ToolCalls>().single().calls
+        assertEquals(listOf("x"), calls.map { it.id })
     }
 
     @Test
@@ -219,7 +270,7 @@ class ToolCallingProviderTest {
     @Test
     fun `shim invalid native call fails`() {
         val inner = Fake(listOf(
-            ProviderEvent.NativeToolCalls(listOf(RawToolCall("x", "mystery", "{}"))),
+            ProviderEvent.NativeToolCalls(listOf(RawToolCall("x", "mystery", "[1]"))),
             ProviderEvent.Completed("stop", null)))
         val events = collect(ToolCallingProvider(inner, ToolPath.SHIM), req(Role.USER to "go"))
         assertEquals("invalid_tool_call", (events.last() as ProviderEvent.Failed).code)
@@ -399,5 +450,48 @@ class ToolCallingProviderTest {
             req(Role.USER to "g"))
         assertEquals(2, n)
         assertEquals("empty_turn", (events.last() as ProviderEvent.Failed).code)
+    }
+
+    @Test
+    fun `unknown well formed native call is passed on for the loop to reject`() {
+        for (path in listOf(ToolPath.SHIM, ToolPath.NATIVE)) {
+            val inner = Fake(listOf(
+                ProviderEvent.NativeToolCalls(listOf(
+                    RawToolCall("t1", "bash", "{\"command\":\"ls\"}"), RawToolCall(null, "Read", ""))),
+                ProviderEvent.Completed("tool_calls", null)), nativeSupport = true)
+            val events = collect(ToolCallingProvider(inner, path), req(Role.USER to "go"))
+            val calls = events.filterIsInstance<ProviderEvent.ToolCalls>().single().calls
+            assertEquals(listOf("bash", "Read"), calls.map { it.name })
+            assertEquals("t1", calls[0].id)
+            assertTrue(calls[1].id.startsWith("call_"))
+            assertEquals(JsonObject(emptyMap()), calls[1].arguments)
+            assertEquals("tool_calls", (events.last() as ProviderEvent.Completed).finishReason)
+        }
+    }
+
+    @Test
+    fun `unknown native call with bad name or args still fails`() {
+        for (raw in listOf(RawToolCall("x", "two words", "{}"), RawToolCall("x", "bash", "not json"),
+            RawToolCall(" ", "bash", "[1]"))) {
+            val inner = Fake(listOf(ProviderEvent.NativeToolCalls(listOf(raw)), ProviderEvent.Completed("stop", null)))
+            val events = collect(ToolCallingProvider(inner, ToolPath.SHIM), req(Role.USER to "go"))
+            assertEquals(raw.toString(), "invalid_tool_call", (events.last() as ProviderEvent.Failed).code)
+        }
+    }
+
+    @Test
+    fun `unknown native call with blank id gets a generated id`() {
+        val inner = Fake(listOf(ProviderEvent.NativeToolCalls(listOf(RawToolCall(" ", "bash", "{}"))),
+            ProviderEvent.Completed("stop", null)))
+        val call = collect(ToolCallingProvider(inner, ToolPath.SHIM), req(Role.USER to "go"))
+            .filterIsInstance<ProviderEvent.ToolCalls>().single().calls.single()
+        assertTrue(call.id.startsWith("call_"))
+    }
+
+    @Test
+    fun `no tools offered keeps text and stop finish`() {
+        val inner = Named("claude", listOf(ProviderEvent.TextDelta("hi"), ProviderEvent.Completed("stop", null)))
+        assertEquals(listOf(ProviderEvent.TextDelta("hi"), ProviderEvent.Completed("stop", null)),
+            collect(ToolCallingProvider(inner, ToolPath.SHIM), req(Role.USER to "go", tools = emptyList())))
     }
 }

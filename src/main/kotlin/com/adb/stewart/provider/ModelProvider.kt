@@ -74,3 +74,10 @@ interface ModelProvider {
     fun chat(request: ChatRequest): Flow<ProviderEvent>
     fun supportsNativeTools(model: String): Boolean = false
 }
+
+/** Error code for an HTTP provider's non-2xx status, matching the codes the CLI provider uses. */
+fun httpErrorCode(status: Int): String? = when {
+    status == 429 -> "rate_limited"
+    status in 500..599 -> "server_error"
+    else -> null
+}

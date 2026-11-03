@@ -230,11 +230,16 @@ class ToolLoop(
                 produced.add(ChatMessage(Role.ASSISTANT, text.toString(), toolCalls = calls))
                 if (calls.isEmpty()) return LoopResult.Completed(produced, total, base)
                 val seen = mutableSetOf<String>()
-                for (call in calls) {
+                for ((i, call) in calls.withIndex()) {
                     listener.onToolRequested(call)
                     val outcome = executeCall(call, seen, listener, inFlight)
                     produced.add(ChatMessage(Role.TOOL, outcomeMessage(outcome), toolCallId = call.id))
                     if (call.name in terminalTools && outcome is ToolOutcome.Success) {
+                        // Every call of the turn needs a result, or the transcript is invalid for OpenAI-style APIs.
+                        for (rest in calls.drop(i + 1)) {
+                            produced.add(ChatMessage(Role.TOOL,
+                                "Not executed: '${call.name}' ended the turn", toolCallId = rest.id))
+                        }
                         return LoopResult.Completed(produced, total, base, submitted = call)
                     }
                 }

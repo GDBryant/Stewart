@@ -174,7 +174,7 @@ class OllamaProviderTest {
         }
         val events = mutableListOf<ProviderEvent>()
         provider.chat(request()).collect { events.add(it) }
-        assertEquals(listOf(ProviderEvent.Failed("proxy exploded")), events)
+        assertEquals(listOf(ProviderEvent.Failed("proxy exploded", code = "server_error")), events)
     }
 
     @Test
@@ -795,5 +795,20 @@ class OllamaProviderTest {
         } finally {
             sink.isEnabled = false
         }
+    }
+
+    @Test
+    fun `429 is classified rate_limited`() = runBlocking {
+        server.createContext("/api/chat") { ex ->
+            val body = """{"error":"slow down"}"""
+            ex.sendResponseHeaders(429, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        val events = mutableListOf<ProviderEvent>()
+        provider.chat(request()).collect { events.add(it) }
+        assertEquals(listOf(ProviderEvent.Failed("slow down", code = "rate_limited")), events)
+        assertEquals("server_error", com.adb.stewart.provider.httpErrorCode(599))
+        org.junit.Assert.assertNull(com.adb.stewart.provider.httpErrorCode(600))
+        org.junit.Assert.assertNull(com.adb.stewart.provider.httpErrorCode(499))
     }
 }
