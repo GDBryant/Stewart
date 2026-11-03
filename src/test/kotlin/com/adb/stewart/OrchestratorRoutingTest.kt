@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -106,7 +107,26 @@ class OrchestratorRoutingTest {
         assertEquals("route:PLANNER=claude/big", rec.order[0])
         assertEquals("start:PLANNER", rec.order[1])
         assertTrue(rec.order.contains("route:WORKER=ollama/tiny"))
+        // Every level, Worker included, fires exactly one route immediately followed by one start.
+        assertTrue(rec.order.toString(), routedStartPairs(rec.order))
+        assertEquals(
+            listOf("start:PLANNER", "start:EXECUTOR", "start:WORKER", "start:EXECUTOR"),
+            rec.order.filter { it.startsWith("start:") },
+        )
     }
+
+    @Test
+    fun `pairing check rejects a start without a preceding route`() {
+        assertTrue(routedStartPairs(listOf("route:WORKER=o/m", "start:WORKER")))
+        assertFalse(routedStartPairs(listOf("start:WORKER", "route:WORKER=o/m", "start:WORKER")))
+        assertFalse(routedStartPairs(listOf("route:WORKER=o/m", "start:EXECUTOR")))
+        assertFalse(routedStartPairs(listOf("route:WORKER=o/m")))
+    }
+
+    private fun routedStartPairs(order: List<String>): Boolean =
+        order.size % 2 == 0 && order.chunked(2).all { (r, s) ->
+            r.startsWith("route:") && s == "start:" + r.removePrefix("route:").substringBefore('=')
+        }
 
     @Test
     fun `worker provider failure fails the task and names the destination`() {

@@ -485,10 +485,6 @@ class Orchestrator(
         var usage: Usage? = null
         val roundResults = mutableListOf<WorkerResult>()
         for (task in tasks) {
-            listener.onLevelStarted(
-                AgentRole.WORKER,
-                "milestone '${milestone.title}' (${milestone.id}), task ${task.id}: ${task.description}",
-            )
             val content = workerBriefing(
                 goal, milestone, task,
                 roundResults.filter { it.taskId in task.dependsOn },
@@ -496,7 +492,8 @@ class Orchestrator(
             )
             val resultTool = ProtocolTools.resultTool(task.id)
             val res = runLevel(
-                AgentRole.WORKER, "task ${task.id}",
+                AgentRole.WORKER,
+                "milestone '${milestone.title}' (${milestone.id}), task ${task.id}: ${task.description}",
                 RolePrompts.forRole(AgentRole.WORKER) + " " + Protocol.WORKER,
                 projectTools().tools + resultTool,
                 setOf(Protocol.SUBMIT_RESULT),
