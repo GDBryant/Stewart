@@ -137,6 +137,9 @@ class OllamaProvider(
                     addJsonObject {
                         put("role", msg.role.name.lowercase())
                         put("content", msg.content)
+                        if (msg.images.isNotEmpty()) {
+                            putJsonArray("images") { msg.images.forEach { add(kotlinx.serialization.json.JsonPrimitive(it.base64())) } }
+                        }
                         if (msg.toolCalls.isNotEmpty()) {
                             putJsonArray("tool_calls") {
                                 msg.toolCalls.forEach { call ->
@@ -173,7 +176,10 @@ class OllamaProvider(
                 }
             }
         })
-        DebugLogSink.log("outgoing", id, request.model, payload.toString())
+        DebugLogSink.log(
+            "outgoing", id, request.model,
+            com.adb.stewart.chat.redactImages(payload.toString(), request.messages.flatMap { it.images }),
+        )
         val httpRequest = HttpRequest.newBuilder(URI.create("$baseUrl/api/chat"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))

@@ -157,7 +157,10 @@ class AifProvider(
                 request.parallelToolCalls?.let { put("parallel_tool_calls", it) }
             }
         }
-        DebugLogSink.log("outgoing", id, request.model, payload.toString())
+        DebugLogSink.log(
+            "outgoing", id, request.model,
+            com.adb.stewart.chat.redactImages(payload.toString(), request.messages.flatMap { it.images }),
+        )
         val httpRequest = HttpRequest.newBuilder(URI.create(AifUrls.chatCompletions(baseUrl)))
             .timeout(Duration.ofSeconds(60))
             .header("Content-Type", "application/json")
@@ -291,7 +294,22 @@ class AifProvider(
             Role.ASSISTANT -> "assistant"
             Role.TOOL -> "tool"
         })
-        put("content", msg.content)
+        if (msg.images.isEmpty()) {
+            put("content", msg.content)
+        } else {
+            putJsonArray("content") {
+                addJsonObject {
+                    put("type", "text")
+                    put("text", msg.content)
+                }
+                msg.images.forEach { img ->
+                    addJsonObject {
+                        put("type", "image_url")
+                        putJsonObject("image_url") { put("url", img.dataUrl()) }
+                    }
+                }
+            }
+        }
         if (msg.toolCalls.isNotEmpty()) {
             putJsonArray("tool_calls") {
                 msg.toolCalls.forEach { call ->

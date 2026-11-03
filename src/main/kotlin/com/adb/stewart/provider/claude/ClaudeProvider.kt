@@ -67,19 +67,21 @@ class ClaudeProvider(
             send(ProviderEvent.Failed("Claude does not support native tools", code = "native_tools_unsupported"))
             return@channelFlow
         }
-        val (system, stdinText) = ClaudeTranscript.render(request.messages)
-        DebugLogSink.log("outgoing", id, request.model, stdinText)
+        val input = ClaudeTranscript.prepare(request.messages)
+        val system = input.system
+        val stdinText = if (input.hasImages) input.streamJsonLine() + "\n" else input.text
+        DebugLogSink.log(
+            "outgoing", id, request.model,
+            (listOf(input.text) + input.images.map { it.placeholder() }).joinToString("\n"),
+        )
         val cwd = Files.createTempDirectory("stewart-claude-").toFile()
         var promptFile: File? = null
         var process: Process? = null
         try {
             promptFile = Files.createTempFile("stewart-claude-prompt", ".txt").toFile()
             promptFile.writeText(system, Charsets.UTF_8)
-            val argv = listOf(
-                cliPath, "-p", "--output-format", "stream-json", "--verbose",
-                "--include-partial-messages", "--tools", "", "--safe-mode",
-                "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands",
-                "--model", ClaudeModels.normalize(request.model), "--system-prompt-file", promptFile.absolutePath,
+            val argv = ClaudeTranscript.argv(
+                cliPath, ClaudeModels.normalize(request.model), promptFile.absolutePath, input.hasImages,
             )
             val pb = ProcessBuilder(argv)
             pb.environment().clear()

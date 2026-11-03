@@ -122,7 +122,7 @@ object RequestTranslator {
         for (msg in messages) {
             val prev = merged.lastOrNull()
             if (prev != null && prev.role == msg.role) {
-                merged[merged.lastIndex] = prev.copy(content = prev.content + "\n\n" + msg.content)
+                merged[merged.lastIndex] = prev.copy(content = prev.content + "\n\n" + msg.content, images = prev.images + msg.images)
             } else {
                 merged.add(msg)
             }
