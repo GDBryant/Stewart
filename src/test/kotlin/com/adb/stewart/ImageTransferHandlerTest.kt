@@ -36,6 +36,12 @@ class ImageTransferHandlerTest {
         override fun getTransferData(f: DataFlavor): Any = data
     }
 
+    private class Multi(val data: Map<DataFlavor, Any>) : Transferable {
+        override fun getTransferDataFlavors() = data.keys.toTypedArray()
+        override fun isDataFlavorSupported(f: DataFlavor) = f in data
+        override fun getTransferData(f: DataFlavor): Any = data.getValue(f)
+    }
+
     private fun files(vararg f: File) = Fake(DataFlavor.javaFileListFlavor, f.toList())
 
     @Test
@@ -132,5 +138,30 @@ class ImageTransferHandlerTest {
         val clip = java.awt.datatransfer.Clipboard("t")
         handler.exportToClipboard(area, clip, TransferHandler.COPY)
         assertEquals("copyme", clip.getData(DataFlavor.stringFlavor))
+    }
+
+    @Test
+    fun `clipboard with image and text is a text paste`() {
+        val t = Multi(mapOf(
+            DataFlavor.imageFlavor to BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB),
+            DataFlavor.stringFlavor to "rich",
+        ))
+        assertTrue(handler.canImport(TransferHandler.TransferSupport(area, t)))
+        assertTrue(handler.importData(area, t))
+        assertEquals("rich", area.text)
+        assertTrue(images.isEmpty())
+        assertTrue(handler.canImport(area, arrayOf(DataFlavor.imageFlavor, DataFlavor.stringFlavor)))
+    }
+
+    @Test
+    fun `image only clipboard attaches and file list with text still attaches`() {
+        val dir = Files.createTempDirectory("drop")
+        val t = Multi(mapOf(
+            DataFlavor.javaFileListFlavor to listOf(png(dir, "f.png")),
+            DataFlavor.stringFlavor to "f.png",
+        ))
+        handler.importData(area, t)
+        assertEquals(listOf("f.png"), images.map { it.name })
+        assertEquals("", area.text)
     }
 }

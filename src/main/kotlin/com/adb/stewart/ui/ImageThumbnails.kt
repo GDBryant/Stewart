@@ -15,6 +15,7 @@ import javax.swing.ImageIcon
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JScrollPane
+import javax.swing.SwingUtilities
 
 object ImageThumbnails {
     const val CHAT_MAX = 160
@@ -41,11 +42,53 @@ object ImageThumbnails {
 
     fun icon(a: ImageAttachment, max: Int): Icon? = scaled(a, max)?.let { ImageIcon(it as Image) }
 
+    private val cache = java.util.WeakHashMap<ImageAttachment, MutableMap<Int, Icon>>()
+    private val pendingCount = java.util.concurrent.atomic.AtomicInteger()
+    internal val decodeCount = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Thumbnails still being decoded or swapped in; tests pump the EDT until this is 0. */
+    internal fun pending(): Int = pendingCount.get()
+
+    private fun cached(a: ImageAttachment, max: Int): Icon? = synchronized(cache) { cache[a]?.get(max) }
+
+    private fun compute(a: ImageAttachment, max: Int): Icon? {
+        cached(a, max)?.let { return it }
+        decodeCount.incrementAndGet()
+        val icon = icon(a, max) ?: return null
+        synchronized(cache) { cache.getOrPut(a) { mutableMapOf() }[max] = icon }
+        return icon
+    }
+
     /** Thumbnail label; clicking opens the full-size image when [project] is given. */
     fun label(a: ImageAttachment, max: Int, project: Project? = null): JLabel {
         val l = JLabel()
-        l.icon = icon(a, max)
-        if (l.icon == null) l.text = a.name
+        val hit = cached(a, max)
+        if (hit != null) {
+            l.icon = hit
+        } else {
+            l.text = "…"
+            pendingCount.incrementAndGet()
+            com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                val icon = runCatching { compute(a, max) }.getOrNull()
+                SwingUtilities.invokeLater {
+                    try {
+                        // Skip labels already removed (panel cleared) meanwhile.
+                        if (l.parent != null) {
+                            if (icon != null) {
+                                l.icon = icon
+                                l.text = null
+                            } else {
+                                l.text = a.name
+                            }
+                            l.revalidate()
+                            l.repaint()
+                        }
+                    } finally {
+                        pendingCount.decrementAndGet()
+                    }
+                }
+            }
+        }
         l.name = "thumbnail"
         l.toolTipText = a.name
         if (project != null) {

@@ -49,14 +49,18 @@ class ImageTransferHandler(
         return emptyList()
     }
 
+    /** An image-only clipboard; rich copies (image plus text) are normal text pastes. */
+    private fun pastedImage(t: Transferable): Boolean =
+        t.isDataFlavorSupported(DataFlavor.imageFlavor) && !t.isDataFlavorSupported(DataFlavor.stringFlavor)
+
     private fun hasImage(t: Transferable): Boolean =
-        t.isDataFlavorSupported(DataFlavor.imageFlavor) || files(t).any { isImageName(it.fileName?.toString().orEmpty()) }
+        pastedImage(t) || files(t).any { isImageName(it.fileName?.toString().orEmpty()) }
 
     override fun canImport(support: TransferSupport): Boolean =
         hasImage(support.transferable) || fallback.canImport(support)
 
     override fun canImport(comp: JComponent, transferFlavors: Array<DataFlavor>): Boolean =
-        DataFlavor.imageFlavor in transferFlavors || fallback.canImport(comp, transferFlavors)
+        (DataFlavor.imageFlavor in transferFlavors && DataFlavor.stringFlavor !in transferFlavors) || fallback.canImport(comp, transferFlavors)
 
     override fun importData(comp: JComponent, t: Transferable): Boolean = importData(TransferSupport(comp, t))
 
@@ -76,7 +80,7 @@ class ImageTransferHandler(
             if (errors.isNotEmpty()) onError(errors.joinToString("; "))
             return true
         }
-        if (t.isDataFlavorSupported(DataFlavor.imageFlavor)) {
+        if (pastedImage(t)) {
             try {
                 val img = t.getTransferData(DataFlavor.imageFlavor) as Image
                 onImage(ImageLoader.fromImage(img))

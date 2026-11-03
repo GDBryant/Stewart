@@ -1562,6 +1562,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         val row = area.parent as JPanel
         val thumbs = (row.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH) as JPanel
         val label = thumbs.components.filterIsInstance<javax.swing.JLabel>().single()
+        assertTrue(pumpUntil { com.adb.stewart.ui.ImageThumbnails.pending() == 0 })
         assertNotNull(label.icon)
         assertTrue(label.icon.iconWidth <= 160 && label.icon.iconHeight <= 160)
     }
@@ -1571,6 +1572,7 @@ class ChatPanelTest : BasePlatformTestCase() {
         val panel = newPanel(visionProvider(true))
         val row = panel.messageAreas().first().parent as JPanel
         assertNotNull((row.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH))
+        assertTrue(pumpUntil { com.adb.stewart.ui.ImageThumbnails.pending() == 0 })
     }
 
     fun `test non vision model blocks send and keeps attachments`() {
@@ -1650,5 +1652,82 @@ class ChatPanelTest : BasePlatformTestCase() {
     fun `test attach button exists`() {
         val panel = newPanel(visionProvider(true))
         assertEquals("Attach image", panel.attachButton.toolTipText)
+    }
+
+    private fun multiProvider(requests: MutableList<ChatRequest>) = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> =
+            listOf(ModelInfo(ModelRef(id, "m1"), "m1"), ModelInfo(ModelRef(id, "v"), "v"))
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+            requests += request
+            emit(ProviderEvent.TextDelta("hi"))
+            emit(ProviderEvent.Completed("stop", Usage(1, 1)))
+        }
+        override fun supportsImages(model: String) = model == "v"
+    }
+
+    private fun multiPanel(plannerModel: String, requests: MutableList<ChatRequest>): ChatPanel {
+        val st = StewartSettings.getInstance()
+        st.state.multiModel = true
+        com.adb.stewart.agents.AgentRole.entries.forEach { st.setRoleModel(it, ModelRef("fake", "m1")) }
+        st.setRoleModel(com.adb.stewart.agents.AgentRole.PLANNER, ModelRef("fake", plannerModel))
+        val panel = newPanel(multiProvider(requests))
+        selectModel(panel, "fake", "v") // the combo is ignored in multi-model mode
+        return panel
+    }
+
+    fun `test multi-model blocked send names the planner model and keeps state`() {
+        val requests = mutableListOf<ChatRequest>()
+        val panel = multiPanel("m1", requests)
+        panel.attach(img())
+        panel.inputArea.text = "look"
+        panel.sendButton.doClick()
+        pump()
+        assertTrue(panel.statusLabel.text.contains("planner model fake/m1"))
+        assertEquals(1, panel.pendingImages.size)
+        assertEquals("look", panel.inputArea.text)
+        assertTrue(requests.isEmpty())
+        assertTrue(session.transcript.isEmpty())
+    }
+
+    fun `test multi-model send goes through when the planner supports images`() {
+        val requests = mutableListOf<ChatRequest>()
+        val panel = multiPanel("v", requests)
+        selectModel(panel, "fake", "m1") // combo model is non-vision but irrelevant
+        panel.attach(img())
+        panel.inputArea.text = "look"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { requests.isNotEmpty() })
+        assertTrue(panel.pendingImages.isEmpty())
+    }
+
+    fun `test thumbnails are decoded once and swapped in after the placeholder`() {
+        val a = img("cache-${System.nanoTime()}.png")
+        val before = com.adb.stewart.ui.ImageThumbnails.decodeCount.get()
+        val first = com.adb.stewart.ui.ImageThumbnails.label(a, 48)
+        JPanel().add(first)
+        assertEquals("…", first.text)
+        assertNull(first.icon)
+        assertTrue(pumpUntil { com.adb.stewart.ui.ImageThumbnails.pending() == 0 })
+        assertNotNull(first.icon)
+        val second = com.adb.stewart.ui.ImageThumbnails.label(a, 48)
+        assertNotNull(second.icon) // cache hit, immediate
+        assertEquals(before + 1, com.adb.stewart.ui.ImageThumbnails.decodeCount.get())
+    }
+
+    fun `test corrupt image keeps its name as text and does not throw`() {
+        val bad = com.adb.stewart.chat.ImageAttachment("image/png", byteArrayOf(1, 2, 3), "bad-${System.nanoTime()}.png")
+        val l = com.adb.stewart.ui.ImageThumbnails.label(bad, 48)
+        JPanel().add(l)
+        assertTrue(pumpUntil { com.adb.stewart.ui.ImageThumbnails.pending() == 0 })
+        assertNull(l.icon)
+        assertEquals(bad.name, l.text)
+    }
+
+    fun `test thumbnail removed before decode finishes is left alone`() {
+        val a = img("gone-${System.nanoTime()}.png")
+        val l = com.adb.stewart.ui.ImageThumbnails.label(a, 48) // never parented
+        assertTrue(pumpUntil { com.adb.stewart.ui.ImageThumbnails.pending() == 0 })
+        assertEquals("…", l.text)
     }
 }

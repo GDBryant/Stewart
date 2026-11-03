@@ -364,10 +364,11 @@ class ChatPanel @JvmOverloads constructor(
     }
 
     /** Whether the model that receives the user message accepts images (the planner in multi-model mode). */
-    private fun visionOk(info: ModelInfo): Boolean {
-        val ref = if (settings.state.multiModel) settings.roleModel(AgentRole.PLANNER) ?: info.ref else info.ref
-        return session.providers().firstOrNull { it.id == ref.providerId }?.supportsImages(ref.modelId) ?: false
-    }
+    private fun visionTarget(info: ModelInfo): ModelRef =
+        if (settings.state.multiModel) settings.roleModel(AgentRole.PLANNER) ?: info.ref else info.ref
+
+    private fun visionOk(ref: ModelRef): Boolean =
+        session.providers().firstOrNull { it.id == ref.providerId }?.supportsImages(ref.modelId) ?: false
 
     /** Wipes the chat, usage totals and the saved history file. */
     internal fun onClear() {
@@ -1099,8 +1100,10 @@ class ChatPanel @JvmOverloads constructor(
         val text = SlashCommands.plainText(raw).trim()
         if (text.isEmpty() && pending.isEmpty()) return
         val info = selectedModelOrError() ?: return
-        if (pending.isNotEmpty() && !visionOk(info)) {
-            statusLabel.text = "${info.displayName} does not accept images; remove the attachments or pick a vision model"
+        val target = visionTarget(info)
+        if (pending.isNotEmpty() && !visionOk(target)) {
+            val who = if (settings.state.multiModel) "The planner model ${target.encode()}" else info.displayName
+            statusLabel.text = "$who does not accept images; remove the attachments or pick a vision model"
             return
         }
         val images = pending.toList()
