@@ -4,6 +4,7 @@ import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.chat.redactImages
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.ChatRequest
+import com.adb.stewart.debug.DebugLogSink
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.aif.AifHistory
 import com.adb.stewart.provider.aif.AifProvider
@@ -29,7 +30,82 @@ class ImageProvidersTest {
     private var server: HttpServer? = null
     private var body = ""
 
-    @After fun tearDown() { server?.stop(0) }
+    private val b64Run = Regex("[A-Za-z0-9+/=]{100,}")
+    private var logDir: java.nio.file.Path? = null
+    private var prevEnabled = false
+    private var prevDir = ""
+
+    private fun enableLog() {
+        prevEnabled = DebugLogSink.isEnabled
+        prevDir = DebugLogSink.logDirectory
+        logDir = java.nio.file.Files.createTempDirectory("stewart-imglog-")
+        DebugLogSink.configure(true, logDir.toString())
+    }
+
+    private fun readLog(): String {
+        val dir = logDir!!
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            DebugLogSink.flushAndClose()
+            val text = java.nio.file.Files.list(dir).use { st ->
+                st.toList().joinToString("") { java.nio.file.Files.readString(it) }
+            }
+            if (text.contains("[outgoing]")) return text
+            Thread.sleep(20)
+        }
+        throw AssertionError("no outgoing log line")
+    }
+
+    @After fun tearDown() {
+        server?.stop(0)
+        logDir?.let {
+            DebugLogSink.flushAndClose()
+            DebugLogSink.configure(prevEnabled, prevDir)
+            it.toFile().deleteRecursively()
+        }
+    }
+
+    private val bigImg = ImageAttachment("image/png", ByteArray(600) { (it * 31).toByte() }, "big.png")
+
+    private fun assertImageLogged(log: String) {
+        assertTrue(log, log.contains("[image png"))
+        assertFalse(log, b64Run.containsMatchIn(log))
+        assertFalse(log, log.contains(bigImg.base64().take(60)))
+    }
+
+    @Test
+    fun `ollama debug log has placeholder and no base64`() {
+        enableLog()
+        ollamaMessages(listOf(ChatMessage(Role.USER, "look", images = listOf(bigImg))))
+        assertImageLogged(readLog())
+    }
+
+    @Test
+    fun `aif debug log has placeholder and no base64`() {
+        enableLog()
+        aifMessages(listOf(ChatMessage(Role.USER, "look", images = listOf(bigImg))))
+        assertImageLogged(readLog())
+    }
+
+    @Test
+    fun `claude outgoing log text has placeholder and no base64`() {
+        enableLog()
+        val input = ClaudeTranscript.prepare(listOf(ChatMessage(Role.USER, "look", images = listOf(bigImg))))
+        DebugLogSink.log("outgoing", "claude", "m", input.logText())
+        assertImageLogged(readLog())
+    }
+
+    @Test
+    fun `text only messages log their text unchanged`() {
+        enableLog()
+        ollamaMessages(listOf(ChatMessage(Role.USER, "plain question")))
+        val log = readLog()
+        assertTrue(log.contains("plain question"))
+        assertFalse(log.contains("[image"))
+        val input = ClaudeTranscript.prepare(listOf(ChatMessage(Role.USER, "plain question")))
+        assertFalse(input.logText().contains("[image"))
+        assertTrue(input.logText().contains("plain question"))
+    }
 
     private fun serve(path: String, response: String): Int {
         val s = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

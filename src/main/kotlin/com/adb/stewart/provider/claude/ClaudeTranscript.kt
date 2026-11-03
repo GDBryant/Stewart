@@ -11,6 +11,10 @@ import kotlinx.serialization.json.putJsonObject
 
 /** Transcript text plus the images that go out as blocks (last user message only). */
 internal data class ClaudeInput(val system: String, val text: String, val images: List<ImageAttachment>) {
+    /** Log-safe outgoing text: prompt plus image placeholders, never base64. */
+    fun logText(): String = (listOf(text) + images.map { it.placeholder() }).joinToString("\n")
+
+
     val hasImages: Boolean get() = images.isNotEmpty()
 
     /** One stream-json user line (no trailing newline). */

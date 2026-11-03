@@ -73,8 +73,7 @@ class ClaudeProvider(
         val system = input.system
         val stdinText = if (input.hasImages) input.streamJsonLine() + "\n" else input.text
         DebugLogSink.log(
-            "outgoing", id, request.model,
-            (listOf(input.text) + input.images.map { it.placeholder() }).joinToString("\n"),
+            "outgoing", id, request.model, input.logText(),
         )
         val cwd = Files.createTempDirectory("stewart-claude-").toFile()
         var promptFile: File? = null
