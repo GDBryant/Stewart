@@ -29,6 +29,7 @@ data class ChatMessage(
     val content: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val toolCallId: String? = null,
+    val images: List<com.adb.stewart.chat.ImageAttachment> = emptyList(),
 )
 
 data class ToolSpec(val name: String, val description: String, val parameters: JsonObject)
