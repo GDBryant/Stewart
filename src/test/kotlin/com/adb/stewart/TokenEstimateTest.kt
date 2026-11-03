@@ -1,5 +1,6 @@
 package com.adb.stewart
 
+import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.chat.TokenEstimate
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.Role
@@ -31,5 +32,13 @@ class TokenEstimateTest {
         assertEquals((4 + "run".length + argsLen + 16 + 3) / 4, TokenEstimate.of(listOf(m)))
         val bare = ChatMessage(Role.ASSISTANT, "abcd")
         assertTrue(TokenEstimate.of(listOf(m)) > TokenEstimate.of(listOf(bare)))
+    }
+
+    @Test
+    fun `each image adds 1500 tokens`() {
+        val img = ImageAttachment("image/png", byteArrayOf(1), "a.png")
+        val base = TokenEstimate.of(listOf(ChatMessage(Role.USER, "hi")))
+        assertEquals(base + 3000, TokenEstimate.of(listOf(ChatMessage(Role.USER, "hi", images = listOf(img, img)))))
+        assertEquals(1500, TokenEstimate.IMAGE_TOKENS)
     }
 }

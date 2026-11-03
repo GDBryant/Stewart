@@ -108,7 +108,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
         val summaryText = SUMMARY_PREFIX + "\n" + summary.toString().trim()
         val first = kept.first()
         val tail = if (first.role == Role.USER && first.toolCalls.isEmpty() && first.toolCallId == null) {
-            listOf(ChatMessage(Role.USER, summaryText + "\n\n" + first.content)) + kept.drop(1)
+            listOf(ChatMessage(Role.USER, summaryText + "\n\n" + first.content, images = first.images)) + kept.drop(1)
         } else {
             listOf(ChatMessage(Role.USER, summaryText)) + kept
         }
@@ -131,6 +131,7 @@ class ContextCompactor(private val keepRecent: Int = 4) {
                     )
                 } else {
                     append("[${m.role.name.lowercase()}] ${m.content}")
+                    m.images.forEach { append("\n[image: ${it.name}]") }
                     m.toolCalls.forEach { call ->
                         append("\n[tool call ${call.id}] ${call.name} ${call.arguments}")
                     }

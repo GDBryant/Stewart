@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.FileTime
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -19,11 +20,15 @@ import kotlinx.serialization.json.JsonObject
 internal data class StoredToolCall(val id: String, val name: String, val arguments: JsonObject)
 
 @Serializable
+internal data class StoredImage(val file: String, val mediaType: String, val name: String)
+
+@Serializable
 internal data class StoredMessage(
     val role: String,
     val content: String,
     val toolCalls: List<StoredToolCall> = emptyList(),
     val toolCallId: String? = null,
+    val images: List<StoredImage> = emptyList(),
 )
 
 @Serializable
@@ -53,19 +58,20 @@ open class ChatHistoryStore(val file: Path) {
             delete()
             return
         }
-        val chat = StoredChat(
-            VERSION, now,
-            stored.map { m ->
-                StoredMessage(
-                    m.role.name, m.content,
-                    m.toolCalls.map { StoredToolCall(it.id, it.name, it.arguments) },
-                    m.toolCallId,
-                )
-            },
-            usage?.promptTokens, usage?.completionTokens, usage?.costUsd,
-        )
         synchronized(lock) {
             Files.createDirectories(file.parent)
+            val chat = StoredChat(
+                VERSION, now,
+                stored.map { m ->
+                    StoredMessage(
+                        m.role.name, m.content,
+                        m.toolCalls.map { StoredToolCall(it.id, it.name, it.arguments) },
+                        m.toolCallId,
+                        m.images.map { writeImage(it) },
+                    )
+                },
+                usage?.promptTokens, usage?.completionTokens, usage?.costUsd,
+            )
             val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
             Files.writeString(tmp, JSON.encodeToString(StoredChat.serializer(), chat))
             try {
@@ -73,6 +79,44 @@ open class ChatHistoryStore(val file: Path) {
             } catch (e: AtomicMoveNotSupportedException) {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
             }
+            removeUnreferencedImages(chat.messages.flatMap { m -> m.images.map { it.file } }.toSet())
+        }
+    }
+
+    private fun imagesDir(): Path = imagesDirFor(file)
+
+    private fun writeImage(img: ImageAttachment): StoredImage {
+        val hash = MessageDigest.getInstance("SHA-256").digest(img.bytes).joinToString("") { "%02x".format(it) }
+        val name = "$hash.${extensionFor(img.mediaType)}"
+        val dir = imagesDir()
+        val target = dir.resolve(name)
+        if (!Files.exists(target)) {
+            Files.createDirectories(dir)
+            val tmp = dir.resolve("$name.tmp")
+            Files.write(tmp, img.bytes)
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (e: AtomicMoveNotSupportedException) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+        return StoredImage(name, img.mediaType, img.name)
+    }
+
+    private fun removeUnreferencedImages(keep: Set<String>) {
+        val dir = imagesDir()
+        if (!Files.isDirectory(dir)) return
+        Files.list(dir).use { it.toList() }.filter { it.fileName.toString() !in keep }
+            .forEach { Files.deleteIfExists(it) }
+        if (keep.isEmpty()) Files.deleteIfExists(dir)
+    }
+
+    private fun readImage(s: StoredImage): ImageAttachment? {
+        if (!SAFE_IMAGE_NAME.matches(s.file)) return null
+        return try {
+            ImageAttachment(s.mediaType, Files.readAllBytes(imagesDir().resolve(s.file)), s.name)
+        } catch (e: java.io.IOException) {
+            null
         }
     }
 
@@ -103,6 +147,7 @@ open class ChatHistoryStore(val file: Path) {
                     Role.valueOf(m.role), m.content,
                     m.toolCalls.map { ToolCall(it.id, it.name, it.arguments) },
                     m.toolCallId,
+                    m.images.mapNotNull { readImage(it) },
                 )
             }
         } catch (e: IllegalArgumentException) {
@@ -121,6 +166,7 @@ open class ChatHistoryStore(val file: Path) {
         synchronized(lock) {
             Files.deleteIfExists(file)
             Files.deleteIfExists(file.resolveSibling(file.fileName.toString() + ".tmp"))
+            deleteTree(imagesDir())
         }
     }
 
@@ -137,6 +183,24 @@ open class ChatHistoryStore(val file: Path) {
 
     companion object {
         const val VERSION = 1
+
+        private val SAFE_IMAGE_NAME = Regex("[0-9a-f]{64}\\.[a-z0-9]{1,8}")
+
+        /** Images live beside the history file as `<projectHash>-images/`. */
+        internal fun imagesDirFor(file: Path): Path =
+            file.resolveSibling(file.fileName.toString().removeSuffix(".json") + "-images")
+
+        private fun extensionFor(mediaType: String): String =
+            when (val sub = mediaType.substringAfter('/').lowercase()) {
+                "jpeg" -> "jpg"
+                else -> sub.filter { it.isLetterOrDigit() }.take(8).ifEmpty { "bin" }
+            }
+
+        private fun deleteTree(dir: Path) {
+            if (!Files.isDirectory(dir)) return
+            Files.list(dir).use { it.toList() }.forEach { Files.deleteIfExists(it) }
+            Files.deleteIfExists(dir)
+        }
 
         fun pathFor(systemDir: Path, projectHash: String): Path =
             historyDir(systemDir).resolve("$projectHash.json")
@@ -158,6 +222,11 @@ open class ChatHistoryStore(val file: Path) {
                     .filter { Files.getLastModifiedTime(it) < cutoff }
                     .toList()
             }.forEach { Files.deleteIfExists(it) }
+            Files.list(dir).use { stream ->
+                stream.filter { Files.isDirectory(it) && it.fileName.toString().endsWith("-images") }
+                    .filter { !Files.exists(it.resolveSibling(it.fileName.toString().removeSuffix("-images") + ".json")) }
+                    .toList()
+            }.forEach { deleteTree(it) }
         }
     }
 }

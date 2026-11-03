@@ -2,6 +2,7 @@ package com.adb.stewart
 
 import com.adb.stewart.chat.ChatHistoryStore
 import com.adb.stewart.chat.ErrorHints
+import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.chat.UsageFormat
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.Role
@@ -47,6 +48,95 @@ class HistoryAndFormatTest {
         ChatMessage(Role.TOOL, "contents", toolCallId = "c1"),
         ChatMessage(Role.ASSISTANT, "done"),
     )
+
+    // --- image persistence ---
+
+    private val png = ImageAttachment("image/png", byteArrayOf(1, 2, 3, 4), "a.png")
+    private val jpg = ImageAttachment("image/jpeg", byteArrayOf(9, 8, 7), "b.jpg")
+    private fun imagesDir() = file.resolveSibling("abc123-images")
+
+    @Test
+    fun `images round trip and are stored beside the history`() {
+        store.save(listOf(ChatMessage(Role.USER, "look", images = listOf(png, jpg))), null)
+        assertFalse(Files.readString(file).contains("AQIDBA"))
+        assertEquals(2, Files.list(imagesDir()).use { it.count() })
+        val loaded = store.load(30)!!.messages
+        assertEquals(listOf(png, jpg), loaded[0].images)
+    }
+
+    @Test
+    fun `old json without images still loads`() {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, """{"version":1,"savedAt":${System.currentTimeMillis()},"messages":[{"role":"USER","content":"hi"}]}""")
+        val m = store.load(30)!!.messages
+        assertEquals("hi", m[0].content)
+        assertTrue(m[0].images.isEmpty())
+    }
+
+    @Test
+    fun `missing image file drops that image only and keeps the chat`() {
+        store.save(listOf(ChatMessage(Role.USER, "look", images = listOf(png, jpg))), null)
+        Files.list(imagesDir()).use { it.toList() }.first { it.fileName.toString().endsWith(".png") }
+            .let { Files.delete(it) }
+        val loaded = store.load(30)!!
+        assertEquals(listOf(jpg), loaded.messages[0].images)
+        assertTrue(Files.exists(file))
+        assertFalse(Files.exists(file.resolveSibling("abc123.json.corrupt")))
+    }
+
+    @Test
+    fun `delete removes the images dir`() {
+        store.save(listOf(ChatMessage(Role.USER, "look", images = listOf(png))), null)
+        store.delete()
+        assertFalse(Files.exists(imagesDir()))
+        store.delete()
+    }
+
+    @Test
+    fun `saving a chat without images removes stale image files`() {
+        store.save(listOf(ChatMessage(Role.USER, "look", images = listOf(png))), null)
+        store.save(listOf(ChatMessage(Role.USER, "text")), null)
+        assertFalse(Files.exists(imagesDir()))
+    }
+
+    @Test
+    fun `identical images share one file`() {
+        store.save(
+            listOf(ChatMessage(Role.USER, "a", images = listOf(png)), ChatMessage(Role.USER, "b", images = listOf(png))),
+            null,
+        )
+        assertEquals(1, Files.list(imagesDir()).use { it.count() })
+    }
+
+    @Test
+    fun `pruneExpired removes images of stale chats and orphans but keeps fresh ones`() {
+        val old = ChatHistoryStore(ChatHistoryStore.pathFor(dir, "old"))
+        old.save(listOf(ChatMessage(Role.USER, "x", images = listOf(png))), null)
+        store.save(listOf(ChatMessage(Role.USER, "y", images = listOf(jpg))), null)
+        val orphan = file.resolveSibling("gone-images")
+        Files.createDirectories(orphan)
+        Files.write(orphan.resolve("z.png"), byteArrayOf(1))
+        Files.setLastModifiedTime(old.file, java.nio.file.attribute.FileTime.fromMillis(0))
+        ChatHistoryStore.pruneExpired(file.parent, 30)
+        assertFalse(Files.exists(file.resolveSibling("old-images")))
+        assertFalse(Files.exists(orphan))
+        assertTrue(Files.exists(imagesDir()))
+    }
+
+    @Test
+    fun `pruneExpired with zero days removes all image dirs`() {
+        store.save(listOf(ChatMessage(Role.USER, "y", images = listOf(jpg))), null)
+        ChatHistoryStore.pruneExpired(file.parent, 0)
+        assertFalse(Files.exists(imagesDir()))
+    }
+
+    @Test
+    fun `unsafe image file name in json is ignored`() {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, """{"version":1,"savedAt":${System.currentTimeMillis()},"messages":[{"role":"USER","content":"hi","images":[{"file":"../abc123.json","mediaType":"image/png","name":"n"}]}]}""")
+        val m = store.load(30)!!.messages
+        assertTrue(m[0].images.isEmpty())
+    }
 
     // --- store ---
 

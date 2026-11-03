@@ -1,6 +1,7 @@
 package com.adb.stewart
 
 import com.adb.stewart.chat.ContextCompactor
+import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.chat.TokenEstimate
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.ChatRequest
@@ -386,5 +387,36 @@ class ContextCompactorTest {
         assertEquals("nope", r.error)
         assertNull(r.skipped)
         assertEquals(messages, r.messages)
+    }
+
+    @Test
+    fun `summary input has image placeholders and no base64`() {
+        val img = ImageAttachment("image/png", ByteArray(500) { (it * 7).toByte() }, "shot.png")
+        val p = CapturingProvider()
+        val thread = listOf(ChatMessage(Role.USER, "see this", images = listOf(img))) + longThread(4)
+        val r = compact(p, thread, threshold = 10)
+        assertTrue(r.compacted)
+        val sent = p.requests.single().messages.joinToString("\n") { it.content }
+        assertTrue(sent.contains("[image: shot.png]"))
+        assertFalse(sent.contains(img.base64().take(40)))
+        assertTrue(p.requests.single().messages.all { it.images.isEmpty() })
+        assertTrue(r.messages.none { it.images.contains(img) })
+    }
+
+    @Test
+    fun `kept recent user message keeps its images when summary is merged`() {
+        val img = ImageAttachment("image/png", byteArrayOf(1, 2), "keep.png")
+        val thread = longThread(2) + ChatMessage(Role.USER, "recent", images = listOf(img)) +
+            msgs(Role.ASSISTANT to "a", Role.USER to "b", Role.ASSISTANT to "c")
+        val r = compact(CapturingProvider(), thread, threshold = 10, keepRecent = 4)
+        assertTrue(r.compacted)
+        assertTrue(r.messages.any { it.images == listOf(img) })
+    }
+
+    @Test
+    fun `messages without images render unchanged`() {
+        val p = CapturingProvider()
+        compact(p, longThread(4))
+        assertFalse(p.requests.single().messages.last().content.contains("[image"))
     }
 }
