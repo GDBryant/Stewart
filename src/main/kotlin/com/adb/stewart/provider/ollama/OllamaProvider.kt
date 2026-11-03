@@ -61,6 +61,9 @@ class OllamaProvider(
     override val id: String = "ollama"
 
     @Volatile private var capabilityCache: Map<String, Boolean> = emptyMap()
+    @Volatile private var visionCache: Map<String, Boolean> = emptyMap()
+
+    override fun supportsImages(model: String): Boolean = visionCache[model] ?: false
 
     override fun supportsNativeTools(model: String): Boolean = capabilityCache[model] ?: false
 
@@ -85,16 +88,13 @@ class OllamaProvider(
         val resolved = coroutineScope {
             entries.map { (name, caps) ->
                 async {
-                    val capable = if (caps != null) {
-                        "tools" in caps
-                    } else {
-                        semaphore.withPermit { probeToolsCapability(name) }
-                    }
-                    name to (capable ?: false)
+                    val known = caps ?: semaphore.withPermit { probeCapabilities(name) }
+                    Triple(name, known?.contains("tools") == true, known?.contains("vision") == true)
                 }
             }.awaitAll()
         }
-        capabilityCache = resolved.toMap()
+        capabilityCache = resolved.associate { it.first to it.second }
+        visionCache = resolved.associate { it.first to it.third }
         entries.map { (name, _) -> ModelInfo(ModelRef(id, name), name) }
     }
 
@@ -107,7 +107,7 @@ class OllamaProvider(
             cont.invokeOnCancellation { future.cancel(true) }
         }
 
-    private suspend fun probeToolsCapability(model: String): Boolean? {
+    private suspend fun probeCapabilities(model: String): List<String>? {
         try {
             val request = HttpRequest.newBuilder(URI.create("$baseUrl/api/show"))
                 .header("Content-Type", "application/json")
@@ -118,7 +118,7 @@ class OllamaProvider(
             if (response.statusCode() !in 200..299) return null
             val caps = json.parseToJsonElement(response.body()).jsonObject["capabilities"]?.jsonArray
                 ?: return null
-            return caps.any { it.jsonPrimitive.content == "tools" }
+            return caps.map { it.jsonPrimitive.content }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -73,6 +73,18 @@ class ProviderRegistryTest {
     }
 
     @Test
+    fun `aif vision override comes from settings`() {
+        val state = StewartSettings.State().apply {
+            aifBaseUrl = "https://aif.example/v1"
+            visionModelOverrides = mutableSetOf("aif/custom")
+        }
+        val aif = ProviderRegistry { state }.provider("aif")!!
+        assertTrue(aif.supportsImages("custom"))
+        assertFalse(aif.supportsImages("other"))
+        assertFalse(aif.supportsImages("ollama/custom"))
+    }
+
+    @Test
     fun `claude provider uses configured path and models`() {
         val r = registry {
             claudeCliPath = "/opt/claude"

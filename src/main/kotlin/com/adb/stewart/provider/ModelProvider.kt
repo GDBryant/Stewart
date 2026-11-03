@@ -75,6 +75,9 @@ interface ModelProvider {
     suspend fun listModels(): List<ModelInfo>
     fun chat(request: ChatRequest): Flow<ProviderEvent>
     fun supportsNativeTools(model: String): Boolean = false
+
+    /** True when [model] accepts image input; gates image attachments. */
+    fun supportsImages(model: String): Boolean = false
 }
 
 /** Error code for an HTTP provider's non-2xx status, matching the codes the CLI provider uses. */

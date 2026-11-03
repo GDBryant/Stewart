@@ -657,3 +657,23 @@ class ClaudeProviderTest {
         throw AssertionError("no debug log file was written")
     }
 }
+
+class SupportsImagesTest {
+    @Test
+    fun `claude supports images for every model`() {
+        val p = com.adb.stewart.provider.claude.ClaudeProvider()
+        assertTrue(p.supportsImages("sonnet"))
+        assertTrue(p.supportsImages("anything-else"))
+    }
+
+    @Test
+    fun `interface default is false`() {
+        val p = object : com.adb.stewart.provider.ModelProvider {
+            override val id = "x"
+            override suspend fun listModels() = emptyList<com.adb.stewart.provider.ModelInfo>()
+            override fun chat(request: com.adb.stewart.provider.ChatRequest) =
+                kotlinx.coroutines.flow.emptyFlow<com.adb.stewart.provider.ProviderEvent>()
+        }
+        org.junit.Assert.assertFalse(p.supportsImages("m"))
+    }
+}

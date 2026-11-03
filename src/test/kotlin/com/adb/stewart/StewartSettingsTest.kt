@@ -19,6 +19,7 @@ class StewartSettingsTest {
         assertEquals("claude", s.claudeCliPath)
         assertEquals(emptyList<String>(), s.claudeModels)
         assertEquals(emptyMap<String, String>(), s.toolPathOverrides)
+        assertEquals(emptySet<String>(), s.visionModelOverrides)
         assertEquals(false, s.multiModel)
         assertNull(s.chatModel)
         assertNull(s.plannerModel)
@@ -43,6 +44,7 @@ class StewartSettingsTest {
         s.claudeCliPath = "/opt/claude"
         s.claudeModels = mutableListOf("opus")
         s.toolPathOverrides = mutableMapOf("aif/x" to "NATIVE", "ollama/y" to "SHIM")
+        s.visionModelOverrides = mutableSetOf("aif/v1", "aif/v2")
         s.multiModel = true
         s.chatModel = "aif/a"
         s.plannerModel = "claude/opus"
@@ -60,6 +62,7 @@ class StewartSettingsTest {
         assertEquals(s.claudeCliPath, restored.claudeCliPath)
         assertEquals(s.claudeModels, restored.claudeModels)
         assertEquals(s.toolPathOverrides, restored.toolPathOverrides)
+        assertEquals(s.visionModelOverrides, restored.visionModelOverrides)
         assertEquals(s.multiModel, restored.multiModel)
         assertEquals(s.chatModel, restored.chatModel)
         assertEquals(s.plannerModel, restored.plannerModel)

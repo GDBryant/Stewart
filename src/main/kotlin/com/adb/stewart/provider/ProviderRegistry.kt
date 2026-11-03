@@ -19,6 +19,7 @@ class ProviderRegistry @JvmOverloads constructor(
         val claudeCliPath: String,
         val claudeModels: List<String>,
         val toolPathOverrides: Map<String, String>,
+        val visionModelOverrides: Set<String>,
     )
 
     @Volatile
@@ -33,6 +34,7 @@ class ProviderRegistry @JvmOverloads constructor(
             claudeCliPath = s.claudeCliPath ?: "claude",
             claudeModels = s.claudeModels.ifEmpty { StewartSettings.DEFAULT_CLAUDE_MODELS },
             toolPathOverrides = s.toolPathOverrides.toMap(),
+            visionModelOverrides = s.visionModelOverrides.toSet(),
         )
     }
 
@@ -46,6 +48,7 @@ class ProviderRegistry @JvmOverloads constructor(
                 snap.aifBaseUrl,
                 snap.aifModels,
                 nativeTools = { m -> snap.toolPathOverrides["aif/$m"]?.equals("SHIM", true) != true },
+                visionOverride = { m -> "aif/$m" in snap.visionModelOverrides },
             ))
         }
         return list

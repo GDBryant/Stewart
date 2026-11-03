@@ -64,6 +64,30 @@ class AifProviderTest {
     }
 
     @Test
+    fun `supportsImages heuristic hits`() {
+        val p = provider()
+        listOf("qwen2.5-vl-72b", "Qwen2.5-VL", "llama3.2-vision", "gpt-4o", "GPT-4o-mini", "gemma3:27b",
+            "llava-1.6", "pixtral-large", "anthropic.claude-3-5", "gemini-2.0-flash", "internal_vl_model")
+            .forEach { assertTrue(it, p.supportsImages(it)) }
+    }
+
+    @Test
+    fun `supportsImages heuristic misses`() {
+        val p = provider()
+        listOf("vllm-llama", "devl-model", "evl", "llama3", "qwen2.5-coder", "gpt-4", "nemotron", "")
+            .forEach { assertFalse(it, p.supportsImages(it)) }
+    }
+
+    @Test
+    fun `supportsImages honours override`() {
+        val p = AifProvider("http://x/v1", listOf("m"), { null },
+            java.net.http.HttpClient.newHttpClient(), visionOverride = { it == "my-custom" })
+        assertTrue(p.supportsImages("my-custom"))
+        assertTrue(p.supportsImages("llava"))
+        assertFalse(p.supportsImages("other"))
+    }
+
+    @Test
     fun `url joining`() {
         assertEquals("http://x/chat/completions", AifUrls.chatCompletions("http://x/"))
         assertEquals("http://x/v1/chat/completions", AifUrls.chatCompletions("http://x/v1"))

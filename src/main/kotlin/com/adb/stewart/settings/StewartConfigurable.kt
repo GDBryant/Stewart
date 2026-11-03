@@ -37,6 +37,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
     internal lateinit var claudeLoginStatus: JLabel
     internal lateinit var checkLoginButton: JButton
     internal lateinit var overridesArea: JBTextArea
+    internal lateinit var visionOverridesArea: JBTextArea
     internal lateinit var autoCompactField: JBTextField
     internal lateinit var historyRetentionField: JBTextField
     internal lateinit var toolsEnabledCheck: javax.swing.JCheckBox
@@ -69,6 +70,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         }
         row("Claude models (one per line, CLI alias or ID):") { claudeModelsArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
         row("Tool path overrides:") { overridesArea = JBTextArea(4, 30).also { cell(JBScrollPane(it)) } }
+        row("Vision models (comma or newline separated AIF model ids):") { visionOverridesArea = JBTextArea(3, 30).also { cell(JBScrollPane(it)) } }
         row("Auto-compact context at (tokens):") { autoCompactField = textField().component }
         row("Keep chat history (days, 0 = don't save):") { historyRetentionField = textField().component }
         row {
@@ -113,6 +115,11 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         val account = listOfNotNull(state.subscriptionType, state.authMethod).joinToString(", ")
         return if (account.isEmpty()) "Logged in" else "Logged in ($account)"
     }
+
+    /** Accepts bare AIF model ids or `aif/<id>`; stored as `aif/<id>`. */
+    private fun parseVisionOverrides(text: String): Set<String> =
+        text.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+            .map { if (it.startsWith("aif/")) it else "aif/$it" }.toSet()
 
     private fun overridesText(map: Map<String, String>): String =        map.entries.joinToString("\n") { "${it.key}=${it.value}" }
 
@@ -164,6 +171,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
             claudeCliPathField.text.trim() != s.claudeCliPath.orEmpty().trim() ||
             claudeModelsArea.text.lines().map { it.trim() }.filter { it.isNotEmpty() } != s.claudeModels ||
             runCatching { parseOverrides(overridesArea.text) }.getOrNull() != s.toolPathOverrides ||
+            parseVisionOverrides(visionOverridesArea.text) != s.visionModelOverrides.toSet() ||
             TokenCount.parse(autoCompactField.text) != s.autoCompactTokens ||
             historyRetentionField.text.trim().toIntOrNull() != s.historyRetentionDays ||
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
@@ -183,6 +191,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         claudeLoginStatus.text = UNCHECKED_LOGIN
         claudeModelsArea.text = s.claudeModels.joinToString("\n")
         overridesArea.text = overridesText(s.toolPathOverrides)
+        visionOverridesArea.text = s.visionModelOverrides.sorted().joinToString("\n")
         autoCompactField.text = TokenCount.format(s.autoCompactTokens)
         historyRetentionField.text = s.historyRetentionDays.toString()
         toolsEnabledCheck.isSelected = s.toolsEnabled
@@ -243,6 +252,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         s.claudeCliPath = claudeCliPathField.text.trim().ifBlank { "claude" }
         s.claudeModels = claudeModels.toMutableList()
         s.toolPathOverrides = overrides.toMutableMap()
+        s.visionModelOverrides = parseVisionOverrides(visionOverridesArea.text).toMutableSet()
         s.autoCompactTokens = autoCompact
         s.historyRetentionDays = retention
         s.toolsEnabled = toolsEnabledCheck.isSelected

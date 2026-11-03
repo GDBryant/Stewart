@@ -98,11 +98,14 @@ class AifProvider(
     private val apiKey: () -> String? = { AifCredentials.get() },
     private val client: HttpClient = IdeHttpClients.create(),
     private val nativeTools: (String) -> Boolean = { true },
+    private val visionOverride: (String) -> Boolean = { false },
 ) : ModelProvider {
 
     override val id: String = "aif"
 
     override fun supportsNativeTools(model: String): Boolean = nativeTools(model)
+
+    override fun supportsImages(model: String): Boolean = AifVision.looksVisionCapable(model) || visionOverride(model)
 
     override suspend fun listModels(): List<ModelInfo> = withContext(Dispatchers.IO) {
         val key = apiKey()
@@ -399,4 +402,27 @@ object AifHistory {
 
     private fun asText(result: ChatMessage, name: String?): ChatMessage =
         ChatMessage(Role.USER, "[tool result ${name ?: "unknown"}] ${result.content}")
+}
+
+/** Name-based vision guess for AIF models (no capability endpoint); users can extend it via settings. */
+object AifVision {
+    val NAME_HINTS = listOf(
+        "vl", "vision", "gpt-4o", "gemma3", "llava", "qwen2.5-vl", "pixtral", "claude", "gemini",
+    )
+
+    /** A hint counts only when not embedded in a longer word, so "vllm" and "evl" do not match "vl". */
+    fun looksVisionCapable(model: String): Boolean {
+        val name = model.lowercase()
+        return NAME_HINTS.any { hint ->
+            var i = name.indexOf(hint)
+            while (i >= 0) {
+                val end = i + hint.length
+                if ((i == 0 || !name[i - 1].isLetter()) && (end == name.length || !name[end].isLetter())) {
+                    return@any true
+                }
+                i = name.indexOf(hint, i + 1)
+            }
+            false
+        }
+    }
 }

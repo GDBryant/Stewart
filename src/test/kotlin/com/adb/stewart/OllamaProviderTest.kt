@@ -427,6 +427,43 @@ class OllamaProviderTest {
     }
 
     @Test
+    fun `supportsImages follows vision capability from tags`() = runBlocking {
+        server.createContext("/api/tags") { ex ->
+            val body = """{"models":[{"name":"seer","capabilities":["completion","vision"]},{"name":"plain","capabilities":["completion","tools"]}]}"""
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        provider.listModels()
+        assertTrue(provider.supportsImages("seer"))
+        org.junit.Assert.assertFalse(provider.supportsImages("plain"))
+        org.junit.Assert.assertFalse(provider.supportsImages("never-listed"))
+    }
+
+    @Test
+    fun `supportsImages uses api show probe and false on http error`() = runBlocking {
+        server.createContext("/api/tags") { ex ->
+            val body = """{"models":[{"name":"seer"},{"name":"blind"},{"name":"broken"}]}"""
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        server.createContext("/api/show") { ex ->
+            val req = ex.requestBody.readBytes().decodeToString()
+            val (code, body) = when {
+                req.contains("seer") -> 200 to """{"capabilities":["completion","vision"]}"""
+                req.contains("blind") -> 200 to """{"capabilities":["completion"]}"""
+                else -> 500 to """{"error":"boom"}"""
+            }
+            ex.sendResponseHeaders(code, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        provider.listModels()
+        assertTrue(provider.supportsImages("seer"))
+        org.junit.Assert.assertFalse(provider.supportsImages("blind"))
+        org.junit.Assert.assertFalse(provider.supportsImages("broken"))
+        org.junit.Assert.assertFalse(provider.supportsNativeTools("broken"))
+    }
+
+    @Test
     fun `listModels probes api show when capabilities missing`() = runBlocking {
         server.createContext("/api/tags") { ex ->
             val body = """{"models":[{"name":"old"}]}"""

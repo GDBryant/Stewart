@@ -64,6 +64,7 @@ class StewartConfigurableTest : BasePlatformTestCase() {
         configurable.claudeCliPathField.text = "/opt/claude"
         configurable.claudeModelsArea.text = "opus"
         configurable.overridesArea.text = "aif/m1=native\nollama/x=shim"
+        configurable.visionOverridesArea.text = "my-vl, aif/other\n\n  extra  "
         configurable.autoCompactField.text = "120000"
         assertTrue(configurable.isModified)
         configurable.apply()
@@ -75,7 +76,24 @@ class StewartConfigurableTest : BasePlatformTestCase() {
         assertEquals(listOf("opus"), s.claudeModels)
         assertEquals(mapOf("aif/m1" to "NATIVE", "ollama/x" to "SHIM"), s.toolPathOverrides)
         assertEquals(120000, s.autoCompactTokens)
+        assertEquals(setOf("aif/my-vl", "aif/other", "aif/extra"), s.visionModelOverrides)
         assertFalse(configurable.isModified)
+        configurable.reset()
+        assertEquals("aif/extra\naif/my-vl\naif/other", configurable.visionOverridesArea.text)
+        assertFalse(configurable.isModified)
+    }
+
+    fun `test vision overrides modified and cleared`() {
+        configurable.visionOverridesArea.text = "m"
+        assertTrue(configurable.isModified)
+        configurable.apply()
+        configurable.visionOverridesArea.text = ""
+        assertTrue(configurable.isModified)
+        configurable.apply()
+        assertTrue(StewartSettings.getInstance().state.visionModelOverrides.isEmpty())
+        configurable.visionOverridesArea.text = "m"
+        configurable.reset()
+        assertEquals("", configurable.visionOverridesArea.text)
     }
 
     fun `test api key stored in password safe only`() {

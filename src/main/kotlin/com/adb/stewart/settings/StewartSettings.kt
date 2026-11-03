@@ -27,6 +27,9 @@ class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(St
         var claudeCliPath by string("claude")
         var claudeModels by list<String>()
         var toolPathOverrides by map<String, String>()
+
+        /** Models forced to accept images, stored as `providerId/modelId` (e.g. `aif/my-model`), like toolPathOverrides keys. */
+        var visionModelOverrides by stringSet()
         var multiModel by property(false)
         var chatModel by string()
         var plannerModel by string()

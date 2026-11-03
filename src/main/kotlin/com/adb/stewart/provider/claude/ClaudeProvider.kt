@@ -49,6 +49,8 @@ class ClaudeProvider(
 
     override fun supportsNativeTools(model: String): Boolean = false
 
+    override fun supportsImages(model: String): Boolean = true
+
     override suspend fun listModels(): List<ModelInfo> =
         models.map { ClaudeModels.normalize(it) }.distinct().map { ModelInfo(ModelRef(id, it), it) }
 
