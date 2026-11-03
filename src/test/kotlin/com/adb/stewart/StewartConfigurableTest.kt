@@ -200,6 +200,7 @@ class StewartConfigurableTest : BasePlatformTestCase() {
             assertFalse(configurable.debugLogCheck.isSelected)
             assertEquals("./log/debug_logs/", configurable.debugLogFolderField.text)
             assertFalse(configurable.isModified)
+            configurable.confirmCreateFolder = { true }
             configurable.debugLogCheck.isSelected = true
             configurable.debugLogFolderField.text = "  /tmp/stewart-debug  "
             assertTrue(configurable.isModified)
@@ -243,6 +244,96 @@ class StewartConfigurableTest : BasePlatformTestCase() {
             assertEquals(365, StewartSettings.getInstance().state.debugLogRetentionDays)
         } finally {
             com.adb.stewart.debug.DebugLogSink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    private fun withDebugOn(folder: String, block: () -> Unit) {
+        configurable.debugLogCheck.isSelected = true
+        configurable.debugLogFolderField.text = folder
+        try {
+            block()
+        } finally {
+            com.adb.stewart.debug.DebugLogSink.configure(false, "./log/debug_logs/")
+        }
+    }
+
+    fun `test debug folder under ide log is created without prompting`() {
+        val dir = java.nio.file.Path.of(com.intellij.openapi.application.PathManager.getLogPath(), "stewart-test-${System.nanoTime()}", "a")
+        configurable.confirmCreateFolder = { fail("must not prompt"); false }
+        try {
+            withDebugOn(dir.toString()) {
+                configurable.apply()
+                assertTrue(java.nio.file.Files.isDirectory(dir))
+            }
+        } finally {
+            dir.parent.toFile().deleteRecursively()
+        }
+    }
+
+    fun `test debug folder outside ide log is created after confirmation`() {
+        val root = java.nio.file.Files.createTempDirectory("stewart-dbg")
+        val dir = root.resolve("x/y")
+        var asked: java.nio.file.Path? = null
+        configurable.confirmCreateFolder = { asked = it; true }
+        try {
+            withDebugOn(dir.toString()) {
+                configurable.apply()
+                assertEquals(dir, asked)
+                assertTrue(java.nio.file.Files.isDirectory(dir))
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    fun `test debug folder declined is rejected and not created`() {
+        val root = java.nio.file.Files.createTempDirectory("stewart-dbg")
+        val dir = root.resolve("x")
+        configurable.confirmCreateFolder = { false }
+        try {
+            withDebugOn(dir.toString()) {
+                assertInvalid { configurable.apply() }
+                assertFalse(java.nio.file.Files.exists(dir))
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    fun `test debug folder creation failure is reported`() {
+        val root = java.nio.file.Files.createTempDirectory("stewart-dbg")
+        val blocker = java.nio.file.Files.createFile(root.resolve("file"))
+        configurable.confirmCreateFolder = { true }
+        try {
+            withDebugOn(blocker.resolve("sub").toString()) {
+                assertInvalid { configurable.apply() }
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    fun `test existing debug folder does not prompt`() {
+        val root = java.nio.file.Files.createTempDirectory("stewart-dbg")
+        configurable.confirmCreateFolder = { fail("must not prompt"); false }
+        try {
+            withDebugOn(root.toString()) { configurable.apply() }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    fun `test debug folder not created when logging is off`() {
+        val root = java.nio.file.Files.createTempDirectory("stewart-dbg")
+        val dir = root.resolve("x")
+        configurable.confirmCreateFolder = { fail("must not prompt"); false }
+        try {
+            configurable.debugLogCheck.isSelected = false
+            configurable.debugLogFolderField.text = dir.toString()
+            configurable.apply()
+            assertFalse(java.nio.file.Files.exists(dir))
+        } finally {
+            root.toFile().deleteRecursively()
         }
     }
 

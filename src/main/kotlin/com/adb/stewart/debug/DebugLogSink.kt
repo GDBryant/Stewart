@@ -317,6 +317,15 @@ object DebugLogSink {
             }
         }.sortedWith(compareBy({ it.first }, { it.second })).map { it.third }
 
+    /** True when [dir] lies under the IDE's own log directory, where creating folders needs no consent. */
+    internal fun isUnderIdeLog(dir: Path): Boolean =
+        dir.toAbsolutePath().normalize().startsWith(Path.of(PathManager.getLogPath()).toAbsolutePath().normalize())
+
+    /** Creates [dir] (and parents) if missing; throws [IOException] (e.g. access denied) on failure. */
+    internal fun ensureDirectory(dir: Path) {
+        if (!Files.isDirectory(dir)) Files.createDirectories(dir)
+    }
+
     /** Relative folders are anchored under the IDE log directory so `./log/...` is well-defined. */
     internal fun resolveDirectory(raw: String): Path {
         val dir = Path.of(raw)

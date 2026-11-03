@@ -10,6 +10,8 @@ Settings → Tools → Stewart (settings stored in `stewart.xml`; old AIJB setti
 - **Debug log: record every model call (Ollama, AIF, Claude CLI)** — master switch, off by default.
 - **Debug log folder** — defaults to `./log/debug_logs/`. Relative paths resolve under the IDE log
   directory (`PathManager.getLogPath()`), so the default lands in `<IDE log>/log/debug_logs/`.
+  On Apply with logging on, a missing folder is created: silently under the IDE log directory, after a
+  Yes/No prompt anywhere else. Declining, or a creation failure (e.g. permission denied), rejects the Apply.
   Absolute paths are used as-is.
 
 Saved settings apply immediately; opening the chat panel also applies them at startup.

@@ -10,11 +10,15 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.panel
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Path
 import javax.swing.JButton
 import javax.swing.JLabel
 
@@ -187,6 +191,26 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         debugLogRetentionField.text = s.debugLogRetentionDays.toString()
     }
 
+    /** Asks before creating a missing debug folder outside the IDE log directory; test seam. */
+    internal var confirmCreateFolder: (Path) -> Boolean = { dir ->
+        Messages.showYesNoDialog(
+            "The debug log folder does not exist:\n$dir\n\nCreate it?",
+            "Stewart Debug Log", Messages.getQuestionIcon(),
+        ) == Messages.YES
+    }
+
+    private fun ensureDebugFolder(dir: Path) {
+        if (Files.isDirectory(dir)) return
+        if (!DebugLogSink.isUnderIdeLog(dir) && !confirmCreateFolder(dir)) {
+            throw ConfigurationException("Debug log folder was not created: $dir")
+        }
+        try {
+            DebugLogSink.ensureDirectory(dir)
+        } catch (e: IOException) {
+            throw ConfigurationException("Cannot create debug log folder $dir: ${e.message}")
+        }
+    }
+
     override fun apply() {
         val ollama = ollamaUrlField.text.trim()
         if (!ollama.startsWith("http://") && !ollama.startsWith("https://")) {
@@ -209,6 +233,9 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         val debugRetention = debugLogRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..365 }
             ?: throw ConfigurationException("Debug log retention must be a whole number of days from 0 to 365")
 
+        val debugFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
+        if (debugLogCheck.isSelected) ensureDebugFolder(DebugLogSink.resolveDirectory(debugFolder))
+
         val s = settings.state
         s.ollamaUrl = ollama
         s.aifBaseUrl = aifBase
@@ -220,7 +247,7 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         s.historyRetentionDays = retention
         s.toolsEnabled = toolsEnabledCheck.isSelected
         s.debugLogEnabled = debugLogCheck.isSelected
-        s.debugLogFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
+        s.debugLogFolder = debugFolder
         s.debugLogRetentionDays = debugRetention
         DebugLogSink.configure(s.debugLogEnabled, s.debugLogFolder.orEmpty(), s.debugLogRetentionDays)
 
