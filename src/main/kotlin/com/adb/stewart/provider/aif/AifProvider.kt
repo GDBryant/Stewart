@@ -1,5 +1,6 @@
 package com.adb.stewart.provider.aif
 
+import com.adb.stewart.chat.redactImages
 import com.adb.stewart.debug.DebugLogSink
 import com.adb.stewart.http.IdeHttpClients
 import com.adb.stewart.provider.ChatMessage
@@ -159,7 +160,7 @@ class AifProvider(
         }
         DebugLogSink.log(
             "outgoing", id, request.model,
-            com.adb.stewart.chat.redactImages(payload.toString(), request.messages.flatMap { it.images }),
+            redactImages(payload.toString(), request.messages.flatMap { it.images }),
         )
         val httpRequest = HttpRequest.newBuilder(URI.create(AifUrls.chatCompletions(baseUrl)))
             .timeout(Duration.ofSeconds(60))
@@ -298,9 +299,11 @@ class AifProvider(
             put("content", msg.content)
         } else {
             putJsonArray("content") {
-                addJsonObject {
-                    put("type", "text")
-                    put("text", msg.content)
+                if (msg.content.isNotBlank()) {
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", msg.content)
+                    }
                 }
                 msg.images.forEach { img ->
                     addJsonObject {

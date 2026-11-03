@@ -160,4 +160,41 @@ class ImageProvidersTest {
         assertEquals("x [image png 1KB] y", out)
         assertEquals("plain", redactImages("plain", emptyList()))
     }
+
+    @Test
+    fun `claude later text-only user turn sends no image blocks`() {
+        val input = ClaudeTranscript.prepare(listOf(
+            ChatMessage(Role.USER, "first", images = listOf(img)),
+            ChatMessage(Role.ASSISTANT, "ok"),
+            ChatMessage(Role.USER, "second"),
+        ))
+        assertFalse(input.hasImages)
+        assertTrue(input.text.contains("first\n[image: shot.png]"))
+        assertFalse(input.text.contains(img.base64()))
+    }
+
+    @Test
+    fun `claude blank text omits text part`() {
+        val c = Json.parseToJsonElement(ClaudeTranscript.renderStreamJson(
+            listOf(ChatMessage(Role.USER, "", images = listOf(img))).let { it }).second)
+            .jsonObject["message"]!!.jsonObject["content"]!!.jsonArray
+        assertEquals(1, c.size)
+        assertEquals("image", c[0].jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `claude non-blank text part comes first`() {
+        val c = Json.parseToJsonElement(ClaudeTranscript.renderStreamJson(
+            listOf(ChatMessage(Role.USER, "hey", images = listOf(img)))).second)
+            .jsonObject["message"]!!.jsonObject["content"]!!.jsonArray
+        assertEquals("text", c[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals(2, c.size)
+    }
+
+    @Test
+    fun `aif blank text omits text part`() {
+        val c = aifMessages(listOf(ChatMessage(Role.USER, "  ", images = listOf(img))))[0]["content"]!!.jsonArray
+        assertEquals(1, c.size)
+        assertEquals("image_url", c[0].jsonObject["type"]!!.jsonPrimitive.content)
+    }
 }

@@ -3,7 +3,6 @@ package com.adb.stewart.provider.claude
 import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.Role
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -15,14 +14,16 @@ internal data class ClaudeInput(val system: String, val text: String, val images
     val hasImages: Boolean get() = images.isNotEmpty()
 
     /** One stream-json user line (no trailing newline). */
-    fun streamJsonLine(): String = JsonObject(buildJsonObject {
+    fun streamJsonLine(): String = buildJsonObject {
         put("type", "user")
         putJsonObject("message") {
             put("role", "user")
             putJsonArray("content") {
-                addJsonObject {
-                    put("type", "text")
-                    put("text", text)
+                if (text.isNotBlank()) {
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", text)
+                    }
                 }
                 images.forEach { img ->
                     addJsonObject {
@@ -36,7 +37,7 @@ internal data class ClaudeInput(val system: String, val text: String, val images
                 }
             }
         }
-    }).toString()
+    }.toString()
 }
 
 internal object ClaudeTranscript {
@@ -56,7 +57,7 @@ internal object ClaudeTranscript {
      * `[image: name]` text so stdin stays a single message.
      */
     fun prepare(messages: List<ChatMessage>): ClaudeInput {
-        val lastUser = messages.indexOfLast { it.role == Role.USER && it.images.isNotEmpty() }
+        val lastUser = messages.indexOfLast { it.role == Role.USER }
         val flattened = messages.mapIndexed { i, m ->
             if (m.images.isEmpty() || i == lastUser) {
                 m
@@ -69,7 +70,7 @@ internal object ClaudeTranscript {
             }
         }
         val (system, text) = render(flattened)
-        return ClaudeInput(system, text, if (lastUser >= 0) messages[lastUser].images else emptyList())
+        return ClaudeInput(system, text, messages.getOrNull(lastUser)?.images.orEmpty())
     }
 
     /** (system, stdin NDJSON). Text-only conversations should keep using [render]. */
