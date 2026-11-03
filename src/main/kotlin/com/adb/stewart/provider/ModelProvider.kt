@@ -1,5 +1,6 @@
 package com.adb.stewart.provider
 
+import com.adb.stewart.chat.ImageAttachment
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 
@@ -29,7 +30,7 @@ data class ChatMessage(
     val content: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val toolCallId: String? = null,
-    val images: List<com.adb.stewart.chat.ImageAttachment> = emptyList(),
+    val images: List<ImageAttachment> = emptyList(),
 )
 
 data class ToolSpec(val name: String, val description: String, val parameters: JsonObject)

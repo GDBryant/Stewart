@@ -105,4 +105,67 @@ class ImageLoaderTest {
         val a = ImageAttachment("image/png", byteArrayOf(1), "x")
         assertArrayEquals(byteArrayOf(1), ChatMessage(Role.USER, "hi", images = listOf(a)).images[0].bytes)
     }
+
+    private fun jpg(): ByteArray =
+        ByteArrayOutputStream().also { ImageIO.write(BufferedImage(10, 10, BufferedImage.TYPE_INT_RGB), "jpg", it) }.toByteArray()
+
+    @Test fun jpgAndJpegMapToImageJpeg() {
+        for (n in listOf("a.jpg", "b.JPEG")) {
+            val f = tmp.newFile(n).apply { writeBytes(jpg()) }.toPath()
+            assertEquals("image/jpeg", ImageLoader.fromFile(f).getOrThrow().mediaType)
+        }
+    }
+
+    @Test fun gifMapsToImageGif() {
+        val o = ByteArrayOutputStream()
+        ImageIO.write(BufferedImage(5, 5, BufferedImage.TYPE_INT_RGB), "gif", o)
+        val f = tmp.newFile("g.gif").apply { writeBytes(o.toByteArray()) }.toPath()
+        assertEquals("image/gif", ImageLoader.fromFile(f).getOrThrow().mediaType)
+    }
+
+    @Test fun webpUndecodableGivesHint() {
+        val f = tmp.newFile("w.webp").apply { writeText("junk") }.toPath()
+        val r = ImageLoader.fromFile(f)
+        assertTrue(r.exceptionOrNull()!!.message!!.contains("webp may be unsupported"))
+    }
+
+    @Test fun nonWebpDecodeFailureHasNoWebpHint() {
+        val f = tmp.newFile("j.png").apply { writeText("junk") }.toPath()
+        assertTrue(!ImageLoader.fromFile(f).exceptionOrNull()!!.message!!.contains("webp"))
+    }
+
+    @Test fun directoryRejected() {
+        val d = tmp.newFolder("dir.png").toPath()
+        val r = ImageLoader.fromFile(d)
+        assertTrue(r.exceptionOrNull()!!.message!!.contains("not found"))
+    }
+
+    @Test fun readCapRejectsBigFileButAllowsWithinCap() {
+        val f = tmp.newFile("cap.png").apply { writeBytes(png(10, 10)) }.toPath()
+        val r = ImageLoader.fromFile(f, maxReadBytes = 10)
+        assertTrue(r.exceptionOrNull()!!.message!!.contains("too large"))
+        assertTrue(ImageLoader.fromFile(f, maxReadBytes = 1_000_000).isSuccess)
+    }
+
+    @Test fun fromImageNonBufferedImage() {
+        val src = BufferedImage(7, 5, BufferedImage.TYPE_INT_RGB)
+        val scaled = src.getScaledInstance(7, 5, java.awt.Image.SCALE_DEFAULT)
+        assertTrue(scaled !is BufferedImage)
+        val a = ImageLoader.fromImage(scaled)
+        assertTrue(a.bytes.isNotEmpty())
+        assertEquals(7, ImageIO.read(ByteArrayInputStream(a.bytes)).width)
+    }
+
+    @Test fun fromImageZeroSizeRejected() {
+        val e = org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            ImageLoader.fromImage(object : java.awt.Image() {
+                override fun getWidth(o: java.awt.image.ImageObserver?) = 0
+                override fun getHeight(o: java.awt.image.ImageObserver?) = 0
+                override fun getSource(): java.awt.image.ImageProducer? = null
+                override fun getGraphics(): java.awt.Graphics? = null
+                override fun getProperty(n: String?, o: java.awt.image.ImageObserver?): Any? = null
+            })
+        }
+        assertTrue(e.message!!.contains("no size"))
+    }
 }

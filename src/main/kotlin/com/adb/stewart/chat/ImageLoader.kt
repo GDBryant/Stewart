@@ -11,14 +11,14 @@ import javax.imageio.ImageIO
 object ImageLoader {
     private const val HARD_READ_CAP = 50L * 1024 * 1024
 
-    fun fromFile(path: Path): Result<ImageAttachment> = runCatching {
+    fun fromFile(path: Path, maxReadBytes: Long = HARD_READ_CAP): Result<ImageAttachment> = runCatching {
         val name = path.fileName?.toString() ?: path.toString()
         val ext = name.substringAfterLast('.', "").lowercase()
         require(ext in ImageLimits.EXTENSIONS) {
             "Unsupported image type '.$ext' (use ${ImageLimits.EXTENSIONS.joinToString(", ")})"
         }
         require(Files.isRegularFile(path)) { "File not found: $name" }
-        require(Files.size(path) <= HARD_READ_CAP) { "Image too large: $name" }
+        require(Files.size(path) <= maxReadBytes) { "Image too large: $name" }
         val bytes = Files.readAllBytes(path)
         val mime = when (ext) {
             "jpg", "jpeg" -> "image/jpeg"
@@ -40,7 +40,10 @@ object ImageLoader {
     /** Downscales to [ImageLimits.MAX_EDGE]; throws IllegalArgumentException if undecodable or still over [ImageLimits.MAX_BYTES]. */
     fun normalize(a: ImageAttachment): ImageAttachment {
         val src = runCatching { ImageIO.read(ByteArrayInputStream(a.bytes)) }.getOrNull()
-            ?: throw IllegalArgumentException("Could not decode image: ${a.name}")
+            ?: throw IllegalArgumentException(
+                "Could not decode image: ${a.name}" +
+                    if (a.name.endsWith(".webp", true)) " (webp may be unsupported by this runtime)" else "",
+            )
         val edge = maxOf(src.width, src.height)
         val out = if (edge <= ImageLimits.MAX_EDGE) a else {
             val s = ImageLimits.MAX_EDGE.toDouble() / edge
