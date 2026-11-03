@@ -76,6 +76,14 @@ class SlashCommandsTest {
             return accepts
         }
 
+        override var projectDir: java.nio.file.Path? = null
+        val attached = mutableListOf<com.adb.stewart.chat.ImageAttachment>()
+        var attachAccepts = true
+        override fun attachImage(image: com.adb.stewart.chat.ImageAttachment): Boolean {
+            attached += image
+            return attachAccepts
+        }
+
         val ticks = mutableSetOf<ApprovalCategory>()
         val alwaysPrograms = mutableSetOf<String>()
         var path: String? = "/p"
@@ -531,5 +539,76 @@ class SlashCommandsTest {
         assertTrue(run(ctx, "/permissions clear"))
         assertTrue(ctx.shown.single().contains("next tool call"))
         assertTrue(run(ctx, "/permissions"))
+    }
+
+    private fun png(dir: java.nio.file.Path, name: String): java.nio.file.Path {
+        val f = dir.resolve(name)
+        javax.imageio.ImageIO.write(java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", f.toFile())
+        return f
+    }
+
+    @Test
+    fun `image attaches a path relative to the project dir`() {
+        val dir = java.nio.file.Files.createTempDirectory("img")
+        png(dir, "x.png")
+        val ctx = FakeContext().also { it.projectDir = dir }
+        assertTrue(SlashCommands.execute(SlashCommands.parse("/image x.png")!!, ctx))
+        assertEquals(listOf("x.png"), ctx.attached.map { it.name })
+        assertTrue(ctx.errors.isEmpty())
+    }
+
+    @Test
+    fun `image attaches an absolute path`() {
+        val dir = java.nio.file.Files.createTempDirectory("img")
+        val f = png(dir, "abs.png")
+        val ctx = FakeContext()
+        assertTrue(SlashCommands.execute(SlashCommands.parse("/image $f")!!, ctx))
+        assertEquals(1, ctx.attached.size)
+    }
+
+    @Test
+    fun `image with a missing file reports the loader error`() {
+        val ctx = FakeContext().also { it.projectDir = java.nio.file.Files.createTempDirectory("img") }
+        assertFalse(SlashCommands.execute(SlashCommands.parse("/image missing.png")!!, ctx))
+        assertTrue(ctx.errors.single().contains("File not found"))
+        assertTrue(ctx.attached.isEmpty())
+    }
+
+    @Test
+    fun `image with unsupported extension is rejected`() {
+        val ctx = FakeContext()
+        assertFalse(SlashCommands.execute(SlashCommands.parse("/image notes.txt")!!, ctx))
+        assertTrue(ctx.errors.single().contains("Unsupported"))
+    }
+
+    @Test
+    fun `image without an argument shows usage`() {
+        val ctx = FakeContext()
+        assertFalse(SlashCommands.execute(SlashCommands.parse("/image")!!, ctx))
+        assertTrue(ctx.errors.single().startsWith("Usage: /image"))
+        assertTrue(ctx.attached.isEmpty())
+    }
+
+    @Test
+    fun `image keeps the input when the attachment is rejected`() {
+        val dir = java.nio.file.Files.createTempDirectory("img")
+        png(dir, "x.png")
+        val ctx = FakeContext().also { it.projectDir = dir; it.attachAccepts = false }
+        assertFalse(SlashCommands.execute(SlashCommands.parse("/image x.png")!!, ctx))
+    }
+
+    @Test
+    fun `image is listed in help and completion`() {
+        assertTrue(SlashCommands.help().contains("/image <path>"))
+        assertEquals(listOf("image"), SlashCommands.complete("/im").map { it.name })
+    }
+
+    @Test
+    fun `image strips surrounding quotes and works while running`() {
+        val dir = java.nio.file.Files.createTempDirectory("img")
+        png(dir, "q.png")
+        val ctx = FakeContext(running = true).also { it.projectDir = dir }
+        assertTrue(SlashCommands.execute(SlashCommands.parse("/image \"q.png\"")!!, ctx))
+        assertEquals(1, ctx.attached.size)
     }
 }

@@ -73,6 +73,12 @@ interface CommandContext {
 
     /** Approval permissions for `/permissions`. */
     val permissions: PermissionsView
+
+    /** Project root that relative `/image` paths resolve against. */
+    val projectDir: java.nio.file.Path?
+
+    /** Adds [image] to the pending attachments; false (with an error shown) when it is rejected. */
+    fun attachImage(image: ImageAttachment): Boolean
 }
 
 /** A local command; [handler] gets the trimmed args and returns false to keep the input text. */
@@ -294,6 +300,29 @@ object SlashCommands {
         )
     }
 
+    private const val IMAGE_USAGE = "Usage: /image <path> (png, jpg, jpeg, gif, webp)"
+
+    private fun image(ctx: CommandContext, args: String): Boolean {
+        if (args.isEmpty()) {
+            ctx.error(IMAGE_USAGE)
+            return false
+        }
+        val raw = args.trim().removeSurrounding("\"").removeSurrounding("'")
+        val path = runCatching {
+            val p = java.nio.file.Path.of(raw)
+            if (p.isAbsolute) p else (ctx.projectDir?.resolve(p) ?: p)
+        }.getOrElse {
+            ctx.error("Invalid path: $raw")
+            return false
+        }
+        val loaded = ImageLoader.fromFile(path)
+        val attachment = loaded.getOrElse {
+            ctx.error(it.message ?: "Could not read $raw")
+            return false
+        }
+        return ctx.attachImage(attachment).also { if (it) ctx.show("Attached ${attachment.name}") }
+    }
+
     val all: List<SlashCommand> = listOf(
         SlashCommand("help", "", "List commands", allowedWhileRunning = true) { ctx, _ ->
             ctx.show(help())
@@ -321,6 +350,7 @@ object SlashCommands {
             ctx.openSettings()
             true
         },
+        SlashCommand("image", "<path>", "Attach an image to the next message", allowedWhileRunning = true, ::image),
         SlashCommand("permissions", "[clear|reset|revoke <target>]", "List or change approval permissions", allowedWhileRunning = true, ::permissions),
     )
 

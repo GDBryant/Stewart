@@ -211,10 +211,10 @@ class ChatSession(
         return newJob
     }
 
-    fun send(text: String, ref: ModelRef, listener: ChatListener): Job {
+    fun send(text: String, ref: ModelRef, listener: ChatListener, images: List<ImageAttachment> = emptyList()): Job {
         synchronized(lock) {
             val priorHistory = transcriptBacking.toList()
-            transcriptBacking.add(ChatMessage(Role.USER, text))
+            transcriptBacking.add(ChatMessage(Role.USER, text, images = images))
             val history = transcriptBacking.toList()
             return startRun { thisJob ->
                 var orchestrated = false
@@ -222,7 +222,7 @@ class ChatSession(
                     coroutineContext.ensureActive()
                     if (multiModel()) {
                         orchestrated = true
-                        runOrchestrator(text, priorHistory, listener, thisJob)
+                        runOrchestrator(text, priorHistory, listener, thisJob, images)
                         return@startRun
                     }
                     val route = RoleRouting.routeFor(ref, providers(), toolPathOverrides())
@@ -284,7 +284,7 @@ class ChatSession(
                         if (activeJob === thisJob) {
                             val kept = when {
                                 cancelled == null -> transcriptBacking.toList()
-                                orchestrated -> listOf(ChatMessage(Role.USER, text)) +
+                                orchestrated -> listOf(ChatMessage(Role.USER, text, images = images)) +
                                     cancelled.produced.filter { it.role != Role.SYSTEM }
                                 else -> cancelled.transcript
                             }
@@ -362,6 +362,7 @@ class ChatSession(
         priorHistory: List<ChatMessage>,
         listener: ChatListener,
         thisJob: Job,
+        images: List<ImageAttachment> = emptyList(),
     ) {
         val routed = RoleRouting.resolve(
             roleModels(),
@@ -415,10 +416,10 @@ class ChatSession(
                 }
             },
         )
-        val result = orchestrator.run(text, orchListener, priorHistory)
+        val result = orchestrator.run(text, orchListener, priorHistory, images)
         // SYSTEM messages in the result are the orchestrator's "Re-planning: ..." markers; role
         // prompts are injected per request and never appear in result.messages.
-        commitIfActive(thisJob, listOf(ChatMessage(Role.USER, text)) + result.messages.filter { it.role != Role.SYSTEM })
+        commitIfActive(thisJob, listOf(ChatMessage(Role.USER, text, images = images)) + result.messages.filter { it.role != Role.SYSTEM })
         if (result is OrchestrationResult.Failed) {
             addUsage(result.usage)
             toEdt { listener.onFailedWithCode(result.message, result.code) }

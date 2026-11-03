@@ -1,5 +1,6 @@
 package com.adb.stewart.agents
 
+import com.adb.stewart.chat.ImageAttachment
 import com.adb.stewart.chat.ContextCompactor
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.Role
@@ -276,10 +277,11 @@ class Orchestrator(
         request: String,
         listener: OrchestratorListener,
         history: List<ChatMessage> = emptyList(),
+        images: List<ImageAttachment> = emptyList(),
     ): OrchestrationResult {
         val transcript = mutableListOf<ChatMessage>()
         val result = try {
-            runSteps(request, listener, history, transcript)
+            runSteps(request, listener, history, transcript, images)
         } catch (e: CancellationException) {
             val partial = (e as? RunCancelledException)?.produced ?: emptyList()
             throw RunCancelledException(emptyList(), transcript + partial, e, runUsage)
@@ -302,6 +304,7 @@ class Orchestrator(
         listener: OrchestratorListener,
         history: List<ChatMessage>,
         transcript: MutableList<ChatMessage>,
+        images: List<ImageAttachment> = emptyList(),
     ): OrchestrationResult {
         val replans = mutableListOf<String>()
         var usage: Usage? = null
@@ -317,6 +320,7 @@ class Orchestrator(
             request,
             history,
             listener,
+            images,
         )
         usage = sumUsage(usage, planRes.usage)
         transcript += planRes.messages
@@ -523,6 +527,7 @@ class Orchestrator(
         userContent: String,
         baseHistory: List<ChatMessage>,
         listener: OrchestratorListener,
+        images: List<ImageAttachment> = emptyList(),
     ): LevelRun {
         val route = routes.getValue(role)
         lastFailureCode = null
@@ -547,7 +552,7 @@ class Orchestrator(
         // The role/protocol prompt is injected per request via rolePrompt, so it is
         // never duplicated in history and survives compaction re-injected each turn.
         val base = baseHistory +
-            ChatMessage(Role.USER, userContent)
+            ChatMessage(Role.USER, userContent, images = images)
         val result = try {
             loop.run(route.ref.modelId, base, loopListener)
         } catch (e: RunCancelledException) {

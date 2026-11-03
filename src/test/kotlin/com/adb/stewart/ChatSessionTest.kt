@@ -315,6 +315,52 @@ class ChatSessionTest : BasePlatformTestCase() {
         }
     }
 
+    private fun recordingProvider(requests: MutableList<ChatRequest>) = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> = emptyList()
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+            requests += request
+            emit(ProviderEvent.TextDelta("ok"))
+            emit(ProviderEvent.Completed("stop", null))
+        }
+    }
+
+    private val img = com.adb.stewart.chat.ImageAttachment("image/png", byteArrayOf(1, 2, 3), "a.png")
+
+    fun `test images go into the transcript and the provider request`() {
+        val session = newSession()
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests)) }
+        val listener = RecordingListener()
+        session.send("look", ModelRef("fake", "m"), listener, listOf(img))
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(listOf(img), session.transcript[0].images)
+        assertEquals(listOf(img), requests.first().messages.last { it.role == Role.USER }.images)
+    }
+
+    fun `test send without images leaves the message image free`() {
+        val session = newSession()
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests)) }
+        val listener = RecordingListener()
+        session.send("plain", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertTrue(session.transcript[0].images.isEmpty())
+        assertTrue(requests.first().messages.last { it.role == Role.USER }.images.isEmpty())
+    }
+
+    fun `test orchestrated send gives the first level the images`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests)) }
+        val listener = RecordingListener()
+        val job = session.send("look", ModelRef("fake", "m"), listener, listOf(img))
+        runUntilIdle { job.isCompleted }
+        assertEquals(listOf(img), requests.first().messages.last { it.role == Role.USER }.images)
+        assertEquals(listOf(img), session.transcript[0].images)
+    }
+
     fun `test transcript snapshot is immutable`() {
         val session = newSession()
         session.providers = { listOf(fakeProvider("fake",

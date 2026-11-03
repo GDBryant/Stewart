@@ -1462,4 +1462,193 @@ class ChatPanelTest : BasePlatformTestCase() {
         key(panel, KeyEvent.VK_UP)
         assertEquals("clear the cache", panel.inputArea.text)
     }
+
+    // ---- image attachments ----
+
+    private fun visionProvider(vision: Boolean, requests: MutableList<ChatRequest> = mutableListOf()) = object : ModelProvider {
+        override val id = "fake"
+        override suspend fun listModels(): List<ModelInfo> = listOf(ModelInfo(ModelRef(id, "m1"), "m1"))
+        override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+            requests += request
+            emit(ProviderEvent.TextDelta("hi"))
+            emit(ProviderEvent.Completed("stop", Usage(1, 1)))
+        }
+        override fun supportsImages(model: String) = vision
+    }
+
+    private fun img(name: String = "a.png") = com.adb.stewart.chat.ImageAttachment(
+        "image/png",
+        java.io.ByteArrayOutputStream().also {
+            javax.imageio.ImageIO.write(java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", it)
+        }.toByteArray(),
+        name,
+    )
+
+    private class Fake(val flavor: java.awt.datatransfer.DataFlavor, val data: Any) : java.awt.datatransfer.Transferable {
+        override fun getTransferDataFlavors() = arrayOf(flavor)
+        override fun isDataFlavorSupported(f: java.awt.datatransfer.DataFlavor) = f == flavor
+        override fun getTransferData(f: java.awt.datatransfer.DataFlavor): Any = data
+    }
+
+    fun `test paste image attaches and shows the strip`() {
+        val panel = newPanel(visionProvider(true))
+        val t = Fake(java.awt.datatransfer.DataFlavor.imageFlavor, java.awt.image.BufferedImage(8, 8, 1))
+        assertTrue(panel.inputArea.transferHandler.importData(panel.inputArea, t))
+        assertEquals(1, panel.pendingImages.size)
+        assertTrue(panel.attachmentStrip.isVisible)
+    }
+
+    fun `test paste plain text inserts text and attaches nothing`() {
+        val panel = newPanel(visionProvider(true))
+        val t = java.awt.datatransfer.StringSelection("pasted")
+        assertTrue(panel.inputArea.transferHandler.importData(panel.inputArea, t))
+        assertEquals("pasted", panel.inputArea.text)
+        assertTrue(panel.pendingImages.isEmpty())
+        assertFalse(panel.attachmentStrip.isVisible)
+    }
+
+    fun `test drop on the panel attaches png only and reports txt`() {
+        val panel = newPanel(visionProvider(true))
+        val dir = java.nio.file.Files.createTempDirectory("drop").toFile()
+        val png = java.io.File(dir, "a.png").also { it.writeBytes(img().bytes) }
+        val txt = java.io.File(dir, "b.txt").also { it.writeText("x") }
+        val t = Fake(java.awt.datatransfer.DataFlavor.javaFileListFlavor, listOf(png, txt))
+        assertTrue(panel.transferHandler.importData(panel, t))
+        assertEquals(listOf("a.png"), panel.pendingImages.map { it.name })
+        assertTrue(panel.statusLabel.text.contains("b.txt"))
+    }
+
+    fun `test sixth image is rejected`() {
+        val panel = newPanel(visionProvider(true))
+        repeat(5) { assertTrue(panel.attach(img("i$it.png"))) }
+        assertFalse(panel.attach(img("six.png")))
+        assertEquals(5, panel.pendingImages.size)
+        assertTrue(panel.statusLabel.text.contains("5"))
+    }
+
+    fun `test attachFile reports a missing file`() {
+        val panel = newPanel(visionProvider(true))
+        assertFalse(panel.attachFile(java.nio.file.Path.of("/nonexistent/none.png")))
+        assertTrue(panel.statusLabel.text.contains("not found"))
+        assertTrue(panel.pendingImages.isEmpty())
+    }
+
+    fun `test attachFile attaches a valid image`() {
+        val panel = newPanel(visionProvider(true))
+        val f = java.nio.file.Files.createTempDirectory("af").resolve("ok.png")
+        java.nio.file.Files.write(f, img().bytes)
+        assertTrue(panel.attachFile(f))
+        assertEquals(listOf("ok.png"), panel.pendingImages.map { it.name })
+    }
+
+    fun `test image only submit sends and clears the strip`() {
+        val requests = mutableListOf<ChatRequest>()
+        val panel = newPanel(visionProvider(true, requests))
+        panel.attach(img())
+        panel.inputArea.text = ""
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" && requests.isNotEmpty() })
+        assertEquals("", session.transcript[0].content)
+        assertEquals(1, session.transcript[0].images.size)
+        assertEquals(1, requests.first().messages.last { it.role == Role.USER }.images.size)
+        assertTrue(panel.pendingImages.isEmpty())
+        assertFalse(panel.attachmentStrip.isVisible)
+    }
+
+    fun `test user bubble shows a thumbnail`() {
+        val panel = newPanel(visionProvider(true))
+        panel.addMessage("user", "look", listOf(img()))
+        val area = panel.messageAreas().first()
+        val row = area.parent as JPanel
+        val thumbs = (row.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH) as JPanel
+        val label = thumbs.components.filterIsInstance<javax.swing.JLabel>().single()
+        assertNotNull(label.icon)
+        assertTrue(label.icon.iconWidth <= 160 && label.icon.iconHeight <= 160)
+    }
+
+    fun `test restored history renders thumbnails for user messages with images`() {
+        session.seedTranscriptForTest(com.adb.stewart.provider.ChatMessage(Role.USER, "see", images = listOf(img())))
+        val panel = newPanel(visionProvider(true))
+        val row = panel.messageAreas().first().parent as JPanel
+        assertNotNull((row.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH))
+    }
+
+    fun `test non vision model blocks send and keeps attachments`() {
+        val requests = mutableListOf<ChatRequest>()
+        val panel = newPanel(visionProvider(false, requests))
+        panel.attach(img())
+        panel.inputArea.text = "what is this"
+        panel.sendButton.doClick()
+        pump()
+        assertTrue(panel.statusLabel.text.contains("does not accept images"))
+        assertEquals(1, panel.pendingImages.size)
+        assertEquals("what is this", panel.inputArea.text)
+        assertTrue(requests.isEmpty())
+        assertTrue(session.transcript.isEmpty())
+        assertEquals("Send", panel.sendButton.text)
+    }
+
+    fun `test text only send to a non vision model still works`() {
+        val requests = mutableListOf<ChatRequest>()
+        val panel = newPanel(visionProvider(false, requests))
+        panel.inputArea.text = "hello"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { requests.isNotEmpty() })
+    }
+
+    fun `test clear removes attachments`() {
+        val panel = newPanel(visionProvider(true))
+        panel.attach(img())
+        panel.clearButton.doClick()
+        assertTrue(panel.pendingImages.isEmpty())
+        assertFalse(panel.attachmentStrip.isVisible)
+    }
+
+    fun `test strip remove button removes that attachment`() {
+        val panel = newPanel(visionProvider(true))
+        panel.attach(img("a.png"))
+        panel.attach(img("b.png"))
+        assertEquals(listOf("a.png", "b.png"), panel.attachmentStrip.names)
+        panel.attachmentStrip.removeButtons[0].doClick()
+        assertEquals(listOf("b.png"), panel.pendingImages.map { it.name })
+        panel.attachmentStrip.removeButtons[0].doClick()
+        assertFalse(panel.attachmentStrip.isVisible)
+    }
+
+    fun `test image slash command attaches relative to the project`() {
+        val panel = newPanel(visionProvider(true))
+        val base = java.nio.file.Path.of(project.basePath!!)
+        java.nio.file.Files.createDirectories(base)
+        val f = base.resolve("slash.png")
+        java.nio.file.Files.write(f, img().bytes)
+        try {
+            panel.inputArea.text = "/image slash.png"
+            panel.sendButton.doClick()
+            assertEquals(listOf("slash.png"), panel.pendingImages.map { it.name })
+            assertEquals("", panel.inputArea.text)
+        } finally {
+            java.nio.file.Files.deleteIfExists(f)
+        }
+    }
+
+    fun `test image slash command with a missing file keeps the input`() {
+        val panel = newPanel(visionProvider(true))
+        panel.inputArea.text = "/image nope.png"
+        panel.sendButton.doClick()
+        assertTrue(panel.pendingImages.isEmpty())
+        assertEquals("/image nope.png", panel.inputArea.text)
+        assertTrue(panel.messageAreas().last().text.contains("not found"))
+    }
+
+    fun `test image slash command without an argument shows usage`() {
+        val panel = newPanel(visionProvider(true))
+        panel.inputArea.text = "/image"
+        panel.sendButton.doClick()
+        assertTrue(panel.messageAreas().last().text.contains("Usage: /image"))
+    }
+
+    fun `test attach button exists`() {
+        val panel = newPanel(visionProvider(true))
+        assertEquals("Attach image", panel.attachButton.toolTipText)
+    }
 }

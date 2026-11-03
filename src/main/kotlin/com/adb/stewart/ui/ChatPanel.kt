@@ -7,6 +7,9 @@ import com.adb.stewart.chat.ChatSession
 import com.adb.stewart.chat.CommandContext
 import com.adb.stewart.chat.ErrorHints
 import com.adb.stewart.chat.GitDiff
+import com.adb.stewart.chat.ImageAttachment
+import com.adb.stewart.chat.ImageLimits
+import com.adb.stewart.chat.ImageLoader
 import com.adb.stewart.chat.ContextCompactor
 import com.adb.stewart.chat.InitFiles
 import com.adb.stewart.chat.PromptHistory
@@ -98,6 +101,14 @@ class ChatPanel @JvmOverloads constructor(
     internal val sendButton = JButton("Send")
     internal val busyIcon = AsyncProcessIcon("stewart-busy").apply { isVisible = false; suspend() }
     internal val activityLabel = JLabel(" ")
+    internal val attachButton = JButton("📎").apply { toolTipText = "Attach image" }
+    private val pending = mutableListOf<ImageAttachment>()
+    internal val attachmentStrip: AttachmentStrip = AttachmentStrip { i ->
+        if (i in pending.indices) pending.removeAt(i)
+        refreshStrip()
+    }
+
+    private fun refreshStrip() = attachmentStrip.show(pending)
 
     /** Slash-command autocomplete: the list lives in a non-focusable popup; keys stay in the input. */
     internal val completionList = JBList<SlashCommand>()
@@ -236,6 +247,7 @@ class ChatPanel @JvmOverloads constructor(
         inputPanel.border = JBUI.Borders.empty(4)
         inputPanel.add(JBScrollPane(inputArea), BorderLayout.CENTER)
         val sendPanel = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 0))
+        sendPanel.add(attachButton)
         sendPanel.add(sendButton)
         sendPanel.add(busyIcon)
         inputPanel.add(sendPanel, BorderLayout.EAST)
@@ -248,13 +260,19 @@ class ChatPanel @JvmOverloads constructor(
         labels.add(statusRow, BorderLayout.CENTER)
         labels.add(bypassLabel, BorderLayout.EAST)
         south.add(labels, BorderLayout.NORTH)
-        south.add(inputPanel, BorderLayout.CENTER)
+        val inputWithStrip = JPanel(BorderLayout())
+        inputWithStrip.add(attachmentStrip, BorderLayout.NORTH)
+        inputWithStrip.add(inputPanel, BorderLayout.CENTER)
+        south.add(inputWithStrip, BorderLayout.CENTER)
 
         add(header, BorderLayout.NORTH)
         add(scrollPane, BorderLayout.CENTER)
         add(south, BorderLayout.SOUTH)
 
         sendButton.addActionListener { onSendOrStop() }
+        attachButton.addActionListener { chooseImage() }
+        inputArea.transferHandler = imageHandler(inputArea.transferHandler)
+        transferHandler = imageHandler(transferHandler ?: javax.swing.TransferHandler(null))
         refreshButton.addActionListener { loadModels() }
         rolesButton.addActionListener { showRolesPopup() }
         clearButton.addActionListener { onClear() }
@@ -305,8 +323,55 @@ class ChatPanel @JvmOverloads constructor(
         }
     }
 
+    private fun imageHandler(fallback: javax.swing.TransferHandler) = ImageTransferHandler(
+        onImage = { attach(it) },
+        onError = { statusLabel.text = it },
+        fallback = fallback,
+    )
+
+    internal val pendingImages: List<ImageAttachment>
+        get() = pending.toList()
+
+    /** Adds [a] to the next message; false (with an error in the status line) once the per-message limit is reached. */
+    internal fun attach(a: ImageAttachment): Boolean {
+        if (pending.size >= ImageLimits.MAX_PER_MESSAGE) {
+            statusLabel.text = "At most ${ImageLimits.MAX_PER_MESSAGE} images per message"
+            return false
+        }
+        pending += a
+        refreshStrip()
+        return true
+    }
+
+    internal fun clearAttachments() {
+        pending.clear()
+        refreshStrip()
+    }
+
+    /** Loads an image file and attaches it; the loader's error goes to the status line. */
+    internal fun attachFile(path: java.nio.file.Path): Boolean =
+        ImageLoader.fromFile(path).fold({ attach(it) }, {
+            statusLabel.text = it.message ?: "Could not read ${path.fileName}"
+            false
+        })
+
+    private fun chooseImage() {
+        val descriptor = com.intellij.openapi.fileChooser.FileChooserDescriptorFactory.createSingleFileDescriptor()
+            .withExtensionFilter("Images", *ImageLimits.EXTENSIONS.toTypedArray())
+        com.intellij.openapi.fileChooser.FileChooser.chooseFile(descriptor, project, null) { vf ->
+            attachFile(java.nio.file.Path.of(vf.path))
+        }
+    }
+
+    /** Whether the model that receives the user message accepts images (the planner in multi-model mode). */
+    private fun visionOk(info: ModelInfo): Boolean {
+        val ref = if (settings.state.multiModel) settings.roleModel(AgentRole.PLANNER) ?: info.ref else info.ref
+        return session.providers().firstOrNull { it.id == ref.providerId }?.supportsImages(ref.modelId) ?: false
+    }
+
     /** Wipes the chat, usage totals and the saved history file. */
     internal fun onClear() {
+        clearAttachments()
         session.clearHistory()
         setBusy(false)
         renderTranscript()
@@ -444,7 +509,7 @@ class ChatPanel @JvmOverloads constructor(
                     completeToolRow(row, com.adb.stewart.tools.ToolOutcome.Success(msg.content))
                 }
                 msg.role == Role.ASSISTANT && msg.content.isBlank() && msg.toolCalls.isNotEmpty() -> Unit
-                else -> addMessage(msg.role.name.lowercase(), msg.content)
+                else -> addMessage(msg.role.name.lowercase(), msg.content, msg.images)
             }
         }
         refreshMessages()
@@ -770,7 +835,7 @@ class ChatPanel @JvmOverloads constructor(
             }
         }
 
-    internal fun addMessage(role: String, content: String): JTextArea {
+    internal fun addMessage(role: String, content: String, images: List<ImageAttachment> = emptyList()): JTextArea {
         val isUser = role == "user"
         val area = if (isUser) BubbleArea(content) else JTextArea("$role: $content")
         area.isEditable = false
@@ -784,7 +849,13 @@ class ChatPanel @JvmOverloads constructor(
         row.alignmentX = LEFT_ALIGNMENT
         if (isUser) {
             row.border = JBUI.Borders.emptyLeft(60)
-            row.add(area, BorderLayout.EAST)
+            if (images.isNotEmpty()) {
+                val thumbs = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 4, 2))
+                thumbs.isOpaque = false
+                images.forEach { thumbs.add(ImageThumbnails.label(it, ImageThumbnails.CHAT_MAX, project)) }
+                row.add(thumbs, BorderLayout.NORTH)
+            }
+            if (content.isNotBlank() || images.isEmpty()) row.add(area, BorderLayout.EAST)
             row.addComponentListener(object : java.awt.event.ComponentAdapter() {
                 override fun componentResized(e: java.awt.event.ComponentEvent) = area.revalidate()
             })
@@ -870,6 +941,11 @@ class ChatPanel @JvmOverloads constructor(
         }
 
         override fun clear() = onClear()
+
+        override val projectDir: java.nio.file.Path?
+            get() = project.basePath?.let { java.nio.file.Path.of(it) }
+
+        override fun attachImage(image: ImageAttachment): Boolean = attach(image)
 
         override fun openSettings() = openSettingsPage()
 
@@ -1021,19 +1097,25 @@ class ChatPanel @JvmOverloads constructor(
         }
         if (running) return
         val text = SlashCommands.plainText(raw).trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() && pending.isEmpty()) return
         val info = selectedModelOrError() ?: return
+        if (pending.isNotEmpty() && !visionOk(info)) {
+            statusLabel.text = "${info.displayName} does not accept images; remove the attachments or pick a vision model"
+            return
+        }
+        val images = pending.toList()
         inputArea.text = ""
+        clearAttachments()
         history.stopBrowsing()
-        startSend(text, info)
+        startSend(text, info, images)
     }
 
-    private fun startSend(text: String, info: ModelInfo) {
-        addMessage("user", text)
+    private fun startSend(text: String, info: ModelInfo, images: List<ImageAttachment> = emptyList()) {
+        addMessage("user", text, images)
         val initialArea = addMessage("assistant", "")
         setBusy(true)
         statusLabel.text = " "
-        session.send(text, info.ref, chatListener(initialArea))
+        session.send(text, info.ref, chatListener(initialArea), images)
     }
 
     private class SendState(var deltaArea: JTextArea?) {
