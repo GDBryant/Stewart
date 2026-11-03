@@ -32,11 +32,14 @@ class DebugLogSinkTest {
         DebugLogSink.configure(previousEnabled, previousDirectory)
     }
 
+    /** Waits for a log file that already has content; the sink creates the file before its first write. */
     private fun awaitFile(folder: Path = dir): Path {
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {
             if (Files.isDirectory(folder)) {
-                Files.list(folder).use { it.toList() }.firstOrNull()?.let { return it }
+                Files.list(folder).use { it.toList() }
+                    .firstOrNull { Files.isRegularFile(it) && Files.size(it) > 0 }
+                    ?.let { return it }
             }
             Thread.sleep(10)
         }
