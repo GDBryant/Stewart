@@ -315,8 +315,12 @@ class ChatSessionTest : BasePlatformTestCase() {
         }
     }
 
-    private fun recordingProvider(requests: MutableList<ChatRequest>) = object : ModelProvider {
+    private fun recordingProvider(
+        requests: MutableList<ChatRequest>,
+        vision: (String) -> Boolean = { true },
+    ) = object : ModelProvider {
         override val id = "fake"
+        override fun supportsImages(model: String) = vision(model)
         override suspend fun listModels(): List<ModelInfo> = emptyList()
         override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
             requests += request
@@ -358,6 +362,65 @@ class ChatSessionTest : BasePlatformTestCase() {
         val job = session.send("look", ModelRef("fake", "m"), listener, listOf(img))
         runUntilIdle { job.isCompleted }
         assertEquals(listOf(img), requests.first().messages.last { it.role == Role.USER }.images)
+        assertEquals(listOf(img), session.transcript[0].images)
+    }
+
+    fun `test non vision model gets placeholders but the transcript keeps images`() {
+        val session = newSession()
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests) { false }) }
+        val listener = RecordingListener()
+        session.send("look", ModelRef("fake", "m"), listener, listOf(img))
+        assertTrue(pumpUntil(listener.completed))
+        val sent = requests.first().messages.last { it.role == Role.USER }
+        assertTrue(sent.images.isEmpty())
+        assertTrue(sent.content.contains("[image: a.png]"))
+        assertEquals(listOf(img), session.transcript[0].images)
+        assertEquals("look", session.transcript[0].content)
+    }
+
+    fun `test vision model keeps images in the request`() {
+        val session = newSession()
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests) { true }) }
+        val listener = RecordingListener()
+        session.send("look", ModelRef("fake", "m"), listener, listOf(img))
+        assertTrue(pumpUntil(listener.completed))
+        val sent = requests.first().messages.last { it.role == Role.USER }
+        assertEquals(listOf(img), sent.images)
+        assertEquals("look", sent.content)
+    }
+
+    fun `test switching vision to text only and back resends the history images`() {
+        val session = newSession()
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests) { it == "v" }) }
+        val l1 = RecordingListener()
+        session.send("look", ModelRef("fake", "v"), l1, listOf(img))
+        assertTrue(pumpUntil(l1.completed))
+        val l2 = RecordingListener()
+        session.send("more", ModelRef("fake", "t"), l2)
+        assertTrue(pumpUntil(l2.completed))
+        val textOnly = requests.last().messages.first { it.role == Role.USER }
+        assertTrue(textOnly.images.isEmpty())
+        assertTrue(textOnly.content.contains("[image: a.png]"))
+        val l3 = RecordingListener()
+        session.send("again", ModelRef("fake", "v"), l3)
+        assertTrue(pumpUntil(l3.completed))
+        assertEquals(listOf(img), requests.last().messages.first { it.role == Role.USER }.images)
+    }
+
+    fun `test orchestrated non vision level gets placeholders`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val requests = mutableListOf<ChatRequest>()
+        session.providers = { listOf(recordingProvider(requests) { false }) }
+        val listener = RecordingListener()
+        val job = session.send("look", ModelRef("fake", "m"), listener, listOf(img))
+        runUntilIdle { job.isCompleted }
+        val sent = requests.first().messages.last { it.role == Role.USER }
+        assertTrue(sent.images.isEmpty())
+        assertTrue(sent.content.contains("[image: a.png]"))
         assertEquals(listOf(img), session.transcript[0].images)
     }
 

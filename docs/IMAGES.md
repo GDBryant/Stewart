@@ -48,6 +48,7 @@ All routes build an `ImageAttachment` (`chat/ImageAttachment.kt`) via `ImageLoad
 - Ollama: `vision` in model capabilities (`/api/tags`, else `/api/show`); unknown means no images.
 - Claude: all models.
 - AIF: name heuristic `AifVision.NAME_HINTS` (letter-boundary match), plus the Settings "Vision models" override stored as `aif/<id>`.
+- History images are replaced by `[image: name]` text for non-vision models at request time (`chat/ImageStripping.kt`, applied in `RoleRouting.routeFor`); the stored transcript keeps them, so switching back to a vision model resends them.
 - Multi-model mode checks the planner model. A blocked send keeps the attachments and shows a status message.
 
 ## Persistence

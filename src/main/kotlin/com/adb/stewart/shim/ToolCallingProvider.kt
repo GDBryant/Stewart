@@ -30,6 +30,8 @@ class ToolCallingProvider(
 
     override fun supportsNativeTools(model: String): Boolean = inner.supportsNativeTools(model)
 
+    override fun supportsImages(model: String): Boolean = inner.supportsImages(model)
+
     override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
         val offered = try {
             RequestTranslator.offeredTools(request)

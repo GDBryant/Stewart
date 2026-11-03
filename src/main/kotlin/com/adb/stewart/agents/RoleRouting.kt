@@ -1,5 +1,6 @@
 package com.adb.stewart.agents
 
+import com.adb.stewart.chat.ImageStrippingProvider
 import com.adb.stewart.provider.ModelProvider
 import com.adb.stewart.provider.ModelRef
 import com.adb.stewart.settings.ToolPathResolver
@@ -47,7 +48,7 @@ object RoleRouting {
     ): LevelRoute? {
         val provider = providers.firstOrNull { it.id == ref.providerId } ?: return null
         val path = ToolPathResolver.resolve(ref, provider, toolPathOverrides)
-        return LevelRoute(ref, ToolCallingProvider(provider, path))
+        return LevelRoute(ref, ToolCallingProvider(ImageStrippingProvider(provider), path))
     }
 
     /** Every level bound to the same route. */
