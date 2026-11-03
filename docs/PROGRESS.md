@@ -43,6 +43,8 @@ Milestone status against `docs/PLAN.md`. Update on every milestone commit.
 
 - Stewart rename (`rename-stewart` branch, plan `docs/RENAME_PLAN.md`): v0.2.0, plugin id `com.adb.stewart`, package `com.adb.stewart`, name Stewart, vendor ADB, zip `stewart-<ver>.zip`; one-shot legacy migration on first load of AIJB settings (`aijb-assistant.xml`), permissions (`aijb-permissions.xml`), AIF API key (Password Safe) and chat history (old data kept).
 
+- Image attachments (branch `feature/image-attachments`, commits `f153c53`..HEAD, plan `docs/superpowers/plans/2026-11-03-image-attachments.md`): paste, drop, 📎 and `/image` attach up to 5 images per message; per-provider wire formats (Ollama, AIF, Claude stream-json); per-model vision gate; images persisted beside chat history. Full suite and `koverVerify` run by controller at end. Manual `runIde` check pending. Docs: `docs/IMAGES.md`.
+
 ## Requested follow-ups (not started)
 
 From `docs/todo.txt` (details and acceptance criteria in `docs/PLAN.md` → Open Items / Requested follow-ups):
