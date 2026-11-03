@@ -126,7 +126,7 @@ class HistoryAndFormatTest {
     @Test
     fun `pruneExpired with zero days removes all image dirs`() {
         store.save(listOf(ChatMessage(Role.USER, "y", images = listOf(jpg))), null)
-        ChatHistoryStore.pruneExpired(file.parent, 0)
+        ChatHistoryStore.pruneExpired(file.parent, 0, now = System.currentTimeMillis() + 60_000)
         assertFalse(Files.exists(imagesDir()))
     }
 
@@ -256,8 +256,7 @@ class HistoryAndFormatTest {
     @Test
     fun `pruneExpired with zero days clears everything and tolerates a missing dir`() {
         store.save(messages, null)
-        Thread.sleep(5)
-        ChatHistoryStore.pruneExpired(file.parent, 0)
+        ChatHistoryStore.pruneExpired(file.parent, 0, now = System.currentTimeMillis() + 60_000)
         assertFalse(Files.exists(file))
         ChatHistoryStore.pruneExpired(dir.resolve("nope"), 30)
     }
