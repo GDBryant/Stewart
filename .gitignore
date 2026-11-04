@@ -13,3 +13,4 @@ bin/
 log/
 debug_logs/
 *.log
+.stewart/scratch/

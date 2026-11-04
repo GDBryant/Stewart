@@ -1,0 +1,16 @@
+for questions, use a question-tool that gives options that can be clicked to select, with an option to type your own answer.
+
+
+We want to rewrite this plugin from scratch using most of the built in functionality but we want a better way of enabling- and selecting different model channels (e.g. Claude, AI Factory, OpenAI Compatible), and the ability to add channels (like adding 2 openAI Compatible for different roles with different models). So for multiple roles we can add an agent for each role, but it could also be repeated channels with different models selected (e.g. nvidia end points using openAI compatible API and use different models from that channel for different AI "Roles" in our plugin.
+
+Ensure that this plugin will be compatible with JetBrains IDE's and VS Code.
+
+Plan a set of roles that can be enabled (tickboxs) where agents can be assigned to those roles. 
+We need an orchestrator; planner; plan validator; investigater; general worker; code writer; architect; document writer; image reader; image writer; etc. 
+We need specific (default) skills that are applied to the different roles. This should be set up with defaults and user-editable. So all the AI skills are files in a config folder and can be assigned to the different roles.
+
+Typically, an orchestrator is a fast low-cost model that has a dedicated role to orchestrate the request, assigning all the work from investigations to planning to design to writing docs, analysing input and output - all of those tasks are done by different roles, as assigned in the config.
+We will need defaults and full explanation with ticked skills for each of the roles.
+We will need a button to reset a role to the default, or to set all the roles to the default agent.
+
+Include all the relevant findings and plannings and build docs from the docs folder and keep those that align with the new strategy, throwing out what is defunct and n/a anymore.
