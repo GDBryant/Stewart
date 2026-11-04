@@ -1,6 +1,7 @@
 package com.adb.stewart
 
 import com.adb.stewart.chat.ContextCompactor
+import com.adb.stewart.debug.DebugLogSink
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.ChatRequest
 import com.adb.stewart.provider.ModelInfo
@@ -10,6 +11,7 @@ import com.adb.stewart.provider.RawToolCall
 import com.adb.stewart.provider.Role
 import com.adb.stewart.provider.ToolCall
 import com.adb.stewart.provider.ToolSpec
+import com.adb.stewart.provider.Usage
 import com.adb.stewart.tools.ApprovalDecision
 import com.adb.stewart.tools.ApprovalGate
 import com.adb.stewart.tools.LoopListener
@@ -199,6 +201,59 @@ class ToolLoopTest {
         assertEquals("partial", r.messages[0].content)
     }
 
+    private fun truncatedLog(usage: Usage?, expectLog: Boolean): String {
+        val dir = java.nio.file.Files.createTempDirectory("stewart-trunc-")
+        val prevEnabled = DebugLogSink.isEnabled
+        val prevDir = DebugLogSink.logDirectory
+        try {
+            DebugLogSink.configure(true, dir.toString())
+            val r = run(ProviderEvent.TextDelta("partial"), ProviderEvent.Completed("length", usage), tools = listOf(tool()))
+            assertEquals("truncated", (r as LoopResult.Failed).code)
+            fun read() = java.nio.file.Files.list(dir).use { it.toList() }
+                .joinToString("\n") { java.nio.file.Files.readString(it) }
+            // The sink writes on a background thread; wait for content (or give up for the negative case).
+            val deadline = System.currentTimeMillis() + (if (expectLog) 10_000 else 300)
+            while (System.currentTimeMillis() < deadline && read().isEmpty()) Thread.sleep(10)
+            DebugLogSink.flush()
+            return read()
+        } finally {
+            DebugLogSink.flushAndClose()
+            DebugLogSink.configure(prevEnabled, prevDir)
+        }
+    }
+
+    @Test
+    fun `truncated failure logs prompt tokens when usage has them`() {
+        val log = truncatedLog(Usage(promptTokens = 4321, completionTokens = 9), true)
+        assertTrue(log, log.contains("response truncated (length): prompt_tokens=4321"))
+    }
+
+    @Test
+    fun `truncated failure logs nothing without prompt tokens`() {
+        assertEquals("", truncatedLog(null, false))
+        assertEquals("", truncatedLog(Usage(promptTokens = null, completionTokens = 9), false))
+    }
+
+    @Test
+    fun `non truncated failure writes no prompt tokens log line`() {
+        val dir = java.nio.file.Files.createTempDirectory("stewart-rl-")
+        val prevEnabled = DebugLogSink.isEnabled
+        val prevDir = DebugLogSink.logDirectory
+        try {
+            DebugLogSink.configure(true, dir.toString())
+            val r = run(ProviderEvent.Failed("slow down", code = "rate_limit"), tools = listOf(tool()))
+            assertEquals("rate_limit", (r as LoopResult.Failed).code)
+            Thread.sleep(300)
+            DebugLogSink.flush()
+            val log = java.nio.file.Files.list(dir).use { it.toList() }
+                .joinToString("\n") { java.nio.file.Files.readString(it) }
+            assertTrue(log, !log.contains("prompt_tokens"))
+        } finally {
+            DebugLogSink.flushAndClose()
+            DebugLogSink.configure(prevEnabled, prevDir)
+        }
+    }
+
     @Test
     fun `turn limit reached`() {
         val t = tool { "x" }
@@ -206,6 +261,42 @@ class ToolLoopTest {
             ProviderEvent.ToolCalls(listOf(call())), ProviderEvent.Completed("tool_calls", null),
             tools = listOf(t), limits = LoopLimits(maxModelTurns = 1))
         assertTrue(r is LoopResult.TurnLimitReached)
+    }
+
+    @Test
+    fun `resumed run continues and history is valid`() {
+        val t = tool { "x" }
+        val limit = LoopLimits(maxModelTurns = 1)
+        val first = runBlocking {
+            ToolLoop(Fake(ProviderEvent.ToolCalls(listOf(call())), ProviderEvent.Completed("tool_calls", null)),
+                ToolRegistry(listOf(t)), approve(), limit)
+                .run("m", listOf(ChatMessage(Role.USER, "go")), object : LoopListener {})
+        } as LoopResult.TurnLimitReached
+        val resumed = first.base + first.messages
+        val callIds = resumed.flatMap { it.toolCalls }.map { it.id }
+        val resultIds = resumed.filter { it.role == Role.TOOL }.map { it.toolCallId }
+        assertEquals(callIds, resultIds)
+        val provider = Scripted(listOf(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null)))
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(t)), approve(), limit).run("m", resumed, object : LoopListener {})
+        }
+        assertTrue(r is LoopResult.Completed)
+        assertEquals(resumed, r.base)
+        assertEquals("done", r.messages.last().content)
+    }
+
+    @Test
+    fun `resumed run hits limit again with fresh budget`() {
+        val t = tool { "x" }
+        val provider = Scripted(
+            listOf(ProviderEvent.ToolCalls(listOf(call(id = "n1"))), ProviderEvent.Completed("tool_calls", null)))
+        val hist = listOf(ChatMessage(Role.USER, "go"),
+            ChatMessage(Role.ASSISTANT, "", toolCalls = listOf(call())), ChatMessage(Role.TOOL, "x", toolCallId = "c1"))
+        val r = runBlocking {
+            ToolLoop(provider, ToolRegistry(listOf(t)), approve(), LoopLimits(maxModelTurns = 1)).run("m", hist, object : LoopListener {})
+        }
+        assertTrue(r is LoopResult.TurnLimitReached)
+        assertEquals(2, r.messages.size)
     }
 
     @Test

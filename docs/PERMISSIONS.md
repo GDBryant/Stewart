@@ -62,3 +62,9 @@ Every auto-approved call writes a `DebugLogSink` record (`auto-approve`, tool na
 Application-level `stewart-permissions.xml` maps `project.locationHash` → path, ticks, programs. It lives in the IDE config dir but is `SettingsCategory.SYSTEM`, so Settings Sync and export skip it — a location hash is meaningless on another machine.
 
 Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `stewart-permissions.xml` (old file kept); see `docs/RENAME_PLAN.md`.
+
+## Scratch auto-approval
+
+- `WriteFile` and `EditFile` strictly inside the current run's registered scratch task dir (`.stewart/scratch/<runId>/task-<m>-<t>/`) are auto-approved. Registration lasts from split start until the task finishes.
+- Everything else, including `final_file`, uses normal approval. Bypass and grants apply as usual.
+- Code: `ScratchApprovalGate` in `agents/Scratch.kt`. See `docs/FAULT_RECOVERY.md`.

@@ -805,6 +805,48 @@ class ChatPanelTest : BasePlatformTestCase() {
         assertEquals("Send", panel.sendButton.text)
     }
 
+    fun `test turn limit question is shown and withdrawn on timeout`() {
+        session.tools = { com.adb.stewart.tools.ToolRegistry(listOf(object : com.adb.stewart.tools.Tool {
+            override val spec = com.adb.stewart.provider.ToolSpec("t", "d", kotlinx.serialization.json.JsonObject(emptyMap()))
+            override val requiresApproval = false
+            override suspend fun execute(arguments: kotlinx.serialization.json.JsonObject, preview: com.adb.stewart.tools.ToolPreview?) = "ok"
+        })) }
+        session.approval = com.adb.stewart.tools.ApprovalGate { _, _ -> com.adb.stewart.tools.ApprovalDecision.Approved }
+        session.askOnTurnLimit = { true }
+        session.continueQuestionTimeout = { kotlin.time.Duration.parse("1500ms") }
+        var n = 0
+        val looping = object : ModelProvider {
+            override val id = "fake"
+            override suspend fun listModels(): List<ModelInfo> = listOf(ModelInfo(ModelRef("fake", "m1"), "m1"))
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+                emit(ProviderEvent.NativeToolCalls(listOf(com.adb.stewart.provider.RawToolCall("c${n++}", "t", "{}"))))
+                emit(ProviderEvent.Completed("tool_calls", null))
+            }
+        }
+        val panel = newPanel(looping)
+        panel.inputArea.text = "go"
+        panel.sendButton.doClick()
+        assertTrue(pumpUntil { panel.questionPanel != null })
+        assertEquals(listOf("Continue (+25 turns)", "Stop this task"), panel.questionButtons.map { it.text })
+        assertTrue(pumpUntil { panel.questionPanel == null })
+        assertTrue(pumpUntil { panel.sendButton.text == "Send" })
+    }
+
+    fun `test recovering shows the detail in the status line`() {
+        val panel = newPanel(fakeProvider(events = flow { }))
+        panel.chatListener().onRecovering(com.adb.stewart.agents.FaultKind.TRUNCATED, "Output limit hit, splitting task…", 0)
+        assertEquals("Output limit hit, splitting task…", panel.statusLabel.text)
+        panel.chatListener().onRecovering(com.adb.stewart.agents.FaultKind.TURN_LIMIT, "Continuing task (+25 turns)…", 1)
+        assertEquals("Continuing task (+25 turns)…", panel.statusLabel.text)
+    }
+
+    fun `test status line is untouched when nothing recovers`() {
+        val panel = newPanel(fakeProvider(events = flow { }))
+        panel.statusLabel.text = "idle"
+        panel.chatListener().onQuestionWithdrawn()
+        assertEquals(" ", panel.statusLabel.text)
+    }
+
     private fun enter(panel: ChatPanel) {
         val enter = KeyEvent(
             panel.inputArea, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ENTER, '\n',

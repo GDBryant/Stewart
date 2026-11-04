@@ -86,3 +86,7 @@ rather than success.
 ## Ollama live check (2026-10-31)
 
 Local Ollama 0.32.15 (`localhost:11434`): `POST /api/show` for `north-mini-code-1.0:latest` returns `completion`/`tools`/`thinking`; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` (object args, upstream `id` present), `done:true`+`done_reason:"stop"`. Native tools implemented in `OllamaProvider`; localhost `HttpServer` fixture tests cover the protocol, `OllamaToolsE2ETest` covers read→approved edit→approved command end-to-end. Gated `OllamaLiveTest`/`OllamaEditLiveTest` native runs require `OLLAMA_LIVE=1`. 2026-10-31 live run on `north-mini-code-1.0:latest`: all four gated tests passed (models+stream, native tool round trip, shim write/edit, native write/edit).
+
+## Ollama `num_ctx` and VRAM
+
+Settings > Ollama context window (`model=tokens`) sends `options.num_ctx` per model; without an entry the server default applies. The KV cache grows with `num_ctx`, so a larger window uses more VRAM (and spills to slower CPU/RAM when it no longer fits). Raise it only as far as the GPU allows.

@@ -33,6 +33,8 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Rename plan: `docs/RENAME_PLAN.md` — AIJB Assistant → Stewart name map, persisted-key migration, steps, verification.
 - Chat UX plan: `docs/superpowers/plans/2026-11-02-chat-ux.md` — right-aligned user bubbles, busy/active-role label, collapsible tool rows, Up/Down prompt recall.
 - Images: `docs/IMAGES.md` — image attachments (paste/drop/picker//image), provider wire formats, vision gate, persistence, known gaps.
+- Fault recovery spec: `docs/superpowers/specs/2026-11-04-fault-recovery-design.md` — num_ctx per model, adjustable worker turn budgets, turn-limit continue question, split recovery, scratch dir.
+- Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 
 ## Conventions
 - Stack: Kotlin, Gradle IntelliJ / PyCharm Platform Plugin.

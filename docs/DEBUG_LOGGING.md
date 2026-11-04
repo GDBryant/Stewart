@@ -27,6 +27,8 @@ One line per event, appended to a UTC-daily file (`yyyy-MM-dd.log`):
 Directions: `outgoing` (request payload / Claude stdin), `incoming` (response chunk),
 `stderr` (Claude CLI stderr), `error` (HTTP error body, connection failure, incomplete stream).
 
+Ollama `outgoing` payloads are prefixed `num_ctx=<N|default> ` before the request JSON.
+
 Payloads are single-line: `\`, CR, LF and TAB are escaped.
 
 ## Redaction

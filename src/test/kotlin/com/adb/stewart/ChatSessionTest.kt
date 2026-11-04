@@ -69,9 +69,20 @@ class ChatSessionTest : BasePlatformTestCase() {
         }
 
         val questions = mutableListOf<Pair<String, List<String>>>()
+        @Volatile var withdrawn = 0
+
+        override fun onQuestionWithdrawn() {
+            withdrawn++
+        }
 
         override fun onQuestion(question: String, options: List<String>) {
             questions += question to options
+        }
+
+        val recovering = mutableListOf<Triple<com.adb.stewart.agents.FaultKind, String, Int>>()
+
+        override fun onRecovering(kind: com.adb.stewart.agents.FaultKind, detail: String, depth: Int) {
+            recovering += Triple(kind, detail, depth)
         }
 
         val toolCalls = mutableListOf<String>()
@@ -135,6 +146,7 @@ class ChatSessionTest : BasePlatformTestCase() {
         ChatSession(project, scope).also {
             it.tools = { ToolRegistry(emptyList()) }
             it.roleModels = { AgentRole.entries.associateWith { ModelRef("fake", "m") } }
+            it.askOnTurnLimit = { false }
         }
 
     private fun pumpUntil(latch: CountDownLatch, timeoutMs: Long = 10_000): Boolean {
@@ -617,6 +629,40 @@ class ChatSessionTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test orchestrator recovery is passed to the listener`() {
+        val session = newSession()
+        session.multiModel = { true }
+        val inner = levelRouted()
+        var first = true
+        val flaky = object : ModelProvider by inner {
+            override fun chat(request: ChatRequest): Flow<ProviderEvent> {
+                if (first) {
+                    first = false
+                    return flow { emit(ProviderEvent.Failed("boom", code = "incomplete_stream")) }
+                }
+                return inner.chat(request)
+            }
+        }
+        session.providers = { listOf(flaky) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertEquals(
+            listOf(Triple(com.adb.stewart.agents.FaultKind.INCOMPLETE_STREAM, "Stream dropped, retrying…", 0)),
+            listener.recovering,
+        )
+    }
+
+    fun `test orchestrated run without a fault reports no recovery`() {
+        val session = newSession()
+        session.multiModel = { true }
+        session.providers = { listOf(levelRouted()) }
+        val listener = RecordingListener()
+        session.send("hi", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.completed))
+        assertTrue(listener.recovering.isEmpty())
+    }
+
     fun `test multi model runs orchestrator end to end`() {
         val session = newSession()
         session.multiModel = { true }
@@ -801,6 +847,120 @@ class ChatSessionTest : BasePlatformTestCase() {
         session.send("go", ModelRef("fake", "m"), listener)
         assertTrue(pumpUntil(listener.failed))
         assertEquals("Stopped: tool-turn limit reached (25)", listener.failure)
+    }
+
+    // --- turn-limit question (plain chat) ---
+
+    private val doneTurn = listOf<ProviderEvent>(ProviderEvent.TextDelta("done"), ProviderEvent.Completed("stop", null))
+
+    private fun toolTurns(n: Int) = (1..n).map {
+        listOf<ProviderEvent>(
+            ProviderEvent.NativeToolCalls(listOf(com.adb.stewart.provider.RawToolCall("c$it", "t", "{}"))),
+            ProviderEvent.Completed("tool_calls", null),
+        )
+    }.plus<List<ProviderEvent>>(listOf(doneTurn)).toTypedArray()
+
+    private fun limitSession(provider: ModelProvider): ChatSession {
+        val session = newSession()
+        session.tools = { ToolRegistry(listOf(fakeTool())) }
+        session.approval = ApprovalGate { _, _ -> ApprovalDecision.Approved }
+        session.askOnTurnLimit = { true }
+        session.continueQuestionTimeout = { kotlin.time.Duration.ZERO }
+        session.providers = { listOf(provider) }
+        return session
+    }
+
+    private val limitStop = "Stopped: tool-turn limit reached (25)"
+
+    fun `test turn limit asks continue or stop and continue completes`() {
+        val provider = scripted("fake", *toolTurns(30))
+        val session = limitSession(provider)
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        assertEquals(listOf("Continue (+25 turns)", "Stop this task"), listener.questions[0].second)
+        assertFalse(listener.questions[0].first.contains("Split"))
+        assertTrue(session.answerQuestion("Continue (+25 turns)"))
+        assertTrue(pumpUntil(listener.completed))
+        assertNull(listener.failure)
+        assertEquals(31, provider.calls)
+        assertEquals(1, listener.questions.size)
+    }
+
+    fun `test plain chat turn limit question uses its own wording`() {
+        val session = limitSession(scripted("fake", *toolTurns(30)))
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        val q = listener.questions[0].first
+        assertTrue(q, q.startsWith("Hit the tool-turn limit (25) on: \"go\"."))
+        assertFalse(q, q.contains("Worker hit"))
+        assertFalse(q, q.contains("task chat"))
+        session.cancel()
+    }
+
+    fun `test turn limit free text reaches the model and resumes`() {
+        val provider = scripted("fake", *toolTurns(26))
+        val session = limitSession(provider)
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        assertTrue(session.answerQuestion("focus on tests"))
+        assertTrue(pumpUntil(listener.completed))
+        val last = provider.requests.last()
+        assertTrue(last.messages.any { it.role == Role.USER && it.content.contains("focus on tests") })
+        assertTrue(session.transcript.any { it.role == Role.USER && it.content == "focus on tests" })
+    }
+
+    fun `test turn limit stop answer gives today's message`() {
+        val session = limitSession(scripted("fake", *toolTurns(30)))
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntilCond { listener.questions.isNotEmpty() })
+        assertTrue(session.answerQuestion("Stop this task"))
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals(limitStop, listener.failure)
+        assertEquals("turn_limit", listener.failureCode)
+        assertEquals(0, listener.withdrawn)
+    }
+
+    fun `test turn limit question timeout withdraws and stops`() {
+        val session = limitSession(scripted("fake", *toolTurns(30)))
+        session.continueQuestionTimeout = { kotlin.time.Duration.parse("200ms") }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals(1, listener.questions.size)
+        assertEquals(1, listener.withdrawn)
+        assertEquals(limitStop, listener.failure)
+        assertFalse(session.answerQuestion("too late"))
+    }
+
+    fun `test turn limit with setting off asks nothing`() {
+        val session = limitSession(scripted("fake", *toolTurns(30)))
+        session.askOnTurnLimit = { false }
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        assertTrue(pumpUntil(listener.failed))
+        assertEquals(limitStop, listener.failure)
+        assertTrue(listener.questions.isEmpty())
+    }
+
+    fun `test turn limit continuations are capped at two`() {
+        val session = limitSession(scripted("fake", *toolTurns(100)))
+        val listener = RecordingListener()
+        session.send("go", ModelRef("fake", "m"), listener)
+        var answered = 0
+        val deadline = System.currentTimeMillis() + 15_000
+        while (listener.failed.count > 0 && System.currentTimeMillis() < deadline) {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            if (listener.questions.size > answered && session.answerQuestion("Continue (+25 turns)")) answered++
+            Thread.sleep(20)
+        }
+        assertEquals(0, listener.failed.count)
+        assertEquals(2, answered)
+        assertEquals(2, listener.questions.size)
+        assertEquals(limitStop, listener.failure)
     }
 
     // --- M8: error codes, cancellation transcript, usage totals, persistence ---

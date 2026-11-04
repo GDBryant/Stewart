@@ -4,8 +4,12 @@ import com.adb.stewart.agents.AgentRole
 import com.adb.stewart.agents.DispatchTask
 import com.adb.stewart.agents.OrchestrationResult
 import com.adb.stewart.agents.Orchestrator
+import com.adb.stewart.agents.OrchestratorLimits
 import com.adb.stewart.agents.OrchestratorListener
 import com.adb.stewart.agents.UserPrompter
+import com.adb.stewart.agents.continueOptions
+import com.adb.stewart.agents.continueQuestionText
+import com.adb.stewart.agents.detectStuck
 import com.adb.stewart.agents.Plan
 import com.adb.stewart.agents.RoleRouting
 import com.adb.stewart.agents.RoutingResult
@@ -38,6 +42,8 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -46,6 +52,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 interface ChatListener {
@@ -66,6 +73,10 @@ interface ChatListener {
     fun onToolOutcome(call: ToolCall, outcome: ToolOutcome) {}
     /** The Planner asked a question; the run blocks until [ChatSession.answerQuestion] or cancel. */
     fun onQuestion(question: String, options: List<String>) {}
+    /** The pending question timed out unanswered; clear its UI. */
+    fun onQuestionWithdrawn() {}
+    /** Orchestrator fault recovery in progress; [detail] is the status line text. */
+    fun onRecovering(kind: com.adb.stewart.agents.FaultKind, detail: String, depth: Int) {}
 }
 
 @Service(Service.Level.PROJECT)
@@ -76,9 +87,21 @@ class ChatSession(
 
     var providers: () -> List<ModelProvider> = { ProviderRegistry.getInstance().providers() }
     var autoCompactTokens: () -> Int = { StewartSettings.getInstance().state.autoCompactTokens }
+    var workerTurnsCeiling: () -> Int = { StewartSettings.getInstance().state.maxWorkerTurnsCeiling }
+    var askOnTurnLimit: () -> Boolean = { StewartSettings.getInstance().state.askOnTurnLimit }
+    var continueQuestionTimeoutMinutes: () -> Int = { StewartSettings.getInstance().state.continueQuestionTimeoutMinutes }
+    /** Wait for a turn-limit answer; zero waits forever. Overridable in tests. */
+    internal var continueQuestionTimeout: () -> Duration =
+        { continueQuestionTimeoutMinutes().coerceAtLeast(0).toLong().minutes }
     var multiModel: () -> Boolean = { StewartSettings.getInstance().state.multiModel }
     var toolPathOverrides: () -> Map<String, String> = {
         StewartSettings.getInstance().state.toolPathOverrides
+    }
+    /** Retention (days) for old scratch run dirs: the debug-log retention; 0 keeps everything. */
+    var debugLogRetentionDays: () -> Int = { StewartSettings.getInstance().state.debugLogRetentionDays }
+    /** Scratch space for orchestrator splits; null when the project has no base path. */
+    var scratch: () -> com.adb.stewart.agents.Scratch? = {
+        project.basePath?.let { runCatching { com.adb.stewart.agents.Scratch(java.nio.file.Path.of(it)) }.getOrNull() }
     }
     var tools: () -> ToolRegistry = {
         ProjectTools.registry(project, StewartSettings.getInstance().state.toolsEnabled)
@@ -246,13 +269,25 @@ class ChatSession(
                     val loop = ToolLoop(
                         route.provider, tools(), approval,
                         LoopLimits(
-                            maxModelTurns = 25,
+                            maxModelTurns = TURN_LIMIT,
                             toolTimeout = 120.seconds,
                             compactAtTokens = autoCompactTokens(),
                         ),
                         compactor,
                     )
-                    val result = loop.run(ref.modelId, history, loopListener, lastPromptTokens)
+                    var loopResult = loop.run(ref.modelId, history, loopListener, lastPromptTokens)
+                    var continuations = 0
+                    while (loopResult is LoopResult.TurnLimitReached &&
+                        continuations < MAX_CONTINUATIONS && askOnTurnLimit()
+                    ) {
+                        commitIfActive(thisJob, loopResult.transcript)
+                        val decision = askToContinue(loopResult.messages, text, listener) ?: break
+                        continuations++
+                        addUsage(loopResult.usage)
+                        val added = decision.text?.let { listOf(ChatMessage(Role.USER, it)) } ?: emptyList()
+                        loopResult = loop.run(ref.modelId, loopResult.transcript + added, loopListener, lastPromptTokens)
+                    }
+                    val result = loopResult
                     when (result) {
                         is LoopResult.Completed -> {
                             var t = result.transcript
@@ -391,6 +426,9 @@ class ChatSession(
                 synchronized(lock) { pendingAnswer = CompletableDeferred() }
                 toEdt { listener.onQuestion(question, options) }
             }
+            override fun onQuestionWithdrawn() = toEdt { listener.onQuestionWithdrawn() }
+            override fun onRecovering(kind: com.adb.stewart.agents.FaultKind, detail: String, depth: Int) =
+                toEdt { listener.onRecovering(kind, detail, depth) }
             override fun onPlan(plan: Plan) {}
             override fun onTasks(taskRound: Int, tasks: List<DispatchTask>) {}
             override fun onResult(result: WorkerResult) {}
@@ -406,7 +444,14 @@ class ChatSession(
             routes = routes,
             projectTools = { tools() },
             approval = approval,
+            limits = OrchestratorLimits(
+                maxWorkerTurnsCeiling = StewartSettings.clampWorkerTurnsCeiling(workerTurnsCeiling()),
+                askOnTurnLimit = askOnTurnLimit(),
+                continueQuestionTimeout = continueQuestionTimeout(),
+            ),
             compactAtTokens = autoCompactTokens(),
+            scratch = scratch(),
+            scratchRetentionDays = debugLogRetentionDays(),
             prompter = UserPrompter { _, _ ->
                 val pending = checkNotNull(synchronized(lock) { pendingAnswer }) { "no pending question" }
                 try {
@@ -436,6 +481,42 @@ class ChatSession(
         }
     }
 
+    /** [text] is a free-text reply to pass on as a user message; null means plain Continue. */
+    private class ContinueDecision(val text: String?)
+
+    /** Asks Continue/Stop at the turn limit; null means stop (Stop, blank answer or timeout). */
+    private suspend fun askToContinue(
+        messages: List<ChatMessage>,
+        prompt: String,
+        listener: ChatListener,
+    ): ContinueDecision? {
+        val stuck = detectStuck(messages)
+        val options = continueOptions(stuck != null, TURN_LIMIT, withSplit = false)
+        val question = continueQuestionText(TURN_LIMIT, "chat", prompt, messages, stuck, TURN_LIMIT, withSplit = false, plainChat = true)
+        val pending = CompletableDeferred<String>()
+        // Registered before the UI hears of it, so an immediate answer cannot be lost.
+        synchronized(lock) { pendingAnswer = pending }
+        toEdt { listener.onQuestion(question, options) }
+        val timeout = continueQuestionTimeout()
+        val answer = try {
+            if (timeout <= Duration.ZERO) pending.await() else withTimeoutOrNull(timeout) { pending.await() }
+        } finally {
+            synchronized(lock) { if (pendingAnswer === pending) pendingAnswer = null }
+        }
+        if (answer == null) {
+            toEdt { listener.onQuestionWithdrawn() }
+            return null
+        }
+        val t = answer.trim()
+        val matched = options.firstOrNull { it.equals(t, ignoreCase = true) }
+        return when {
+            matched == null && t.isEmpty() -> null
+            matched == null -> ContinueDecision(t)
+            matched.startsWith("Continue") -> ContinueDecision(null)
+            else -> null
+        }
+    }
+
     /** Delivers the user's reply to the Planner's pending question; false when none is waiting. */
     fun answerQuestion(answer: String): Boolean =
         synchronized(lock) { pendingAnswer }?.complete(answer) ?: false
@@ -450,6 +531,8 @@ class ChatSession(
     }
 
     companion object {
+        private const val TURN_LIMIT = 25
+        private const val MAX_CONTINUATIONS = 2
         const val CANCEL_MARKER = "[Cancelled by user]"
         private val LOG = Logger.getInstance(ChatSession::class.java)
 

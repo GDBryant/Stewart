@@ -136,6 +136,46 @@ class StewartSettingsTest {
     }
 
     @Test
+    fun `new limit settings have spec defaults`() {
+        val s = StewartSettings.State()
+        assertEquals(emptyMap<String, String>(), s.ollamaNumCtx)
+        assertEquals(60, s.maxWorkerTurnsCeiling)
+        assertEquals(true, s.askOnTurnLimit)
+        assertEquals(5, s.continueQuestionTimeoutMinutes)
+    }
+
+    @Test
+    fun `worker turn ceiling clamps to 5 through 200`() {
+        assertEquals(5, StewartSettings.clampWorkerTurnsCeiling(-10))
+        assertEquals(5, StewartSettings.clampWorkerTurnsCeiling(4))
+        assertEquals(5, StewartSettings.clampWorkerTurnsCeiling(5))
+        assertEquals(60, StewartSettings.clampWorkerTurnsCeiling(60))
+        assertEquals(200, StewartSettings.clampWorkerTurnsCeiling(200))
+        assertEquals(200, StewartSettings.clampWorkerTurnsCeiling(201))
+    }
+
+    @Test
+    fun `orchestrator limits carry spec section 7 defaults`() {
+        val l = com.adb.stewart.agents.OrchestratorLimits()
+        assertEquals(2, l.maxRecoveryDepth)
+        assertEquals(4, l.maxRecoveriesPerRun)
+        assertEquals(5, l.maxSubTasks)
+        assertEquals(500, l.recoverySummaryChars)
+        assertEquals(20, l.maxActionsInRecoveryBrief)
+        assertEquals(2, l.maxContinuations)
+        assertEquals(4, l.maxContinueQuestionsPerRun)
+        assertEquals(60, l.maxWorkerTurnsCeiling)
+    }
+
+    @Test
+    fun `num ctx state round trips`() {
+        val s = StewartSettings.State()
+        s.ollamaNumCtx = mutableMapOf("ollama/qwen3" to "8192")
+        val restored = XmlSerializer.deserialize(XmlSerializer.serialize(s), StewartSettings.State::class.java)
+        assertEquals(mapOf("ollama/qwen3" to "8192"), restored.ollamaNumCtx)
+    }
+
+    @Test
     fun `token count format round trips`() {
         assertEquals("80k", TokenCount.format(80000))
         assertEquals("12345", TokenCount.format(12345))

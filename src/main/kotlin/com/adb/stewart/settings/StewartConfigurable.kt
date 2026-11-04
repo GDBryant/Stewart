@@ -44,6 +44,10 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
     internal lateinit var debugLogCheck: javax.swing.JCheckBox
     internal lateinit var debugLogFolderField: JBTextField
     internal lateinit var debugLogRetentionField: JBTextField
+    internal lateinit var numCtxArea: JBTextArea
+    internal lateinit var workerTurnsCeilingField: JBTextField
+    internal lateinit var askOnTurnLimitCheck: javax.swing.JCheckBox
+    internal lateinit var continueTimeoutField: JBTextField
 
     override fun createPanel(): DialogPanel = panel {
         row("Ollama URL:") { ollamaUrlField = textField().component }
@@ -81,6 +85,12 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         }
         row("Debug log folder:") { debugLogFolderField = textField().component }
         row("Debug log retention (days, 0 = keep forever):") { debugLogRetentionField = textField().component }
+        row("Ollama context window (model=tokens):") { numCtxArea = JBTextArea(3, 30).also { cell(JBScrollPane(it)) } }
+        row("Worker turn ceiling (5-200):") { workerTurnsCeilingField = textField().component }
+        row {
+            askOnTurnLimitCheck = checkBox("Ask before continuing a worker that hit its turn limit").component
+        }
+        row("Turn-limit question timeout (minutes, 0 = wait forever):") { continueTimeoutField = textField().component }
     }
 
     internal var loginStatusCheck: suspend (String) -> ClaudeLoginState =
@@ -122,6 +132,28 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
             .map { if (it.startsWith("aif/")) it else "aif/$it" }.toSet()
 
     private fun overridesText(map: Map<String, String>): String =        map.entries.joinToString("\n") { "${it.key}=${it.value}" }
+
+    private fun numCtxText(map: Map<String, String>): String =
+        map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}=${it.value}" }
+
+    /** `ollama/<model>=num_ctx` lines; malformed lines or values outside [NUM_CTX_RANGE] block Apply. */
+    private fun parseNumCtx(text: String): Map<String, String> {
+        val map = linkedMapOf<String, String>()
+        text.lines().forEachIndexed { i, raw ->
+            val line = raw.trim()
+            if (line.isEmpty()) return@forEachIndexed
+            val eq = line.indexOf('=')
+            val key = if (eq < 0) line else line.substring(0, eq).trim()
+            val value = if (eq < 0) "" else line.substring(eq + 1).trim()
+            val ref = ModelRef.decode(key)?.takeIf { it.providerId == "ollama" }
+                ?: throw ConfigurationException("Malformed num_ctx line ${i + 1}: $line")
+            val n = value.toIntOrNull()?.takeIf { it in StewartSettings.NUM_CTX_RANGE }
+                ?: throw ConfigurationException(
+                    "num_ctx must be a whole number from 512 to 1048576 (line ${i + 1}): $line")
+            map[ref.encode()] = n.toString()
+        }
+        return map
+    }
 
     private fun parseOverrides(text: String): Map<String, String> {
         val map = linkedMapOf<String, String>()
@@ -177,7 +209,11 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
             toolsEnabledCheck.isSelected != s.toolsEnabled ||
             debugLogCheck.isSelected != s.debugLogEnabled ||
             debugLogFolderField.text.trim() != s.debugLogFolder.orEmpty().trim() ||
-            debugLogRetentionField.text.trim().toIntOrNull() != s.debugLogRetentionDays
+            debugLogRetentionField.text.trim().toIntOrNull() != s.debugLogRetentionDays ||
+            runCatching { parseNumCtx(numCtxArea.text) }.getOrNull() != s.ollamaNumCtx ||
+            workerTurnsCeilingField.text.trim().toIntOrNull() != s.maxWorkerTurnsCeiling ||
+            askOnTurnLimitCheck.isSelected != s.askOnTurnLimit ||
+            continueTimeoutField.text.trim().toIntOrNull() != s.continueQuestionTimeoutMinutes
     }
 
     override fun reset() {
@@ -198,6 +234,10 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         debugLogCheck.isSelected = s.debugLogEnabled
         debugLogFolderField.text = s.debugLogFolder
         debugLogRetentionField.text = s.debugLogRetentionDays.toString()
+        numCtxArea.text = numCtxText(s.ollamaNumCtx)
+        workerTurnsCeilingField.text = s.maxWorkerTurnsCeiling.toString()
+        askOnTurnLimitCheck.isSelected = s.askOnTurnLimit
+        continueTimeoutField.text = s.continueQuestionTimeoutMinutes.toString()
     }
 
     /** Asks before creating a missing debug folder outside the IDE log directory; test seam. */
@@ -242,6 +282,14 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         val debugRetention = debugLogRetentionField.text.trim().toIntOrNull()?.takeIf { it in 0..365 }
             ?: throw ConfigurationException("Debug log retention must be a whole number of days from 0 to 365")
 
+        val numCtx = parseNumCtx(numCtxArea.text)
+        val turnsCeiling = workerTurnsCeilingField.text.trim().toIntOrNull()
+            ?.takeIf { it in StewartSettings.WORKER_TURNS_CEILING_RANGE }
+            ?: throw ConfigurationException("Worker turn ceiling must be a whole number from 5 to 200")
+        val continueTimeout = continueTimeoutField.text.trim().toIntOrNull()
+            ?.takeIf { it in StewartSettings.CONTINUE_TIMEOUT_RANGE }
+            ?: throw ConfigurationException("Turn-limit question timeout must be a whole number of minutes from 0 to 1440")
+
         val debugFolder = debugLogFolderField.text.trim().ifBlank { "./log/debug_logs/" }
         if (debugLogCheck.isSelected) ensureDebugFolder(DebugLogSink.resolveDirectory(debugFolder))
 
@@ -259,6 +307,10 @@ class StewartConfigurable : BoundConfigurable("Stewart") {
         s.debugLogEnabled = debugLogCheck.isSelected
         s.debugLogFolder = debugFolder
         s.debugLogRetentionDays = debugRetention
+        s.ollamaNumCtx = numCtx.toMutableMap()
+        s.maxWorkerTurnsCeiling = turnsCeiling
+        s.askOnTurnLimit = askOnTurnLimitCheck.isSelected
+        s.continueQuestionTimeoutMinutes = continueTimeout
         DebugLogSink.configure(s.debugLogEnabled, s.debugLogFolder.orEmpty(), s.debugLogRetentionDays)
 
         val key = String(apiKeyField.password)

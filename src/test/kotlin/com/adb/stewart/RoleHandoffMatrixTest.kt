@@ -503,7 +503,7 @@ class RoleHandoffMatrixTest {
 
     private fun orchestrator(
         routes: Map<AgentRole, com.adb.stewart.agents.LevelRoute>,
-        limits: OrchestratorLimits = OrchestratorLimits(maxReplans = 0, maxLevelModelTurns = 1),
+        limits: OrchestratorLimits = OrchestratorLimits(maxReplans = 0, maxLevelModelTurns = 1, maxRecoveriesPerRun = 0),
     ) = Orchestrator(routes, { ToolRegistry(emptyList()) },
         ApprovalGate { _, _ -> ApprovalDecision.Approved }, limits)
 
@@ -754,7 +754,7 @@ class RoleHandoffMatrixTest {
             }
             AgentRole.EXECUTOR -> {
                 assertTrue("$ctx: $res", res is OrchestrationResult.Failed)
-                detail = (res as OrchestrationResult.Failed).message
+                detail = (res as OrchestrationResult.Failed).message.substringBefore("; fault: ")
                 assertTrue("$ctx: $detail",
                     detail.startsWith("re-planning budget exhausted: milestone '$msTitle' (1): "))
                 assertTrue("$ctx: no dispatch", cap.tasks.isEmpty())

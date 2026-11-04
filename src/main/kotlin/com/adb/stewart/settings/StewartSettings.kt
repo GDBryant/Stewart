@@ -44,6 +44,13 @@ class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(St
         var debugLogEnabled by property(false)
         var debugLogFolder by string("./log/debug_logs/")
         var debugLogRetentionDays by property(7)
+
+        /** Per-model Ollama `num_ctx`, keyed `ollama/<model>` like toolPathOverrides; values are decimal strings. */
+        var ollamaNumCtx by map<String, String>()
+        var maxWorkerTurnsCeiling by property(DEFAULT_WORKER_TURNS_CEILING)
+        var askOnTurnLimit by property(true)
+        /** Minutes to wait for an answer to a turn-limit question; 0 waits forever. */
+        var continueQuestionTimeoutMinutes by property(5)
     }
 
     /** No `stewart.xml` yet: adopt the pre-rename `aijb-assistant.xml` once. */
@@ -108,6 +115,14 @@ class StewartSettings : SimplePersistentStateComponent<StewartSettings.State>(St
 
     companion object {
         val DEFAULT_CLAUDE_MODELS = listOf("sonnet", "opus", "haiku")
+
+        const val DEFAULT_WORKER_TURNS_CEILING = 60
+        val WORKER_TURNS_CEILING_RANGE = 5..200
+        val CONTINUE_TIMEOUT_RANGE = 0..1440
+        val NUM_CTX_RANGE = 512..1048576
+
+        /** Clamps a stored worker turn ceiling into its allowed range. */
+        fun clampWorkerTurnsCeiling(value: Int): Int = value.coerceIn(WORKER_TURNS_CEILING_RANGE)
 
         val TOPIC: Topic<StewartSettingsListener> =
             Topic(StewartSettingsListener::class.java, Topic.BroadcastDirection.NONE)

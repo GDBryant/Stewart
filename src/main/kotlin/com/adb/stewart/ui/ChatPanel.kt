@@ -1176,6 +1176,15 @@ class ChatPanel @JvmOverloads constructor(
                 showQuestion(question, options)
             }
 
+            override fun onQuestionWithdrawn() {
+                clearQuestion()
+                statusLabel.text = " "
+            }
+
+            override fun onRecovering(kind: com.adb.stewart.agents.FaultKind, detail: String, depth: Int) {
+                statusLabel.text = detail
+            }
+
             override fun onCompacted(beforeTokens: Int, afterTokens: Int) {
                 st.compacted = true
                 statusLabel.text = "Context compacted (~$beforeTokens → ~$afterTokens tokens)"

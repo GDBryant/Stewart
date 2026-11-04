@@ -1,6 +1,7 @@
 package com.adb.stewart.tools
 
 import com.adb.stewart.chat.ContextCompactor
+import com.adb.stewart.debug.DebugLogSink
 import com.adb.stewart.provider.ChatMessage
 import com.adb.stewart.provider.ChatRequest
 import com.adb.stewart.provider.ModelProvider
@@ -223,6 +224,9 @@ class ToolLoop(
                 if (finish == "length" || finish == "content_filter") {
                     turnOpen = false
                     produced.add(ChatMessage(Role.ASSISTANT, text.toString()))
+                    usage?.promptTokens?.let {
+                        DebugLogSink.log("error", provider.id, model, "response truncated ($finish): prompt_tokens=$it")
+                    }
                     return LoopResult.Failed(produced, "response truncated ($finish)", "truncated", base, total)
                 }
                 truncationRetries = 0

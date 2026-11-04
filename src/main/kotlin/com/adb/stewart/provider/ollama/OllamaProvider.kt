@@ -56,6 +56,8 @@ internal fun chunkModel(line: String, fallback: String): String = try {
 class OllamaProvider(
     private val baseUrl: String = "http://localhost:11434",
     private val client: HttpClient = IdeHttpClients.create(),
+    /** Context window for a bare model id, or null for the server default. */
+    private val numCtx: (String) -> Int? = { null },
 ) : ModelProvider {
 
     override val id: String = "ollama"
@@ -127,6 +129,7 @@ class OllamaProvider(
     }
 
     override fun chat(request: ChatRequest): Flow<ProviderEvent> = flow {
+        val ctx = numCtx(request.model)
         val payload = JsonObject(buildJsonObject {
             put("model", request.model)
             put("stream", true)
@@ -161,6 +164,7 @@ class OllamaProvider(
                     }
                 }
             }
+            if (ctx != null) putJsonObject("options") { put("num_ctx", ctx) }
             if (request.tools.isNotEmpty()) {
                 putJsonArray("tools") {
                     request.tools.forEach { t ->
@@ -178,7 +182,8 @@ class OllamaProvider(
         })
         DebugLogSink.log(
             "outgoing", id, request.model,
-            com.adb.stewart.chat.redactImages(payload.toString(), request.messages.flatMap { it.images }),
+            "num_ctx=${ctx ?: "default"} " +
+                com.adb.stewart.chat.redactImages(payload.toString(), request.messages.flatMap { it.images }),
         )
         val httpRequest = HttpRequest.newBuilder(URI.create("$baseUrl/api/chat"))
             .header("Content-Type", "application/json")

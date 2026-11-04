@@ -355,6 +355,56 @@ class StewartConfigurableTest : BasePlatformTestCase() {
         }
     }
 
+    fun `test num ctx map parsed and persisted`() {
+        assertEquals("", configurable.numCtxArea.text)
+        configurable.numCtxArea.text = "ollama/qwen3=8192\n  ollama/llama=512  \n\nollama/big=1048576"
+        assertTrue(configurable.isModified)
+        configurable.apply()
+        assertEquals(
+            mapOf("ollama/qwen3" to "8192", "ollama/llama" to "512", "ollama/big" to "1048576"),
+            StewartSettings.getInstance().state.ollamaNumCtx)
+        assertFalse(configurable.isModified)
+        configurable.reset()
+        assertEquals("ollama/big=1048576\nollama/llama=512\nollama/qwen3=8192", configurable.numCtxArea.text)
+    }
+
+    fun `test num ctx out of range rejected`() {
+        for (bad in listOf("ollama/m=511", "ollama/m=1048577", "ollama/m=0", "ollama/m=-1", "ollama/m=8k")) {
+            configurable.numCtxArea.text = bad
+            assertInvalid { configurable.apply() }
+        }
+    }
+
+    fun `test malformed num ctx line rejected`() {
+        for (bad in listOf("ollama/m", "ollama/m 8192", "noslash=8192", "=8192", "aif/m=8192", "ollama/=8192")) {
+            configurable.numCtxArea.text = bad
+            assertInvalid { configurable.apply() }
+        }
+    }
+
+    fun `test worker turn ceiling and timeout validated`() {
+        assertEquals("60", configurable.workerTurnsCeilingField.text)
+        assertEquals("5", configurable.continueTimeoutField.text)
+        assertTrue(configurable.askOnTurnLimitCheck.isSelected)
+        configurable.workerTurnsCeilingField.text = "200"
+        configurable.continueTimeoutField.text = "0"
+        configurable.askOnTurnLimitCheck.isSelected = false
+        configurable.apply()
+        val s = StewartSettings.getInstance().state
+        assertEquals(200, s.maxWorkerTurnsCeiling)
+        assertEquals(0, s.continueQuestionTimeoutMinutes)
+        assertFalse(s.askOnTurnLimit)
+        for (bad in listOf("4", "201", "abc", "")) {
+            configurable.workerTurnsCeilingField.text = bad
+            assertInvalid { configurable.apply() }
+        }
+        configurable.workerTurnsCeilingField.text = "5"
+        for (bad in listOf("-1", "1441", "x")) {
+            configurable.continueTimeoutField.text = bad
+            assertInvalid { configurable.apply() }
+        }
+    }
+
     fun `test check login reports signed in account`() {
         configurable.claudeCliPathField.text = "/opt/claude"
         var checkedPath: String? = null

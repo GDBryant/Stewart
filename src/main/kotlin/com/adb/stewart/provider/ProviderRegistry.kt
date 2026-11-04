@@ -20,6 +20,7 @@ class ProviderRegistry @JvmOverloads constructor(
         val claudeModels: List<String>,
         val toolPathOverrides: Map<String, String>,
         val visionModelOverrides: Set<String>,
+        val ollamaNumCtx: Map<String, String>,
     )
 
     @Volatile
@@ -35,12 +36,13 @@ class ProviderRegistry @JvmOverloads constructor(
             claudeModels = s.claudeModels.ifEmpty { StewartSettings.DEFAULT_CLAUDE_MODELS },
             toolPathOverrides = s.toolPathOverrides.toMap(),
             visionModelOverrides = s.visionModelOverrides.toSet(),
+            ollamaNumCtx = s.ollamaNumCtx.toMap(),
         )
     }
 
     private fun build(snap: Snapshot): List<ModelProvider> {
         val list = mutableListOf<ModelProvider>(
-            OllamaProvider(snap.ollamaUrl),
+            OllamaProvider(snap.ollamaUrl, numCtx = { m -> snap.ollamaNumCtx["ollama/$m"]?.toIntOrNull() }),
             ClaudeProvider(cliPath = snap.claudeCliPath, models = snap.claudeModels),
         )
         if (snap.aifBaseUrl.isNotBlank()) {

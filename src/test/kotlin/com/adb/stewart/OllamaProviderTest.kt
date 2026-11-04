@@ -18,6 +18,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -718,6 +720,7 @@ class OllamaProviderTest {
             assertTrue(outLines[0].contains("[m]"))
             assertTrue(outLines[0].contains("\"model\":\"m\""))
             assertTrue(outLines[0].contains("\"stream\":true"))
+            assertTrue(outLines[0].contains("num_ctx=default "))
             assertTrue(outLines[0].contains("[" + java.time.LocalDate.now() + "T"))
         } finally {
             sink.isEnabled = false
@@ -848,4 +851,68 @@ class OllamaProviderTest {
         org.junit.Assert.assertNull(com.adb.stewart.provider.httpErrorCode(600))
         org.junit.Assert.assertNull(com.adb.stewart.provider.httpErrorCode(499))
     }
+
+    private fun capturePayload(p: OllamaProvider, model: String = "m"): kotlinx.serialization.json.JsonObject {
+        var captured = ""
+        server.createContext("/api/chat") { ex ->
+            captured = ex.requestBody.readBytes().decodeToString()
+            val body = """{"done":true,"done_reason":"stop"}""" + "\n"
+            ex.sendResponseHeaders(200, body.toByteArray().size.toLong())
+            ex.responseBody.use { it.write(body.toByteArray()) }
+        }
+        runBlocking { p.chat(ChatRequest(model, listOf(ChatMessage(Role.USER, "hi")))).collect { } }
+        return testJson.parseToJsonElement(captured).jsonObject
+    }
+
+    @Test
+    fun `num_ctx is sent in options when the model has an entry`() {
+        val p = OllamaProvider("http://127.0.0.1:${server.address.port}", numCtx = { if (it == "m") 8192 else null })
+        assertEquals("8192", capturePayload(p)["options"]!!.jsonObject["num_ctx"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `no options key without an entry`() {
+        assertTrue("options" !in capturePayload(provider))
+    }
+
+    @Test
+    fun `registry applies num_ctx by ollama-prefixed key and ignores other models`() {
+        val state = com.adb.stewart.settings.StewartSettings.State()
+        state.ollamaUrl = "http://127.0.0.1:${server.address.port}"
+        state.ollamaNumCtx = mutableMapOf("ollama/m" to "4096", "ollama/other" to "2048")
+        val reg = com.adb.stewart.provider.ProviderRegistry { state }
+        val p = reg.providers().first { it.id == "ollama" } as OllamaProvider
+        assertEquals("4096", capturePayload(p, "m")["options"]!!.jsonObject["num_ctx"]!!.jsonPrimitive.content)
+        server.removeContext("/api/chat")
+        assertTrue("options" !in capturePayload(p, "unlisted"))
+        server.removeContext("/api/chat")
+        state.ollamaNumCtx = mutableMapOf("ollama/other" to "2048")
+        val p2 = ProviderRegistryHolder.fresh(state)
+        assertTrue("options" !in capturePayload(p2, "m"))
+    }
+
+    @Test
+    fun `live registry picks up a changed num_ctx map on the next providers call`() {
+        val state = com.adb.stewart.settings.StewartSettings.State()
+        state.ollamaUrl = "http://127.0.0.1:${server.address.port}"
+        val reg = com.adb.stewart.provider.ProviderRegistry { state }
+        val before = reg.providers().first { it.id == "ollama" } as OllamaProvider
+        assertTrue("options" !in capturePayload(before, "m"))
+        server.removeContext("/api/chat")
+        state.ollamaNumCtx = mutableMapOf("ollama/m" to "16384")
+        val after = reg.providers().first { it.id == "ollama" } as OllamaProvider
+        assertNotSame(before, after)
+        assertEquals("16384", capturePayload(after, "m")["options"]!!.jsonObject["num_ctx"]!!.jsonPrimitive.content)
+        server.removeContext("/api/chat")
+        state.ollamaNumCtx = mutableMapOf("ollama/m" to "32768")
+        val third = reg.providers().first { it.id == "ollama" } as OllamaProvider
+        assertEquals("32768", capturePayload(third, "m")["options"]!!.jsonObject["num_ctx"]!!.jsonPrimitive.content)
+        // Unchanged settings keep the cached instance.
+        assertSame(third, reg.providers().first { it.id == "ollama" })
+    }
+}
+
+private object ProviderRegistryHolder {
+    fun fresh(state: com.adb.stewart.settings.StewartSettings.State): OllamaProvider =
+        com.adb.stewart.provider.ProviderRegistry { state }.providers().first { it.id == "ollama" } as OllamaProvider
 }

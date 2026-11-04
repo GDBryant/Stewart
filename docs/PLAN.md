@@ -135,6 +135,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Structured JSON messages (plan/task/result) between levels; single-model mode; role badges in chat.
 - Validate plan/task/result schemas inside the terminal protocol tools (a rejection returns to the model as a normal tool error and is retried within the level's turn budget), correlate task IDs and propagate cancellation; bound re-planning and dispatch workers serially to avoid conflicting edits. Test malformed worker output and failed tasks.
 - Done when: a multi-step task runs Planner → Executor → Worker with one model and re-plans on a failed task.
+- Fault recovery (layers 0–2, continue question, scratch dir): see `docs/FAULT_RECOVERY.md`.
 
 ### 7. Multi-model mode
 - Per-role `ModelRef` binding; per-level streaming and error surfacing.

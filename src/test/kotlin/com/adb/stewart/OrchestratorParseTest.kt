@@ -309,4 +309,62 @@ class OrchestratorParseTest {
         assertRejected("""{"tasks":[{"id":1,"description":"a","depends_on":[1]}]}""")
         assertRejected("""{"tasks":[{"id":1,"description":"a"},{"id":2,"description":"b","depends_on":[9]}]}""")
     }
+
+    private fun maxTurnsOf(v: String) =
+        parseTasks(call("t", """{"tasks":[{"id":1,"description":"a","max_turns":$v}]}""")).single().maxTurns
+
+    private fun budgetOf(v: String) =
+        parsePlan(call("p", """{"goal":"g","milestones":[{"id":1,"title":"m","turn_budget":$v}]}""")).milestones.single().turnBudget
+
+    @Test
+    fun max_turns_and_turn_budget_parse() {
+        assertEquals(25, maxTurnsOf("25"))
+        assertEquals(40, budgetOf("40"))
+    }
+
+    @Test
+    fun absent_values_are_null() {
+        assertNull(parseTasks(call("t", """{"tasks":[{"id":1,"description":"a"}]}""")).single().maxTurns)
+        assertNull(parsePlan(call("p", """{"goal":"g","milestones":[{"id":1,"title":"m"}]}""")).milestones.single().turnBudget)
+    }
+
+    @Test
+    fun non_integer_max_turns_and_turn_budget_are_ignored() {
+        for (v in listOf("2.5", "\"7\"", "null", "true", "[5]", "{}")) {
+            assertNull(v, maxTurnsOf(v))
+            assertNull(v, budgetOf(v))
+        }
+    }
+
+    @Test
+    fun max_turns_and_turn_budget_below_one_are_rejected() {
+        for (v in listOf("0", "-3")) {
+            assertThrows(v, ProtocolException::class.java) { maxTurnsOf(v) }
+            assertThrows(v, ProtocolException::class.java) { budgetOf(v) }
+        }
+    }
+
+    @Test
+    fun max_turns_and_turn_budget_above_ceiling_are_rejected() {
+        val t = call("t", """{"tasks":[{"id":1,"description":"a","max_turns":61}]}""")
+        val p = call("p", """{"goal":"g","milestones":[{"id":1,"title":"m","turn_budget":61}]}""")
+        assertThrows(ProtocolException::class.java) { parseTasks(t, 60) }
+        assertThrows(ProtocolException::class.java) { parsePlan(p, 1, 60) }
+    }
+
+    @Test
+    fun max_turns_and_turn_budget_at_ceiling_are_accepted() {
+        val t = call("t", """{"tasks":[{"id":1,"description":"a","max_turns":60}]}""")
+        val p = call("p", """{"goal":"g","milestones":[{"id":1,"title":"m","turn_budget":1}]}""")
+        assertEquals(60, parseTasks(t, 60).single().maxTurns)
+        assertEquals(1, parsePlan(p, 1, 60).milestones.single().turnBudget)
+    }
+
+    @Test
+    fun max_turns_and_turn_budget_beyond_int_range_are_rejected() {
+        for (v in listOf("2147483648", "99999999999999999999", "-2147483649")) {
+            assertThrows(v, ProtocolException::class.java) { maxTurnsOf(v) }
+            assertThrows(v, ProtocolException::class.java) { budgetOf(v) }
+        }
+    }
 }

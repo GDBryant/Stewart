@@ -57,6 +57,9 @@ private const val MAX_FIND_RESULTS = 500
 private const val MAX_FILE_BYTES = 1_000_000
 private const val MAX_COMMAND_OUTPUT = 200_000
 
+private fun isIgnored(paths: ProjectPaths, real: Path): Boolean =
+    real.startsWith(paths.base.toAbsolutePath().normalize().resolve(com.adb.stewart.agents.Scratch.DIR))
+
 private fun isBinary(bytes: ByteArray): Boolean =
     bytes.take(8192).any { it.toInt() == 0 }
 
@@ -116,7 +119,7 @@ class FindFiles(project: Project, paths: ProjectPaths) : ProjectTool(project, pa
             index.iterateContentUnderDirectory(startVf) { vf ->
                 if (!vf.isDirectory) {
                     val real = runCatching { paths.resolve(vf.path) }.getOrNull()
-                    if (real != null) {
+                    if (real != null && !isIgnored(paths, real)) {
                         val rel = paths.relative(real)
                         if (matcher.matches(Path.of(rel))) {
                             if (results.size < MAX_FIND_RESULTS) results.add(rel) else overflow++
@@ -159,7 +162,7 @@ class Search(project: Project, paths: ProjectPaths) : ProjectTool(project, paths
         runReadAction<Boolean> {
             index.iterateContentUnderDirectory(startVf) { vf ->
                 val real = runCatching { paths.resolve(vf.path) }.getOrNull()
-                if (real != null && !vf.isDirectory && vf.length <= MAX_FILE_BYTES) {
+                if (real != null && !isIgnored(paths, real) && !vf.isDirectory && vf.length <= MAX_FILE_BYTES) {
                     val text = try {
                         val doc = FileDocumentManager.getInstance().getCachedDocument(vf)
                         val t = doc?.text ?: String(vf.contentsToByteArray(), vf.charset)

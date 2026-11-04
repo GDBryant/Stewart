@@ -125,6 +125,17 @@ class ProjectToolsTest : BasePlatformTestCase() {
         assertFalse(out.contains("y.txt"))
     }
 
+    fun `test find files and search exclude stewart dir`() {
+        writeContent("src/x.kt", "needle")
+        writeContent(".stewart/scratch/r/task-1-1/out.kt", "needle")
+        val f = runBlocking { FindFiles(project, paths).execute(args("glob" to "**/*.kt"), null) }
+        assertTrue(f.contains("x.kt"))
+        assertFalse(f.contains(".stewart"))
+        val s = runBlocking { Search(project, paths).execute(args("query" to "needle"), null) }
+        assertTrue(s.contains("x.kt"))
+        assertFalse(s.contains(".stewart"))
+    }
+
     fun `test find files invalid glob`() {
         assertTrue(expectError {
             FindFiles(project, paths).execute(args("glob" to "["), null)
