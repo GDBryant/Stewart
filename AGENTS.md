@@ -23,6 +23,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
 - Debug logging: `docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
 - Debug retention plan: `docs/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
+- Releasing: `docs/RELEASING.md` — VSIX packaging, per-OS bundled-Node zips, CI/release workflows, secrets-gated signing/publishing.
 - Bypass mode plan: `docs/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching (implemented).
 - Permissions: `docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
 - Rename plan: `docs/RENAME_PLAN.md` — AIJB Assistant → Stewart name map, persisted-key migration, steps, verification.

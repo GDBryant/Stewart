@@ -97,3 +97,9 @@ Local Ollama 0.32.15 (`localhost:11434`): `POST /api/show` for `north-mini-code-
 ## Ollama `num_ctx` and VRAM
 
 Settings > Ollama context window (`model=tokens`) sends `options.num_ctx` per model; without an entry the server default applies. The KV cache grows with `num_ctx`, so a larger window uses more VRAM (and spills to slower CPU/RAM when it no longer fits). Raise it only as far as the GPU allows.
+
+## Packaging (M9)
+
+- VSIX: `pnpm --filter stewart run package` (vsce `--no-dependencies`; webview + core esbuild-bundled). Verified contents: `package.json`, `out/extension.js`, `webview/webview.{js,css}` only.
+- JetBrains zip: `./gradlew buildPlugin` → `stewart-<version>.zip`; contains `sidecar/sidecar.cjs`, `webview/`, plugin jar, serialization jars; falls back to `node` on PATH.
+- Bundled-Node variants: `node scripts/bundle-node.mjs <key>` (linux-x64 verified; downloads official archives with SHASUMS256 verification) then `buildPlugin`. Verified linux-x64 zip contains `node/linux-x64/node` (Node v22.20.0, executable). Signing via `CERTIFICATE_CHAIN`/`PRIVATE_KEY`/`PRIVATE_KEY_PASSWORD` env → `signPlugin` (unsigned/unverified in CI without secrets).

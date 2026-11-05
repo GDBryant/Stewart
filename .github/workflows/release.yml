@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  VSCE_PAT: ${{ secrets.VSCE_PAT }}
+  CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+  PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+  PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+
+      - name: Package VS Code extension
+        run: pnpm --filter stewart run package
+        working-directory: hosts/vscode
+
+      - name: Build per-OS JetBrains zips with bundled Node
+        run: |
+          set -euo pipefail
+          mkdir -p release-out
+          for key in linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64; do
+            rm -rf dist/node
+            node scripts/bundle-node.mjs "$key"
+            ./gradlew buildPlugin -q
+            mv build/distributions/stewart-*.zip "release-out/stewart-${GITHUB_REF_NAME#v}-${key}.zip"
+          done
+          rm -rf dist/node
+          ./gradlew buildPlugin -q
+          mv build/distributions/stewart-*.zip "release-out/stewart-${GITHUB_REF_NAME#v}.zip"
+
+      - name: Sign JetBrains plugin (when signing secrets are set)
+        if: env.CERTIFICATE_CHAIN != '' && env.PRIVATE_KEY != ''
+        run: |
+          rm -rf dist/node
+          ./gradlew signPlugin -q
+          mv build/distributions/stewart-*-signed.zip release-out/ 2>/dev/null || true
+
+      - name: Create GitHub release
+        run: gh release create "${{ github.ref_name }}" --title "Stewart ${{ github.ref_name }}" --generate-notes release-out/* hosts/vscode/stewart.vsix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish VSIX to marketplace (when VSCE_PAT is set)
+        if: env.VSCE_PAT != ''
+        run: pnpm --filter stewart exec vsce publish --packagePath stewart.vsix -p "$VSCE_PAT"
+        working-directory: hosts/vscode

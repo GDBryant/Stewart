@@ -1,5 +1,6 @@
 package com.adb.stewart.webview
 
+import com.adb.stewart.sidecar.NodeLocator
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -36,7 +37,18 @@ object WebviewResources {
         dir.mkdirs()
         val out = File(dir, "sidecar.cjs")
         copyResource(loader, "/sidecar/sidecar.cjs", out)
+        extractNode(dir, loader)
         return out
+    }
+
+    private fun extractNode(dir: File, loader: (String) -> InputStream?) {
+        val key = NodeLocator.osKey(System.getProperty("os.name"), System.getProperty("os.arch")) ?: return
+        val exe = if (key.startsWith("windows")) "node.exe" else "node"
+        val stream = loader("/node/$key/$exe") ?: return
+        val out = File(File(dir, "node"), "$key/$exe")
+        out.parentFile?.mkdirs()
+        stream.use { input -> out.outputStream().use { input.copyTo(it) } }
+        out.setExecutable(true)
     }
 
     private fun copyResource(loader: (String) -> InputStream?, name: String, target: File) {

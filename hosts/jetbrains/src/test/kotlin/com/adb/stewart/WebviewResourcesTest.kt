@@ -51,4 +51,25 @@ class WebviewResourcesTest {
         assertEquals("sidecar.cjs", f.name)
         assertTrue(f.readText().contains("sidecar.cjs"))
     }
+
+    @Test
+    fun `extract sidecar also extracts the bundled node for the host platform`() {
+        val key = com.adb.stewart.sidecar.NodeLocator.osKey(
+            System.getProperty("os.name"),
+            System.getProperty("os.arch"),
+        )!!
+        val exe = if (key.startsWith("windows")) "node.exe" else "node"
+        val dir = Files.createTempDirectory("stewart-sc-node").toFile()
+        WebviewResources.extractSidecar(dir, loader("/sidecar/sidecar.cjs", "/node/$key/$exe"))
+        val node = File(dir, "node/$key/$exe")
+        assertTrue(node.isFile)
+        assertTrue(node.readText().contains("node"))
+    }
+
+    @Test
+    fun `extract sidecar without node resource skips bundled node`() {
+        val dir = Files.createTempDirectory("stewart-sc-nonode").toFile()
+        WebviewResources.extractSidecar(dir, loader("/sidecar/sidecar.cjs"))
+        assertTrue(!File(dir, "node").exists())
+    }
 }

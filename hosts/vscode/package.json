@@ -1,5 +1,5 @@
 {
-  "name": "@stewart/host-vscode",
+  "name": "stewart",
   "displayName": "Stewart",
   "description": "Multi-role AI assistant",
   "version": "0.1.0",
@@ -45,7 +45,8 @@
   "scripts": {
     "build": "node -e \"require('node:fs').cpSync('../../packages/webview/dist','webview',{recursive:true})\" && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "package": "vsce package --no-dependencies --out stewart.vsix"
   },
   "dependencies": {
     "@stewart/core": "workspace:*",
@@ -55,6 +56,7 @@
   "devDependencies": {
     "@types/node": "22.19.0",
     "@types/vscode": "1.145.0",
+    "@vscode/vsce": "^4.1.0",
     "esbuild": "0.25.12",
     "typescript": "5.9.3",
     "vitest": "3.2.4"

@@ -20,3 +20,4 @@ out/
 coverage/
 *.vsix
 hosts/vscode/webview/
+*.vsix

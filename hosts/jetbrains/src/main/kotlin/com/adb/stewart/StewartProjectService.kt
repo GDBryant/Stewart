@@ -49,8 +49,8 @@ class StewartProjectService(private val project: Project) : Disposable {
 
     fun ensureStarted() {
         if (supervisor != null) return
-        val node = NodeLocator.resolve(runtimeDir)
         val entry = WebviewResources.extractSidecar(runtimeDir)
+        val node = NodeLocator.resolve(runtimeDir)
         val cmd = if (node != null) {
             listOf(node.absolutePath, entry.absolutePath)
         } else {
