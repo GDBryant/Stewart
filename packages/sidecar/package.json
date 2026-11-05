@@ -1,0 +1,22 @@
+{
+  "name": "@stewart/sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "stewart-sidecar": "./dist/main.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@stewart/core": "workspace:*",
+    "@stewart/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

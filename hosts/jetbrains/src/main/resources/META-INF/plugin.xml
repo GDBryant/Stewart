@@ -1,0 +1,21 @@
+<idea-plugin>
+    <id>com.adb.stewart</id>
+    <name>Stewart</name>
+    <vendor>ADB</vendor>
+    <description>Chat with local and remote models inside the IDE: roles, skills, orchestration and tools.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <projectService serviceImplementation="com.adb.stewart.StewartProjectService"/>
+        <toolWindow id="Stewart" anchor="right" factoryClass="com.adb.stewart.StewartToolWindowFactory" canCloseContents="false"/>
+    </extensions>
+
+    <actions>
+        <action id="Stewart.OpenChat" class="com.adb.stewart.actions.OpenChatAction"
+                text="Stewart Chat" description="Open the Stewart assistant tool window">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

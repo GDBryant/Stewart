@@ -1,0 +1,19 @@
+[versions]
+intellijPlatform = "2.19.0"
+kotlin = "2.2.21"
+serializationJson = "1.8.1"
+ideaCommunity = "2025.1"
+kover = "0.9.9"
+junit = "4.13.2"
+opentest4j = "1.3.0"
+
+[libraries]
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+opentest4j = { group = "org.opentest4j", name = "opentest4j", version.ref = "opentest4j" }
+
+[plugins]
+intellijPlatform = { id = "org.jetbrains.intellij.platform", version.ref = "intellijPlatform" }
+kotlin = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

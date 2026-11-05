@@ -16,7 +16,7 @@
 | IntelliJ IDEA Community | 2025.1 |
 | PyCharm Professional | 2025.3 |
 
-Result: PASS — Compatible on both IDEs, zero compatibility problems, no internal/experimental API warnings.
+Result: PASS — Compatible on both IDEs (v2 plugin `com.adb.stewart` 2.0.0), zero compatibility problems. Internal/experimental/deprecated API usages are reported but accepted (see verifyPlugin below); `failureLevel` is set to `COMPATIBILITY_PROBLEMS` only.
 
 ## Toolchain (pinned)
 
@@ -36,13 +36,18 @@ The system `java` must be a full JDK (with `javac`). If auto-detection fails, se
 `org.gradle.java.installations.paths=<jdk-home>` in `~/.gradle/gradle.properties`
 (user-local, not committed). CI uses `actions/setup-java` (temurin 21).
 
-Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M8 run: line 96%, branch 81%; still passing at 675 tests (5 live skipped), line 97.1%.
+Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M2 run: 61 tests, gate passing. JCEF/tool-window/service glue is excluded from Kover (not exercisable headless); logic lives in `SidecarWiring`/`WebviewRouter`/`host.*`.
 
 ## verifyPlugin
 
-`./gradlew verifyPlugin` — last run after commit `5fe43d3`: IDEA 2025.1 and
-PyCharm 2025.3 both Compatible. Re-run on every milestone or platform bump.
-To be refreshed after the Stewart rename (new plugin id `com.adb.stewart`, v0.2.0).
+`./gradlew verifyPlugin` — last run at M2 (v2 plugin `com.adb.stewart` 2.0.0): IDEA
+Community 2025.1 and PyCharm 2025.3 both **Compatible**, zero compatibility problems.
+`VerifyPluginTask.failureLevel` = `COMPATIBILITY_PROBLEMS` only; the verifier still
+reports accepted usages: internal `TrustedProjects`/`TrustedProjectsLocator` (no
+public trust-state API exists in 2025.1) and Kotlin-generated overrides of
+`ToolWindowFactory` default methods (`getIcon`/`getAnchor`/`manage`/
+`isApplicable`/`isDoNotActivateOnStart`) — unavoidable for any Kotlin
+`ToolWindowFactory`. Re-run on every milestone or platform bump.
 
 ## Manual smoke (2026-10-26)
 

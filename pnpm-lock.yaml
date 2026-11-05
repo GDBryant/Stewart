@@ -91,6 +91,28 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  packages/sidecar:
+    dependencies:
+      '@stewart/core':
+        specifier: workspace:*
+        version: link:../core
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   packages/webview:
     dependencies:
       '@stewart/protocol':
