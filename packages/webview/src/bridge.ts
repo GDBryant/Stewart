@@ -1,5 +1,5 @@
 /** Host messaging seam. VS Code injects acquireVsCodeApi; JCEF injects
- * window.stewartHost { post(string), onEvent(fn) }; tests pass a MockBridge. */
+ * window.stewartHost { post(string) }; tests pass a MockBridge. */
 export type Outbound =
   | { type: "chat.send"; text: string; images?: string[]; direct?: boolean }
   | { type: "chat.cancel"; runId: string }
@@ -7,15 +7,52 @@ export type Outbound =
   | { type: "chat.answer"; questionId: string; answer: string }
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }
-  | { type: "config.set"; file: string; yaml: string }
+  | { type: "config.set"; file: string; yaml: string; layer?: "user" | "project" }
   | { type: "channel.test"; channelId: string }
+  | { type: "secret.set"; ref: string; value: string }
+  | { type: "secret.delete"; ref: string }
   | { type: "ready" };
+
+export interface ChannelSummary {
+  id: string; type: string; name?: string; enabled: boolean; baseUrl?: string; secretRef?: string;
+  extraModels?: string[]; maxParallel?: number; modelCaps?: Record<string, unknown>;
+}
+export interface AgentSummary {
+  id: string; channel: string; model: string; effort?: string; temperature?: number; billing?: string;
+  price?: { inPerMTok: number; outPerMTok: number };
+}
+export interface RoleSummary {
+  id: string; enabled: boolean; agent?: string; fallbackAgent?: string; skills?: string[];
+  tools?: string[]; writePaths?: string[]; turnBudget?: number | string;
+}
+export interface SettingsSummary {
+  costLimit?: { perRunUsd?: number; onLimit?: string };
+  maxRunHours?: number;
+  leaseWaitSeconds?: number;
+  maxNestedDispatches?: number;
+  maxReplans?: number;
+  skillBudgetTokens?: number;
+  log?: { level?: string; retainDays?: number };
+}
+export interface ConfigSummary {
+  channels: ChannelSummary[];
+  agents: AgentSummary[];
+  roles: RoleSummary[];
+  settings: SettingsSummary;
+}
+
+export interface ConfigReply {
+  files: Record<string, string | undefined>;
+  summary: ConfigSummary;
+  errors: string[];
+}
 
 export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
-  | { type: "config"; yaml: string }
+  | ({ type: "config" } & ConfigReply)
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
-  | { type: "ready" };
+  | { type: "ready" }
+  | { type: "error"; message: string };
 
 export interface Bridge {
   post(msg: Outbound): void;
@@ -47,11 +84,7 @@ export function detectBridge(): Bridge {
       },
     };
   }
-  // Standalone / tests: loopback queue drained by the test harness.
-  return {
-    post: () => {},
-    onMessage: () => {},
-  };
+  return { post: () => {}, onMessage: () => {} };
 }
 
 export class MockBridge implements Bridge {

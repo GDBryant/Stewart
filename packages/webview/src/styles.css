@@ -30,3 +30,18 @@ button.deny { border-color: #c335; color: #c33; }
 .yaml { flex: 1; font: 12px/1.5 ui-monospace, monospace; background: transparent; color: inherit; border: 1px solid #8885; border-radius: 6px; padding: 8px; resize: none; }
 .cat { opacity: 0.6; font-size: 11px; }
 input { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid #8885; background: transparent; color: inherit; }
+.settings section { margin-top: 8px; }
+.settings h3 { font-size: 13px; margin: 10px 0 6px; display: flex; gap: 6px; align-items: center; }
+button.small { padding: 1px 6px; font-size: 11px; }
+.spacer { flex: 1; }
+.summary { font-size: 12px; opacity: 0.8; }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 10px; margin: 6px 0; }
+.field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; opacity: 0.9; }
+.field span { opacity: 0.7; }
+.field input, .field select { font: inherit; padding: 3px 6px; border-radius: 4px; border: 1px solid #8885; background: transparent; color: inherit; }
+.extra { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; font-size: 11px; }
+.extra .ok { color: #3a3; }
+.extra .fail { color: #c33; }
+.secret { display: inline-flex; gap: 3px; align-items: center; }
+.secret input { width: 110px; }
+.errors { border-color: #c335; }

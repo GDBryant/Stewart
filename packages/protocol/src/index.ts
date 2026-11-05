@@ -68,9 +68,11 @@ export interface CoreRequests {
   "chat.resume": { params: { projectId: string; runId: string }; result: { ok: true } };
   "chat.answer": { params: { projectId: string; questionId: string; answer: string }; result: { ok: true } };
   "chat.approve": { params: { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" }; result: { ok: true } };
-  "config.get": { params: { projectId: string }; result: { yaml: string } };
-  "config.set": { params: { projectId: string; file: string; yaml: string }; result: { ok: true } };
+  "config.get": { params: { projectId: string }; result: { files: Record<string, string | undefined>; summary: unknown; errors: string[] } };
+  "config.set": { params: { projectId: string; file: string; yaml: string; layer?: "user" | "project" }; result: { ok: true } };
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
+  "secret.set": { params: { projectId: string; ref: string; value: string }; result: { ok: true } };
+  "secret.delete": { params: { projectId: string; ref: string }; result: { ok: true } };
 }
 
 /** Core -> host notifications. */
@@ -88,6 +90,8 @@ export const METHODS = [
   "config.get",
   "config.set",
   "channel.test",
+  "secret.set",
+  "secret.delete",
 ] as const;
 export type Method = (typeof METHODS)[number];
 

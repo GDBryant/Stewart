@@ -1,5 +1,5 @@
 import type { RunEvent } from "@stewart/protocol";
-import type { Bridge, Inbound } from "./bridge.js";
+import type { Bridge, ConfigReply, Inbound } from "./bridge.js";
 
 export interface ChatItem {
   id: string;
@@ -31,7 +31,8 @@ export interface State {
   busyRunId?: string;
   approvals: PendingApproval[];
   questions: PendingQuestion[];
-  configYaml?: string;
+  config?: ConfigReply;
+  channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;
   view: "chat" | "settings";
 }
 
@@ -39,7 +40,7 @@ type Listener = () => void;
 
 /** Minimal observable store; one instance per webview. */
 export class Store {
-  state: State = { items: [], approvals: [], questions: [], view: "chat" };
+  state: State = { items: [], approvals: [], questions: [], channelTest: {}, view: "chat" };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
 
@@ -79,6 +80,19 @@ export class Store {
   requestConfig(): void {
     this.bridge.post({ type: "config.get" });
   }
+  saveFile(file: string, yaml: string, layer?: "user" | "project"): void {
+    this.bridge.post({ type: "config.set", file, yaml, layer });
+    this.requestConfig();
+  }
+  testChannel(channelId: string): void {
+    this.bridge.post({ type: "channel.test", channelId });
+  }
+  setSecret(ref: string, value: string): void {
+    this.bridge.post({ type: "secret.set", ref, value });
+  }
+  deleteSecret(ref: string): void {
+    this.bridge.post({ type: "secret.delete", ref });
+  }
   setView(view: State["view"]): void {
     this.patch({ view });
     if (view === "settings") this.requestConfig();
@@ -94,7 +108,13 @@ export class Store {
   }
 
   private onInbound(m: Inbound): void {
-    if (m.type === "config") return this.patch({ configYaml: m.yaml });
+    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors } });
+    if (m.type === "channel.test.result")
+      return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
+    if (m.type === "error")
+      return this.patch({
+        items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
+      });
     if (m.type !== "event") return;
     const ev = m.ev;
     switch (ev.kind) {

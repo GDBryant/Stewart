@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Store } from "./state.js";
+import { SettingsView } from "./SettingsView.js";
 
 export function App({ store }: { store: Store }) {
   const [, force] = useState(0);
@@ -117,18 +118,6 @@ function QuestionCard({ q, onAnswer }: { q: { questionId: string; question: stri
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-function SettingsView({ store }: { store: Store }) {
-  const s = store.state;
-  const [yaml, setYaml] = useState<string | undefined>(undefined);
-  const text = yaml ?? s.configYaml ?? "";
-  return (
-    <div class="settings">
-      <p class="hint">Effective config (read-only preview for M1; structured editors arrive in M3).</p>
-      <textarea class="yaml" value={text} onInput={(e) => setYaml((e.target as HTMLTextAreaElement).value)} />
     </div>
   );
 }

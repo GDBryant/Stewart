@@ -33,6 +33,6 @@ describe("protocol", () => {
 
   it("declares all RPC methods", () => {
     expect(METHODS).toContain("chat.send");
-    expect(METHODS.length).toBe(9);
+    expect(METHODS.length).toBe(11);
   });
 });

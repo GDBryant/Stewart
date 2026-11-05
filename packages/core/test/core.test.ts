@@ -4,6 +4,17 @@ import { loadConfig } from "../src/config/loader.js";
 import { Core } from "../src/core.js";
 import type { HostPort } from "../src/ports.js";
 import { fakeFetcher, streamOf } from "./helpers.js";
+import type { ConfigLayer } from "../src/config/loader.js";
+import type { ConfigStore } from "../src/config/store.js";
+
+function memStore(layer: ConfigLayer = {}): ConfigStore {
+  return {
+    read: async () => ({ ...layer }),
+    write: async (file, yaml) => {
+      layer[file] = yaml;
+    },
+  };
+}
 import type { RunEvent } from "@stewart/protocol";
 
 const fakeHost = (trusted = true): HostPort => ({
@@ -88,8 +99,8 @@ describe("Core", () => {
     const core = new Core({
       fetcher,
       defaults,
-      userConfig: async () => ({}),
-      projectConfig: async () => ({}),
+      userConfig: memStore(),
+      projectConfig: async () => memStore(),
       emitEvent: (e) => events.push(e),
     });
     return { core, events };
@@ -111,7 +122,7 @@ describe("Core", () => {
     const ctl = new AbortController();
     const events: RunEvent[] = [];
     const fetcher = async () => ({ status: 200, headers: {}, body: streamOf(['{"message":{"content":"x"},"done":false}'], 50) });
-    const core = new Core({ fetcher, defaults, userConfig: async () => ({}), projectConfig: async () => ({}), emitEvent: (e) => events.push(e) });
+    const core = new Core({ fetcher, defaults, userConfig: memStore(), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
     await core.attachProject("p", fakeHost());
     const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
     await new Promise((r) => setTimeout(r, 30));
@@ -127,5 +138,83 @@ describe("Core", () => {
     const { core } = mkCore([]);
     await core.attachProject("p", fakeHost());
     await expect(core.dispatch("hello", { protocol: 99, capabilities: [] })).rejects.toThrow(/mismatch/);
+  });
+});
+
+describe("Core config", () => {
+  const defaults = {
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+    "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
+    "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
+  };
+
+  function mk() {
+    const events: RunEvent[] = [];
+    const userLayer: Record<string, string | undefined> = {};
+    const user = memStore(userLayer);
+    const core = new Core({
+      defaults,
+      userConfig: user,
+      projectConfig: async () => memStore(),
+      fetcher: fakeFetcher([{ body: ['{"done":true}'] }]).fetcher,
+      emitEvent: (e) => events.push(e),
+    });
+    return { core, userLayer, events };
+  }
+
+  it("config.get returns file yaml and parsed summary", async () => {
+    const { core } = mk();
+    await core.attachProject("p", fakeHost());
+    const r = (await core.dispatch("config.get", { projectId: "p" })) as { files: Record<string, string>; summary: { channels: { id: string }[] } };
+    expect(r.summary.channels.map((c) => c.id)).toContain("c1");
+    expect(r.files["channels.yaml"]).toContain("c1");
+  });
+
+  it("config.set validates, writes and reloads channels", async () => {
+    const { core, userLayer } = mk();
+    await core.attachProject("p", fakeHost());
+    const ok = (await core.dispatch("config.set", {
+      projectId: "p",
+      file: "channels.yaml",
+      yaml: "version: 1\nitems:\n  - id: c2\n    type: ollama\n    baseUrl: http://x\n    maxParallel: 2\n",
+    })) as { ok: boolean };
+    expect(ok.ok).toBe(true);
+    expect(userLayer["channels.yaml"]).toContain("c2");
+    const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { channels: { id: string }[] } };
+    expect(r.summary.channels.map((c) => c.id)).toContain("c2");
+  });
+
+  it("config.set rejects bad yaml and unknown files", async () => {
+    const { core } = mk();
+    await core.attachProject("p", fakeHost());
+    await expect(core.dispatch("config.set", { projectId: "p", file: "channels.yaml", yaml: "[unclosed" })).rejects.toThrow(/YAML/);
+    await expect(core.dispatch("config.set", { projectId: "p", file: "nope.yaml", yaml: "{}" })).rejects.toThrow(/unknown config file/);
+    await expect(core.dispatch("config.set", { projectId: "p", file: "channels.yaml", yaml: "version: 1\nitems: [{id: 5}]" })).rejects.toThrow(/invalid/);
+  });
+
+  it("secret.set stores via host and wires it to the channel", async () => {
+    const secrets = new Map<string, string>();
+    const host = fakeHost();
+    host.secrets = {
+      get: async (k) => secrets.get(k),
+      set: async (k, v) => void secrets.set(k, v),
+      delete: async (k) => void secrets.delete(k),
+    };
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m"}]}'] }]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: ollama\n    baseUrl: http://x\n    secretRef: sk\n" });
+    const core = new Core({
+      defaults: {},
+      userConfig: user,
+      projectConfig: async () => memStore(),
+      fetcher,
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", host);
+    await core.dispatch("secret.set", { projectId: "p", ref: "sk", value: "sekret" });
+    expect(secrets.get("sk")).toBe("sekret");
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "oc" })) as { ok: boolean };
+    expect(res.ok).toBe(true);
+    await core.dispatch("secret.delete", { projectId: "p", ref: "sk" });
+    expect(secrets.has("sk")).toBe(false);
   });
 });

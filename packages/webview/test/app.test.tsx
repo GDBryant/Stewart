@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
 import { MockBridge } from "../src/bridge.js";
+
+afterEach(cleanup);
 
 function mk() {
   const bridge = new MockBridge();
@@ -68,5 +71,50 @@ describe("webview chat", () => {
       bridge.inbound(ev("run.finished", { status: "failed", error: "boom" }));
     });
     expect(screen.getByText("boom")).toBeTruthy();
+  });
+});
+
+describe("webview settings", () => {
+  const configReply = {
+    type: "config" as const,
+    files: { "channels.yaml": "version: 1\nitems: []\n" },
+    summary: {
+      channels: [{ id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" }],
+      agents: [{ id: "a1", channel: "c1", model: "m", effort: "medium" }],
+      roles: [{ id: "general-worker", enabled: true, agent: "a1" }],
+      settings: { costLimit: { perRunUsd: 5, onLimit: "ask" } },
+    },
+    errors: [],
+  };
+
+  it("renders channels from config reply and edits + saves a field", async () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    expect(screen.getByText("c1")).toBeTruthy();
+    fireEvent.click(screen.getByText("Edit"));
+    const input = screen.getByPlaceholderText("http://localhost:11434");
+    fireEvent.input(input, { target: { value: "http://new" } });
+    fireEvent.click(screen.getByText("Save"));
+    const setMsg = bridge.sent.find((m) => m.type === "config.set");
+    expect(setMsg && setMsg.type === "config.set" && setMsg.file).toBe("channels.yaml");
+    expect(setMsg && setMsg.type === "config.set" && setMsg.yaml).toContain("http://new");
+  });
+
+  it("sends channel.test and renders the result", async () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("Test"));
+    expect(bridge.sent).toContainEqual({ type: "channel.test", channelId: "c1" });
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m1", "m2"] }));
+    expect(screen.getByText(/m1, m2/)).toBeTruthy();
+  });
+
+  it("shows config errors", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, errors: ["channels.yaml: bad"] }));
+    expect(screen.getByText(/channels.yaml: bad/)).toBeTruthy();
   });
 });

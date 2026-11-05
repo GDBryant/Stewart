@@ -9,3 +9,5 @@ export * from "./config/schema.js";
 export * from "./config/loader.js";
 export * from "./runManager.js";
 export * from "./core.js";
+export * from "./config/store.js";
+export * from "./config/files.js";
