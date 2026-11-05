@@ -1,21 +1,16 @@
 # Stewart
 
-JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (native tools; deprecated tool-call shim kept as per-model fallback), 3-level agent orchestration.
+Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, configurable channels/agents/roles/skills.
 
 ## Hard Rules
 - Always be brief and concise
 
 ## Commands
-- Build plugin: `./gradlew buildPlugin`
-- Install into local IDEs (2025.1+): `scripts/install-plugin.sh [--no-build] [IDE_DIR_NAME...]`; or IDE → Settings → Plugins → ⚙ → Install Plugin from Disk → `build/distributions/stewart-<ver>.zip`
-- Tests: `./gradlew test`
-- Plugin Verifier: `./gradlew verifyPlugin`
-- Run IDE sandbox: `./gradlew runIde`
-- Live Ollama smoke test (skipped by default): `OLLAMA_LIVE=1 ./gradlew test --tests '*OllamaLiveTest*'`
-- Live AIF test (skipped, needs env): `AIF_LIVE=1 AIF_BASE_URL=... AIF_API_KEY=... AIF_MODEL=... ./gradlew test --tests '*AifLiveTest*'`
-- Live Claude test (skipped, needs env): `CLAUDE_LIVE=1 ./gradlew test --tests '*ClaudeLiveTest*'` (uses the enterprise CLI login)
-- Coverage gate: `./gradlew koverVerify`
-- Coverage report: `./gradlew koverHtmlReport` → `build/reports/kover/html/`
+- Install deps: `pnpm install`
+- Build all: `pnpm -r build`
+- Tests: `pnpm -r test`
+- Typecheck: `pnpm -r typecheck`
+- v1 Gradle commands are gone with the v1 code on branch `v2`.
 
 ## References
 - Plan: `docs/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.
@@ -38,8 +33,8 @@ JetBrains plugin: chat with Ollama + Claude (enterprise SSO) + AI Factory (nativ
 - Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 
 ## Conventions
-- Stack: Kotlin, Gradle IntelliJ / PyCharm Platform Plugin.
+- Stack: TypeScript pnpm monorepo (`packages/*` shared, `hosts/*` per-IDE); JetBrains plugin module in Kotlin added at M2.
 - Docs live in `docs/`; add a reference here when adding one.
 - New code always gets tests for both positive and negative cases.
-- Every change ships tests; `koverVerify` (≥90% line, ≥80% branch) must pass. New code is tested in the same change.
-- New tool-call formats: add to the Kotlin parser with a verbatim test.
+- Every change ships tests (positive + negative). Coverage target ≥90% line, ≥80% branch; vitest coverage gate lands with CI.
+- New tool-call formats: add to the TS parser with a verbatim fixture test.

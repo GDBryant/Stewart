@@ -14,3 +14,9 @@ log/
 debug_logs/
 *.log
 .stewart/scratch/
+node_modules/
+dist/
+out/
+coverage/
+*.vsix
+hosts/vscode/webview/

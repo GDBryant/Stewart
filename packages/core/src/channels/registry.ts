@@ -1,0 +1,114 @@
+import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
+import { ChannelError } from "./types.js";
+
+/**
+ * Wraps an adapter + config with per-channel concurrency (maxParallel queue),
+ * 429/Retry-After backoff, and a circuit breaker (5 consecutive failures →
+ * `unhealthy`; a success or explicit reset closes it).
+ */
+export class ManagedChannel {
+  readonly adapter: ChannelAdapter;
+  readonly cfg: ChannelConfig;
+  private secret: string | undefined;
+  private running = 0;
+  private readonly queue: { run(): Promise<void> }[] = [];
+  private failures = 0;
+  private backoffUntil = 0;
+  private waiters: (() => void)[] = [];
+  unhealthy = false;
+
+  constructor(adapter: ChannelAdapter, cfg: ChannelConfig, secret?: string) {
+    this.adapter = adapter;
+    this.cfg = cfg;
+    this.secret = secret;
+  }
+
+  get health(): "healthy" | "unhealthy" | "backoff" {
+    if (this.unhealthy) return "unhealthy";
+    if (Date.now() < this.backoffUntil) return "backoff";
+    return "healthy";
+  }
+
+  setSecret(s: string | undefined): void {
+    this.secret = s;
+  }
+
+  resetBreaker(): void {
+    this.unhealthy = false;
+    this.failures = 0;
+  }
+
+  private onSuccess(): void {
+    this.failures = 0;
+    this.unhealthy = false;
+  }
+
+  private onFailure(e: unknown): void {
+    if (e instanceof ChannelError && e.status === 429) {
+      this.backoffUntil = Date.now() + (e.retryAfterMs ?? 1000);
+      return; // rate limit is not a failure
+    }
+    if (++this.failures >= 5) this.unhealthy = true;
+  }
+
+  /** Acquire a concurrency slot; rejects fast when unhealthy. */
+  private async acquire(): Promise<void> {
+    if (this.unhealthy) throw new ChannelError(`channel ${this.cfg.id} unhealthy`, 0);
+    while (Date.now() < this.backoffUntil) await new Promise((r) => setTimeout(r, 50));
+    if (this.running < this.cfg.maxParallel) {
+      this.running++;
+      return;
+    }
+    await new Promise<void>((res) => this.waiters.push(res));
+    this.running++;
+  }
+
+  private release(): void {
+    this.running--;
+    this.waiters.shift()?.();
+  }
+
+  async *chat(req: ChatRequest): AsyncIterable<ChatEvent> {
+    await this.acquire();
+    let ok = false;
+    try {
+      for await (const ev of this.adapter.chat(this.cfg, this.secret, req)) {
+        yield ev;
+        if (ev.kind === "done") ok = true;
+      }
+      this.onSuccess();
+    } catch (e) {
+      if (!(e instanceof Error && e.name === "AbortError")) this.onFailure(e);
+      throw e;
+    } finally {
+      this.release();
+    }
+    if (!ok) this.onFailure(new ChannelError("stream ended without done"));
+  }
+
+  async listModels(): Promise<string[]> {
+    try {
+      const m = await this.adapter.listModels(this.cfg, this.secret);
+      this.onSuccess();
+      return m;
+    } catch (e) {
+      this.onFailure(e);
+      throw e;
+    }
+  }
+}
+
+export class ChannelRegistry {
+  private readonly adapters = new Map<string, (deps: unknown) => ChannelAdapter>();
+  register(type: string, make: (deps: unknown) => ChannelAdapter): void {
+    this.adapters.set(type, make);
+  }
+  create(type: string, deps: unknown): ChannelAdapter {
+    const make = this.adapters.get(type);
+    if (!make) throw new Error(`unknown channel type: ${type}`);
+    return make(deps);
+  }
+  types(): string[] {
+    return [...this.adapters.keys()];
+  }
+}

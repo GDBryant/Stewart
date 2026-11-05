@@ -1,0 +1,49 @@
+{
+  "name": "@stewart/host-vscode",
+  "displayName": "Stewart",
+  "description": "Multi-role AI assistant",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "stewart",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.145.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "stewart.openChat",
+        "title": "Stewart: Open Chat"
+      },
+      {
+        "command": "stewart.openSettings",
+        "title": "Stewart: Open Settings"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').cpSync('../../packages/webview/dist','webview',{recursive:true})\" && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@stewart/core": "workspace:*",
+    "@stewart/protocol": "workspace:*",
+    "@stewart/webview": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "@types/vscode": "1.145.0",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
