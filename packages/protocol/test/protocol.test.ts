@@ -4,13 +4,14 @@ import { METHODS, negotiate, runEventSchema, PROTOCOL_VERSION } from "../src/ind
 describe("protocol", () => {
   it("accepts every declared run event kind", () => {
     for (const kind of [
-      "run.started", "run.finished", "text_delta", "reasoning_delta",
+      "run.started", "run.finished", "text_delta", "reasoning_delta", "terminal_output",
       "task.created", "task.started", "task.blocked", "task.done", "task.failed",
-      "tool.request", "tool.outcome", "ask_user", "approval.request",
-      "milestone.started", "milestone.done", "plan.created", "plan.validated",
+      "tool.request", "tool.outcome", "ask_user", "question.answered", "approval.request",
+      "milestone.started", "milestone.done", "milestone.failed", "plan.created", "plan.validated", "plan.approved",
+      "review.done", "run.reverted",
       "cost.limit_reached", "cost.limit_raised", "cost.replaced", "compaction",
     ]) {
-      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", dependsOn: [], waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], capUsd: 1, accruedUsd: 1, agentId: "a", reason: "r", roleId: "ro", droppedTokens: 0, error: "e", status: "done", question: "q?", options: [] };
+      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", answer: "a", answeredBy: "orchestrator", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", dependsOn: [], waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], findings: 0, filesRestored: ["a.ts"], capUsd: 1, accruedUsd: 1, agentId: "a", reason: "r", roleId: "ro", droppedTokens: 0, error: "e", status: "done", question: "q?", options: [] };
       expect(runEventSchema.safeParse(ev).success, kind).toBe(true);
     }
   });
@@ -33,6 +34,8 @@ describe("protocol", () => {
 
   it("declares all RPC methods", () => {
     expect(METHODS).toContain("chat.send");
-    expect(METHODS.length).toBe(11);
+    expect(METHODS).toContain("chat.revert");
+    expect(METHODS).toContain("channel.probe");
+    expect(METHODS.length).toBe(13);
   });
 });

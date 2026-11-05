@@ -50,8 +50,8 @@ export class RunLedger {
 
   async record(e: Omit<LedgerEntry, "at">): Promise<LedgerEntry> {
     const entry = { ...e, at: this.clock.now() };
-    this.entries.push(entry);
     await this.host.files.appendLine(this.path, JSON.stringify(entry));
+    this.entries.push(entry);
     return entry;
   }
 

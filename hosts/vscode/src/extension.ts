@@ -60,7 +60,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const refresh = () => {
     void (async () => {
       try {
-        await core.dispatch("config.reload", { projectId: PROJECT_ID });
+        const res = (await core.dispatch("config.reload", { projectId: PROJECT_ID, fromWatcher: true })) as { suppressed?: boolean };
+        if (res?.suppressed) return;
         const r = await core.dispatch("config.get", { projectId: PROJECT_ID });
         await panel?.webview.postMessage({ type: "config", ...(r as object) });
       } catch (e) {
@@ -117,6 +118,11 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         await panel.webview.postMessage({ type: "channel.test.result", channelId: m.channelId, ...(r as object) });
         return;
       }
+      case "channel.probe": {
+        const r = await core.dispatch("channel.probe", { projectId: PROJECT_ID, channelId: m.channelId, model: m.model, force: m.force });
+        await panel.webview.postMessage({ type: "channel.probe.result", channelId: m.channelId, model: m.model, ...(r as object) });
+        return;
+      }
       case "skills.open": {
         const file = path.join(await host.userConfigDir(), "skills", `${String(m.id)}.md`);
         try {
@@ -138,6 +144,7 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
           | "chat.send"
           | "chat.cancel"
           | "chat.resume"
+          | "chat.revert"
           | "chat.answer"
           | "chat.approve"
           | "config.set"

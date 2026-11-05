@@ -464,6 +464,54 @@ describe("runRoleTask", () => {
     expect(rt.ledger.cost("run-1").byRole["code-writer"]).toBeCloseTo(0.02);
   });
 
+  it("keeps the task unresolved until the ledger append is durable", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("wrote"), done({ in: 1000, out: 500 }, 0.02)]);
+    const { rt, host } = await runtime(cfg, channel);
+    const orig = host.files.appendLine;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => (release = res));
+    let appends = 0;
+    host.files.appendLine = async (p, line) => {
+      if (p.endsWith("ledger.jsonl")) {
+        appends++;
+        await gate;
+      }
+      return orig(p, line);
+    };
+    let settled = false;
+    const task = runRoleTask(rt, { id: "t1", roleId: "code-writer", title: "t", task: "x", files: [], dependsOn: [] }, {
+      role: role("code-writer"),
+    }).then((r) => {
+      settled = true;
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(appends).toBe(1);
+    expect(settled).toBe(false);
+    release();
+    expect((await task).status).toBe("done");
+    expect(rt.ledger.cost("run-1").costUsd).toBeCloseTo(0.02);
+  });
+
+  it("fails the task and records no cost when the ledger append rejects", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("wrote"), done({ in: 1000, out: 500 }, 0.02)]);
+    const { rt, host } = await runtime(cfg, channel);
+    const orig = host.files.appendLine;
+    host.files.appendLine = async (p, line) => {
+      if (p.endsWith("ledger.jsonl")) throw new Error("fsync failed");
+      return orig(p, line);
+    };
+    const res = await runRoleTask(rt, { id: "t1", roleId: "code-writer", title: "t", task: "x", files: [], dependsOn: [] }, {
+      role: role("code-writer"),
+    });
+    expect(res.status).toBe("failed");
+    expect(res.summary).toContain("fsync failed");
+    expect(rt.ledger.cost("run-1").costUsd).toBe(0);
+    expect(rt.cost.accrued).toBe(0);
+  });
+
   it("prefers a terminal tool result over prose", async () => {
     const cfg = config();
     const { channel } = fakeChannel(() => [
@@ -503,6 +551,42 @@ describe("runRoleTask", () => {
     expect(res.status).toBe("stopped");
     expect(res.summary).toContain("turn limit");
   });
+
+  it("fails over to fallbackAgent when primary channel is unhealthy and prompts on free->paid switch", async () => {
+    const cfg = config({
+      roles: {
+        investigator: "enabled: true\n    agent: a-free\n    fallbackAgent: a-paid\n    tools: [ReadFile]",
+      },
+    });
+    const unhealthy = fakeChannel(() => [text("bad"), done()]).channel;
+    unhealthy.unhealthy = true;
+    const healthy = fakeChannel(() => [text("from-fallback"), done()]).channel;
+    const { rt: rtDeclined } = await runtime(cfg, healthy, {
+      channelFor: (id) => (id === "c1" ? unhealthy : healthy),
+      ask: async () => "Park",
+    });
+    cfg.agents.find((a) => a.id === "a-paid")!.channel = "c2";
+    cfg.channels.push({ id: "c2", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { tools: "native" } } });
+    const declined = await runRoleTask(
+      rtDeclined,
+      { id: "t1", roleId: "investigator", title: "t", task: "x", files: [], dependsOn: [] },
+      { role: cfg.roles.find((r) => r.id === "investigator")! },
+    );
+    expect(declined.status).toBe("parked");
+    expect(declined.summary).toContain("declined");
+
+    const { rt: rtSwitched } = await runtime(cfg, healthy, {
+      channelFor: (id) => (id === "c1" ? unhealthy : healthy),
+      ask: async () => "Switch",
+    });
+    const switched = await runRoleTask(
+      rtSwitched,
+      { id: "t2", roleId: "investigator", title: "t", task: "x", files: [], dependsOn: [] },
+      { role: cfg.roles.find((r) => r.id === "investigator")! },
+    );
+    expect(switched.status).toBe("done");
+    expect(switched.summary).toBe("from-fallback");
+  });
 });
 
 describe("runOrchestrated", () => {
@@ -529,6 +613,22 @@ describe("runOrchestrated", () => {
     const out = await runOrchestrated(rt, "go");
     expect(out.status).toBe("failed");
     expect(out.error).toContain("no agent bound");
+  });
+
+  it("fails the run and records no cost when the ledger append rejects", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("hi"), done({ in: 1000, out: 500 }, 0.05)]);
+    const { rt, host } = await runtime(cfg, channel);
+    const orig = host.files.appendLine;
+    host.files.appendLine = async (p, line) => {
+      if (p.endsWith("ledger.jsonl")) throw new Error("fsync failed");
+      return orig(p, line);
+    };
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("failed");
+    expect(out.error).toContain("fsync failed");
+    expect(rt.ledger.cost("run-1").costUsd).toBe(0);
+    expect(rt.cost.accrued).toBe(0);
   });
 
   it("dispatches to a role and answers with the routed result", async () => {
@@ -775,6 +875,134 @@ describe("runOrchestrated", () => {
     const codeWriterOutcomes = events.filter((e) => e.kind === "tool.outcome" && e.roleId === "code-writer");
     expect(codeWriterOutcomes).toHaveLength(2);
   });
+
+  it("blocks write-role dispatches before plan approval when planGate is true", async () => {
+    const cfg = config({ settings: "version: 1\nplanGate: true\n" });
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "orchestrator") return n === 1 ? [calls(plan("code-writer", "write early")), done()] : [text("blocked"), done()];
+      return [text("wrote"), done()];
+    });
+    const { rt, events } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    const failed = events.find((e) => e.kind === "task.failed") as Extract<RunEvent, { kind: "task.failed" }>;
+    expect(failed.error).toContain("plan gate active");
+  });
+
+  it("routes nested ask_user through the Orchestrator first and delegates only when needed", async () => {
+    const cfg = config({
+      roles: {
+        "code-writer": "enabled: true\n    agent: a-free\n    tools: [ask_user, WriteFile]",
+      },
+    });
+    let uiAsked = 0;
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role === "orchestrator") {
+        const lastUser = [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        if (lastUser.includes("Role 'code-writer' asks: Which file?")) return [text("Use a.ts"), done()];
+        if (lastUser.includes("Role 'code-writer' asks: Secret key?")) return [text("DELEGATE_TO_USER"), done()];
+        return n === 1 ? [calls(plan("code-writer", "implement")), done()] : [text("done"), done()];
+      }
+      if (role === "code-writer") {
+        if (n === 1) return [calls({ id: "q1", name: "ask_user", arguments: { question: "Which file?" } }), done()];
+        if (n === 2) return [calls({ id: "q2", name: "ask_user", arguments: { question: "Secret key?" } }), done()];
+        return [text("implemented"), done()];
+      }
+      return [text("ok"), done()];
+    });
+    const { rt, events } = await runtime(cfg, channel, {
+      ask: async () => {
+        uiAsked++;
+        return "user-secret";
+      },
+    });
+    const out = await runOrchestrated(rt, "update a.ts");
+    expect(out.status).toBe("done");
+    expect(uiAsked).toBe(1);
+    const answered = events.filter((e) => e.kind === "question.answered") as Extract<RunEvent, { kind: "question.answered" }>[];
+    expect(answered).toHaveLength(2);
+    expect(answered[0]).toMatchObject({ answeredBy: "orchestrator", answer: "Use a.ts" });
+    expect(answered[1]).toMatchObject({ answeredBy: "user", answer: "user-secret" });
+  });
+
+  it("applies suggested free replacements on cost limit and finishes parked tasks without mutating roles", async () => {
+    const cfg = config({ settings: "version: 1\ncostLimit:\n  perRunUsd: 0.01\n  onLimit: ask\n" });
+    let firstId = "";
+    let cwCalls = 0;
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role === "code-writer") {
+        cwCalls++;
+        return cwCalls === 1 ? [text("wrote 1"), done({ in: 1000, out: 1000 }, 0.05)] : [text("wrote 2 on free"), done()];
+      }
+      if (n === 1) return [calls(plan("code-writer", "first")), done()];
+      if (n === 2) {
+        const tool = [...req.messages].reverse().find((m) => m.role === "tool") as { content: string };
+        firstId = JSON.parse(tool.content).taskId;
+        return [calls(plan("code-writer", "second", { dependsOn: [firstId] })), done()];
+      }
+      return [text("done"), done()];
+    });
+    const { rt, events } = await runtime(cfg, channel, {
+      ask: async () => "Use suggested replacements",
+    });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    expect(events.some((e) => e.kind === "cost.replaced" && e.roleId === "code-writer" && e.agentId === "a-free")).toBe(true);
+    const doneTasks = events.filter((e) => e.kind === "task.done" && e.roleId === "code-writer");
+    expect(doneTasks).toHaveLength(2);
+    expect(cfg.roles.find((r) => r.id === "code-writer")!.agent).toBe("a-paid");
+  });
+
+  it("detects an AB-BA undeclared lease cycle in parallel tasks and re-queues the younger task to completion", async () => {
+    const cfg = config({
+      roles: {
+        "code-writer": "enabled: true\n    agent: a-free\n    tools: [WriteFile]",
+        "general-worker": "enabled: true\n    agent: a-free\n    tools: [WriteFile]",
+      },
+    });
+    let bothStartedResolve: () => void = () => {};
+    const bothStarted = new Promise<void>((r) => (bothStartedResolve = r));
+    let firstWrites = 0;
+    const bumpFirst = () => {
+      if (++firstWrites === 2) bothStartedResolve();
+    };
+    let gwAttempt = 0;
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "orchestrator") {
+        return n === 1 ? [calls(plan("code-writer", "t1"), plan("general-worker", "t2")), done()] : [text("done"), done()];
+      }
+      if (role === "code-writer") {
+        if (n === 1) return [calls({ id: "cw1", name: "WriteFile", arguments: { path: "a.ts", content: "cw-a" } }), done()];
+        if (n === 2) return [calls({ id: "cw2", name: "WriteFile", arguments: { path: "b.ts", content: "cw-b" } }), done()];
+        return [text("cw done"), done()];
+      }
+      if (role === "general-worker") {
+        gwAttempt++;
+        if (gwAttempt === 1 || gwAttempt === 3) {
+          return [calls({ id: `gw1-${gwAttempt}`, name: "WriteFile", arguments: { path: "b.ts", content: "gw-b" } }), done()];
+        }
+        if (gwAttempt === 2 || gwAttempt === 4) {
+          return [calls({ id: `gw2-${gwAttempt}`, name: "WriteFile", arguments: { path: "a.ts", content: "gw-a" } }), done()];
+        }
+        return [text("gw done"), done()];
+      }
+      return [text("ok"), done()];
+    });
+    const { rt, files } = await runtime(cfg, channel, { leaseWaitMs: 2000 });
+    const origEdit = rt.host.files.edit;
+    rt.host.files.edit = async (e) => {
+      const res = await origEdit(e);
+      if (firstWrites < 2) {
+        bumpFirst();
+        await bothStarted;
+      }
+      return res;
+    };
+    const out = await runOrchestrated(rt, "parallel writes");
+    expect(out.status).toBe("done");
+    expect(files["a.ts"]).toBe("gw-a");
+    expect(files["b.ts"]).toBe("gw-b");
+  });
 });
 
 describe("RunManager resume", () => {
@@ -801,30 +1029,131 @@ describe("RunManager resume", () => {
     expect(await manager.resume("p", run.id, opts)).toEqual({ ok: false, reason: "run is done" });
   });
 
-  it("resumes an interrupted run under the same id so the idempotency log applies", async () => {
-    const { manager, opts, events } = await mk();
+  it("fails closed for an interrupted in-memory run instead of replaying the prompt", async () => {
+    const { manager, opts, events, fake } = await mk();
     const run = await manager.orchestrated("p", { ...opts, text: "go" });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     manager.get(run.id)!.status = "interrupted";
+    const before = { ...fake.files };
     const res = await manager.resume("p", run.id, opts);
-    expect(res.ok).toBe(true);
-    expect(res.run!.id).toBe(run.id);
-    await vi.waitFor(() => expect(events.filter((e) => e.kind === "run.started")).toHaveLength(2));
+    expect(res).toEqual({ ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" });
+    expect(events.filter((e) => e.kind === "run.started")).toHaveLength(1);
+    expect(fake.files).toEqual(before);
   });
 
-  it("resumes from the journal after a restart", async () => {
+  it("fails closed for a persisted running journal after a restart", async () => {
     const { manager, opts, fake, events } = await mk();
-    const journal = "/tmp/st/scratch/run-old/run.json";
-    fake.files[journal] = JSON.stringify({ id: "run-old", projectId: "p", text: "go", status: "running" });
+    fake.files["/tmp/st/scratch/run-old/run.json"] = JSON.stringify({ id: "run-old", projectId: "p", text: "go", status: "running" });
     const res = await manager.resume("p", "run-old", opts);
-    expect(res.ok).toBe(true);
-    expect(res.run!.id).toBe("run-old");
-    await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished" && e.runId === "run-old")).toBe(true));
+    expect(res).toEqual({ ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" });
+    expect(events.some((e) => e.kind === "run.started")).toBe(false);
   });
 
-  it("refuses an unreadable journal", async () => {
+  it("fails closed for an unreadable journal with the same warning", async () => {
     const { manager, opts, fake } = await mk();
     fake.files["/tmp/st/scratch/run-bad/run.json"] = "{not json";
-    expect(await manager.resume("p", "run-bad", opts)).toEqual({ ok: false, reason: "run journal is unreadable" });
+    expect(await manager.resume("p", "run-bad", opts)).toEqual({
+      ok: false,
+      reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes",
+    });
+  });
+
+  it("reconstructs a persisted task graph on resume, marks in-flight tasks interrupted, and skips executed idempotency keys", async () => {
+    const cfg = config();
+    let writeExecutions = 0;
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "code-writer") {
+        return n === 1
+          ? [calls({ id: "w1", name: "WriteFile", arguments: { path: "a.ts", content: "written-once" } }), done({ in: 100, out: 50 }, 0.01)]
+          : [text("task finished after resume"), done({ in: 100, out: 50 }, 0.01)];
+      }
+      return [text("ok"), done()];
+    });
+    const fake = fakeHost({ "a.ts": "already-landed" });
+    const origEdit = fake.host.files.edit;
+    fake.host.files.edit = async (e) => {
+      writeExecutions++;
+      return origEdit(e);
+    };
+    fake.files["/tmp/st/scratch/run-crash/run.json"] = JSON.stringify({
+      id: "run-crash",
+      projectId: "p",
+      text: "update a.ts",
+      status: "running",
+      startedAt: 100,
+      costUsd: 0.02,
+      tasks: [
+        {
+          id: "task-1",
+          roleId: "code-writer",
+          title: "write a.ts",
+          task: "write a.ts",
+          files: ["a.ts"],
+          dependsOn: [],
+          status: "running",
+          filesTouched: ["a.ts"],
+        },
+      ],
+    });
+    fake.files["/tmp/st/scratch/run-crash/executed.jsonl"] = `${JSON.stringify({ key: "run-crash:task-1:0", content: "wrote a.ts (1 lines)" })}\n`;
+    const events: RunEvent[] = [];
+    const bus = new EventBus((e) => events.push(e), 0);
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const res = await manager.resume("p", "run-crash", { config: cfg, channelFor: () => channel });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-crash")?.status).toBe("done"));
+    expect(writeExecutions).toBe(0);
+    expect(fake.files["a.ts"]).toBe("already-landed");
+    expect(events.some((e) => e.kind === "task.failed" && e.error === "failed: interrupted")).toBe(true);
+    expect(events.some((e) => e.kind === "task.done" && e.taskId === "task-1")).toBe(true);
+  });
+
+  it("reverts run changes across multiple tasks and deletes newly created files", async () => {
+    const cfg = config({
+      roles: {
+        "code-writer": "enabled: true\n    agent: a-free\n    tools: [WriteFile]",
+      },
+    });
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "orchestrator") {
+        if (n === 1) return [calls({ id: "d1", name: "dispatch", arguments: { role: "code-writer", task: "first" } }), done()];
+        if (n === 2) return [calls({ id: "d2", name: "dispatch", arguments: { role: "code-writer", task: "second" } }), done()];
+        return [text("done"), done()];
+      }
+      if (role === "code-writer") {
+        if (n === 1) return [calls({ id: "w1", name: "WriteFile", arguments: { path: "a.ts", content: "v1" } }), done()];
+        if (n === 3) {
+          return [
+            calls(
+              { id: "w2", name: "WriteFile", arguments: { path: "a.ts", content: "v2" } },
+              { id: "w3", name: "WriteFile", arguments: { path: "created.ts", content: "new" } },
+            ),
+            done(),
+          ];
+        }
+        return [text("ok"), done()];
+      }
+      return [text("ok"), done()];
+    });
+    const fake = fakeHost({ "a.ts": "original-a" });
+    const events: RunEvent[] = [];
+    let manager!: RunManager;
+    const bus = new EventBus((e) => {
+      events.push(e);
+      if (e.kind === "approval.request") manager.approve(e.approvalId, "always");
+    }, 0);
+    manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const run = await manager.orchestrated("p", { config: cfg, channelFor: () => channel, text: "edit" });
+    await vi.waitFor(() => expect(manager.get(run.id)?.status).toBe("done"));
+    expect(fake.files["a.ts"]).toBe("v2");
+    expect(fake.files["created.ts"]).toBe("new");
+
+    const rev = await manager.revert(run.id);
+    expect(rev.ok).toBe(true);
+    expect(rev.filesRestored.sort()).toEqual(["a.ts", "created.ts"]);
+    expect(fake.files["a.ts"]).toBe("original-a");
+    expect(fake.files["created.ts"]).toBeUndefined();
+    expect(events.some((e) => e.kind === "run.reverted" && e.runId === run.id)).toBe(true);
+    expect((await manager.revert("run-missing")).ok).toBe(false);
   });
 });

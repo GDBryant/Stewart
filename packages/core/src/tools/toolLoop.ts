@@ -18,7 +18,7 @@ export interface LoopListener {
   onCompacted?(beforeTokens: number, afterTokens: number): void;
   onCompactionFailed?(message: string): void;
   /** One model call finished: usage + provider-reported cost (ledger input). */
-  onUsage?(usage: { in: number; out: number } | undefined, costUsd: number | undefined): void;
+  onUsage?(usage: { in: number; out: number } | undefined, costUsd: number | undefined): void | Promise<void>;
 }
 
 /** Replay guard: a tool call whose outcome is already recorded is not re-executed. */
@@ -90,19 +90,40 @@ export class ToolLoop {
     const produced: ChatMessage[] = [];
     const base = history;
     let turns = 0;
+    let truncRetries = 0;
     let text = "";
     let turnOpen = false;
     let executed = 0;
     const inFlight = { id: null as string | null, awaitsUser: false };
+    const measureSize = (msgs: ChatMessage[]) =>
+      msgs.reduce(
+        (n, m) =>
+          n +
+          ("content" in m ? m.content.length : 0) +
+          ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
+        0,
+      );
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        const size = [...base, ...produced].reduce(
-          (n, m) => n + ("content" in m ? m.content.length : 0) +
-            ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
-          0,
-        );
+        let size = measureSize([...base, ...produced]);
+        if (size > this.limits.maxContextChars && produced.length > 2) {
+          const beforeTokens = Math.ceil(size / 4);
+          const kept = produced.slice(-2);
+          const summary = produced
+            .slice(0, -2)
+            .filter((m) => m.role === "tool" || m.role === "assistant")
+            .map((m) => `${m.role}: ${m.content.slice(0, 120)}`)
+            .join(" | ")
+            .slice(0, Math.max(64, Math.floor(this.limits.maxContextChars / 4)));
+          produced.splice(0, produced.length, { role: "user", content: `[compacted: ${summary}]` }, ...kept);
+          size = measureSize([...base, ...produced]);
+          if (size <= this.limits.maxContextChars) {
+            listener.onCompacted?.(beforeTokens, Math.ceil(size / 4));
+          }
+        }
         if (size > this.limits.maxContextChars) {
+          listener.onCompactionFailed?.("context size limit exceeded");
           return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
         }
         turns++;
@@ -113,6 +134,7 @@ export class ToolLoop {
           ? [{ role: "system", content: this.rolePrompt }, ...base, ...produced]
           : [...base, ...produced];
         let sawDone = false;
+        let sawTruncated = false;
         let postDone = false;
         let failed: Error | null = null;
         let usage: { in: number; out: number } | undefined;
@@ -134,6 +156,7 @@ export class ToolLoop {
               calls = ev.calls;
             } else if (ev.kind === "done") {
               sawDone = true;
+              sawTruncated = ev.truncated === true;
               usage = ev.usage;
               costUsd = ev.costUsd;
             }
@@ -142,11 +165,27 @@ export class ToolLoop {
           if (signal.aborted) throw e;
           failed = e instanceof Error ? e : new Error(String(e));
         }
-        if (sawDone) listener.onUsage?.(usage, costUsd);
+        if (sawDone) await listener.onUsage?.(usage, costUsd);
         if (postDone) {
           return { kind: "failed", messages: produced, base, message: "provider emitted events after completion", code: "protocol_error" };
         }
-        if (failed) return { kind: "failed", messages: produced, base, message: failed.message };
+        const isStallTruncated = failed !== null && (/TRUNCATED|stream stalled/i.test(failed.message) || (failed as { code?: string }).code === "truncated");
+        if (sawTruncated || isStallTruncated) {
+          if (truncRetries < this.limits.maxTruncationRetries) {
+            truncRetries++;
+            turns--;
+            turnOpen = false;
+            continue;
+          }
+          return {
+            kind: "failed",
+            messages: produced,
+            base,
+            message: failed?.message ?? "response truncated",
+            code: "truncated",
+          };
+        }
+        if (failed) return { kind: "failed", messages: produced, base, message: failed.message, code: (failed as { code?: string }).code };
         if (!sawDone) {
           return { kind: "failed", messages: produced, base, message: "stream ended before completion", code: "incomplete_stream" };
         }
@@ -297,6 +336,7 @@ export class ToolLoop {
       if (key) await this.idempotency!.record(key, s);
       return this.finishOutcome(call, { kind: "success", content: s }, listener);
     } catch (e) {
+      if (e instanceof Error && e.name === "LeaseCycleError") throw e;
       if (e instanceof Error && e.message === "__tool_timeout__") {
         return this.finishOutcome(call, { kind: "uncertain", reason: "timed out; side effects unknown" }, listener);
       }

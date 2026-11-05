@@ -38,6 +38,13 @@ export class IdempotencyLog {
     return this.outcomes.size;
   }
 
+  clearTask(taskId: string): void {
+    const prefix = `${this.runId}:${taskId}:`;
+    for (const k of [...this.outcomes.keys()]) {
+      if (k.startsWith(prefix)) this.outcomes.delete(k);
+    }
+  }
+
   /** Hooks bound to one task so keys are `runId:taskId:callIndex`. */
   hooks(taskId: string): IdempotencyHooks {
     return {

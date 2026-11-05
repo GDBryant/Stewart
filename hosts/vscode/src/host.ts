@@ -101,6 +101,13 @@ export class VsCodeHost implements HostPort {
         return [];
       }
     },
+    delete: async (p) => {
+      try {
+        await fs.rm(p, { force: true });
+      } catch {
+        /* absent file is not an error */
+      }
+    },
   };
 
   readonly proc: HostPort["proc"] = {

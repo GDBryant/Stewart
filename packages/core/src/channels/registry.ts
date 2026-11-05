@@ -96,6 +96,17 @@ export class ManagedChannel {
       throw e;
     }
   }
+
+  async probeCaps(model: string): Promise<Partial<import("./types.js").ModelCaps>> {
+    try {
+      const caps = await this.adapter.probeCaps(this.cfg, this.secret, model);
+      this.onSuccess();
+      return caps;
+    } catch (e) {
+      this.onFailure(e);
+      throw e;
+    }
+  }
 }
 
 export class ChannelRegistry {

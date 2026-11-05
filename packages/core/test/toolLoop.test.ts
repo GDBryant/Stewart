@@ -171,4 +171,52 @@ describe("ToolLoop", () => {
     const r = await loop.run("m", hist, {}, sig());
     expect(r.messages[1].content).toBe("xxxxxxxxxx\n[output truncated]");
   });
+
+  it("retries a truncated turn once and fails when retries are exhausted", async () => {
+    const chOk = fakeChannel([
+      [{ kind: "text", text: "part" }, { kind: "done", truncated: true }],
+      [{ kind: "text", text: "complete" }, { kind: "done" }],
+    ]);
+    const loopOk = new ToolLoop(chOk, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 1 });
+    const ok = await loopOk.run("m", hist, {}, sig());
+    expect(ok.kind).toBe("completed");
+    expect(ok.messages[0]).toMatchObject({ content: "complete" });
+
+    const chFail = fakeChannel([
+      [{ kind: "text", text: "part1" }, { kind: "done", truncated: true }],
+      [{ kind: "text", text: "part2" }, { kind: "done", truncated: true }],
+    ]);
+    const loopFail = new ToolLoop(chFail, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 1 });
+    const fail = await loopFail.run("m", hist, {}, sig());
+    expect(fail).toMatchObject({ kind: "failed", code: "truncated" });
+  });
+
+  it("compacts context when approaching maxContextChars and fails if compaction cannot fit", async () => {
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "e1", name: "Echo", arguments: { text: "a".repeat(200) } }] }, { kind: "done" }],
+      [{ kind: "tool_calls", calls: [{ id: "e2", name: "Echo", arguments: { text: "b".repeat(200) } }] }, { kind: "done" }],
+      [{ kind: "text", text: "final" }, { kind: "done" }],
+    ]);
+    const compacted: [number, number][] = [];
+    const loop = new ToolLoop(
+      ch,
+      registryOf([echoTool]) as never,
+      approve,
+      { ...DEFAULT_LIMITS, maxContextChars: 600 },
+      undefined,
+      undefined,
+      undefined,
+      "native",
+    );
+    const r = await loop.run("m", hist, { onCompacted: (b, a) => compacted.push([b, a]) }, sig());
+    expect(r.kind).toBe("completed");
+    expect(compacted.length).toBeGreaterThan(0);
+
+    const chTooSmall = fakeChannel([[{ kind: "text", text: "hi" }, { kind: "done" }]]);
+    const failedCompactions: string[] = [];
+    const loopSmall = new ToolLoop(chTooSmall, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxContextChars: 1 });
+    const f = await loopSmall.run("m", [{ role: "user", content: "too long" }], { onCompactionFailed: (m) => failedCompactions.push(m) }, sig());
+    expect(f).toMatchObject({ kind: "failed", code: "context_limit" });
+    expect(failedCompactions).toHaveLength(1);
+  });
 });

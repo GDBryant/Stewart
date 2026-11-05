@@ -153,11 +153,14 @@ const AGENT_FIELDS: Field[] = [
   { key: "effort", label: "effort", kind: "select", options: ["low", "medium", "high", "max"] },
   { key: "temperature", label: "temperature", kind: "number" },
   { key: "billing", label: "billing", kind: "select", options: ["free", "reported", "priced", "unmetered"] },
+  { key: "price.inPerMTok", label: "in $/MTok", kind: "number" },
+  { key: "price.outPerMTok", label: "out $/MTok", kind: "number" },
 ];
 const SETTINGS_FIELDS: Field[] = [
   { key: "costLimit.perRunUsd", label: "cost limit $/run", kind: "number" },
   { key: "costLimit.onLimit", label: "on limit", kind: "select", options: ["ask", "stop"] },
   { key: "maxRunHours", label: "max run hours", kind: "number" },
+  { key: "planGate", label: "plan gate", kind: "bool" },
   { key: "leaseWaitSeconds", label: "lease wait s", kind: "number" },
   { key: "maxNestedDispatches", label: "max nested dispatches", kind: "number" },
   { key: "maxReplans", label: "max replans", kind: "number" },
@@ -190,9 +193,75 @@ function SecretInput({ refName, store }: { refName: string; store: Store }) {
   );
 }
 
+function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: ChannelSummary[]; store: Store }) {
+  const ch = channels.find((c) => c.id === item.channel);
+  const probe = store.state.probeResults[`${item.channel}:${item.model}`];
+  const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
+  const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
+  const isUnmetered =
+    item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
+  return (
+    <span class="extra">
+      {isUnmetered ? <span class="badge warn" title="Spend is not visible to cost limit">unmetered</span> : null}
+      {typeof caps.tools === "string" ? <span class="badge">tools:{caps.tools}</span> : null}
+      {caps.vision ? <span class="badge">vision</span> : null}
+      {caps.reasoning ? <span class="badge">reasoning</span> : null}
+      {caps.imageGen ? <span class="badge">imageGen</span> : null}
+      {typeof caps.contextTokens === "number" ? <span class="badge">{Math.round(caps.contextTokens / 1000)}k</span> : null}
+      <button class="small" onClick={() => store.probeModel(item.channel, item.model, true)}>
+        {probe ? "Re-probe" : "Probe"}
+      </button>
+    </span>
+  );
+}
+
+function SetupWizard({ store, channels, agents }: { store: Store; channels: ChannelSummary[]; agents: AgentSummary[] }) {
+  const [chId, setChId] = useState("local-ollama");
+  const [chType, setChType] = useState("ollama");
+  const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
+  const [agId, setAgId] = useState("default-agent");
+  const [model, setModel] = useState("qwen2.5-coder");
+  const createAll = () => {
+    const nextCh = [...channels.filter((c) => c.id !== chId), { id: chId, type: chType, enabled: true, baseUrl }];
+    const billing = chType === "ollama" || chId === "aif" ? "free" : chType === "claude-cli" ? "reported" : "unmetered";
+    const nextAg = [...agents.filter((a) => a.id !== agId), { id: agId, channel: chId, model, effort: "medium", billing }];
+    store.saveFile("channels.yaml", stringify({ version: 1, items: nextCh }, null, 2));
+    store.saveFile("agents.yaml", stringify({ version: 1, items: nextAg }, null, 2));
+    store.assignAgentToAll(agId, true);
+    store.setWizardOpen(false);
+  };
+  return (
+    <div class="card wizard">
+      <div class="card-title">
+        <b>First-run setup wizard</b>
+        <span class="spacer" />
+        <button class="small" onClick={() => store.setWizardOpen(false)}>Close</button>
+      </div>
+      <div class="form">
+        <label class="field"><span>Channel ID</span><input placeholder="wizard-channel-id" value={chId} onInput={(e) => setChId((e.target as HTMLInputElement).value)} /></label>
+        <label class="field">
+          <span>Channel Type</span>
+          <select value={chType} onChange={(e) => setChType((e.target as HTMLSelectElement).value)}>
+            <option value="ollama">ollama</option>
+            <option value="openai-compatible">openai-compatible</option>
+            <option value="claude-cli">claude-cli</option>
+          </select>
+        </label>
+        <label class="field"><span>Base URL</span><input placeholder="wizard-base-url" value={baseUrl} onInput={(e) => setBaseUrl((e.target as HTMLInputElement).value)} /></label>
+        <label class="field"><span>Agent ID</span><input placeholder="wizard-agent-id" value={agId} onInput={(e) => setAgId((e.target as HTMLInputElement).value)} /></label>
+        <label class="field"><span>Model</span><input placeholder="wizard-model" value={model} onInput={(e) => setModel((e.target as HTMLInputElement).value)} /></label>
+        <div class="row">
+          <button class="small" onClick={() => store.testChannel(chId)}>Test connection</button>
+          <button class="send" onClick={createAll}>Finish setup &amp; assign to roles</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView({ store }: { store: Store }) {
   const cfg = store.state.config?.summary;
-  const [active, setActive] = useState<"channels" | "agents" | "roles" | "skills" | "settings">("channels");
+  const [active, setActive] = useState<"channels" | "agents" | "roles" | "skills" | "settings" | "integrations">("channels");
   if (!cfg) {
     return (
       <div class="settings">
@@ -203,6 +272,7 @@ export function SettingsView({ store }: { store: Store }) {
   }
   const errors = store.state.config?.errors ?? [];
   const s = cfg.settings ?? ({} as SettingsSummary);
+  const showWizard = store.state.wizardOpen ?? ((cfg.channels?.length ?? 0) === 0 && (cfg.agents?.length ?? 0) === 0);
   return (
     <div class="settings">
       {errors.length ? (
@@ -210,10 +280,13 @@ export function SettingsView({ store }: { store: Store }) {
           {errors.map((e, i) => <div key={i} class="fail">⚠ {e}</div>)}
         </div>
       ) : null}
+      {showWizard ? <SetupWizard store={store} channels={cfg.channels ?? []} agents={cfg.agents ?? []} /> : null}
       <nav class="tabs">
-        {(["channels", "agents", "roles", "skills", "settings"] as const).map((t) => (
+        {(["channels", "agents", "roles", "skills", "settings", "integrations"] as const).map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>
         ))}
+        <span class="spacer" />
+        <button class="small" onClick={() => store.setWizardOpen(true)}>Run setup</button>
       </nav>
       {active === "channels" ? (
         <ItemsSection<ChannelSummary>
@@ -226,11 +299,18 @@ export function SettingsView({ store }: { store: Store }) {
         <ItemsSection<AgentSummary>
           title="Agents" file="agents.yaml" items={cfg.agents ?? []} fields={AGENT_FIELDS} store={store}
           empty={{ id: "agent", channel: cfg.channels?.[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
+          renderExtra={(i, st) => <AgentExtra item={i} channels={cfg.channels ?? []} store={st} />}
         />
       ) : null}
       {active === "roles" ? <RolesSection store={store} roles={cfg.roles ?? []} agents={cfg.agents ?? []} channels={cfg.channels ?? []} skills={cfg.skills ?? []} /> : null}
       {active === "skills" ? <SkillsSection store={store} skills={cfg.skills ?? []} /> : null}
       {active === "settings" ? <SettingsEditor store={store} settings={s} /> : null}
+      {active === "integrations" ? (
+        <section>
+          <h3>Integrations</h3>
+          <p class="hint">Task tracker (Jira) and IDE Git workflow connectors will be configured here in a future milestone.</p>
+        </section>
+      ) : null}
     </div>
   );
 }

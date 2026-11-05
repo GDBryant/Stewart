@@ -7,6 +7,8 @@ export interface TaskSpec {
   files: string[];
   dependsOn: string[];
   expect?: string;
+  acceptanceCriteria?: string;
+  sourceRef?: string;
 }
 
 export type TaskStatus =
@@ -43,6 +45,18 @@ export class TaskGraph {
 
   all(): TaskRecord[] {
     return [...this.tasks.values()];
+  }
+
+  toJSON(): TaskRecord[] {
+    return this.all().map((t) => ({ ...t, files: [...t.files], dependsOn: [...t.dependsOn], filesTouched: [...t.filesTouched] }));
+  }
+
+  static fromJSON(records: TaskRecord[]): TaskGraph {
+    const g = new TaskGraph();
+    for (const r of records) {
+      g.tasks.set(r.id, { ...r, files: [...(r.files ?? [])], dependsOn: [...(r.dependsOn ?? [])], filesTouched: [...(r.filesTouched ?? [])] });
+    }
+    return g;
   }
 
   /** Deps must exist and be acyclic; returns the offending ids, empty when valid. */

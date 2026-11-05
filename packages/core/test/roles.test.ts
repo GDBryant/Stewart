@@ -41,8 +41,20 @@ describe("roleRegistry", () => {
   });
 
   it("empty tools list means unrestricted", async () => {
-    const reg = roleRegistry(await mk(), role({ tools: [] }));
-    expect(reg.tools.length).toBe(6);
+    const all = await mk();
+    const reg = roleRegistry(all, role({ tools: [] }));
+    expect(reg.tools.length).toBe(all.tools.length);
+  });
+
+  it("enforces the investigator read-only program allow-list on RunTerminal", async () => {
+    const reg = roleRegistry(await mk(), role({ id: "investigator", tools: ["RunTerminal"] }));
+    const term = reg.find("RunTerminal")!;
+    await expect(term.preview!({ command: "ls -la" })).resolves.toBeTruthy();
+    await expect(term.preview!({ command: "git status" })).resolves.toBeTruthy();
+    await expect(term.preview!({ command: "git diff HEAD" })).resolves.toBeTruthy();
+    await expect(term.preview!({ command: "rm -rf src" })).rejects.toThrow(/not allowed for read-only role investigator/);
+    await expect(term.preview!({ command: "git commit -m wip" })).rejects.toThrow(/not allowed for read-only role investigator/);
+    await expect(term.preview!({ command: "echo pwn > a.ts" })).rejects.toThrow(/not allowed for read-only role investigator/);
   });
 
   it("rejects a write outside writePaths before preview", async () => {

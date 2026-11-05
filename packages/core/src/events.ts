@@ -1,8 +1,9 @@
 import type { RunEvent } from "@stewart/protocol";
 
 export type EventSink = (ev: RunEvent) => void;
+export type EventSubscriber = (ev: RunEvent) => void | Promise<void>;
 
-const DELTA_KINDS = new Set<RunEvent["kind"]>(["text_delta", "reasoning_delta"]);
+const DELTA_KINDS = new Set<RunEvent["kind"]>(["text_delta", "reasoning_delta", "terminal_output"]);
 
 /**
  * Coalesces high-frequency stream deltas into 30ms frames per (runId, taskId,
@@ -10,22 +11,40 @@ const DELTA_KINDS = new Set<RunEvent["kind"]>(["text_delta", "reasoning_delta"])
  * All other events flush immediately (and flush pending deltas first).
  */
 export class EventBus {
-  private pending = new Map<string, { text: string; seq: number }>();
+  private pending = new Map<string, { text: string; seq: number; roleId?: string }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private subscribers = new Set<EventSubscriber>();
   constructor(private sink: EventSink, private frameMs = 30) {}
+
+  subscribe(fn: EventSubscriber): () => void {
+    this.subscribers.add(fn);
+    return () => {
+      this.subscribers.delete(fn);
+    };
+  }
+
+  private deliver(ev: RunEvent): void {
+    this.sink(ev);
+    for (const sub of this.subscribers) {
+      Promise.resolve()
+        .then(() => sub(ev))
+        .catch(() => {});
+    }
+  }
 
   emit(ev: RunEvent): void {
     if (DELTA_KINDS.has(ev.kind)) {
-      const e = ev as Extract<RunEvent, { kind: "text_delta" }>;
+      const e = ev as Extract<RunEvent, { kind: "text_delta" | "reasoning_delta" | "terminal_output" }>;
       const key = `${e.runId}:${e.taskId ?? ""}:${e.kind}`;
-      const p = this.pending.get(key) ?? { text: "", seq: 0 };
+      const p = this.pending.get(key) ?? { text: "", seq: 0, roleId: e.roleId };
       p.text += e.text;
+      if (e.roleId) p.roleId = e.roleId;
       this.pending.set(key, p);
       if (!this.timer) this.timer = setTimeout(() => this.flush(), this.frameMs);
       return;
     }
     this.flush();
-    this.sink(ev);
+    this.deliver(ev);
   }
 
   flush(): void {
@@ -35,7 +54,14 @@ export class EventBus {
     }
     for (const [key, p] of this.pending) {
       const [runId, taskId, kind] = key.split(":", 3);
-      this.sink({ kind: kind as "text_delta", runId, taskId: taskId || undefined, seq: p.seq++, text: p.text });
+      this.deliver({
+        kind: kind as "text_delta" | "reasoning_delta" | "terminal_output",
+        runId,
+        taskId: taskId || undefined,
+        roleId: p.roleId,
+        seq: p.seq++,
+        text: p.text,
+      });
     }
     this.pending.clear();
   }

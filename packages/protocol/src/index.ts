@@ -37,6 +37,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("run.finished"), ...base, status: z.enum(["done", "failed", "cancelled", "stopped"]), error: z.string().optional() }),
   z.object({ kind: z.literal("text_delta"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("reasoning_delta"), ...base, seq: z.number(), text: z.string() }),
+  z.object({ kind: z.literal("terminal_output"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("task.created"), ...base, title: z.string(), dependsOn: z.array(z.string()).default([]) }),
   z.object({ kind: z.literal("task.started"), ...base }),
   z.object({ kind: z.literal("task.blocked"), ...base, waitingOn: z.string() }),
@@ -45,12 +46,16 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tool.request"), ...base, callId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("tool.outcome"), ...base, callId: z.string(), ok: z.boolean(), summary: z.string() }),
   z.object({ kind: z.literal("ask_user"), ...base, questionId: z.string(), question: z.string(), options: z.array(z.string()).optional() }),
+  z.object({ kind: z.literal("question.answered"), ...base, questionId: z.string(), answer: z.string(), answeredBy: z.enum(["orchestrator", "user"]) }),
   z.object({ kind: z.literal("approval.request"), ...base, approvalId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("milestone.started"), ...base, milestoneId: z.string(), title: z.string() }),
   z.object({ kind: z.literal("milestone.done"), ...base, milestoneId: z.string() }),
+  z.object({ kind: z.literal("milestone.failed"), ...base, milestoneId: z.string(), error: z.string() }),
   z.object({ kind: z.literal("plan.created"), ...base, milestoneCount: z.number() }),
   z.object({ kind: z.literal("plan.validated"), ...base, verdict: z.enum(["approve", "revise"]), reasons: z.array(z.string()) }),
   z.object({ kind: z.literal("plan.approved"), ...base, milestoneCount: z.number() }),
+  z.object({ kind: z.literal("review.done"), ...base, findings: z.number() }),
+  z.object({ kind: z.literal("run.reverted"), ...base, filesRestored: z.array(z.string()) }),
   z.object({
     kind: z.literal("cost.summary"),
     ...base,
@@ -79,11 +84,13 @@ export interface CoreRequests {
   "chat.send": { params: { projectId: string; text: string; images?: string[]; direct?: boolean }; result: { runId: string } };
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
   "chat.resume": { params: { projectId: string; runId: string }; result: { ok: true } };
+  "chat.revert": { params: { projectId: string; runId: string }; result: { ok: boolean; filesRestored: string[]; reason?: string } };
   "chat.answer": { params: { projectId: string; questionId: string; answer: string }; result: { ok: true } };
   "chat.approve": { params: { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" }; result: { ok: true } };
   "config.get": { params: { projectId: string }; result: { files: Record<string, string | undefined>; summary: unknown; errors: string[] } };
   "config.set": { params: { projectId: string; file: string; yaml: string; layer?: "user" | "project" }; result: { ok: true } };
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
+  "channel.probe": { params: { projectId: string; channelId: string; model: string; force?: boolean }; result: { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string } };
   "secret.set": { params: { projectId: string; ref: string; value: string }; result: { ok: true } };
   "secret.delete": { params: { projectId: string; ref: string }; result: { ok: true } };
 }
@@ -98,11 +105,13 @@ export const METHODS = [
   "chat.send",
   "chat.cancel",
   "chat.resume",
+  "chat.revert",
   "chat.answer",
   "chat.approve",
   "config.get",
   "config.set",
   "channel.test",
+  "channel.probe",
   "secret.set",
   "secret.delete",
 ] as const;

@@ -9,12 +9,15 @@ import { DEFAULT_CAPS } from "./channels/types.js";
 import { projectTools } from "./tools/builtins.js";
 import { ProjectPaths } from "./tools/projectPaths.js";
 import { Grants, type GrantDecision } from "./tools/approvals.js";
-import { categoryOf } from "./tools/types.js";
+import { categoryOf, ToolRegistry } from "./tools/types.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type ApprovalDecision, type ToolsMode } from "./tools/toolLoop.js";
 import { RunLedger, CostLimit } from "./orchestration/ledger.js";
 import { LeaseManager } from "./orchestration/leases.js";
 import { IdempotencyLog } from "./orchestration/idempotency.js";
-import { runOrchestrated } from "./orchestration/orchestrator.js";
+import { TaskGraph, type TaskRecord } from "./orchestration/tasks.js";
+import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
+import { runRoleTask } from "./orchestration/roleRunner.js";
+import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import type { OrchestrationRuntime } from "./orchestration/types.js";
 
 export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
@@ -27,6 +30,8 @@ export interface Run {
   startedAt: number;
   messages: ChatMessage[];
   costUsd: number;
+  tasks?: TaskRecord[];
+  externalRefs?: { tracker?: string; branch?: string; pr?: string };
 }
 
 export interface RunDeps {
@@ -172,37 +177,162 @@ export class RunManager {
 
   private async journal(run: Run, stateDir: string): Promise<void> {
     try {
-      const body = { id: run.id, projectId: run.projectId, text: run.messages.find((m) => m.role === "user")?.content ?? "", status: run.status, startedAt: run.startedAt, costUsd: run.costUsd };
+      const body = {
+        id: run.id,
+        projectId: run.projectId,
+        text: run.messages.find((m) => m.role === "user")?.content ?? "",
+        status: run.status,
+        startedAt: run.startedAt,
+        costUsd: run.costUsd,
+        tasks: run.tasks,
+        externalRefs: run.externalRefs,
+      };
       await this.deps.host.files.writeAtomic(this.journalPath(run.id, stateDir), JSON.stringify(body));
     } catch {
       /* journal is best-effort; it must never fail a run */
     }
   }
 
-  /** `/resume` after a restart: reuse the run id so the idempotency log skips landed writes. */
+  async revert(runId: string): Promise<{ ok: boolean; filesRestored: string[]; reason?: string }> {
+    const live = this.runs.get(runId);
+    if (live && live.status === "running") {
+      return { ok: false, filesRestored: [], reason: "run is still running" };
+    }
+    const stateDir = await this.deps.host.workspace.stateDir();
+    const filesRestored = await revertRunSnapshots(this.deps.host, stateDir, runId);
+    if (filesRestored.length === 0) {
+      return { ok: false, filesRestored: [], reason: "no snapshots for run" };
+    }
+    this.deps.bus.emit({ kind: "run.reverted", runId, filesRestored });
+    return { ok: true, filesRestored };
+  }
+
+  /**
+   * `/resume` reconstructs a persisted task graph, marks in-flight tasks
+   * `failed: interrupted`, and re-dispatches them using their original task ids
+   * and persisted `IdempotencyLog`. Fails closed when task-graph state is absent
+   * or unreadable so a prompt is never replayed with fresh task ids.
+   */
   async resume(
     projectId: string,
     runId: string,
-    opts: { config: Config; channelFor(channelId: string): ManagedChannel },
+    opts: { config: Config; channelFor(channelId: string): ManagedChannel; ask?(question: string, options?: string[]): Promise<string> },
   ): Promise<{ ok: boolean; reason?: string; run?: Run }> {
     const live = this.runs.get(runId);
     if (live && live.status !== "interrupted") return { ok: false, reason: `run is ${live.status}` };
     const stateDir = await this.deps.host.workspace.stateDir();
-    let text = live?.messages.find((m) => m.role === "user")?.content ?? "";
-    if (!live) {
-      const path = this.journalPath(runId, stateDir);
-      if (!(await this.deps.host.files.exists(path))) return { ok: false, reason: "run not found" };
-      let saved: { text?: string; status?: string; projectId?: string };
-      try {
-        saved = JSON.parse((await this.deps.host.files.read(path)).content) as typeof saved;
-      } catch {
-        return { ok: false, reason: "run journal is unreadable" };
-      }
-      if (saved.status && saved.status !== "running" && saved.status !== "interrupted") return { ok: false, reason: `run is ${saved.status}` };
-      text = saved.text ?? "";
+    const jPath = this.journalPath(runId, stateDir);
+    const hasJournal = await this.deps.host.files.exists(jPath);
+    if (!live && !hasJournal) {
+      return { ok: false, reason: "run not found" };
     }
-    if (!text) return { ok: false, reason: "no prompt to resume" };
-    const run = await this.orchestrated(projectId, { ...opts, text, runId });
+    let persisted: { id?: string; projectId?: string; text?: string; status?: string; startedAt?: number; costUsd?: number; tasks?: TaskRecord[] } | undefined;
+    if (hasJournal) {
+      try {
+        persisted = JSON.parse((await this.deps.host.files.read(jPath)).content);
+      } catch {
+        return { ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" };
+      }
+    }
+    const taskRecords = live?.tasks ?? persisted?.tasks;
+    if (!Array.isArray(taskRecords) || taskRecords.length === 0) {
+      return { ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" };
+    }
+    const graph = TaskGraph.fromJSON(taskRecords);
+    const interrupted = graph.all().filter((t) => t.status !== "done");
+    for (const t of interrupted) {
+      t.status = "failed";
+      t.error = "interrupted";
+      this.deps.bus.emit({ kind: "task.failed", runId, taskId: t.id, roleId: t.roleId, error: "failed: interrupted" });
+    }
+    if (opts.ask && interrupted.length > 0) {
+      const ans = await opts.ask(`Resume ${interrupted.length} interrupted task(s)?`, ["Resume", "Cancel"]);
+      if (!ans.startsWith("Resume")) {
+        return { ok: false, reason: "resume declined by user" };
+      }
+    }
+    const ledger = await this.ledgerFor();
+    const idem = new IdempotencyLog(this.deps.host, `${stateDir}/scratch/${runId}/executed.jsonl`, runId);
+    await idem.load();
+    const text = live?.messages.find((m) => m.role === "user")?.content ?? persisted?.text ?? "";
+    const run: Run = {
+      id: runId,
+      projectId,
+      status: "running",
+      controller: new AbortController(),
+      startedAt: live?.startedAt ?? persisted?.startedAt ?? this.deps.clock.now(),
+      messages: [{ role: "user", content: text }],
+      costUsd: ledger.cost(runId).costUsd,
+      tasks: graph.toJSON(),
+    };
+    this.runs.set(run.id, run);
+    this.deps.bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
+    void (async () => {
+      try {
+        const s = opts.config.settings;
+        const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, ledger.cost(run.id).costUsd);
+        const grants = new Grants();
+        const rt: OrchestrationRuntime = {
+          runId: run.id,
+          projectId: run.projectId,
+          host: this.deps.host,
+          clock: this.deps.clock,
+          ids: this.deps.ids,
+          bus: this.deps.bus,
+          config: opts.config,
+          stateDir,
+          channelFor: opts.channelFor,
+          ledger,
+          leases: new LeaseManager(),
+          idem,
+          cost,
+          signal: run.controller.signal,
+          startedAt: run.startedAt,
+          leaseWaitMs: s.leaseWaitSeconds * 1000,
+          skillBudgetTokens: s.skillBudgetTokens,
+          maxNestedDispatches: s.maxNestedDispatches,
+          maxReplans: s.maxReplans,
+          maxRunHours: s.maxRunHours,
+          planGate: s.planGate,
+          ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
+          approve: (call, preview) => this.gate(run.id, grants)(call, preview),
+        };
+        for (const t of interrupted) {
+          const role = resolveRole(rt, t.roleId);
+          if (!role) {
+            t.status = "failed";
+            t.summary = `no enabled role for '${t.roleId}'`;
+            continue;
+          }
+          t.status = "running";
+          run.tasks = graph.toJSON();
+          await this.journal(run, stateDir);
+          this.deps.bus.emit({ kind: "task.started", runId: run.id, taskId: t.id, roleId: role.id });
+          const res = await runRoleTask(rt, t, { role });
+          rt.leases.release(t.id);
+          t.filesTouched = res.filesTouched;
+          t.status = res.status === "done" ? "done" : "failed";
+          t.summary = res.summary;
+          run.tasks = graph.toJSON();
+          await this.journal(run, stateDir);
+          this.deps.bus.emit(
+            res.status === "done"
+              ? { kind: "task.done", runId: run.id, taskId: t.id, roleId: role.id, summary: res.summary.slice(0, 400) }
+              : { kind: "task.failed", runId: run.id, taskId: t.id, roleId: role.id, error: res.summary.slice(0, 400) },
+          );
+        }
+        run.costUsd = cost.accrued;
+        const anyFailed = graph.all().some((t) => t.status !== "done");
+        run.status = anyFailed ? "failed" : "done";
+        run.tasks = graph.toJSON();
+        await this.journal(run, stateDir);
+        this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: run.status });
+      } catch (e) {
+        run.status = "failed";
+        await this.journal(run, stateDir);
+        this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });
+      }
+    })();
     return { ok: true, run };
   }
 
@@ -240,6 +370,10 @@ export class RunManager {
       maxReplans: s.maxReplans,
       maxRunHours: s.maxRunHours,
       planGate: s.planGate,
+      onGraphChange: async (g) => {
+        run.tasks = g.toJSON();
+        await this.journal(run, stateDir);
+      },
       ask: this.askUser(run.id, "orchestrator"),
       approve: (call, preview) => this.gate(run.id, grants)(call, preview),
     };
@@ -263,8 +397,20 @@ export class RunManager {
 
   private async drive(run: Run, channel: ManagedChannel, agent: AgentDef, role?: RoleDef, rolePrompt?: string): Promise<void> {
     const bus = this.deps.bus;
+    const stateDir = await this.deps.host.workspace.stateDir();
     const paths = await ProjectPaths.forProject(this.deps.host);
-    const registry = role ? roleRegistry(projectTools(this.deps.host, paths), role) : projectTools(this.deps.host, paths);
+    const baseRegistry = role ? roleRegistry(projectTools(this.deps.host, paths), role) : projectTools(this.deps.host, paths);
+    const leases = new LeaseManager();
+    const registry = new ToolRegistry(
+      leasedTools(baseRegistry.tools, {
+        host: this.deps.host,
+        leases,
+        taskId: "direct",
+        runId: run.id,
+        leaseWaitMs: 300_000,
+        stateDir,
+      }),
+    );
     const runGrants = new Grants();
     const runId = run.id;
     const gate = this.gate(runId, runGrants);
@@ -274,6 +420,8 @@ export class RunManager {
     const listener = {
       onText: (t: string) => bus.emit({ kind: "text_delta", runId, seq: 0, text: t }),
       onReasoning: (t: string) => bus.emit({ kind: "reasoning_delta", runId, seq: 0, text: t }),
+      onCompacted: (before: number, after: number) =>
+        bus.emit({ kind: "compaction", runId, droppedTokens: Math.max(0, before - after) }),
       onToolRequested: (call: { id: string; name: string; arguments: Record<string, unknown> }) =>
         bus.emit({ kind: "tool.request", runId, callId: call.id, tool: call.name, args: call.arguments, category: call.name }),
       onToolOutcome: (call: { id: string }, outcome: { kind: string }) =>
@@ -281,6 +429,7 @@ export class RunManager {
     };
     try {
       const result = await loop.run(agent.model, run.messages, listener, run.controller.signal);
+      leases.releaseAll();
       run.messages = [...result.base, ...result.messages];
       if (result.kind === "failed") {
         run.status = "failed";
@@ -295,6 +444,7 @@ export class RunManager {
       if (run.status === "running") run.status = "done";
       bus.emit({ kind: "run.finished", runId, status: run.status === "cancelled" ? "cancelled" : "done" });
     } catch (e) {
+      leases.releaseAll();
       if (e instanceof RunCancelledError || run.controller.signal.aborted) {
         run.status = "cancelled";
         if (e instanceof RunCancelledError) run.messages = e.transcript;

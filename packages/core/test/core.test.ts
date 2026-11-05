@@ -50,6 +50,29 @@ describe("EventBus coalescing", () => {
     expect(out[1]).toMatchObject({ kind: "text_delta", text: "c" });
     expect(out[2].kind).toBe("run.finished");
   });
+
+  it("delivers events to subscribers asynchronously and isolates subscriber failures", async () => {
+    const out: RunEvent[] = [];
+    const subOut: RunEvent[] = [];
+    const bus = new EventBus((e) => out.push(e), 0);
+    bus.subscribe(() => {
+      throw new Error("sync subscriber boom");
+    });
+    bus.subscribe(async () => {
+      throw new Error("async subscriber boom");
+    });
+    const unsub = bus.subscribe((e) => {
+      subOut.push(e);
+    });
+    bus.emit({ kind: "run.started", runId: "r1", title: "go" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(out).toHaveLength(1);
+    expect(subOut).toHaveLength(1);
+    unsub();
+    bus.emit({ kind: "run.finished", runId: "r1", status: "done" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(subOut).toHaveLength(1);
+  });
 });
 
 describe("loadConfig", () => {
@@ -218,5 +241,46 @@ describe("Core config", () => {
     expect(res.ok).toBe(true);
     await core.dispatch("secret.delete", { projectId: "p", ref: "sk" });
     expect(secrets.has("sk")).toBe(false);
+  });
+
+  it("suppresses self-writes on watcher reload and caches capability probes", async () => {
+    const { fetcher, calls } = fakeFetcher([
+      { body: ['{"capabilities":["tools","vision"],"model_info":{"general.context_length":65536}}'] },
+      { body: ['{"capabilities":["tools"],"model_info":{"general.context_length":32768}}'] },
+    ]);
+    const userLayer: Record<string, string | undefined> = {};
+    const core = new Core({
+      defaults,
+      userConfig: memStore(userLayer),
+      projectConfig: async () => memStore(),
+      fetcher,
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", fakeHost());
+    await core.dispatch("config.set", {
+      projectId: "p",
+      file: "settings.yaml",
+      yaml: "version: 1\nmaxRunHours: 2\n",
+    });
+    const suppressed = (await core.dispatch("config.reload", { projectId: "p", fromWatcher: true })) as { suppressed: boolean };
+    expect(suppressed.suppressed).toBe(true);
+    userLayer["settings.yaml"] = "version: 1\nmaxRunHours: 4\n";
+    const external = (await core.dispatch("config.reload", { projectId: "p", fromWatcher: true })) as { suppressed: boolean };
+    expect(external.suppressed).toBe(false);
+
+    const p1 = (await core.dispatch("channel.probe", { projectId: "p", channelId: "c1", model: "m" })) as {
+      ok: boolean;
+      cached: boolean;
+      caps: { tools: string; vision: boolean; contextTokens: number };
+    };
+    expect(p1).toMatchObject({ ok: true, cached: false, caps: { tools: "native", vision: true, contextTokens: 65536 } });
+    const p2 = (await core.dispatch("channel.probe", { projectId: "p", channelId: "c1", model: "m" })) as { ok: boolean; cached: boolean };
+    expect(p2).toMatchObject({ ok: true, cached: true });
+    expect(calls).toHaveLength(1);
+    const p3 = (await core.dispatch("channel.probe", { projectId: "p", channelId: "c1", model: "m", force: true })) as { ok: boolean; cached: boolean };
+    expect(p3).toMatchObject({ ok: true, cached: false });
+    expect(calls).toHaveLength(2);
+    const missing = (await core.dispatch("channel.probe", { projectId: "p", channelId: "nope", model: "m" })) as { ok: boolean };
+    expect(missing.ok).toBe(false);
   });
 });

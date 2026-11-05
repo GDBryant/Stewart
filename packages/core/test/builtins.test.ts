@@ -131,3 +131,73 @@ describe("ToolRegistry validation", () => {
     expect(reg.validate({ id: "1", name: "ReadFile", arguments: { path: "a" } })).toBeNull();
   });
 });
+
+describe("ApplyPatch / GetProblems / GetDiff / ReadImage / GenerateImage", () => {
+  it("applies a unified diff patch and rejects bad hunks", async () => {
+    const { reg, files } = await setup({ "a.ts": "line1\nline2\nline3" });
+    const t = reg.find("ApplyPatch")!;
+    const patch = "--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,3 @@\n line1\n-line2\n+line2_mod\n line3";
+    const p = await t.preview!({ path: "a.ts", patch });
+    expect(await t.execute({ path: "a.ts", patch }, p, sig)).toBe("patched a.ts");
+    expect(files["a.ts"]).toBe("line1\nline2_mod\nline3");
+    await expect(t.preview!({ path: "a.ts", patch: "not a patch" })).rejects.toThrow(/no hunks/);
+    await expect(t.preview!({ path: "a.ts", patch: "@@ -1,1 +1,1 @@\n-missing\n+new" })).rejects.toThrow(/failed to apply/);
+  });
+
+  it("lists diagnostics via GetProblems and git diff via GetDiff", async () => {
+    const h = fakeHost({ "a.ts": "x" });
+    h.host.diag.problems = async () => [{ path: "a.ts", line: 4, severity: "ERROR", message: "bad type" }];
+    h.setProcHandler((_argv, onData) => {
+      onData("diff --git a/a.ts b/a.ts\n+x\n");
+      return { code: 0 };
+    });
+    const paths = await ProjectPaths.forProject(h.host);
+    const reg = projectTools(h.host, paths);
+    expect(await reg.find("GetProblems")!.execute({}, null, sig)).toBe("a.ts:4 [ERROR]: bad type");
+    expect(await reg.find("GetDiff")!.execute({ path: "a.ts", staged: true }, null, sig)).toContain("diff --git");
+  });
+
+  it("reads and generates image assets", async () => {
+    const { reg, files } = await setup({ "assets/logo.svg": "<svg/>" });
+    expect(await reg.find("ReadImage")!.execute({ path: "assets/logo.svg" }, null, sig)).toContain("image assets/logo.svg");
+    await expect(reg.find("ReadImage")!.execute({ path: "assets/missing.png" }, null, sig)).rejects.toThrow(/not found/);
+    const gen = reg.find("GenerateImage")!;
+    const p = await gen.preview!({ path: "assets/new.svg", prompt: "flow diagram" });
+    expect(p).toEqual({ kind: "other", category: "OTHER" });
+    expect(await gen.execute({ path: "assets/new.svg", prompt: "flow diagram" }, p, sig)).toBe("generated assets/new.svg");
+    expect(files["assets/new.svg"]).toContain("<svg");
+  });
+
+  it("allows .stewart/scratch while denying other .stewart files, and auto-approves scratch writes", async () => {
+    const { reg, files } = await setup({});
+    const w = reg.find("WriteFile")!;
+    await expect(w.preview!({ path: ".stewart/roles.yaml", content: "x" })).rejects.toThrow(/denied/);
+    const p = await w.preview!({ path: ".stewart/scratch/note.txt", content: "ok" });
+    await w.execute({ path: ".stewart/scratch/note.txt", content: "ok" }, p, sig);
+    expect(files[".stewart/scratch/note.txt"]).toBe("ok");
+    const { Grants } = await import("../src/tools/approvals.js");
+    const g = new Grants();
+    expect(g.isGranted("EDITS", p)).toBe(true);
+    expect(g.audit[0]).toMatchObject({ decision: "auto", category: "EDITS", target: ".stewart/scratch/note.txt" });
+  });
+
+  it("registers external ToolProvider plugins under MCP:<server> categories", async () => {
+    const { reg } = await setup({});
+    const { categoryOf } = await import("../src/tools/types.js");
+    reg.registerProvider({
+      id: "linear",
+      tools: () => [
+        {
+          spec: { name: "linear_list", description: "list issues", parameters: { type: "object", properties: {} } },
+          requiresApproval: true,
+          execute: async () => "issues",
+        },
+      ],
+    });
+    const tool = reg.find("linear_list")!;
+    expect(tool.category).toBe("MCP:linear");
+    const preview = await tool.preview!({});
+    expect(categoryOf(preview, tool)).toBe("MCP:linear");
+    expect(await tool.execute({}, preview, sig)).toBe("issues");
+  });
+});

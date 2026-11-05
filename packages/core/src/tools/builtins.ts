@@ -259,6 +259,158 @@ class EditFile extends EditTool {
   }
 }
 
+export function applyUnifiedPatch(before: string, patch: string, rel: string): string {
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+  const hunks: { oldLines: string[]; newLines: string[] }[] = [];
+  let current: { oldLines: string[]; newLines: string[] } | null = null;
+  for (const line of lines) {
+    if (line.startsWith("---") || line.startsWith("+++")) continue;
+    if (line.startsWith("@@")) {
+      if (current) hunks.push(current);
+      current = { oldLines: [], newLines: [] };
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith("-")) current.oldLines.push(line.slice(1));
+    else if (line.startsWith("+")) current.newLines.push(line.slice(1));
+    else if (line.startsWith(" ")) {
+      current.oldLines.push(line.slice(1));
+      current.newLines.push(line.slice(1));
+    } else if (line === "\\ No newline at end of file") {
+      continue;
+    } else if (line !== "") {
+      current.oldLines.push(line);
+      current.newLines.push(line);
+    }
+  }
+  if (current) hunks.push(current);
+  if (hunks.length === 0) throw new Error(`invalid patch for ${rel}: no hunks found`);
+  let out = before.replace(/\r\n/g, "\n");
+  for (const h of hunks) {
+    const target = h.oldLines.join("\n");
+    const replacement = h.newLines.join("\n");
+    if (target === "") {
+      out = out ? `${out}\n${replacement}` : replacement;
+      continue;
+    }
+    const idx = out.indexOf(target);
+    if (idx < 0) throw new Error(`patch hunk failed to apply in ${rel}`);
+    out = out.slice(0, idx) + replacement + out.slice(idx + target.length);
+  }
+  return out;
+}
+
+class ApplyPatch extends EditTool {
+  spec: ToolSpec = {
+    name: "ApplyPatch",
+    description: "Apply a unified diff patch to a file",
+    parameters: schema({ path: str, patch: str }, ["path", "patch"]),
+  };
+
+  async preview(args: Json): Promise<ToolPreview> {
+    const rel = this.paths.resolve(arg(args, "path"));
+    const before = await this.currentText(rel);
+    if (before === null) throw new Error(`file not found: ${rel}`);
+    const after = applyUnifiedPatch(before, arg(args, "patch"), rel);
+    return { kind: "file", path: rel, before, after };
+  }
+
+  async execute(args: Json, preview: ToolPreview | null): Promise<string> {
+    const rel = this.paths.resolve(arg(args, "path"));
+    await this.applyChange(rel, preview);
+    return `patched ${rel}`;
+  }
+}
+
+class GetProblems extends ProjectTool {
+  spec: ToolSpec = {
+    name: "GetProblems",
+    description: "List IDE diagnostics for the workspace or a file",
+    parameters: schema({ path: str }, []),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const rel = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : undefined;
+    const problems = await this.host.diag.problems(rel);
+    if (problems.length === 0) return "no problems";
+    return problems.map((p) => `${p.path}:${p.line} [${p.severity}]: ${p.message}`).join("\n");
+  }
+}
+
+class GetDiff extends ProjectTool {
+  spec: ToolSpec = {
+    name: "GetDiff",
+    description: "Return git diff for the workspace or a file",
+    parameters: schema({ path: str, staged: bool }, []),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json, _preview: ToolPreview | null, signal: AbortSignal): Promise<string> {
+    const rel = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : undefined;
+    const argv = ["git", "diff", ...(optBool(args, "staged") ? ["--staged"] : []), ...(rel ? ["--", rel] : [])];
+    let output = "";
+    const proc = this.host.proc.run(argv, {
+      cwd: this.paths.absolute(""),
+      onData: (d) => {
+        if (output.length < MAX_COMMAND_OUTPUT) output += d.slice(0, MAX_COMMAND_OUTPUT - output.length);
+      },
+    });
+    const onAbort = () => void proc.killTree();
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      await proc.done;
+      return output.trim() || "no diff";
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
+class ReadImage extends ProjectTool {
+  spec: ToolSpec = {
+    name: "ReadImage",
+    description: "Read an image asset or diagram from the workspace",
+    parameters: schema({ path: str }, ["path"]),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const rel = this.paths.resolve(arg(args, "path"));
+    if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);
+    const st = await this.paths.stat(rel);
+    if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
+    const { content } = await this.paths.read(rel);
+    return `image ${rel} (${st.size} bytes): ${content.slice(0, 200)}`;
+  }
+}
+
+class GenerateImage extends ProjectTool {
+  spec: ToolSpec = {
+    name: "GenerateImage",
+    description: "Generate an image or SVG/Mermaid diagram and write it to an asset path",
+    parameters: schema({ path: str, prompt: str, content: str }, ["path", "prompt"]),
+  };
+  requiresApproval = true;
+  readonly category = "OTHER" as const;
+
+  async preview(args: Json): Promise<ToolPreview> {
+    this.paths.resolve(arg(args, "path"));
+    return { kind: "other", category: "OTHER" };
+  }
+
+  async execute(args: Json): Promise<string> {
+    const rel = this.paths.resolve(arg(args, "path"));
+    const prompt = arg(args, "prompt");
+    const raw = typeof args["content"] === "string" && args["content"]
+      ? String(args["content"])
+      : `<svg xmlns="http://www.w3.org/2000/svg"><desc>${prompt.replace(/[<>&]/g, "")}</desc></svg>`;
+    await this.host.files.edit({ path: rel, content: raw });
+    return `generated ${rel}`;
+  }
+}
+
 class RunTerminal extends ProjectTool {
   spec: ToolSpec = {
     name: "RunTerminal",
@@ -308,8 +460,13 @@ export function projectTools(host: HostPort, paths: ProjectPaths): ToolRegistry 
     new ReadFile(host, paths),
     new FindFiles(host, paths),
     new Search(host, paths),
+    new GetProblems(host, paths),
+    new GetDiff(host, paths),
+    new ReadImage(host, paths),
     new WriteFile(host, paths),
     new EditFile(host, paths),
+    new ApplyPatch(host, paths),
     new RunTerminal(host, paths),
+    new GenerateImage(host, paths),
   ]);
 }

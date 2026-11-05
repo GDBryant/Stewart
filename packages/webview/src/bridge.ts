@@ -4,18 +4,20 @@ export type Outbound =
   | { type: "chat.send"; text: string; images?: string[]; direct?: boolean }
   | { type: "chat.cancel"; runId: string }
   | { type: "chat.resume"; runId: string }
+  | { type: "chat.revert"; runId: string }
   | { type: "chat.answer"; questionId: string; answer: string }
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }
   | { type: "config.set"; file: string; yaml: string; layer?: "user" | "project" }
   | { type: "channel.test"; channelId: string }
+  | { type: "channel.probe"; channelId: string; model: string; force?: boolean }
   | { type: "secret.set"; ref: string; value: string }
   | { type: "secret.delete"; ref: string }
   | { type: "skills.save"; id: string; body: string; description?: string }
   | { type: "skills.reset"; id: string }
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
-  | { type: "roles.assignAgent"; agentId: string }
+  | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -37,6 +39,7 @@ export interface SkillSummary {
 export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
   maxRunHours?: number;
+  planGate?: boolean;
   leaseWaitSeconds?: number;
   maxNestedDispatches?: number;
   maxReplans?: number;
@@ -61,6 +64,7 @@ export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
   | ({ type: "config" } & ConfigReply)
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
+  | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }
   | { type: "ready" }
   | { type: "error"; message: string };
 

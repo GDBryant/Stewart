@@ -1,7 +1,7 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES, type RunEvent } from "@stewart/protocol";
 import type { Clock, Fetcher, HostPort, IdGen } from "./ports.js";
 import { systemClock, counterIds, nodeFetch } from "./ports.js";
-import { EventBus } from "./events.js";
+import { EventBus, type EventSubscriber } from "./events.js";
 import { ChannelRegistry, ManagedChannel } from "./channels/registry.js";
 import { OllamaAdapter } from "./channels/ollama.js";
 import { OpenAICompatAdapter } from "./channels/openai.js";
@@ -11,10 +11,10 @@ import { CONFIG_FILE_SCHEMAS, isProjectFile } from "./config/files.js";
 import { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
 import { baseHashFor, composeRolePrompt, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "./skills/skills.js";
 import { stringify as stringifyYaml } from "yaml";
-import type { ConfigStore } from "./config/store.js";
+import { SelfWriteGuard, type ConfigStore } from "./config/store.js";
 import { parse as parseYaml } from "yaml";
 import { RunManager } from "./runManager.js";
-import type { ChannelDeps } from "./channels/types.js";
+import type { ChannelDeps, ModelCaps } from "./channels/types.js";
 
 export interface CoreDeps {
   fetcher?: Fetcher;
@@ -35,6 +35,7 @@ interface ProjectCtx {
   trusted: boolean;
   runs: RunManager;
   projectStore: ConfigStore;
+  projectGuard: SelfWriteGuard;
   /** Raw layers as last loaded (skill resolution, role reset). */
   userLayer: Record<string, string | undefined>;
   projectLayer: Record<string, string | undefined>;
@@ -44,6 +45,8 @@ export class Core {
   readonly channels = new ChannelRegistry();
   private projects = new Map<string, ProjectCtx>();
   private managed = new Map<string, ManagedChannel>();
+  private probeCache = new Map<string, { caps: Partial<ModelCaps>; probedAt: number }>();
+  private userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
   private clock: Clock;
   private ids: IdGen;
@@ -59,6 +62,10 @@ export class Core {
     this.channels.register("claude-cli", () => new ClaudeCliAdapter());
   }
 
+  subscribe(fn: EventSubscriber): () => void {
+    return this.bus.subscribe(fn);
+  }
+
   private get defaults(): Record<string, string | undefined> {
     return { "roles.yaml": DEFAULT_ROLES_YAML, ...this.deps.defaults };
   }
@@ -69,10 +76,24 @@ export class Core {
     const projectStore = await this.deps.projectConfig(projectId);
     const userLayer = await this.deps.userConfig.read();
     const projectLayer = await projectStore.read();
-    const config = loadConfig(userLayer, projectLayer, this.defaults, trusted);
+    this.userGuard.syncLayer(userLayer);
+    const projectGuard = new SelfWriteGuard();
+    projectGuard.syncLayer(projectLayer);
+    const config = this.applyProbes(loadConfig(userLayer, projectLayer, this.defaults, trusted));
     const runs = new RunManager({ host, clock: this.clock, ids: this.ids, bus: this.bus });
-    this.projects.set(projectId, { host, config, trusted, runs, projectStore, userLayer, projectLayer });
+    this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
     await this.rebuildChannels(config, host);
+    return config;
+  }
+
+  private applyProbes(config: Config): Config {
+    for (const ch of config.channels) {
+      for (const [key, entry] of this.probeCache.entries()) {
+        if (!key.startsWith(`${ch.id}:`)) continue;
+        const model = key.slice(ch.id.length + 1);
+        ch.modelCaps[model] = { ...entry.caps, ...(ch.modelCaps[model] ?? {}) };
+      }
+    }
     return config;
   }
 
@@ -101,13 +122,26 @@ export class Core {
     return p;
   }
 
-  private async reload(projectId: string): Promise<Config> {
+  private async reload(projectId: string, fromWatcher = false): Promise<{ config: Config; suppressed: boolean }> {
     const ctx = this.ctx(projectId);
-    ctx.userLayer = await this.deps.userConfig.read();
-    ctx.projectLayer = await ctx.projectStore.read();
-    ctx.config = loadConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted);
+    const nextUser = await this.deps.userConfig.read();
+    const nextProj = await ctx.projectStore.read();
+    if (fromWatcher && this.userGuard.layerUnchanged(nextUser) && ctx.projectGuard.layerUnchanged(nextProj)) {
+      return { config: ctx.config, suppressed: true };
+    }
+    ctx.userLayer = nextUser;
+    ctx.projectLayer = nextProj;
+    this.userGuard.syncLayer(nextUser);
+    ctx.projectGuard.syncLayer(nextProj);
+    const nextConfig = this.applyProbes(loadConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted));
+    const fatalParse = nextConfig.errors.some((e) => /^(channels|agents|roles|settings)\.yaml:/.test(e));
+    if (fatalParse && fromWatcher) {
+      ctx.config = { ...ctx.config, errors: nextConfig.errors };
+      return { config: ctx.config, suppressed: false };
+    }
+    ctx.config = nextConfig;
     await this.rebuildChannels(ctx.config, ctx.host);
-    return ctx.config;
+    return { config: ctx.config, suppressed: false };
   }
 
   /** Single entry point for host→core JSON-RPC. */
@@ -155,6 +189,10 @@ export class Core {
         });
         return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
       }
+      case "chat.revert": {
+        const p = params as { projectId: string; runId: string };
+        return this.ctx(p.projectId).runs.revert(p.runId);
+      }
       case "chat.answer": {
         const p = params as { projectId: string; questionId: string; answer: string };
         return { ok: this.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
@@ -173,9 +211,9 @@ export class Core {
         return { files, summary, errors };
       }
       case "config.reload": {
-        const p = params as { projectId: string };
-        await this.reload(p.projectId);
-        return { ok: true };
+        const p = params as { projectId: string; fromWatcher?: boolean };
+        const { suppressed } = await this.reload(p.projectId, p.fromWatcher ?? false);
+        return { ok: true, suppressed };
       }
       case "config.set": {
         const p = params as { projectId: string; file: string; yaml: string; layer?: "user" | "project" };
@@ -194,8 +232,10 @@ export class Core {
         if (layer === "project") {
           if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
           if (!isProjectFile(p.file)) throw new Error(`${p.file} is not allowed at project level`);
+          ctx.projectGuard.recordWrite(p.file, p.yaml);
           await ctx.projectStore.write(p.file, p.yaml);
         } else {
+          this.userGuard.recordWrite(p.file, p.yaml);
           await this.deps.userConfig.write(p.file, p.yaml);
         }
         await this.reload(p.projectId);
@@ -208,6 +248,26 @@ export class Core {
         try {
           const models = await ch.listModels();
           return { ok: true, models };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      }
+      case "channel.probe": {
+        const p = params as { projectId: string; channelId: string; model: string; force?: boolean };
+        const ctx = this.ctx(p.projectId);
+        const ch = this.managed.get(p.channelId);
+        if (!ch) return { ok: false, error: "channel not configured or disabled" };
+        const cacheKey = `${p.channelId}:${p.model}`;
+        if (!p.force) {
+          const hit = this.probeCache.get(cacheKey);
+          if (hit) return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
+        }
+        try {
+          const caps = await ch.probeCaps(p.model);
+          const probedAt = this.clock.now();
+          this.probeCache.set(cacheKey, { caps, probedAt });
+          this.applyProbes(ctx.config);
+          return { ok: true, caps, probedAt, cached: false };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
@@ -226,8 +286,10 @@ export class Core {
         const text = serializeSkillMd(meta, p.body);
         if (p.layer === "project") {
           if (!ctx.trusted) throw new Error("project skills require a trusted workspace");
+          ctx.projectGuard.recordWrite(`skills/${p.id}.md`, text);
           await ctx.projectStore.write(`skills/${p.id}.md`, text);
         } else {
+          this.userGuard.recordWrite(`skills/${p.id}.md`, text);
           await this.deps.userConfig.write(`skills/${p.id}.md`, text);
         }
         await this.reload(p.projectId);
@@ -236,8 +298,11 @@ export class Core {
       case "skills.reset": {
         const p = params as { projectId: string; id: string };
         const file = `skills/${p.id}.md`;
+        const ctx = this.ctx(p.projectId);
+        this.userGuard.recordDelete(file);
+        ctx.projectGuard.recordDelete(file);
         if (this.deps.userConfig.delete) await this.deps.userConfig.delete(file);
-        await this.ctx(p.projectId).projectStore.delete?.(file);
+        await ctx.projectStore.delete?.(file);
         await this.reload(p.projectId);
         return { ok: true };
       }
@@ -247,12 +312,14 @@ export class Core {
         const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
         const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
         const next = p.roleId ? items.filter((i) => i.id !== p.roleId) : [];
-        await this.deps.userConfig.write("roles.yaml", stringifyYaml({ version: 1, items: next }));
+        const yaml = stringifyYaml({ version: 1, items: next });
+        this.userGuard.recordWrite("roles.yaml", yaml);
+        await this.deps.userConfig.write("roles.yaml", yaml);
         await this.reload(p.projectId);
         return { ok: true };
       }
       case "roles.assignAgent": {
-        const p = params as { projectId: string; agentId: string };
+        const p = params as { projectId: string; agentId: string; wizard?: boolean };
         const ctx = this.ctx(p.projectId);
         if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
         const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
@@ -261,9 +328,12 @@ export class Core {
         for (const r of ctx.config.roles) {
           const item = byId.get(r.id) ?? { id: r.id };
           item.agent = p.agentId;
+          if (p.wizard) item.enabled = r.id === "orchestrator" || r.id === "general-worker";
           byId.set(r.id, item);
         }
-        await this.deps.userConfig.write("roles.yaml", stringifyYaml({ version: 1, items: [...byId.values()] }));
+        const yaml = stringifyYaml({ version: 1, items: [...byId.values()] });
+        this.userGuard.recordWrite("roles.yaml", yaml);
+        await this.deps.userConfig.write("roles.yaml", yaml);
         await this.reload(p.projectId);
         return { ok: true };
       }

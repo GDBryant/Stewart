@@ -155,6 +155,22 @@ describe("webview chat", () => {
     });
     expect(screen.getByText("boom")).toBeTruthy();
   });
+
+  it("shows Revert run changes after a run finishes and hides it once reverted", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("run.finished", { status: "done" }));
+    });
+    const btn = screen.getByText("Revert run changes");
+    fireEvent.click(btn);
+    expect(bridge.sent).toContainEqual({ type: "chat.revert", runId: "r1" });
+    act(() => {
+      bridge.inbound(ev("run.reverted", { filesRestored: ["a.ts", "b.ts"] }));
+    });
+    expect(screen.getByText("Reverted: a.ts, b.ts")).toBeTruthy();
+    expect(screen.queryByText("Revert run changes")).toBeNull();
+  });
 });
 
 describe("webview settings", () => {
@@ -297,5 +313,39 @@ describe("webview settings", () => {
     fireEvent.input(screen.getByPlaceholderText("my-skill"), { target: { value: "tdd" } });
     expect(screen.getByText(/already exists/)).toBeTruthy();
     expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows unmetered and capability badges on agents and triggers model probe", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("agents"));
+    expect(screen.getByText("unmetered")).toBeTruthy();
+    expect(screen.getByText("vision")).toBeTruthy();
+    fireEvent.click(screen.getAllByText("Probe")[0]);
+    expect(bridge.sent).toContainEqual({ type: "channel.probe", channelId: "c1", model: "m", force: true });
+    act(() => {
+      bridge.inbound({
+        type: "channel.probe.result",
+        channelId: "c1",
+        model: "m",
+        ok: true,
+        caps: { tools: "native", contextTokens: 64000 },
+        probedAt: 123,
+      });
+    });
+    expect(screen.getByText("tools:native")).toBeTruthy();
+    expect(screen.getByText("64k")).toBeTruthy();
+    expect(screen.getByText("Re-probe")).toBeTruthy();
+  });
+
+  it("runs the first-run setup wizard and binds the created agent", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("Run setup"));
+    expect(screen.getByText("First-run setup wizard")).toBeTruthy();
+    fireEvent.click(screen.getByText("Finish setup & assign to roles"));
+    expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "default-agent", wizard: true });
   });
 });

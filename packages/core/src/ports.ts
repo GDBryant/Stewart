@@ -43,6 +43,8 @@ export interface HostPort {
     appendLine(path: string, line: string): Promise<void>;
     /** All lines of an append-only file; absent file → []. */
     readLines(path: string): Promise<string[]>;
+    /** Remove a file; absent is not an error. */
+    delete(path: string): Promise<void>;
   };
   proc: {
     run(argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle;

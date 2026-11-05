@@ -38,6 +38,9 @@ export function fakeHost(files: Record<string, string> = {}, opts: { trusted?: b
         files[p] = files[p] ? `${files[p]}\n${line}` : line;
       },
       readLines: async (p) => (files[p] ? files[p].split("\n").filter((l) => l.length > 0) : []),
+      delete: async (p) => {
+        delete files[p];
+      },
     },
     proc: {
       run: (argv, popts): ProcessHandle => {

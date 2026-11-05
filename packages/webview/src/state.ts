@@ -59,10 +59,14 @@ export interface State {
   cost?: CostState;
   plan?: PlanState;
   busyRunId?: string;
+  lastRunId?: string;
+  revertedRuns: string[];
   approvals: PendingApproval[];
   questions: PendingQuestion[];
   config?: ConfigReply;
   channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;
+  probeResults: Record<string, { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }>;
+  wizardOpen?: boolean;
   view: "chat" | "settings";
 }
 
@@ -70,7 +74,16 @@ type Listener = () => void;
 
 /** Minimal observable store; one instance per webview. */
 export class Store {
-  state: State = { items: [], tasks: [], approvals: [], questions: [], channelTest: {}, view: "chat" };
+  state: State = {
+    items: [],
+    tasks: [],
+    revertedRuns: [],
+    approvals: [],
+    questions: [],
+    channelTest: {},
+    probeResults: {},
+    view: "chat",
+  };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
 
@@ -99,6 +112,10 @@ export class Store {
   cancel(): void {
     if (this.state.busyRunId) this.bridge.post({ type: "chat.cancel", runId: this.state.busyRunId });
   }
+  revert(runId?: string): void {
+    const id = runId ?? this.state.lastRunId;
+    if (id && !this.state.busyRunId) this.bridge.post({ type: "chat.revert", runId: id });
+  }
   answer(questionId: string, answer: string): void {
     this.bridge.post({ type: "chat.answer", questionId, answer });
     this.patch({ questions: this.state.questions.filter((q) => q.questionId !== questionId) });
@@ -116,6 +133,9 @@ export class Store {
   }
   testChannel(channelId: string): void {
     this.bridge.post({ type: "channel.test", channelId });
+  }
+  probeModel(channelId: string, model: string, force = false): void {
+    this.bridge.post({ type: "channel.probe", channelId, model, force });
   }
   setSecret(ref: string, value: string): void {
     this.bridge.post({ type: "secret.set", ref, value });
@@ -138,9 +158,12 @@ export class Store {
     this.bridge.post({ type: "roles.reset", roleId });
     this.requestConfig();
   }
-  assignAgentToAll(agentId: string): void {
-    this.bridge.post({ type: "roles.assignAgent", agentId });
+  assignAgentToAll(agentId: string, wizard?: boolean): void {
+    this.bridge.post(wizard !== undefined ? { type: "roles.assignAgent", agentId, wizard } : { type: "roles.assignAgent", agentId });
     this.requestConfig();
+  }
+  setWizardOpen(wizardOpen: boolean): void {
+    this.patch({ wizardOpen });
   }
   setView(view: State["view"]): void {
     this.patch({ view });
@@ -160,6 +183,13 @@ export class Store {
     if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors } });
     if (m.type === "channel.test.result")
       return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
+    if (m.type === "channel.probe.result")
+      return this.patch({
+        probeResults: {
+          ...this.state.probeResults,
+          [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, error: m.error },
+        },
+      });
     if (m.type === "error")
       return this.patch({
         items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
@@ -168,7 +198,7 @@ export class Store {
     const ev = m.ev;
     switch (ev.kind) {
       case "run.started":
-        return this.patch({ busyRunId: ev.runId, tasks: [], cost: undefined, plan: undefined });
+        return this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined });
       case "task.created":
         return this.patch({
           tasks: [...this.state.tasks, { taskId: ev.taskId ?? "", roleId: ev.roleId ?? "", title: ev.title, status: "pending" }],
@@ -261,6 +291,14 @@ export class Store {
         return this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] });
       case "approval.request":
         return this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] });
+      case "run.reverted":
+        return this.patch({
+          revertedRuns: [...this.state.revertedRuns, ev.runId],
+          items: [
+            ...this.state.items,
+            { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
+          ],
+        });
       case "run.finished": {
         const items = this.state.items.map((i) => (i.id === ev.runId ? { ...i, streaming: false } : i));
         const last = items[items.length - 1];
@@ -270,7 +308,7 @@ export class Store {
             : ev.status !== "done" && ev.error && last
               ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || `(${ev.error})` } : i))
               : items;
-        return this.patch({ items: extra, busyRunId: undefined });
+        return this.patch({ items: extra, busyRunId: undefined, lastRunId: ev.runId });
       }
       default:
         return;

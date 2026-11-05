@@ -43,8 +43,12 @@ export class ProjectPaths {
   }
 
   private checkDenied(rel: string): void {
-    const first = rel.split("/")[0];
-    if (first === ".git" || first === ".stewart") throw new Error(`path denied: ${rel}`);
+    const norm = rel.replace(/\\/g, "/");
+    const first = norm.split("/")[0];
+    if (first === ".git") throw new Error(`path denied: ${rel}`);
+    if (first === ".stewart" && norm !== ".stewart/scratch" && !norm.startsWith(".stewart/scratch/")) {
+      throw new Error(`path denied: ${rel}`);
+    }
   }
 
   exists(rel: string): Promise<boolean> {

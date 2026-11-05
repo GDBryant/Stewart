@@ -2,13 +2,13 @@ import type { RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
-import { roleRegistry, roleTurnBudget } from "../roles.js";
+import { agentServesRole, roleRegistry, roleTurnBudget } from "../roles.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
-import { costOfCall } from "./ledger.js";
+import { costOfCall, isCosting } from "./ledger.js";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
 import type { OrchestrationRuntime } from "./types.js";
 import type { TaskSpec } from "./tasks.js";
@@ -18,13 +18,15 @@ export interface TaskResult {
   summary: string;
   filesTouched: string[];
   evidence?: string;
+  cycleVictim?: string;
+  cycleHolder?: string;
 }
 
-const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch"]);
+const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements"]);
 const AGENTS_MD_LIMIT = 4000;
 
-/** Deterministic prefix order: role prompt + skills, bounded AGENTS.md, then the briefing. */
+/** Deterministic prefix order: role prompt + skills, bounded AGENTS.md + memory, then the briefing. */
 export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): Promise<string> {
   const { prompt } = composeRolePrompt(role, rt.config.skills, rt.skillBudgetTokens);
   let agents = "";
@@ -36,7 +38,16 @@ export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): 
   } catch {
     /* no AGENTS.md is fine */
   }
-  return `${prompt}${agents}`;
+  let memory = "";
+  try {
+    if (await rt.host.files.exists("MEMORY.md")) {
+      const mem = (await rt.host.files.read("MEMORY.md")).content;
+      memory = `\n\n# Project memory (MEMORY.md)\n${mem.slice(0, AGENTS_MD_LIMIT)}`;
+    }
+  } catch {
+    /* no MEMORY.md is fine */
+  }
+  return `${prompt}${agents}${memory}`;
 }
 
 /**
@@ -46,15 +57,38 @@ export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): 
 export async function runRoleTask(
   rt: OrchestrationRuntime,
   spec: TaskSpec,
-  deps: { role: RoleDef; nestedTools?: Tool[] },
+  deps: { role: RoleDef; nestedTools?: Tool[]; depSummaries?: string[] },
 ): Promise<TaskResult> {
   const { role } = deps;
-  const agent = rt.config.agents.find((a) => a.id === role.agent);
+  const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;
+  let agent = rt.config.agents.find((a) => a.id === agentId);
   if (!agent) return { status: "failed", summary: `role ${role.id}: enabled but no agent bound`, filesTouched: [] };
-  if (rt.cost.reached() && agent.billing !== "free" && agent.billing !== "unmetered") {
+  let channel = rt.channelFor(agent.channel);
+  if (channel.unhealthy) {
+    const fb = role.fallbackAgent ? rt.config.agents.find((a) => a.id === role.fallbackAgent) : undefined;
+    if (!fb || !agentServesRole(fb, rt.config.channels, role.id)) {
+      return { status: "parked", summary: `parked: channel ${agent.channel} unhealthy`, filesTouched: [] };
+    }
+    const fbChannel = rt.channelFor(fb.channel);
+    if (fbChannel.unhealthy) {
+      return { status: "parked", summary: `parked: channel ${fb.channel} unhealthy`, filesTouched: [] };
+    }
+    if (!isCosting(agent) && isCosting(fb)) {
+      const choice = await rt.ask(
+        `Channel '${agent.channel}' is unhealthy. Switch role '${role.id}' from free agent '${agent.id}' to paid fallback '${fb.id}'?`,
+        ["Switch", "Park"],
+      );
+      if (!choice.startsWith("Switch")) {
+        return { status: "parked", summary: `parked: fallback to paid agent '${fb.id}' declined`, filesTouched: [] };
+      }
+    }
+    agent = fb;
+    channel = fbChannel;
+  }
+  if (rt.cost.reached() && isCosting(agent)) {
     return { status: "parked", summary: `parked: cost limit reached`, filesTouched: [] };
   }
-  const channel = rt.channelFor(agent.channel);
+  for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
   const paths = await ProjectPaths.forProject(rt.host);
   const extra = deps.nestedTools ?? [];
   const base = roleRegistry(new ToolRegistry([...projectTools(rt.host, paths).tools, ...extra]), role);
@@ -66,7 +100,7 @@ export async function runRoleTask(
       runId: rt.runId,
       leaseWaitMs: rt.leaseWaitMs,
       stateDir: rt.stateDir,
-      onWait: (path, holder) => rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: spec.id, roleId: role.id, waitingOn: holder }),
+      onWait: (_path, holder) => rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: spec.id, roleId: role.id, waitingOn: holder }),
     }),
   );
 
@@ -77,6 +111,7 @@ export async function runRoleTask(
   const filesTouched: string[] = [];
   let terminalCallId: string | undefined;
 
+  const activeAgent = agent;
   const loop = new ToolLoop(
     channel,
     registry,
@@ -89,10 +124,16 @@ export async function runRoleTask(
     rt.idem.hooks(spec.id),
   );
 
-  const messages: ChatMessage[] = [{ role: "user", content: spec.task }];
+  const briefingParts = [spec.task];
+  if (spec.files.length) briefingParts.push(`Files: ${spec.files.join(", ")}`);
+  if (spec.expect) briefingParts.push(`Expect: ${spec.expect}`);
+  if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
+  const messages: ChatMessage[] = [{ role: "user", content: briefingParts.join("\n\n") }];
   const listener = {
     onText: (t: string) => rt.bus.emit({ kind: "text_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
     onReasoning: (t: string) => rt.bus.emit({ kind: "reasoning_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
+    onCompacted: (before: number, after: number) =>
+      rt.bus.emit({ kind: "compaction", runId: rt.runId, taskId: spec.id, roleId: role.id, droppedTokens: Math.max(0, before - after) }),
     onToolRequested: (call: { id: string; name: string; arguments: Record<string, unknown> }) => {
       if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") filesTouched.push(call.arguments.path);
       if (TERMINAL.has(call.name)) terminalCallId = call.id;
@@ -101,28 +142,30 @@ export async function runRoleTask(
     onToolOutcome: (call: { id: string; name: string }, outcome: { kind: string }) => {
       rt.bus.emit({ kind: "tool.outcome", runId: rt.runId, taskId: spec.id, roleId: role.id, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind });
     },
-    onUsage: (usage: { in: number; out: number } | undefined, reported: number | undefined) => {
-      const costUsd = costOfCall(agent, usage, reported);
-      rt.cost.accrued = rt.cost.accrued + costUsd;
-      void rt.ledger.record({
+    onUsage: async (usage: { in: number; out: number } | undefined, reported: number | undefined) => {
+      const costUsd = costOfCall(activeAgent, usage, reported);
+      await rt.ledger.record({
         runId: rt.runId,
         taskId: spec.id,
         roleId: role.id,
-        agentId: agent.id,
-        model: agent.model,
-        billing: agent.billing ?? "reported",
+        agentId: activeAgent.id,
+        model: activeAgent.model,
+        billing: activeAgent.billing ?? "reported",
         inTokens: usage?.in ?? 0,
         outTokens: usage?.out ?? 0,
         costUsd,
       });
+      rt.cost.accrued += costUsd;
     },
   };
 
   let result: LoopResult;
   try {
-    result = await loop.run(agent.model, messages, listener, rt.signal);
+    result = await loop.run(activeAgent.model, messages, listener, rt.signal);
   } catch (e) {
-    if (e instanceof LeaseCycleError) return { status: "cancelled", summary: e.message, filesTouched };
+    if (e instanceof LeaseCycleError) {
+      return { status: "cancelled", summary: e.message, filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
+    }
     if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched };
     if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched };
     return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched };

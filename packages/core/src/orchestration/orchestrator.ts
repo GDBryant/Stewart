@@ -5,7 +5,7 @@ import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "../tools/types.js";
-import { costOfCall } from "./ledger.js";
+import { costOfCall, isCosting } from "./ledger.js";
 import { LeaseCycleError } from "./writeGuard.js";
 import { TaskGraph, type TaskSpec } from "./tasks.js";
 import { runRoleTask, buildRolePrompt, type TaskResult } from "./roleRunner.js";
@@ -20,9 +20,17 @@ export interface OrchestrationOutcome {
 }
 
 const ORCHESTRATION_ROLES = new Set(["orchestrator"]);
+const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
+const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "image-reader"]);
+
+function isWriteCapableRole(role: RoleDef): boolean {
+  if (READONLY_ROLES.has(role.id)) return false;
+  if (role.tools.length === 0) return true;
+  return role.tools.some((t) => WRITE_ROLE_TOOLS.has(t));
+}
 
 /** Resolve the role to run for a dispatch; a disabled role falls back to General Worker. */
-function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef | undefined {
+export function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef | undefined {
   const wanted = rt.config.roles.find((r) => r.id === roleId && r.enabled);
   if (wanted) return wanted;
   return rt.config.roles.find((r) => r.id === "general-worker" && r.enabled);
@@ -46,11 +54,16 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   const parked: string[] = [];
   const freeFinished: string[] = [];
   const nestedUsed = new Map<string, number>();
+  const overrides = (rt.roleAgentOverrides ??= new Map<string, string>());
   let suggestions: Replacement[] = [];
   let replans = 0;
   let milestoneCount = 0;
   let limitAnnounced = false;
   let planApproved = false;
+
+  const syncGraph = async () => {
+    await rt.onGraphChange?.(graph);
+  };
 
   const replan = (reasons: string[] | undefined): string => {
     replans++;
@@ -60,20 +73,87 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
     return `Verdict recorded: revise (${replans}/${rt.maxReplans}). Re-dispatch the planner with these reasons: ${(reasons ?? []).join("; ")}`;
   };
 
+  const answerNestedAskUser = async (roleId: string, taskId: string, question: string, options?: string[]): Promise<string> => {
+    const qId = rt.ids.next("q");
+    if (!channel.unhealthy && (!rt.cost.reached() || !isCosting(agent))) {
+      try {
+        const prior = [...results.entries()].map(([id, r]) => `${id}: ${r.summary}`).join("\n");
+        const promptText = [
+          `User request: ${userText}`,
+          prior ? `Completed tasks:\n${prior}` : "",
+          `Role '${roleId}' asks: ${question}${options?.length ? ` (options: ${options.join(", ")})` : ""}`,
+          "If the user request, plan, or completed tasks already answer this, reply with the direct answer. Otherwise reply with DELEGATE_TO_USER.",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        let reply = "";
+        let delegated = false;
+        for await (const ev of channel.chat({
+          model: agent.model,
+          messages: [
+            { role: "system", content: await buildRolePrompt(rt, orchestrator) },
+            { role: "user", content: promptText },
+          ],
+          signal: rt.signal,
+        })) {
+          if (ev.kind === "text") reply += ev.text;
+          if (ev.kind === "tool_calls" && ev.calls.some((c) => c.name === "ask_user")) delegated = true;
+          if (ev.kind === "done") {
+            const costUsd = costOfCall(agent, ev.usage, ev.costUsd);
+            await rt.ledger.record({
+              runId: rt.runId,
+              roleId: orchestrator.id,
+              agentId: agent.id,
+              model: agent.model,
+              billing: agent.billing ?? "reported",
+              inTokens: ev.usage?.in ?? 0,
+              outTokens: ev.usage?.out ?? 0,
+              costUsd,
+            });
+            rt.cost.accrued += costUsd;
+          }
+        }
+        const trimmed = reply.trim();
+        if (!delegated && trimmed && !trimmed.includes("DELEGATE_TO_USER")) {
+          rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: trimmed, answeredBy: "orchestrator" });
+          return trimmed;
+        }
+      } catch {
+        /* fall through to user */
+      }
+    }
+    const userAnswer = await rt.ask(question, options);
+    rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: userAnswer, answeredBy: "user" });
+    return userAnswer;
+  };
+
   const dispatchAt = (spec: TaskSpec, depth: number): Promise<TaskResult> => {
     const role = resolveRole(rt, spec.roleId);
     if (!role) return Promise.resolve({ status: "failed", summary: `no enabled role for '${spec.roleId}' and no General Worker fallback`, filesTouched: [] } as TaskResult);
+    if (rt.planGate && !planApproved && isWriteCapableRole(role)) {
+      const rec = graph.add({ ...spec, roleId: role.id });
+      rec.status = "failed";
+      const r: TaskResult = { status: "failed", summary: "plan gate active: plan must be validated and approved before dispatching write tasks", filesTouched: [] };
+      rec.summary = r.summary;
+      results.set(rec.id, r);
+      void syncGraph();
+      rt.bus.emit({ kind: "task.created", runId: rt.runId, taskId: rec.id, roleId: role.id, title: rec.title, dependsOn: rec.dependsOn });
+      rt.bus.emit({ kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: r.summary });
+      return Promise.resolve(r);
+    }
     if (rt.maxRunHours > 0 && rt.clock.now() - rt.startedAt > rt.maxRunHours * 3_600_000) {
       return Promise.resolve({ status: "stopped", summary: `run hour limit reached (${rt.maxRunHours}h)`, filesTouched: [] } as TaskResult);
     }
     const rec = graph.add({ ...spec, roleId: role.id });
     rt.leases.register(rec.id);
+    void syncGraph();
     rt.bus.emit({ kind: "task.created", runId: rt.runId, taskId: rec.id, roleId: role.id, title: rec.title, dependsOn: rec.dependsOn });
     const unknown = rec.dependsOn.find((d) => !pending.has(d));
     if (unknown) {
       rec.status = "failed";
       const r: TaskResult = { status: "failed", summary: `unknown dependsOn '${unknown}'`, filesTouched: [] };
       results.set(rec.id, r);
+      void syncGraph();
       rt.bus.emit({ kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: r.summary });
       return Promise.resolve(r);
     }
@@ -82,22 +162,40 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
       const blocked = deps.find((d) => d.status !== "done");
       if (blocked) {
         rec.status = "blocked";
+        await syncGraph();
         rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: rec.id, roleId: role.id, waitingOn: "dependency" });
         const r: TaskResult = { status: "stopped", summary: "dependency did not complete", filesTouched: [] };
         results.set(rec.id, r);
         return r;
       }
       rec.status = "running";
+      await syncGraph();
       rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
-      const agentForRole = rt.config.agents.find((a) => a.id === role.agent);
-      const result = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, depth) });
+      const depSummaries = rec.dependsOn.map((d) => `${d}: ${results.get(d)?.summary ?? ""}`).filter(Boolean);
+      let result = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, depth), depSummaries });
+      if (result.cycleHolder) {
+        const holder = result.cycleHolder;
+        rt.leases.release(rec.id);
+        rec.status = "waiting";
+        await syncGraph();
+        rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: rec.id, roleId: role.id, waitingOn: holder });
+        rt.idem.clearTask(rec.id);
+        await pending.get(holder);
+        rec.status = "running";
+        await syncGraph();
+        rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
+        result = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, depth), depSummaries });
+      }
       results.set(rec.id, result);
       rt.leases.release(rec.id);
       rec.filesTouched = result.filesTouched;
       rec.status = result.status === "done" ? "done" : result.status === "failed" ? "failed" : result.status === "parked" ? "parked" : "stopped";
       rec.summary = result.summary;
+      await syncGraph();
+      const effectiveAgentId = overrides.get(role.id) ?? role.agent;
+      const agentForRole = rt.config.agents.find((a) => a.id === effectiveAgentId);
       if (result.status === "parked") parked.push(rec.id);
-      if (result.status === "done" && agentForRole && (agentForRole.billing === "free" || agentForRole.billing === "unmetered")) freeFinished.push(rec.id);
+      if (result.status === "done" && agentForRole && !isCosting(agentForRole)) freeFinished.push(rec.id);
       rt.bus.emit(
         result.status === "done"
           ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: result.summary.slice(0, 400) }
@@ -111,6 +209,37 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
     })();
     pending.set(rec.id, p);
     return p;
+  };
+
+  const rerunParkedTasks = async (onlyReplaced: boolean): Promise<void> => {
+    const toRun = [...parked];
+    for (const taskId of toRun) {
+      const rec = graph.get(taskId);
+      if (!rec) continue;
+      const role = resolveRole(rt, rec.roleId);
+      if (!role) continue;
+      if (onlyReplaced && !overrides.has(role.id)) continue;
+      const effAgent = rt.config.agents.find((a) => a.id === (overrides.get(role.id) ?? role.agent));
+      if (!effAgent || (rt.cost.reached() && isCosting(effAgent))) continue;
+      const idx = parked.indexOf(taskId);
+      if (idx >= 0) parked.splice(idx, 1);
+      rec.status = "running";
+      await syncGraph();
+      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
+      const res = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, 1) });
+      results.set(rec.id, res);
+      rt.leases.release(rec.id);
+      rec.filesTouched = res.filesTouched;
+      rec.status = res.status === "done" ? "done" : res.status === "failed" ? "failed" : res.status === "parked" ? "parked" : "stopped";
+      rec.summary = res.summary;
+      await syncGraph();
+      if (res.status === "done" && !isCosting(effAgent)) freeFinished.push(rec.id);
+      rt.bus.emit(
+        res.status === "done"
+          ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: res.summary.slice(0, 400) }
+          : { kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: res.summary.slice(0, 400) },
+      );
+    }
   };
 
   const dispatchArgs = async (args: { role: string; task: string; files?: string[]; dependsOn?: string[]; expect?: string; title?: string }, depth: number): Promise<string> => {
@@ -140,7 +269,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
         nestedUsed.set(parentId, used + 1);
         return dispatchArgs(args, depth + 1);
       },
-      askUser: async (args, signal) => (signal.aborted ? "Cancelled." : rt.ask(args.question, args.options)),
+      askUser: async (args, signal) => (signal.aborted ? "Cancelled." : answerNestedAskUser(role.id, parentId, args.question, args.options)),
       submitPlan: (args) => handlers.submitPlan(args),
       submitVerdict: (args) => handlers.submitVerdict(args),
       submitReplacements: () => "Replacements are submitted by the Orchestrator.",
@@ -180,7 +309,6 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
     },
   };
 
-
   const paths = await ProjectPaths.forProject(rt.host);
   const tools = [...projectTools(rt.host, paths).tools, ...orchestrationTools(handlers)];
   const registry = new ToolRegistry(tools.filter((t) => !orchestrator.tools.length || orchestrator.tools.includes(t.spec.name)));
@@ -202,14 +330,15 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   const listener = {
     onText: (t: string) => rt.bus.emit({ kind: "text_delta", runId: rt.runId, roleId: orchestrator.id, seq: 0, text: t }),
     onReasoning: (t: string) => rt.bus.emit({ kind: "reasoning_delta", runId: rt.runId, roleId: orchestrator.id, seq: 0, text: t }),
+    onCompacted: (before: number, after: number) =>
+      rt.bus.emit({ kind: "compaction", runId: rt.runId, roleId: orchestrator.id, droppedTokens: Math.max(0, before - after) }),
     onToolRequested: (call: { id: string; name: string; arguments: Record<string, unknown> }) =>
       rt.bus.emit({ kind: "tool.request", runId: rt.runId, roleId: orchestrator.id, callId: call.id, tool: call.name, args: call.arguments, category: call.name }),
     onToolOutcome: (call: { id: string }, outcome: { kind: string }) =>
       rt.bus.emit({ kind: "tool.outcome", runId: rt.runId, roleId: orchestrator.id, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind }),
-    onUsage: (usage: { in: number; out: number } | undefined, reported: number | undefined) => {
+    onUsage: async (usage: { in: number; out: number } | undefined, reported: number | undefined) => {
       const costUsd = costOfCall(agent, usage, reported);
-      rt.cost.accrued = rt.cost.accrued + costUsd;
-      void rt.ledger.record({
+      await rt.ledger.record({
         runId: rt.runId,
         roleId: orchestrator.id,
         agentId: agent.id,
@@ -219,6 +348,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
         outTokens: usage?.out ?? 0,
         costUsd,
       });
+      rt.cost.accrued += costUsd;
     },
   };
 
@@ -245,6 +375,18 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
       rt.config.channels,
     );
     rt.bus.emit({ kind: "cost.summary", runId: rt.runId, ...costSummary(rt, graph, parked, freeFinished, suggestions) });
+    if (rt.cost.onLimit === "stop") {
+      for (const taskId of parked) {
+        const rec = graph.get(taskId);
+        if (rec) {
+          rec.status = "stopped";
+          rec.summary = "stopped: cost_limit";
+        }
+      }
+      await syncGraph();
+      rt.leases.releaseAll();
+      return { status: "stopped", error: "cost limit reached", suggestions };
+    }
     const choice = await rt.ask(
       `Cost limit reached: $${rt.cost.accrued.toFixed(2)} of $${rt.cost.cap.toFixed(2)}. ${parked.length} task(s) parked.`,
       ["Continue (+cost cap)", ...(suggestions.length ? ["Use suggested replacements"] : []), "Stop"],
@@ -252,6 +394,22 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
     if (choice.startsWith("Continue")) {
       const cap = rt.cost.raise();
       rt.bus.emit({ kind: "cost.limit_raised", runId: rt.runId, capUsd: cap });
+      await rerunParkedTasks(false);
+    } else if (choice.startsWith("Use suggested replacements")) {
+      for (const s of suggestions) {
+        overrides.set(s.role, s.agent);
+        rt.bus.emit({ kind: "cost.replaced", runId: rt.runId, roleId: s.role, agentId: s.agent, reason: s.reason });
+      }
+      await rerunParkedTasks(true);
+    } else {
+      for (const taskId of parked) {
+        const rec = graph.get(taskId);
+        if (rec) {
+          rec.status = "stopped";
+          rec.summary = "stopped: cost_limit";
+        }
+      }
+      await syncGraph();
     }
   }
 
