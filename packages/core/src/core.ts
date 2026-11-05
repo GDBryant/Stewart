@@ -5,6 +5,7 @@ import { EventBus } from "./events.js";
 import { ChannelRegistry, ManagedChannel } from "./channels/registry.js";
 import { OllamaAdapter } from "./channels/ollama.js";
 import { OpenAICompatAdapter } from "./channels/openai.js";
+import { ClaudeCliAdapter } from "./channels/claude/adapter.js";
 import { loadConfig, type Config } from "./config/loader.js";
 import { CONFIG_FILE_SCHEMAS, PROJECT_FILES } from "./config/files.js";
 import type { ConfigStore } from "./config/store.js";
@@ -49,6 +50,7 @@ export class Core {
     this.bus = new EventBus(deps.emitEvent);
     this.channels.register("ollama", (d) => new OllamaAdapter(d as ChannelDeps));
     this.channels.register("openai-compatible", (d) => new OpenAICompatAdapter(d as ChannelDeps));
+    this.channels.register("claude-cli", () => new ClaudeCliAdapter());
   }
 
   /** Host calls once per project. */

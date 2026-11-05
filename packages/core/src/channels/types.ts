@@ -56,7 +56,7 @@ export interface ChannelAdapter {
 export type ChannelDeps = { fetcher: Fetcher; stallTimeoutMs?: number };
 
 export class ChannelError extends Error {
-  constructor(message: string, readonly status?: number, readonly retryAfterMs?: number) {
+  constructor(message: string, readonly status?: number, readonly retryAfterMs?: number, readonly code?: string) {
     super(message);
     this.name = "ChannelError";
   }
