@@ -20,6 +20,12 @@ object WebviewResources {
         return java.util.Base64.getEncoder().encodeToString(bytes)
     }
 
+    fun bridgeJs(injectedSend: String): String =
+        "window.stewartHost = (function () { var q = []; var timer = null;" +
+            " function flush() { timer = null; while (q.length) { var m = q[0];" +
+            " try { $injectedSend } catch (e) { timer = setTimeout(flush, 50); return; } q.shift(); } }" +
+            " return { post: function (m) { q.push(m); if (!timer) flush(); } }; })();"
+
     fun inlineHtml(js: String, css: String, bridgeJs: String, nonce: String): String {
         val safeJs = js.replace("</script", "<\\/script", ignoreCase = true)
         val safeBridge = bridgeJs.replace("</script", "<\\/script", ignoreCase = true)

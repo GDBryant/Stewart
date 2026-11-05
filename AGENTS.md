@@ -10,7 +10,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build all: `pnpm -r build`
 - Tests: `pnpm -r test`
 - Typecheck: `pnpm -r typecheck`
-- v1 Gradle commands are gone with the v1 code on branch `v2`.
+- JetBrains: `./gradlew test koverVerify buildPlugin`; JCEF e2e: `./gradlew test -Pe2e` (needs display/xvfb)
+- Build + install: `./scripts/build-install.sh`
 
 ## References
 - Plan: `docs/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.

@@ -136,6 +136,7 @@ tasks {
         dependsOn("koverVerify")
     }
     test {
+        if (providers.gradleProperty("e2e").isPresent) include("com/adb/stewart/e2e/**") else exclude("com/adb/stewart/e2e/**")
         testLogging {
             events("passed", "failed", "skipped")
             showStandardStreams = true

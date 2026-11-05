@@ -42,6 +42,14 @@ class WebviewResourcesTest {
     }
 
     @Test
+    fun `bridge wraps the injected send in a retrying queue`() {
+        val js = WebviewResources.bridgeJs("SEND(m);")
+        assertTrue(js.startsWith("window.stewartHost = "))
+        assertTrue(js.contains("try { SEND(m); } catch (e) { timer = setTimeout(flush, 50); return; } q.shift();"))
+        assertTrue(js.contains("post: function (m) { q.push(m);"))
+    }
+
+    @Test
     fun `nonces are random and base64`() {
         val a = WebviewResources.newNonce()
         assertTrue(a != WebviewResources.newNonce())

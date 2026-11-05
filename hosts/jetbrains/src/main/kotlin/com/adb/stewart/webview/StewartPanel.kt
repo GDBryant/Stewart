@@ -4,6 +4,12 @@ import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
 import kotlinx.serialization.json.JsonObject
+import org.cef.CefSettings
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefDisplayHandlerAdapter
+import org.cef.handler.CefLoadHandler
+import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -17,6 +23,7 @@ import javax.swing.SwingConstants
 class StewartPanel(private val html: (String) -> String, private val onOutbound: (String) -> Unit) {
     val component: JPanel = JPanel(BorderLayout())
     private var browser: JBCefBrowser? = null
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(StewartPanel::class.java)
 
     init {
         if (JBCefApp.isSupported()) {
@@ -27,7 +34,33 @@ class StewartPanel(private val html: (String) -> String, private val onOutbound:
                 onOutbound(msg)
                 null
             }
-            b.loadHTML(html("window.stewartHost = { post: function(m) { ${query.inject("m")} } };"))
+            b.jbCefClient.addDisplayHandler(object : CefDisplayHandlerAdapter() {
+                override fun onConsoleMessage(
+                    browser: CefBrowser?,
+                    level: CefSettings.LogSeverity?,
+                    message: String?,
+                    source: String?,
+                    line: Int,
+                ): Boolean {
+                    if (level == CefSettings.LogSeverity.LOGSEVERITY_ERROR || level == CefSettings.LogSeverity.LOGSEVERITY_FATAL) {
+                        log.warn("webview console: $message ($source:$line)")
+                    }
+                    return false
+                }
+            }, b.cefBrowser)
+            b.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+                override fun onLoadError(
+                    browser: CefBrowser?,
+                    frame: CefFrame?,
+                    errorCode: CefLoadHandler.ErrorCode?,
+                    errorText: String?,
+                    failedUrl: String?,
+                ) {
+                    log.warn("webview load error: $errorCode $errorText $failedUrl")
+                }
+            }, b.cefBrowser)
+            b.createImmediately()
+            b.loadHTML(html(WebviewResources.bridgeJs(query.inject("m"))))
             component.add(b.component, BorderLayout.CENTER)
         } else {
             component.add(
@@ -47,6 +80,10 @@ class StewartPanel(private val html: (String) -> String, private val onOutbound:
             browser?.cefBrowser?.url,
             0,
         )
+    }
+
+    internal fun runScript(js: String) {
+        browser?.cefBrowser?.executeJavaScript(js, browser?.cefBrowser?.url, 0)
     }
 
     fun dispose() {

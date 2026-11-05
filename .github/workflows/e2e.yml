@@ -1,0 +1,32 @@
+name: E2E
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  jetbrains-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libgbm1 libasound2t64 libxss1 libatk-bridge2.0-0 libgtk-3-0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: xvfb-run -a ./gradlew test -Pe2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jetbrains-e2e-reports
+          path: build/reports/tests/test
