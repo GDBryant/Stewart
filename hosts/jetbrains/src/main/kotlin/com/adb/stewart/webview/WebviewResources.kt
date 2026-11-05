@@ -11,24 +11,39 @@ import java.io.InputStream
  * index.html with the CSP meta tag JCEF cannot set via headers on file:// URLs.
  */
 object WebviewResources {
-    const val CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    fun csp(nonce: String): String =
+        "default-src 'none'; script-src 'nonce-$nonce'; style-src 'unsafe-inline'; img-src data:"
 
-    fun indexHtml(csp: String = CSP): String = """<!doctype html><html><head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="$csp">
-<link rel="stylesheet" href="webview.css"></head>
-<body><div id="app"></div><script src="webview.js"></script></body></html>"""
-
-    fun extractWebview(
-        dir: File,
-        loader: (String) -> InputStream? = { WebviewResources::class.java.getResourceAsStream(it) },
-    ): File {
-        dir.mkdirs()
-        copyResource(loader, "/webview/webview.js", File(dir, "webview.js"))
-        copyResource(loader, "/webview/webview.css", File(dir, "webview.css"))
-        File(dir, "index.html").writeText(indexHtml(), Charsets.UTF_8)
-        return File(dir, "index.html")
+    fun newNonce(): String {
+        val bytes = ByteArray(16)
+        java.security.SecureRandom().nextBytes(bytes)
+        return java.util.Base64.getEncoder().encodeToString(bytes)
     }
+
+    fun inlineHtml(js: String, css: String, bridgeJs: String, nonce: String): String {
+        val safeJs = js.replace("</script", "<\\/script", ignoreCase = true)
+        val safeBridge = bridgeJs.replace("</script", "<\\/script", ignoreCase = true)
+        val safeCss = css.replace("</style", "<\\/style", ignoreCase = true)
+        return "<!doctype html><html><head><meta charset=\"utf-8\">" +
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"${csp(nonce)}\">" +
+            "<style>$safeCss</style></head><body><div id=\"app\"></div>" +
+            "<script nonce=\"$nonce\">$safeBridge</script>" +
+            "<script nonce=\"$nonce\">$safeJs</script></body></html>"
+    }
+
+    fun webviewHtml(
+        bridgeJs: String,
+        loader: (String) -> InputStream? = { WebviewResources::class.java.getResourceAsStream(it) },
+        nonce: String = newNonce(),
+    ): String = inlineHtml(
+        readResource(loader, "/webview/webview.js"),
+        readResource(loader, "/webview/webview.css"),
+        bridgeJs,
+        nonce,
+    )
+
+    private fun readResource(loader: (String) -> InputStream?, name: String): String =
+        (loader(name) ?: throw IOException("missing plugin resource: $name")).use { it.readBytes().toString(Charsets.UTF_8) }
 
     fun extractSidecar(
         dir: File,

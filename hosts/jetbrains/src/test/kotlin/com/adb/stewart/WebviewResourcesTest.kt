@@ -16,31 +16,51 @@ class WebviewResourcesTest {
     }
 
     @Test
-    fun `index html carries csp and bundle refs`() {
-        val html = WebviewResources.indexHtml()
-        assertTrue(html.contains("Content-Security-Policy"))
+    fun `inline html runs bridge before webview under a nonce csp`() {
+        val html = WebviewResources.webviewHtml(
+            "window.stewartHost={};",
+            loader("/webview/webview.js", "/webview/webview.css"),
+            "N0nce",
+        )
+        assertTrue(html.contains("script-src 'nonce-N0nce'"))
         assertTrue(html.contains("default-src 'none'"))
-        assertTrue(html.contains("webview.js"))
-        assertTrue(html.contains("webview.css"))
+        assertTrue(!html.contains("'self'"))
+        assertTrue(html.contains("<style>content:/webview/webview.css</style>"))
+        val bridge = html.indexOf("<script nonce=\"N0nce\">window.stewartHost={};</script>")
+        val app = html.indexOf("<script nonce=\"N0nce\">content:/webview/webview.js</script>")
+        assertTrue(bridge >= 0 && app > bridge)
+        assertTrue(!html.contains("src=\""))
     }
 
     @Test
-    fun `extract writes js css and index`() {
-        val dir = Files.createTempDirectory("stewart-wv").toFile()
-        val index = WebviewResources.extractWebview(dir, loader("/webview/webview.js", "/webview/webview.css"))
-        assertTrue(index.isFile)
-        assertTrue(File(dir, "webview.js").readText().contains("webview.js"))
-        assertTrue(index.readText().contains("webview.css"))
+    fun `inline html escapes closing tags inside js and css`() {
+        val html = WebviewResources.inlineHtml("a='</script>';", "x{content:'</STYLE>'}", "b='</Script>';", "n")
+        assertEquals(2, Regex("</script>").findAll(html).count())
+        assertEquals(1, Regex("</style>").findAll(html).count())
+        assertTrue(html.contains("a='<\\/script>';"))
+        assertTrue(html.contains("<\\/style>"))
+    }
+
+    @Test
+    fun `nonces are random and base64`() {
+        val a = WebviewResources.newNonce()
+        assertTrue(a != WebviewResources.newNonce())
+        assertTrue(Regex("^[A-Za-z0-9+/=]{24}$").matches(a))
     }
 
     @Test
     fun `missing resource throws`() {
-        val dir = Files.createTempDirectory("stewart-wv-miss").toFile()
         try {
-            WebviewResources.extractWebview(dir, loader())
+            WebviewResources.webviewHtml("", loader("/webview/webview.css"), "n")
             fail("expected IOException")
         } catch (e: IOException) {
             assertTrue(e.message!!.contains("webview.js"))
+        }
+        try {
+            WebviewResources.webviewHtml("", loader("/webview/webview.js"), "n")
+            fail("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("webview.css"))
         }
     }
 

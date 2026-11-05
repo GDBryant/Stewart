@@ -4,9 +4,6 @@ import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
 import kotlinx.serialization.json.JsonObject
-import org.cef.browser.CefBrowser
-import org.cef.browser.CefFrame
-import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -17,7 +14,7 @@ import javax.swing.SwingConstants
  * `window.stewartHost.post(json)` into the page; inbound messages go through
  * `window.__stewartInbound(msg)`.
  */
-class StewartPanel(private val indexHtml: java.io.File, private val onOutbound: (String) -> Unit) {
+class StewartPanel(private val html: (String) -> String, private val onOutbound: (String) -> Unit) {
     val component: JPanel = JPanel(BorderLayout())
     private var browser: JBCefBrowser? = null
 
@@ -30,18 +27,7 @@ class StewartPanel(private val indexHtml: java.io.File, private val onOutbound: 
                 onOutbound(msg)
                 null
             }
-            b.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
-                override fun onLoadEnd(cefBrowser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
-                    if (frame.isMain) {
-                        frame.executeJavaScript(
-                            "window.stewartHost = { post: function(m) { ${query.inject("m")} } };",
-                            frame.url,
-                            0,
-                        )
-                    }
-                }
-            }, b.cefBrowser)
-            b.loadURL(indexHtml.toURI().toURL().toString())
+            b.loadHTML(html("window.stewartHost = { post: function(m) { ${query.inject("m")} } };"))
             component.add(b.component, BorderLayout.CENTER)
         } else {
             component.add(

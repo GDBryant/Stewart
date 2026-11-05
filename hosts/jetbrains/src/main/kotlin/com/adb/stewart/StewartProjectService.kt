@@ -84,7 +84,6 @@ class StewartProjectService(private val project: Project) : Disposable {
     fun pushInbound(msg: JsonObject) = pushToPanels(msg)
 
     fun createPanel(): StewartPanel {
-        val index = WebviewResources.extractWebview(runtimeDir)
         lateinit var panel: StewartPanel
         val router = WebviewRouter(
             projectId = { projectId },
@@ -99,7 +98,7 @@ class StewartProjectService(private val project: Project) : Disposable {
             pickV1Xml = { pickV1Xml() },
             insertIntoEditor = { text -> insertIntoEditor(text) },
         )
-        panel = StewartPanel(index) { raw -> router.route(raw) }
+        panel = StewartPanel({ bridge -> WebviewResources.webviewHtml(bridge) }) { raw -> router.route(raw) }
         panels.add(panel)
         return panel
     }
