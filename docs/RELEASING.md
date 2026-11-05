@@ -44,3 +44,16 @@ All secrets are optional; steps are skipped when unset. Never commit credentials
 | `CERTIFICATE_CHAIN` + `PRIVATE_KEY` (+ optional `PRIVATE_KEY_PASSWORD`) | `./gradlew signPlugin` signing of the JetBrains zip; read via env vars in `build.gradle.kts` `intellijPlatform.signing` |
 
 Signing also works locally: export the same env vars and run `./gradlew signPlugin`.
+
+## One-command build + install
+
+```bash
+scripts/build-install.sh [--skip-vscode] [--skip-jetbrains] [--bundle-node] [--jetbrains-plugins-dir <path>]
+```
+
+Runs `pnpm install --frozen-lockfile`, `pnpm -r build`, packages the VSIX and
+the JetBrains zip, installs the VSIX via `code --install-extension --force`
+when the `code` CLI exists, and unzips the JetBrains plugin into
+`--jetbrains-plugins-dir` (otherwise prints the install-from-disk path).
+`--bundle-node` runs `scripts/bundle-node.mjs` first so the zip ships all five
+bundled Node runtimes.

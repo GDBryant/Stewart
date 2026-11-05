@@ -86,7 +86,7 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            create(IntelliJPlatformType.IntellijIdeaCommunity, "2026.1")
+            create(IntelliJPlatformType.IntellijIdea, "2026.1")
             create(IntelliJPlatformType.PyCharm, "2026.2")
         }
     }

@@ -16,7 +16,7 @@
 | IntelliJ IDEA Community | 2026.1 |
 | PyCharm Professional | 2026.2 |
 
-Baseline moved to 2026.1+ (`since-build 261`); 2025.x products are no longer supported or verified. Re-verification on the 2026 targets is pending. Historical M2 result: PASS — Compatible on IC 2025.1 + PY 2025.3, zero compatibility problems. Internal/experimental/deprecated API usages are reported but accepted (see verifyPlugin below); `failureLevel` is set to `COMPATIBILITY_PROBLEMS` only.
+Baseline moved to 2026.1+ (`since-build 261`); 2025.x products are no longer supported or verified. **2026 re-verification (M9): PASS — Compatible on IU-261.22158.277 + PY-262.8665.309** (4 deprecated + 6 experimental + 1 internal API usages, accepted; `failureLevel = COMPATIBILITY_PROBLEMS`; reports under `build/reports/pluginVerifier/`). `runIde` smoke: IDE booted, `Loaded custom plugins: Stewart (2.0.0)`, no plugin-load errors (`log_runIde/idea.log`); sidecar starts on tool-window open. Historical M2 result: PASS — Compatible on IC 2025.1 + PY 2025.3, zero compatibility problems. Internal/experimental/deprecated API usages are reported but accepted (see verifyPlugin below); `failureLevel` is set to `COMPATIBILITY_PROBLEMS` only.
 
 ## Toolchain (pinned)
 
