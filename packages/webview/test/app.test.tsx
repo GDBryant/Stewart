@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
@@ -481,5 +482,20 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByText("Dismiss"));
     expect(store.state.v1Draft).toBeUndefined();
     expect(bridge.sent.some((m) => m.type === "config.importV1")).toBe(false);
+  });
+});
+
+describe("webview theme styles", () => {
+  const css = readFileSync("src/styles.css", "utf8");
+
+  it("paints body, inputs and accents from theme variables", () => {
+    expect(css).toMatch(/body[^}]*background:\s*var\(--st-bg\)/);
+    expect(css).toMatch(/body[^}]*color:\s*var\(--st-fg\)/);
+    expect(css).toContain("--st-fg: var(--vscode-foreground");
+    expect(css).toContain("--st-bg: var(--vscode-sideBar-background");
+    expect(css).not.toMatch(/background:\s*transparent/);
+    expect(css).toMatch(/select[^{]*\{[^}]*background:\s*var\(--st-input-bg\)/);
+    expect(css).toMatch(/select option\s*\{[^}]*color:\s*var\(--st-input-fg\)/);
+    expect(css).toMatch(/\.send\s*\{[^}]*background:\s*var\(--st-accent\)/);
   });
 });

@@ -26,13 +26,14 @@ object WebviewResources {
             " try { $injectedSend } catch (e) { timer = setTimeout(flush, 50); return; } q.shift(); } }" +
             " return { post: function (m) { q.push(m); if (!timer) flush(); } }; })();"
 
-    fun inlineHtml(js: String, css: String, bridgeJs: String, nonce: String): String {
+    fun inlineHtml(js: String, css: String, bridgeJs: String, nonce: String, themeCss: String = ""): String {
         val safeJs = js.replace("</script", "<\\/script", ignoreCase = true)
         val safeBridge = bridgeJs.replace("</script", "<\\/script", ignoreCase = true)
         val safeCss = css.replace("</style", "<\\/style", ignoreCase = true)
+        val safeTheme = themeCss.replace("</style", "<\\/style", ignoreCase = true)
         return "<!doctype html><html><head><meta charset=\"utf-8\">" +
             "<meta http-equiv=\"Content-Security-Policy\" content=\"${csp(nonce)}\">" +
-            "<style>$safeCss</style></head><body><div id=\"app\"></div>" +
+            "<style>$safeCss</style><style id=\"stewart-theme\">$safeTheme</style></head><body><div id=\"app\"></div>" +
             "<script nonce=\"$nonce\">$safeBridge</script>" +
             "<script nonce=\"$nonce\">$safeJs</script></body></html>"
     }
@@ -41,11 +42,13 @@ object WebviewResources {
         bridgeJs: String,
         loader: (String) -> InputStream? = { WebviewResources::class.java.getResourceAsStream(it) },
         nonce: String = newNonce(),
+        themeCss: String = "",
     ): String = inlineHtml(
         readResource(loader, "/webview/webview.js"),
         readResource(loader, "/webview/webview.css"),
         bridgeJs,
         nonce,
+        themeCss,
     )
 
     private fun readResource(loader: (String) -> InputStream?, name: String): String =

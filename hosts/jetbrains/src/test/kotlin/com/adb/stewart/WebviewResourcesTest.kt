@@ -36,9 +36,33 @@ class WebviewResourcesTest {
     fun `inline html escapes closing tags inside js and css`() {
         val html = WebviewResources.inlineHtml("a='</script>';", "x{content:'</STYLE>'}", "b='</Script>';", "n")
         assertEquals(2, Regex("</script>").findAll(html).count())
-        assertEquals(1, Regex("</style>").findAll(html).count())
+        assertEquals(2, Regex("</style>").findAll(html).count())
         assertTrue(html.contains("a='<\\/script>';"))
         assertTrue(html.contains("<\\/style>"))
+    }
+
+    @Test
+    fun `theme style follows the main style and defaults to empty`() {
+        val html = WebviewResources.inlineHtml("js", "main-css", "bridge", "n", "THEME")
+        val main = html.indexOf("<style>main-css</style>")
+        val theme = html.indexOf("<style id=\"stewart-theme\">THEME</style>")
+        val bridge = html.indexOf("<script nonce=\"n\">")
+        assertTrue(main >= 0 && theme > main && bridge > theme)
+        val noTheme = WebviewResources.inlineHtml("js", "c", "b", "n")
+        assertTrue(noTheme.contains("<style id=\"stewart-theme\"></style>"))
+    }
+
+    @Test
+    fun `theme css escapes closing style tag and passes through webviewHtml`() {
+        val html = WebviewResources.inlineHtml("j", "c", "b", "n", "a{content:'</STYLE>'}")
+        assertTrue(html.contains("a{content:'<\\/style>'}"))
+        val viaLoader = WebviewResources.webviewHtml(
+            "b",
+            loader("/webview/webview.js", "/webview/webview.css"),
+            "n",
+            "T2",
+        )
+        assertTrue(viaLoader.contains("<style id=\"stewart-theme\">T2</style>"))
     }
 
     @Test

@@ -82,6 +82,8 @@ class StewartPanel(private val html: (String) -> String, private val onOutbound:
         )
     }
 
+    fun applyTheme(css: String) = runScript(ThemeCss.applyJs(css))
+
     internal fun runScript(js: String) {
         browser?.cefBrowser?.executeJavaScript(js, browser?.cefBrowser?.url, 0)
     }

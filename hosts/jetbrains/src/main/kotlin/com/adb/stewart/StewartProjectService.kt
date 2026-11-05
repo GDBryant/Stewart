@@ -6,9 +6,12 @@ import com.adb.stewart.rpc.Link
 import com.adb.stewart.sidecar.NodeLocator
 import com.adb.stewart.sidecar.SidecarSupervisor
 import com.adb.stewart.webview.StewartPanel
+import com.adb.stewart.webview.ThemeCss
 import com.adb.stewart.webview.WebviewResources
 import com.adb.stewart.webview.WebviewRouter
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -98,7 +101,11 @@ class StewartProjectService(private val project: Project) : Disposable {
             pickV1Xml = { pickV1Xml() },
             insertIntoEditor = { text -> insertIntoEditor(text) },
         )
-        panel = StewartPanel({ bridge -> WebviewResources.webviewHtml(bridge) }) { raw -> router.route(raw) }
+        panel = StewartPanel({ bridge -> WebviewResources.webviewHtml(bridge, themeCss = ThemeCss.css(ThemeCss.current())) }) { raw -> router.route(raw) }
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(
+            LafManagerListener.TOPIC,
+            LafManagerListener { panel.applyTheme(ThemeCss.css(ThemeCss.current())) },
+        )
         panels.add(panel)
         return panel
     }

@@ -1,13 +1,13 @@
-:root { color-scheme: light dark; }
+:root { color-scheme: light dark; --st-bg: var(--vscode-sideBar-background, Canvas); --st-fg: var(--vscode-foreground, CanvasText); --st-input-bg: var(--vscode-input-background, Field); --st-input-fg: var(--vscode-input-foreground, FieldText); --st-border: var(--vscode-input-border, #8885); --st-accent: var(--vscode-button-background, #2f6fed); --st-accent-fg: var(--vscode-button-foreground, #fff); }
 * { box-sizing: border-box; }
-body { margin: 0; font: 13px/1.45 system-ui, sans-serif; }
+body { margin: 0; font: 13px/1.45 system-ui, sans-serif; background: var(--st-bg); color: var(--st-fg); }
 .app { display: flex; flex-direction: column; height: 100vh; }
 .tabs { display: flex; gap: 2px; padding: 4px; border-bottom: 1px solid #8884; }
 .tab { border: 0; background: none; padding: 4px 10px; cursor: pointer; color: inherit; border-radius: 4px; }
 .tab.active { background: #8884; }
 .chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .items { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-.item.user .bubble { margin-left: auto; background: #2f6fed; color: #fff; }
+.item.user .bubble { margin-left: auto; background: var(--st-accent); color: var(--st-accent-fg); }
 .item.assistant .bubble { margin-right: auto; background: #8883; }
 .item.system .bubble { margin: 0 auto; background: none; color: #a55; font-style: italic; }
 .bubble { max-width: 85%; padding: 6px 10px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; width: fit-content; }
@@ -18,18 +18,20 @@ body { margin: 0; font: 13px/1.45 system-ui, sans-serif; }
 .card-title { font-weight: 500; margin-bottom: 6px; }
 .args { max-height: 160px; overflow: auto; font-size: 11px; background: #8882; padding: 6px; border-radius: 4px; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; }
-button { cursor: pointer; border: 1px solid #8885; background: #8882; color: inherit; border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; border: 1px solid var(--st-border); background: #8882; color: var(--st-fg); border-radius: 6px; padding: 4px 10px; }
 button:disabled { opacity: 0.5; cursor: default; }
 button.deny { border-color: #c335; color: #c33; }
 .composer { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #8884; }
-.composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 140px; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid #8885; background: transparent; color: inherit; }
-.send { background: #2f6fed; color: #fff; border-color: transparent; }
+.composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 140px; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--st-border); background: var(--st-input-bg); color: var(--st-input-fg); }
+.send { background: var(--st-accent); color: var(--st-accent-fg); border-color: transparent; }
 .stop { border-color: #c335; color: #c33; }
 .settings { flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .hint { margin: 0; opacity: 0.7; }
-.yaml { flex: 1; font: 12px/1.5 ui-monospace, monospace; background: transparent; color: inherit; border: 1px solid #8885; border-radius: 6px; padding: 8px; resize: none; }
+.yaml { flex: 1; font: 12px/1.5 ui-monospace, monospace; background: var(--st-input-bg); color: var(--st-input-fg); border: 1px solid var(--st-border); border-radius: 6px; padding: 8px; resize: none; }
 .cat { opacity: 0.6; font-size: 11px; }
-input { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid #8885; background: transparent; color: inherit; }
+input { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--st-border); background: var(--st-input-bg); color: var(--st-input-fg); }
+select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--st-border); background: var(--st-input-bg); color: var(--st-input-fg); }
+select option { background: var(--st-input-bg); color: var(--st-input-fg); }
 .settings section { margin-top: 8px; }
 .settings h3 { font-size: 13px; margin: 10px 0 6px; display: flex; gap: 6px; align-items: center; }
 button.small { padding: 1px 6px; font-size: 11px; }
@@ -38,7 +40,7 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 10px; margin: 6px 0; }
 .field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; opacity: 0.9; }
 .field span { opacity: 0.7; }
-.field input, .field select { font: inherit; padding: 3px 6px; border-radius: 4px; border: 1px solid #8885; background: transparent; color: inherit; }
+.field input, .field select { font: inherit; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--st-border); background: var(--st-input-bg); color: var(--st-input-fg); }
 .extra { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; font-size: 11px; }
 .extra .ok { color: #3a3; }
 .extra .fail { color: #c33; }
