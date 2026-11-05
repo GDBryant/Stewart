@@ -23,7 +23,7 @@ pnpm install --frozen-lockfile
 pnpm -r build
 
 if [ "$SKIP_VSCODE" -eq 0 ]; then
-  pnpm --filter ./hosts/vscode run package
+  pnpm --filter ./hosts/vscode run package </dev/null
   VSIX="$(pwd)/hosts/vscode/stewart.vsix"
   if command -v code >/dev/null 2>&1; then
     code --install-extension "$VSIX" --force
