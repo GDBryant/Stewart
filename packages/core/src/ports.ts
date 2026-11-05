@@ -38,6 +38,10 @@ export interface HostPort {
     /** Recursive relative paths under dir (workspace-relative), capped by host. */
     list(dir: string): Promise<string[]>;
     stat(path: string): Promise<{ size: number }>;
+    /** Raw bytes as base64 (images, binary assets). */
+    readBinary(path: string): Promise<{ base64: string; size: number }>;
+    /** Write raw bytes from base64; replaces the file atomically. */
+    writeBinary(path: string, base64: string): Promise<void>;
     writeAtomic(path: string, content: string): Promise<void>;
     /** Append one line and fsync (ledger, idempotency log). */
     appendLine(path: string, line: string): Promise<void>;
@@ -54,6 +58,10 @@ export interface HostPort {
   };
   diag: {
     problems(path?: string): Promise<{ path: string; line: number; message: string; severity: string }[]>;
+  };
+  editor: {
+    /** Active editor selection, or null when nothing is selected. */
+    selection(): Promise<{ path: string; text: string; startLine: number; endLine: number } | null>;
   };
   workspace: {
     roots(): Promise<string[]>;

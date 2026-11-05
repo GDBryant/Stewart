@@ -18,6 +18,8 @@ export function remoteHost(link: RpcLink): HostPort {
       exists: (path) => call("files.exists", { path }),
       list: (dir) => call("files.list", { dir }),
       stat: (path) => call("files.stat", { path }),
+      readBinary: (path) => call("files.readBinary", { path }),
+      writeBinary: (path, base64) => call("files.writeBinary", { path, base64 }),
       writeAtomic: (path, content) => call("files.writeAtomic", { path, content }),
       appendLine: (path, line) => call("files.appendLine", { path, line }),
       readLines: (path) => call("files.readLines", { path }),
@@ -28,6 +30,7 @@ export function remoteHost(link: RpcLink): HostPort {
     },
     diff: { preview: (path, next) => call("diff.preview", { path, next }) },
     diag: { problems: (path) => call("diag.problems", { path }) },
+    editor: { selection: () => call("editor.selection", {}) },
     workspace: {
       roots: () => call("workspace.roots", {}),
       stateDir: () => call("workspace.stateDir", {}),

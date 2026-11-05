@@ -1,7 +1,7 @@
 /** Host messaging seam. VS Code injects acquireVsCodeApi; JCEF injects
  * window.stewartHost { post(string) }; tests pass a MockBridge. */
 export type Outbound =
-  | { type: "chat.send"; text: string; images?: string[]; direct?: boolean }
+  | { type: "chat.send"; text: string; images?: string[]; direct?: boolean; sessionId?: string }
   | { type: "chat.cancel"; runId: string }
   | { type: "chat.resume"; runId: string }
   | { type: "chat.revert"; runId: string }
@@ -9,6 +9,12 @@ export type Outbound =
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }
   | { type: "config.set"; file: string; yaml: string; layer?: "user" | "project" }
+  | { type: "config.importV1"; xml: string; apply?: boolean }
+  | { type: "v1.import" }
+  | { type: "editor.insert"; text: string }
+  | { type: "history.list" }
+  | { type: "history.load"; sessionId: string }
+  | { type: "history.delete"; sessionId: string }
   | { type: "channel.test"; channelId: string }
   | { type: "channel.probe"; channelId: string; model: string; force?: boolean }
   | { type: "secret.set"; ref: string; value: string }
@@ -60,11 +66,30 @@ export interface ConfigReply {
   errors: string[];
 }
 
+export interface SessionSummary {
+  sessionId: string;
+  title: string;
+  savedAt: number;
+  messageCount: number;
+}
+
+export interface StoredMessage {
+  role: "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
+  toolCallId?: string;
+  images?: string[];
+}
+
 export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
   | ({ type: "config" } & ConfigReply)
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
   | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }
+  | { type: "history.sessions"; sessions: SessionSummary[] }
+  | { type: "history.messages"; sessionId: string; messages: StoredMessage[] }
+  | { type: "v1.draft"; files: Record<string, string>; warnings: string[]; xml?: string; applied?: boolean }
+  | { type: "insertText"; text: string }
   | { type: "ready" }
   | { type: "error"; message: string };
 

@@ -15,6 +15,9 @@ import { SelfWriteGuard, type ConfigStore } from "./config/store.js";
 import { parse as parseYaml } from "yaml";
 import { RunManager } from "./runManager.js";
 import type { ChannelDeps, ModelCaps } from "./channels/types.js";
+import { expandMentions } from "./mentions.js";
+import { normalizeImages } from "./images.js";
+import { importV1Xml, parseMiniXml } from "./v1import.js";
 
 export interface CoreDeps {
   fetcher?: Fetcher;
@@ -81,6 +84,7 @@ export class Core {
     projectGuard.syncLayer(projectLayer);
     const config = this.applyProbes(loadConfig(userLayer, projectLayer, this.defaults, trusted));
     const runs = new RunManager({ host, clock: this.clock, ids: this.ids, bus: this.bus });
+    runs.historyRetentionDays = config.settings.historyRetentionDays;
     this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
     await this.rebuildChannels(config, host);
     return config;
@@ -140,6 +144,7 @@ export class Core {
       return { config: ctx.config, suppressed: false };
     }
     ctx.config = nextConfig;
+    ctx.runs.historyRetentionDays = nextConfig.settings.historyRetentionDays;
     await this.rebuildChannels(ctx.config, ctx.host);
     return { config: ctx.config, suppressed: false };
   }
@@ -154,15 +159,21 @@ export class Core {
         return { protocol: PROTOCOL_VERSION, capabilities: r.capabilities };
       }
       case "chat.send": {
-        const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean };
+        const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string };
         const ctx = this.ctx(p.projectId);
-        const stripped = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+        const direct = p.direct || p.text.startsWith("/direct ");
+        const raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+        const mention = await expandMentions(ctx.host, raw);
+        for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
+        const norm = normalizeImages(p.images ?? []);
+        if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
         const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
-        if (orchestrator && !p.direct && !p.text.startsWith("/direct ")) {
+        if (orchestrator && !direct) {
           const run = await ctx.runs.orchestrated(p.projectId, {
             config: ctx.config,
             channelFor: (id) => this.channelById(id),
-            text: stripped,
+            text: mention.text,
+            sessionId: p.sessionId,
           });
           return { runId: run.id };
         }
@@ -173,7 +184,18 @@ export class Core {
           ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
           : { prompt: undefined, truncated: false };
         if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
-        const run = await ctx.runs.direct(p.projectId, channel, agent, stripped, p.images, role, prompt || undefined);
+        const history = p.sessionId ? ((await (await ctx.runs.historyStore()).load(p.sessionId)) ?? []) : [];
+        const run = await ctx.runs.direct(
+          p.projectId,
+          channel,
+          agent,
+          mention.text,
+          norm.images.length ? norm.images : undefined,
+          role,
+          prompt || undefined,
+          p.sessionId,
+          history,
+        );
         return { runId: run.id };
       }
       case "chat.cancel": {
@@ -192,6 +214,35 @@ export class Core {
       case "chat.revert": {
         const p = params as { projectId: string; runId: string };
         return this.ctx(p.projectId).runs.revert(p.runId);
+      }
+      case "history.list": {
+        const p = params as { projectId: string };
+        const store = await this.ctx(p.projectId).runs.historyStore();
+        return { sessions: await store.list() };
+      }
+      case "history.load": {
+        const p = params as { projectId: string; sessionId: string };
+        const store = await this.ctx(p.projectId).runs.historyStore();
+        return { messages: (await store.load(p.sessionId)) ?? [] };
+      }
+      case "history.delete": {
+        const p = params as { projectId: string; sessionId: string };
+        const store = await this.ctx(p.projectId).runs.historyStore();
+        await store.delete(p.sessionId);
+        return { ok: true };
+      }
+      case "config.importV1": {
+        const p = params as { projectId: string; xml: string; apply?: boolean };
+        const ctx = this.ctx(p.projectId);
+        const res = importV1Xml(p.xml, parseMiniXml);
+        if (p.apply && Object.keys(res.files).length) {
+          for (const [file, yaml] of Object.entries(res.files)) {
+            this.userGuard.recordWrite(file, yaml);
+            await this.deps.userConfig.write(file, yaml);
+          }
+          await this.reload(p.projectId);
+        }
+        return res;
       }
       case "chat.answer": {
         const p = params as { projectId: string; questionId: string; answer: string };

@@ -95,7 +95,7 @@ export function leasedTools(
       coreHandled: tool.coreHandled,
       parallel: tool.parallel,
       preview: basePreview ? (args: Json) => basePreview(args) : undefined,
-      async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string> {
+      async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }> {
         const path = args.path;
         if (typeof path !== "string") return base(args, preview, signal);
         const currentHolder = deps.leases.holder(path);

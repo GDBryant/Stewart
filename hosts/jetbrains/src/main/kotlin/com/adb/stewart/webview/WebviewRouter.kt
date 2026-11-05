@@ -21,6 +21,8 @@ class WebviewRouter(
     private val send: (JsonObject) -> Unit,
     private val userConfigDir: () -> File,
     private val openInEditor: (File) -> Unit = {},
+    private val pickV1Xml: () -> String? = { null },
+    private val insertIntoEditor: (String) -> Unit = {},
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -58,6 +60,42 @@ class WebviewRouter(
                 "channel.probe" -> {
                     val r = request("channel.probe", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("channel.probe.result")) + ("channelId" to (m["channelId"] ?: JsonPrimitive(""))) + ("model" to (m["model"] ?: JsonPrimitive("")))))
+                }
+                "history.list" -> {
+                    val r = request("history.list", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("history.sessions"))))
+                }
+                "history.load" -> {
+                    val r = request("history.load", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("history.messages")) + ("sessionId" to (m["sessionId"] ?: JsonPrimitive("")))))
+                }
+                "history.delete" -> {
+                    request("history.delete", withProject(m)).get()
+                    val r = request("history.list", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("history.sessions"))))
+                }
+                "config.importV1" -> {
+                    val applied = (m["apply"] as? JsonPrimitive)?.content == "true"
+                    val r = request("config.importV1", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(
+                        JsonObject(
+                            r +
+                                ("type" to JsonPrimitive("v1.draft")) +
+                                ("xml" to (m["xml"] ?: JsonPrimitive(""))) +
+                                ("applied" to JsonPrimitive(applied)),
+                        ),
+                    )
+                }
+                "v1.import" -> {
+                    val xml = pickV1Xml() ?: return
+                    val r = request(
+                        "config.importV1",
+                        withProject(buildJsonObject { put("xml", JsonPrimitive(xml)) }),
+                    ).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("v1.draft")) + ("xml" to JsonPrimitive(xml))))
+                }
+                "editor.insert" -> {
+                    insertIntoEditor(m["text"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("missing text"))
                 }
                 "skills.open" -> openSkill(m["id"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("missing skill id"))
                 else -> {

@@ -10,6 +10,7 @@ import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
+import { loadProjectContext } from "../projectContext.js";
 import type { OrchestrationRuntime } from "./types.js";
 import type { TaskSpec } from "./tasks.js";
 
@@ -24,30 +25,11 @@ export interface TaskResult {
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements"]);
-const AGENTS_MD_LIMIT = 4000;
 
 /** Deterministic prefix order: role prompt + skills, bounded AGENTS.md + memory, then the briefing. */
 export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): Promise<string> {
   const { prompt } = composeRolePrompt(role, rt.config.skills, rt.skillBudgetTokens);
-  let agents = "";
-  try {
-    if (await rt.host.files.exists("AGENTS.md")) {
-      const md = (await rt.host.files.read("AGENTS.md")).content;
-      agents = `\n\n# Project instructions (AGENTS.md)\n${md.slice(0, AGENTS_MD_LIMIT)}`;
-    }
-  } catch {
-    /* no AGENTS.md is fine */
-  }
-  let memory = "";
-  try {
-    if (await rt.host.files.exists("MEMORY.md")) {
-      const mem = (await rt.host.files.read("MEMORY.md")).content;
-      memory = `\n\n# Project memory (MEMORY.md)\n${mem.slice(0, AGENTS_MD_LIMIT)}`;
-    }
-  } catch {
-    /* no MEMORY.md is fine */
-  }
-  return `${prompt}${agents}${memory}`;
+  return `${prompt}${await loadProjectContext(rt.host)}`;
 }
 
 /**
@@ -91,7 +73,15 @@ export async function runRoleTask(
   for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
   const paths = await ProjectPaths.forProject(rt.host);
   const extra = deps.nestedTools ?? [];
-  const base = roleRegistry(new ToolRegistry([...projectTools(rt.host, paths).tools, ...extra]), role);
+  const genChannel = channel;
+  const genModel = agent.model;
+  const imageGen = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage
+    ? (prompt: string) => genChannel.generateImage(genModel, prompt)
+    : undefined;
+  const base = roleRegistry(
+    new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGen }).tools, ...extra]),
+    role,
+  );
   const registry = new ToolRegistry(
     leasedTools(base.tools, {
       host: rt.host,

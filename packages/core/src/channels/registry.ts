@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
-import { ChannelError } from "./types.js";
+import { ChannelError, DEFAULT_CAPS } from "./types.js";
+import { stripImages } from "../images.js";
 
 /**
  * Wraps an adapter + config with per-channel concurrency (maxParallel queue),
@@ -70,6 +71,8 @@ export class ManagedChannel {
 
   async *chat(req: ChatRequest): AsyncIterable<ChatEvent> {
     await this.acquire();
+    const vision = this.cfg.modelCaps?.[req.model]?.vision ?? DEFAULT_CAPS.vision;
+    if (!vision) req = { ...req, messages: stripImages(req.messages) };
     let ok = false;
     try {
       for await (const ev of this.adapter.chat(this.cfg, this.secret, req)) {
@@ -94,6 +97,22 @@ export class ManagedChannel {
     } catch (e) {
       this.onFailure(e);
       throw e;
+    }
+  }
+
+  /** Image generation (imageGen models only); undefined when the adapter lacks it. */
+  async generateImage(model: string, prompt: string): Promise<{ base64: string } | undefined> {
+    if (!this.adapter.generateImage) return undefined;
+    await this.acquire();
+    try {
+      const r = await this.adapter.generateImage(this.cfg, this.secret, model, prompt);
+      this.onSuccess();
+      return r;
+    } catch (e) {
+      this.onFailure(e);
+      throw e;
+    } finally {
+      this.release();
     }
   }
 

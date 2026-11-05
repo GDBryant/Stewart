@@ -15,10 +15,14 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 class WebviewRouterTest {
-    private class Rig(responder: (String, JsonObject?) -> kotlinx.serialization.json.JsonElement? = { _, _ -> JsonObject(emptyMap()) }) {
+    private class Rig(
+        pickV1Xml: () -> String? = { null },
+        responder: (String, JsonObject?) -> kotlinx.serialization.json.JsonElement? = { _, _ -> JsonObject(emptyMap()) },
+    ) {
         val sent = LinkedBlockingQueue<JsonObject>()
         val calls = mutableListOf<Pair<String, JsonObject?>>()
         val opened = LinkedBlockingQueue<File>()
+        val inserted = mutableListOf<String>()
         val configDir = File(System.getProperty("java.io.tmpdir"), "stewart-router-test-${System.nanoTime()}")
         val router = WebviewRouter(
             projectId = { "p1" },
@@ -29,6 +33,8 @@ class WebviewRouterTest {
             send = { sent.add(it) },
             userConfigDir = { configDir },
             openInEditor = { opened.add(it) },
+            pickV1Xml = pickV1Xml,
+            insertIntoEditor = { inserted.add(it) },
         )
     }
 
@@ -262,6 +268,143 @@ class WebviewRouterTest {
         val rig = Rig()
         rig.router.route("""{"type":{"x":1}}""")
         assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `history list shaped reply`() {
+        val rig = Rig { m, _ ->
+            if (m == "history.list") Json.parseToJsonElement("""{"sessions":[{"sessionId":"s1","title":"t","savedAt":1,"messageCount":2}]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"history.list"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("history.sessions", m.type())
+        assertTrue(m.containsKey("sessions"))
+        assertEquals("history.list", rig.calls[0].first)
+        assertEquals("p1", rig.calls[0].second!!["projectId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `history load shaped reply carries session id`() {
+        val rig = Rig { m, _ ->
+            if (m == "history.load") Json.parseToJsonElement("""{"messages":[{"role":"user","content":"hi"}]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"history.load","sessionId":"s1"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("history.messages", m.type())
+        assertEquals("s1", m["sessionId"]!!.jsonPrimitive.content)
+        assertEquals("s1", rig.calls[0].second!!["sessionId"]!!.jsonPrimitive.content)
+        assertTrue(m.containsKey("messages"))
+    }
+
+    @Test
+    fun `history delete refreshes the session list`() {
+        val rig = Rig { m, _ ->
+            if (m == "history.list") Json.parseToJsonElement("""{"sessions":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"history.delete","sessionId":"s1"}""")
+        assertEquals("history.delete", rig.calls[0].first)
+        assertEquals("s1", rig.calls[0].second!!["sessionId"]!!.jsonPrimitive.content)
+        assertEquals("history.list", rig.calls[1].first)
+        assertEquals("history.sessions", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `config importV1 apply reply carries applied flag and xml`() {
+        val rig = Rig { m, _ ->
+            if (m == "config.importV1") Json.parseToJsonElement("""{"files":{"channels.yaml":"v:1"},"warnings":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"config.importV1","xml":"<x/>","apply":true}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("v1.draft", m.type())
+        assertEquals("true", m["applied"]!!.jsonPrimitive.content)
+        assertEquals("<x/>", m["xml"]!!.jsonPrimitive.content)
+        assertEquals("<x/>", rig.calls[0].second!!["xml"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `v1 import picks xml and replies draft`() {
+        val rig = Rig(pickV1Xml = { "<v1/>" }) { _, _ -> Json.parseToJsonElement("""{"files":{},"warnings":[]}""") }
+        rig.router.route("""{"type":"v1.import"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("v1.draft", m.type())
+        assertEquals("<v1/>", m["xml"]!!.jsonPrimitive.content)
+        assertEquals("config.importV1", rig.calls[0].first)
+        assertEquals("<v1/>", rig.calls[0].second!!["xml"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `v1 import does nothing when the picker is cancelled`() {
+        val rig = Rig()
+        rig.router.route("""{"type":"v1.import"}""")
+        assertTrue(rig.calls.isEmpty())
+        assertTrue(rig.sent.isEmpty())
+    }
+
+    @Test
+    fun `editor insert invokes the callback without a core call`() {
+        val rig = Rig()
+        rig.router.route("""{"type":"editor.insert","text":"hello"}""")
+        assertEquals(listOf("hello"), rig.inserted)
+        assertTrue(rig.calls.isEmpty())
+    }
+
+    @Test
+    fun `editor insert missing text errors`() {
+        val rig = Rig()
+        rig.router.route("""{"type":"editor.insert"}""")
+        assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `shaped replies tolerate a null core response`() {
+        val rig = Rig { _, _ -> null }
+        rig.router.route("""{"type":"config.get"}""")
+        assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"channel.test","channelId":"c"}""")
+        assertEquals("channel.test.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"channel.probe","channelId":"c","model":"m"}""")
+        assertEquals("channel.probe.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"history.list"}""")
+        assertEquals("history.sessions", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"history.load","sessionId":"s"}""")
+        val lm = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("history.messages", lm.type())
+        assertEquals("s", lm["sessionId"]!!.jsonPrimitive.content)
+        rig.router.route("""{"type":"history.delete","sessionId":"s"}""")
+        assertEquals("history.sessions", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"config.importV1","xml":"<x/>"}""")
+        val d = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("v1.draft", d.type())
+        assertEquals("false", d["applied"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `request failure prefers the cause message`() {
+        val rig = Rig { _, _ -> throw RuntimeException(java.io.IOException("root cause")) }
+        rig.router.route("""{"type":"config.get"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("error", m.type())
+        assertEquals("root cause", m["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `editor insert non string text errors`() {
+        val rig = Rig()
+        rig.router.route("""{"type":"editor.insert","text":{"x":1}}""")
+        assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `history load missing session id sends empty`() {
+        val rig = Rig()
+        rig.router.route("""{"type":"history.load"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("history.messages", m.type())
+        assertEquals("", m["sessionId"]!!.jsonPrimitive.content)
     }
 
     @Test

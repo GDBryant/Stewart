@@ -1,5 +1,5 @@
 import type { RunEvent } from "@stewart/protocol";
-import type { Bridge, ConfigReply, Inbound } from "./bridge.js";
+import type { Bridge, ConfigReply, Inbound, SessionSummary, StoredMessage } from "./bridge.js";
 
 export interface ChatItem {
   id: string;
@@ -7,9 +7,19 @@ export interface ChatItem {
   text: string;
   reasoning?: string;
   streaming?: boolean;
+  images?: string[];
   /** Collapsed activity rows: tool calls, tasks, approvals. */
   activity: { kind: string; text: string }[];
 }
+
+export interface V1Draft {
+  files: Record<string, string>;
+  warnings: string[];
+  xml?: string;
+}
+
+export const MAX_PENDING_IMAGES = 5;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export interface PendingApproval {
   approvalId: string;
@@ -68,6 +78,14 @@ export interface State {
   probeResults: Record<string, { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }>;
   wizardOpen?: boolean;
   view: "chat" | "settings";
+  sessionId?: string;
+  sessions: SessionSummary[];
+  historyOpen: boolean;
+  pendingImages: string[];
+  attachError?: string;
+  v1Draft?: V1Draft;
+  /** Host pushed text into the composer (e.g. "Add selection to chat"). */
+  composerInsert?: { text: string; seq: number };
 }
 
 type Listener = () => void;
@@ -83,9 +101,13 @@ export class Store {
     channelTest: {},
     probeResults: {},
     view: "chat",
+    sessions: [],
+    historyOpen: false,
+    pendingImages: [],
   };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
+  private insertSeq = 0;
 
   constructor(private bridge: Bridge) {
     bridge.onMessage((m) => this.onInbound(m));
@@ -105,9 +127,71 @@ export class Store {
   }
 
   send(text: string): void {
-    if (!text.trim() || this.state.busyRunId) return;
-    this.patch({ items: [...this.state.items, { id: `u${++this.itemSeq}`, role: "user", text, activity: [] }] });
-    this.bridge.post({ type: "chat.send", text });
+    const images = this.state.pendingImages;
+    if ((!text.trim() && !images.length) || this.state.busyRunId) return;
+    const sessionId = this.state.sessionId ?? `s${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    this.patch({
+      items: [
+        ...this.state.items,
+        { id: `u${++this.itemSeq}`, role: "user", text, images: images.length ? images : undefined, activity: [] },
+      ],
+      pendingImages: [],
+      attachError: undefined,
+      sessionId,
+    });
+    this.bridge.post({
+      type: "chat.send",
+      text,
+      images: images.length ? images : undefined,
+      sessionId,
+    });
+  }
+  rejectAttachment(reason: string): void {
+    this.patch({ attachError: reason });
+  }
+  addImage(dataUri: string): void {
+    if (this.state.pendingImages.length >= MAX_PENDING_IMAGES) {
+      return this.patch({ attachError: `at most ${MAX_PENDING_IMAGES} images per message` });
+    }
+    const comma = dataUri.indexOf(",");
+    const approx = Math.max(0, (dataUri.length - comma - 1) * 0.75);
+    if (approx > MAX_IMAGE_BYTES) {
+      return this.patch({ attachError: "image exceeds the 5 MB limit" });
+    }
+    this.patch({ pendingImages: [...this.state.pendingImages, dataUri], attachError: undefined });
+  }
+  removeImage(index: number): void {
+    this.patch({ pendingImages: this.state.pendingImages.filter((_, i) => i !== index) });
+  }
+  insertIntoEditor(text: string): void {
+    if (text.trim()) this.bridge.post({ type: "editor.insert", text });
+  }
+  toggleHistory(): void {
+    const historyOpen = !this.state.historyOpen;
+    this.patch({ historyOpen });
+    if (historyOpen) this.bridge.post({ type: "history.list" });
+  }
+  openSession(sessionId: string): void {
+    this.bridge.post({ type: "history.load", sessionId });
+  }
+  deleteSession(sessionId: string): void {
+    this.bridge.post({ type: "history.delete", sessionId });
+    if (this.state.sessionId === sessionId) this.patch({ sessionId: undefined });
+    this.bridge.post({ type: "history.list" });
+  }
+  newSession(): void {
+    if (this.state.busyRunId) return;
+    this.patch({ sessionId: undefined, items: [], historyOpen: false });
+  }
+  requestV1Import(): void {
+    this.bridge.post({ type: "v1.import" });
+  }
+  applyV1Draft(): void {
+    const xml = this.state.v1Draft?.xml;
+    if (xml) this.bridge.post({ type: "config.importV1", xml, apply: true });
+  }
+  dismissV1Draft(): void {
+    this.patch({ v1Draft: undefined });
   }
   cancel(): void {
     if (this.state.busyRunId) this.bridge.post({ type: "chat.cancel", runId: this.state.busyRunId });
@@ -190,6 +274,37 @@ export class Store {
           [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, error: m.error },
         },
       });
+    if (m.type === "history.sessions") return this.patch({ sessions: m.sessions });
+    if (m.type === "history.messages") {
+      const items = m.messages.map((msg: StoredMessage): ChatItem => ({
+        id: `h${++this.itemSeq}`,
+        role: msg.role === "tool" ? "system" : msg.role,
+        text: msg.role === "tool" ? `⚙ ${msg.content}` : msg.content,
+        images: msg.images,
+        activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
+      }));
+      return this.patch({
+        items,
+        sessionId: m.sessionId,
+        historyOpen: false,
+        view: "chat",
+        tasks: [],
+        cost: undefined,
+        plan: undefined,
+        busyRunId: undefined,
+      });
+    }
+    if (m.type === "v1.draft") {
+      if (m.applied) {
+        this.requestConfig();
+        return this.patch({
+          v1Draft: undefined,
+          items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: "v1 settings imported.", activity: [] }],
+        });
+      }
+      return this.patch({ v1Draft: { files: m.files, warnings: m.warnings, xml: m.xml } });
+    }
+    if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
     if (m.type === "error")
       return this.patch({
         items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],

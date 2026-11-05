@@ -2,10 +2,10 @@
 
 **An AI coding assistant inside your JetBrains IDE — local or enterprise models, file edits and terminal commands, with configurable approval controls.**
 
-Stewart adds a chat tool window to IntelliJ IDEA, PyCharm and other 2025.1+ JetBrains IDEs. It talks to **Ollama** (local), **AI Factory** (OpenAI-compatible proxy) and **Claude** (enterprise, via the Claude Code CLI and SSO), can read, search and edit your files, and can run shell commands — with reads and searches running automatically when tools are enabled. Edits and commands require approval unless covered by an existing grant. Approvals can be scoped to a single call, a chat, or a project.
+Stewart adds a chat tool window to IntelliJ IDEA, PyCharm and other 2026.1+ JetBrains IDEs. It talks to **Ollama** (local), **AI Factory** (OpenAI-compatible proxy) and **Claude** (enterprise, via the Claude Code CLI and SSO), can read, search and edit your files, and can run shell commands — with reads and searches running automatically when tools are enabled. Edits and commands require approval unless covered by an existing grant. Approvals can be scoped to a single call, a chat, or a project.
 
 [![Build](https://github.com/GDBryant/Stewart/actions/workflows/build.yml/badge.svg)](https://github.com/GDBryant/Stewart/actions/workflows/build.yml)
-![Platform](https://img.shields.io/badge/platform-2025.1%2B-blue)
+![Platform](https://img.shields.io/badge/platform-2026.1%2B-blue)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-21-orange)
 
@@ -83,7 +83,7 @@ Type `//` to send a literal `/`.
 
 ## Requirements
 
-- Declared platform support: **2025.1 or newer** (build 251+). Plugin Verifier targets **IntelliJ IDEA Community 2025.1** and **PyCharm Professional 2025.3**; other products and newer versions are not automatically verified. See [compatibility notes](docs/COMPATIBILITY.md) for the recorded results and verification caveats.
+- Declared platform support: **2026.1 or newer** (build 261+). Plugin Verifier targets **IntelliJ IDEA Community 2026.1** and **PyCharm Professional 2026.2**; other products and newer versions are not automatically verified. See [compatibility notes](docs/COMPATIBILITY.md) for the recorded results and verification caveats.
 - **JDK 21** to build from source; not needed to run the plugin.
 - At least one provider:
   - **Ollama** running locally (default `http://localhost:11434`), or
@@ -188,7 +188,7 @@ See [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) for the full rule set, parser r
 | Claude login or executable error | Confirm the configured CLI path, verify the CLI works outside the IDE, and use the settings login check. See [Claude transport notes](docs/CLAUDE_FEASIBILITY.md) for supported CLI assumptions. |
 | The model describes actions but does not call tools | Check **Enable tools**, select a tool-capable model, and review its native/shim override. Do not blindly retry if an action may already have executed. |
 | Commands unexpectedly skip approval | Run `/permissions` and inspect category, chat and program grants. Use `/permissions revoke all` to remove this project's active grants. |
-| Plugin does not appear | Confirm the IDE build is 251+, install the plugin zip rather than its enclosing artifact archive, and restart the IDE. |
+| Plugin does not appear | Confirm the IDE build is 261+, install the plugin zip rather than its enclosing artifact archive, and restart the IDE. |
 
 For a bug report, include your IDE version, Stewart version, provider/model, steps to reproduce and a sanitized error. Never attach raw credentials or unreviewed debug logs.
 
@@ -212,7 +212,7 @@ Kotlin throughout, Swing UI, coroutines for I/O, no bundled Node runtime. Full d
 ./gradlew test          # unit + integration tests (live tests skipped by default)
 ./gradlew koverVerify   # coverage gate: ≥90% line, ≥80% branch
 ./gradlew buildPlugin   # plugin zip
-./gradlew verifyPlugin  # IntelliJ Plugin Verifier against IC 2025.1 and PyCharm 2025.3
+./gradlew verifyPlugin  # IntelliJ Plugin Verifier against IC 2026.1 and PyCharm 2026.2
 ```
 
 Optional live tests (need credentials/services):

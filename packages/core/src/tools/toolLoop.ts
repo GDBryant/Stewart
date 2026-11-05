@@ -221,7 +221,11 @@ export class ToolLoop {
               ? [await this.executeCall(call, seen, listener, inFlight, signal, seq)]
               : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
           for (let k = 0; k < batch.length; k++) {
-            produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcomes[k]) });
+            const outcome = outcomes[k];
+            produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcome) });
+            if (outcome.kind === "success" && outcome.images?.length) {
+              produced.push({ role: "user", content: `[image from ${batch[k].name}]`, images: outcome.images });
+            }
           }
           const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
           if (terminal >= 0) {
@@ -330,11 +334,16 @@ export class ToolLoop {
                 .setTimeout(() => { child.abort(); rej(new Error("__tool_timeout__")); }, this.limits.toolTimeoutMs);
             }),
           ]);
-      const s = out.length > this.limits.maxToolOutputChars
-        ? `${out.slice(0, this.limits.maxToolOutputChars)}\n[output truncated]`
-        : out;
+      const raw = typeof out === "string" ? out : out.text;
+      const s = raw.length > this.limits.maxToolOutputChars
+        ? `${raw.slice(0, this.limits.maxToolOutputChars)}\n[output truncated]`
+        : raw;
       if (key) await this.idempotency!.record(key, s);
-      return this.finishOutcome(call, { kind: "success", content: s }, listener);
+      return this.finishOutcome(
+        call,
+        { kind: "success", content: s, images: typeof out === "string" ? undefined : out.images },
+        listener,
+      );
     } catch (e) {
       if (e instanceof Error && e.name === "LeaseCycleError") throw e;
       if (e instanceof Error && e.message === "__tool_timeout__") {

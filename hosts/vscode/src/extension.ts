@@ -98,6 +98,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("stewart.openChat", openPanel),
     vscode.commands.registerCommand("stewart.openSettings", openPanel),
+    vscode.commands.registerCommand("stewart.addSelectionToChat", async () => {
+      openPanel();
+      const ed = vscode.window.activeTextEditor;
+      if (!ed || ed.selection.isEmpty) return;
+      const sel = await host.editor.selection();
+      if (!sel) return;
+      const snippet = `@selection\n\`\`\`\n// ${sel.path}:${sel.startLine}-${sel.endLine}\n${sel.text}\n\`\`\`\n`;
+      await panel?.webview.postMessage({ type: "insertText", text: snippet });
+    }),
   );
 }
 
@@ -121,6 +130,56 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
       case "channel.probe": {
         const r = await core.dispatch("channel.probe", { projectId: PROJECT_ID, channelId: m.channelId, model: m.model, force: m.force });
         await panel.webview.postMessage({ type: "channel.probe.result", channelId: m.channelId, model: m.model, ...(r as object) });
+        return;
+      }
+      case "history.list": {
+        const r = await core.dispatch("history.list", { projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "history.sessions", ...(r as object) });
+        return;
+      }
+      case "history.load": {
+        const r = await core.dispatch("history.load", { projectId: PROJECT_ID, sessionId: m.sessionId });
+        await panel.webview.postMessage({ type: "history.messages", sessionId: m.sessionId, ...(r as object) });
+        return;
+      }
+      case "history.delete": {
+        await core.dispatch("history.delete", { projectId: PROJECT_ID, sessionId: m.sessionId });
+        const r = await core.dispatch("history.list", { projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "history.sessions", ...(r as object) });
+        return;
+      }
+      case "config.importV1": {
+        const r = (await core.dispatch("config.importV1", { projectId: PROJECT_ID, xml: m.xml, apply: m.apply })) as {
+          files: Record<string, string>;
+          warnings: string[];
+        };
+        await panel.webview.postMessage({ type: "v1.draft", files: r.files, warnings: r.warnings, xml: m.xml, applied: m.apply === true });
+        return;
+      }
+      case "v1.import": {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFiles: true,
+          canSelectMany: false,
+          filters: { "IntelliJ settings": ["xml"] },
+          title: "Pick stewart.xml",
+        });
+        if (!picked?.length) return;
+        const xml = await fs.readFile(picked[0].fsPath, "utf8");
+        const r = (await core.dispatch("config.importV1", { projectId: PROJECT_ID, xml })) as {
+          files: Record<string, string>;
+          warnings: string[];
+        };
+        await panel.webview.postMessage({ type: "v1.draft", files: r.files, warnings: r.warnings, xml });
+        return;
+      }
+      case "editor.insert": {
+        const ed = vscode.window.activeTextEditor;
+        if (!ed) throw new Error("no active editor");
+        const text = String(m.text ?? "");
+        await ed.edit((b) => {
+          if (ed.selection.isEmpty) b.insert(ed.selection.active, text);
+          else b.replace(ed.selection, text);
+        });
         return;
       }
       case "skills.open": {

@@ -5,7 +5,7 @@
 | Setting | Value |
 |---------|-------|
 | Plugin id / name | `com.adb.stewart` / Stewart (vendor ADB; was `com.aijb.assistant` / AIJB Assistant) |
-| `since-build` | 251 |
+| `since-build` | 261 |
 | `until-build` | unset (open) |
 | Declared dependency | `com.intellij.modules.platform` only |
 
@@ -13,10 +13,10 @@
 
 | IDE | Version |
 |-----|---------|
-| IntelliJ IDEA Community | 2025.1 |
-| PyCharm Professional | 2025.3 |
+| IntelliJ IDEA Community | 2026.1 |
+| PyCharm Professional | 2026.2 |
 
-Result: PASS — Compatible on both IDEs (v2 plugin `com.adb.stewart` 2.0.0), zero compatibility problems. Internal/experimental/deprecated API usages are reported but accepted (see verifyPlugin below); `failureLevel` is set to `COMPATIBILITY_PROBLEMS` only.
+Baseline moved to 2026.1+ (`since-build 261`); 2025.x products are no longer supported or verified. Re-verification on the 2026 targets is pending. Historical M2 result: PASS — Compatible on IC 2025.1 + PY 2025.3, zero compatibility problems. Internal/experimental/deprecated API usages are reported but accepted (see verifyPlugin below); `failureLevel` is set to `COMPATIBILITY_PROBLEMS` only.
 
 ## Toolchain (pinned)
 
@@ -28,7 +28,7 @@ Result: PASS — Compatible on both IDEs (v2 plugin `com.adb.stewart` 2.0.0), ze
 | IntelliJ Platform Gradle Plugin | 2.19.0 |
 | Kotlin | 2.2.21 |
 | kotlinx-serialization-json | 1.8.1 |
-| Compile target | IntelliJ IDEA Community 2025.1 |
+| Compile target | IntelliJ IDEA Community 2026.1 |
 
 ## Local toolchain note
 
@@ -40,16 +40,18 @@ Coverage gate: `check` depends on `koverVerify` (>=90% line, >=80% branch); M2 r
 
 ## verifyPlugin
 
-`./gradlew verifyPlugin` — last run at M2 (v2 plugin `com.adb.stewart` 2.0.0): IDEA
-Community 2025.1 and PyCharm 2025.3 both **Compatible**, zero compatibility problems.
-`VerifyPluginTask.failureLevel` = `COMPATIBILITY_PROBLEMS` only; the verifier still
-reports accepted usages: internal `TrustedProjects`/`TrustedProjectsLocator` (no
-public trust-state API exists in 2025.1) and Kotlin-generated overrides of
+`./gradlew verifyPlugin` — targets IDEA Community 2026.1 and PyCharm 2026.2.
+Last run at M2 against the previous baseline (v2 plugin `com.adb.stewart` 2.0.0):
+IDEA Community 2025.1 and PyCharm 2025.3 both **Compatible**, zero compatibility
+problems. `VerifyPluginTask.failureLevel` = `COMPATIBILITY_PROBLEMS` only; the
+verifier still reports accepted usages: internal
+`TrustedProjects`/`TrustedProjectsLocator` (no public trust-state API existed at
+the M2 platform level; re-check on 2026.1) and Kotlin-generated overrides of
 `ToolWindowFactory` default methods (`getIcon`/`getAnchor`/`manage`/
 `isApplicable`/`isDoNotActivateOnStart`) — unavoidable for any Kotlin
 `ToolWindowFactory`. Re-run on every milestone or platform bump.
 
-## Manual smoke (2026-10-26)
+## Manual smoke (2026-10-26, pre-baseline-bump)
 
 - `./gradlew runIde` (IC 2025.1 sandbox): chat tool window opened, model picker
   populated from the local Ollama container, streaming replies and send/cancel

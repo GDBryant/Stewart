@@ -57,6 +57,19 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     return { tools: Array.isArray(msg?.tool_calls) ? "native" : "shim" };
   }
 
+  async generateImage(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }> {
+    const r = await this.deps.fetcher(url(cfg, "/images/generations"), {
+      method: "POST",
+      headers: this.headers(cfg, secret),
+      body: JSON.stringify({ model, prompt, response_format: "b64_json" }),
+    });
+    const body = await new Response(r.body).text();
+    if (r.status !== 200) throw new ChannelError(`POST /images/generations → ${r.status}: ${body.slice(0, 200)}`, r.status);
+    const b64 = (JSON.parse(body).data?.[0]?.b64_json ?? null) as string | null;
+    if (!b64) throw new ChannelError("image generation returned no data");
+    return { base64: b64 };
+  }
+
   async *chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
     const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
     const messages = req.messages.map((m) => {

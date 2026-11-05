@@ -19,6 +19,8 @@ import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
 import { runRoleTask } from "./orchestration/roleRunner.js";
 import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import type { OrchestrationRuntime } from "./orchestration/types.js";
+import { ChatHistoryStore } from "./history.js";
+import { loadProjectContext } from "./projectContext.js";
 
 export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
 
@@ -31,6 +33,7 @@ export interface Run {
   messages: ChatMessage[];
   costUsd: number;
   tasks?: TaskRecord[];
+  sessionId?: string;
   externalRefs?: { tracker?: string; branch?: string; pr?: string };
 }
 
@@ -51,6 +54,9 @@ export class RunManager {
   private answers = new Map<string, (a: string) => void>();
   private sessionGrants = new Grants();
   private ledger?: RunLedger;
+  private history?: ChatHistoryStore;
+  /** Updated from settings on config (re)load. */
+  historyRetentionDays = 30;
 
   constructor(private deps: RunDeps) {}
 
@@ -124,16 +130,51 @@ export class RunManager {
     return this.ledger;
   }
 
+  private async historyFor(): Promise<ChatHistoryStore> {
+    if (!this.history) {
+      const stateDir = await this.deps.host.workspace.stateDir();
+      this.history = new ChatHistoryStore(this.deps.host, `${stateDir}/history`, this.historyRetentionDays);
+    }
+    return this.history;
+  }
+
+  /** Persist the transcript under its session id; best-effort, never fails a run. */
+  async saveHistory(run: Run): Promise<void> {
+    if (!run.sessionId) return;
+    try {
+      const store = await this.historyFor();
+      await store.save(run.sessionId, run.messages);
+      await store.prune();
+    } catch (e) {
+      this.deps.host.log(`history save failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  async historyStore(): Promise<ChatHistoryStore> {
+    return this.historyFor();
+  }
+
   /** Direct-mode run: stream one agent through the tool loop under a role's constraints. */
-  async direct(projectId: string, channel: ManagedChannel, agent: AgentDef, text: string, images?: string[], role?: RoleDef, rolePrompt?: string): Promise<Run> {
+  async direct(
+    projectId: string,
+    channel: ManagedChannel,
+    agent: AgentDef,
+    text: string,
+    images?: string[],
+    role?: RoleDef,
+    rolePrompt?: string,
+    sessionId?: string,
+    history?: ChatMessage[],
+  ): Promise<Run> {
     const run: Run = {
       id: this.deps.ids.next("run"),
       projectId,
       status: "running",
       controller: new AbortController(),
       startedAt: this.deps.clock.now(),
-      messages: [{ role: "user", content: text, images }],
+      messages: [...(history ?? []), { role: "user", content: text, images }],
       costUsd: 0,
+      sessionId,
     };
     this.runs.set(run.id, run);
     const bus = this.deps.bus;
@@ -151,7 +192,7 @@ export class RunManager {
    */
   async orchestrated(
     projectId: string,
-    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; runId?: string },
+    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; runId?: string; sessionId?: string },
   ): Promise<Run> {
     const run: Run = {
       id: opts.runId ?? this.deps.ids.next("run"),
@@ -161,6 +202,7 @@ export class RunManager {
       startedAt: this.deps.clock.now(),
       messages: [{ role: "user", content: opts.text }],
       costUsd: 0,
+      sessionId: opts.sessionId,
     };
     this.runs.set(run.id, run);
     this.deps.bus.emit({ kind: "run.started", runId: run.id, title: opts.text.slice(0, 80) });
@@ -381,17 +423,20 @@ export class RunManager {
     run.costUsd = cost.accrued;
     if (run.status === "cancelled") {
       await this.journal(run, stateDir);
+      await this.saveHistory(run);
       this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "cancelled" });
       return;
     }
     if (outcome.status === "failed") {
       run.status = "failed";
       await this.journal(run, stateDir);
+      await this.saveHistory(run);
       this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: outcome.error });
       return;
     }
     run.status = "done";
     await this.journal(run, stateDir);
+    await this.saveHistory(run);
     this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: outcome.status === "stopped" ? "stopped" : "done", error: outcome.error });
   }
 
@@ -416,7 +461,9 @@ export class RunManager {
     const gate = this.gate(runId, runGrants);
     const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
     const limits = role ? { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(role) } : DEFAULT_LIMITS;
-    const loop = new ToolLoop(channel, registry, gate, limits, this.deps.clock, rolePrompt, new Set(), mode);
+    const projectContext = await loadProjectContext(this.deps.host);
+    const prompt = [rolePrompt, projectContext].filter(Boolean).join("") || undefined;
+    const loop = new ToolLoop(channel, registry, gate, limits, this.deps.clock, prompt, new Set(), mode);
     const listener = {
       onText: (t: string) => bus.emit({ kind: "text_delta", runId, seq: 0, text: t }),
       onReasoning: (t: string) => bus.emit({ kind: "reasoning_delta", runId, seq: 0, text: t }),
@@ -433,24 +480,29 @@ export class RunManager {
       run.messages = [...result.base, ...result.messages];
       if (result.kind === "failed") {
         run.status = "failed";
+        await this.saveHistory(run);
         bus.emit({ kind: "run.finished", runId, status: "failed", error: result.message });
         return;
       }
       if (result.kind === "turn_limit") {
         run.status = "interrupted";
+        await this.saveHistory(run);
         bus.emit({ kind: "run.finished", runId, status: "stopped", error: "turn limit reached" });
         return;
       }
       if (run.status === "running") run.status = "done";
+      await this.saveHistory(run);
       bus.emit({ kind: "run.finished", runId, status: run.status === "cancelled" ? "cancelled" : "done" });
     } catch (e) {
       leases.releaseAll();
       if (e instanceof RunCancelledError || run.controller.signal.aborted) {
         run.status = "cancelled";
         if (e instanceof RunCancelledError) run.messages = e.transcript;
+        await this.saveHistory(run);
         bus.emit({ kind: "run.finished", runId, status: "cancelled" });
         return;
       }
+      await this.saveHistory(run);
       throw e;
     }
   }

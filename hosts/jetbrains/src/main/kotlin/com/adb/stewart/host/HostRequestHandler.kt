@@ -8,6 +8,7 @@ import com.intellij.ide.trustedProjects.TrustedProjectsLocator
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.serialization.json.JsonArray
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -78,6 +80,8 @@ class HostRequestHandler(
         "host.files.exists" -> files.exists(str(params, "path"))
         "host.files.list" -> files.list(str(params, "dir"))
         "host.files.stat" -> files.stat(str(params, "path"))
+        "host.files.readBinary" -> files.readBinary(str(params, "path"))
+        "host.files.writeBinary" -> files.writeBinary(str(params, "path"), str(params, "base64"))
         "host.files.writeAtomic" -> files.writeAtomic(str(params, "path"), str(params, "content"))
         "host.files.appendLine" -> files.appendLine(str(params, "path"), str(params, "line"))
         "host.files.readLines" -> files.readLines(str(params, "path"))
@@ -97,6 +101,7 @@ class HostRequestHandler(
             JsonObject(emptyMap())
         }
         "host.diag.problems" -> diagnostics.problems(strOrNull(params, "path"))
+        "host.editor.selection" -> editorSelection()
         "host.workspace.roots" -> JsonArray(listOfNotNull(project.basePath).map { JsonPrimitive(it) })
         "host.workspace.stateDir" -> JsonPrimitive(stateDir.absolutePath)
         "host.workspace.trusted" -> JsonPrimitive(TrustedProjects.isProjectTrusted(TrustedProjectsLocator.locateProject(project)))
@@ -110,6 +115,30 @@ class HostRequestHandler(
             "proc.cancel" -> procs.cancel(str(params, "handle"))
             "log" -> LOG.info(strOrNull(params, "line") ?: params.toString())
         }
+    }
+
+    private fun editorSelection(): JsonElement {
+        var result: JsonElement = JsonNull
+        ApplicationManager.getApplication().invokeAndWait {
+            result = ApplicationManager.getApplication().runReadAction<JsonElement> {
+                val editor = FileEditorManager.getInstance(project).selectedTextEditor
+                val sel = editor?.selectionModel?.selectedText
+                if (editor == null || sel.isNullOrEmpty()) {
+                    JsonNull
+                } else {
+                    val abs = editor.virtualFile?.path ?: ""
+                    val base = project.basePath ?: ""
+                    val rel = if (base.isNotEmpty() && abs.startsWith("$base/")) abs.removePrefix("$base/") else abs
+                    buildJsonObject {
+                        put("path", JsonPrimitive(rel))
+                        put("text", JsonPrimitive(sel))
+                        put("startLine", JsonPrimitive(editor.document.getLineNumber(editor.selectionModel.selectionStart) + 1))
+                        put("endLine", JsonPrimitive(editor.document.getLineNumber(editor.selectionModel.selectionEnd) + 1))
+                    }
+                }
+            }
+        }
+        return result
     }
 
     private fun diffPreview(path: String, next: String) {

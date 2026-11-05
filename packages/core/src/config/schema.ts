@@ -62,6 +62,7 @@ export const settingsSchema = z.object({
   maxNestedDispatches: z.number().int().min(0).default(3),
   maxReplans: z.number().int().min(0).default(2),
   skillBudgetTokens: z.number().int().positive().default(8000),
+  historyRetentionDays: z.number().int().min(0).default(30),
   log: z.object({ level: z.enum(["off", "calls", "full"]).default("off"), retainDays: z.number().int().min(0).default(7) }).default({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;

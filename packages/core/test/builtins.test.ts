@@ -158,8 +158,11 @@ describe("ApplyPatch / GetProblems / GetDiff / ReadImage / GenerateImage", () =>
   });
 
   it("reads and generates image assets", async () => {
-    const { reg, files } = await setup({ "assets/logo.svg": "<svg/>" });
-    expect(await reg.find("ReadImage")!.execute({ path: "assets/logo.svg" }, null, sig)).toContain("image assets/logo.svg");
+    const { reg, files } = await setup({ "assets/logo.png": " b64:aGk=", "assets/logo.svg": "<svg/>" });
+    const img = await reg.find("ReadImage")!.execute({ path: "assets/logo.png" }, null, sig);
+    expect(img.text).toContain("image assets/logo.png");
+    expect(img.images[0]).toMatch(/^data:image\/png;base64,/);
+    await expect(reg.find("ReadImage")!.execute({ path: "assets/logo.svg" }, null, sig)).rejects.toThrow(/not an image/);
     await expect(reg.find("ReadImage")!.execute({ path: "assets/missing.png" }, null, sig)).rejects.toThrow(/not found/);
     const gen = reg.find("GenerateImage")!;
     const p = await gen.preview!({ path: "assets/new.svg", prompt: "flow diagram" });

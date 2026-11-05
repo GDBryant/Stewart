@@ -1,4 +1,5 @@
 import type { HostPort } from "../ports.js";
+import { IMAGE_LIMITS, mediaTypeFor } from "../images.js";
 import {
   MAX_COMMAND_OUTPUT, MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, ProjectPaths,
 } from "./projectPaths.js";
@@ -76,7 +77,7 @@ abstract class ProjectTool implements Tool {
   abstract spec: ToolSpec;
   abstract requiresApproval: boolean;
   readonly awaitsUser = false;
-  abstract execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string>;
+  abstract execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }>;
 }
 
 class ReadFile extends ProjectTool {
@@ -371,25 +372,33 @@ class GetDiff extends ProjectTool {
 class ReadImage extends ProjectTool {
   spec: ToolSpec = {
     name: "ReadImage",
-    description: "Read an image asset or diagram from the workspace",
+    description: "Read an image file and return it for a vision model to describe",
     parameters: schema({ path: str }, ["path"]),
   };
   requiresApproval = false;
 
-  async execute(args: Json): Promise<string> {
+  async execute(args: Json): Promise<{ text: string; images: string[] }> {
     const rel = this.paths.resolve(arg(args, "path"));
+    const mediaType = mediaTypeFor(rel);
+    if (!mediaType) throw new Error(`not an image (png/jpg/jpeg/gif/webp): ${rel}`);
     if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);
     const st = await this.paths.stat(rel);
-    if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
-    const { content } = await this.paths.read(rel);
-    return `image ${rel} (${st.size} bytes): ${content.slice(0, 200)}`;
+    if (st.size > IMAGE_LIMITS.maxReadBytes) throw new Error(`file too large: ${rel}`);
+    if (st.size > IMAGE_LIMITS.maxBytes) throw new Error(`image exceeds ${IMAGE_LIMITS.maxBytes} bytes: ${rel}`);
+    const { base64 } = await this.host.files.readBinary(rel);
+    return { text: `image ${rel} (${st.size} bytes)`, images: [`data:${mediaType};base64,${base64}`] };
   }
 }
 
+export type ImageGenerator = (prompt: string) => Promise<{ base64: string } | undefined>;
+
 class GenerateImage extends ProjectTool {
+  constructor(host: HostPort, paths: ProjectPaths, private generate?: ImageGenerator) {
+    super(host, paths);
+  }
   spec: ToolSpec = {
     name: "GenerateImage",
-    description: "Generate an image or SVG/Mermaid diagram and write it to an asset path",
+    description: "Generate an image via the channel's image endpoint, or write SVG/Mermaid to an asset path",
     parameters: schema({ path: str, prompt: str, content: str }, ["path", "prompt"]),
   };
   requiresApproval = true;
@@ -403,6 +412,13 @@ class GenerateImage extends ProjectTool {
   async execute(args: Json): Promise<string> {
     const rel = this.paths.resolve(arg(args, "path"));
     const prompt = arg(args, "prompt");
+    if (this.generate) {
+      const img = await this.generate(prompt);
+      if (img) {
+        await this.host.files.writeBinary(rel, img.base64);
+        return `generated image ${rel}`;
+      }
+    }
     const raw = typeof args["content"] === "string" && args["content"]
       ? String(args["content"])
       : `<svg xmlns="http://www.w3.org/2000/svg"><desc>${prompt.replace(/[<>&]/g, "")}</desc></svg>`;
@@ -455,7 +471,12 @@ class RunTerminal extends ProjectTool {
   }
 }
 
-export function projectTools(host: HostPort, paths: ProjectPaths): ToolRegistry {
+export interface ProjectToolsDeps {
+  /** Channel-backed image generation; absent → SVG/Mermaid fallback only. */
+  generateImage?: ImageGenerator;
+}
+
+export function projectTools(host: HostPort, paths: ProjectPaths, deps: ProjectToolsDeps = {}): ToolRegistry {
   return new ToolRegistry([
     new ReadFile(host, paths),
     new FindFiles(host, paths),
@@ -467,6 +488,6 @@ export function projectTools(host: HostPort, paths: ProjectPaths): ToolRegistry 
     new EditFile(host, paths),
     new ApplyPatch(host, paths),
     new RunTerminal(host, paths),
-    new GenerateImage(host, paths),
+    new GenerateImage(host, paths, deps.generateImage),
   ]);
 }

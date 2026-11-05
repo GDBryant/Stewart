@@ -94,7 +94,7 @@ Transport: **Claude Code CLI subprocess**, passed the M1 feasibility gate on CLI
 Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `koverVerify`: ≥90% line, ≥80% branch) and `verifyPlugin` before the next starts. UI components get headless tests. Automated provider tests use recorded fixtures/fakes; live-provider smoke checks are separate and require locally configured access.
 
 ### 1. Skeleton
-- Gradle IntelliJ Platform Plugin 2.x project, pinned Gradle/Kotlin versions and Java 21 toolchain; provisional since-build 251. Confirm the supported PyCharm/IDEA matrix and verify each declared product rather than inferring compatibility from Cline.
+- Gradle IntelliJ Platform Plugin 2.x project, pinned Gradle/Kotlin versions and Java 21 toolchain; since-build 261 (2026.1+). Confirm the supported PyCharm/IDEA matrix and verify each declared product rather than inferring compatibility from Cline.
 - Tool window on the right, message list + input box.
 - Coroutine scope per project service; EDT/background split; cancellable `Job` per request.
 - `ModelProvider` interface + `OllamaProvider` (streaming `/api/chat`, `/api/tags`).
@@ -152,7 +152,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Done when: cancellation stops scheduling, closes streams and terminates owned process trees where supported; atomic IDE edits remain undoable, and completed or uncertain command side effects are reported rather than claimed to be rolled back.
 
 ## Assumptions
-- Kotlin + Gradle IntelliJ Platform Plugin 2.x; provisional IntelliJ 2025.1+ (build 251) and Java 21, subject to the M1 product compatibility matrix.
+- Kotlin + Gradle IntelliJ Platform Plugin 2.x; IntelliJ 2026.1+ (build 261) and Java 21; 2025.x products are out of scope.
 - Enterprise Claude Code entitlement, SSO login and CLI isolation passed the M1 feasibility gate on CLI 2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); managed-policy suppression verified 2026-10-29 on CLI 2.1.312 (canary hook/MCP test; see `docs/CLAUDE_FEASIBILITY.md`).
 - Ollama runs locally on default port; no auth.
 - The AIF proxy supports native `tools`; native is the default path for `AifProvider`. The shim is deprecated, kept as a per-model fallback, and stays a Kotlin port (no bundled Python sidecar).

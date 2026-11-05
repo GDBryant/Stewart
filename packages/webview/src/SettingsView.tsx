@@ -552,6 +552,33 @@ function SettingsEditor({ store, settings }: { store: Store; settings: SettingsS
         ))}
       </div>
       <button class="send" onClick={save}>Save settings</button>
+      <V1ImportCard store={store} />
     </section>
+  );
+}
+
+function V1ImportCard({ store }: { store: Store }) {
+  const draft = store.state.v1Draft;
+  return (
+    <div class="card v1import">
+      <div class="card-title">
+        <b>Import v1 settings</b>
+        <span class="spacer" />
+        <button class="small" onClick={() => store.requestV1Import()}>Pick stewart.xml…</button>
+      </div>
+      <p class="hint">One-shot import of channels, models and settings from the v1 plugin's stewart.xml.</p>
+      {draft ? (
+        <div class="form">
+          {draft.warnings.map((w, i) => (
+            <div key={i} class="warn">⚠ {w}</div>
+          ))}
+          <div class="summary">{Object.keys(draft.files).length ? `produces: ${Object.keys(draft.files).join(", ")}` : "nothing to import"}</div>
+          <div class="row">
+            <button class="send" disabled={!Object.keys(draft.files).length} onClick={() => store.applyV1Draft()}>Apply</button>
+            <button class="small deny" onClick={() => store.dismissV1Draft()}>Dismiss</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

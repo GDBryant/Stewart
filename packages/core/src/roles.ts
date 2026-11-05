@@ -58,7 +58,7 @@ function guardInvestigatorTerminal(tool: Tool, roleId: string): Tool {
       if (typeof args.command === "string") checkInvestigatorCommand(args.command);
       return basePreview ? basePreview(args) : null;
     },
-    async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string> {
+    async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }> {
       if (typeof args.command === "string") checkInvestigatorCommand(args.command);
       return baseExec(args, preview, signal);
     },

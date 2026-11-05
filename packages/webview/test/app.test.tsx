@@ -21,7 +21,7 @@ describe("webview chat", () => {
     const { bridge, store } = mk();
     fireEvent.input(screen.getByPlaceholderText("Ask Stewart"), { target: { value: "hello" } });
     fireEvent.click(screen.getByText("Send"));
-    expect(bridge.sent).toContainEqual({ type: "chat.send", text: "hello" });
+    expect(bridge.sent).toContainEqual(expect.objectContaining({ type: "chat.send", text: "hello" }));
 
     act(() => {
       bridge.inbound(ev("run.started", { title: "hello" }));
@@ -170,6 +170,102 @@ describe("webview chat", () => {
     });
     expect(screen.getByText("Reverted: a.ts, b.ts")).toBeTruthy();
     expect(screen.queryByText("Revert run changes")).toBeNull();
+  });
+});
+
+describe("webview history", () => {
+  const sessions = [{ sessionId: "s1", title: "old chat", savedAt: 1000, messageCount: 3 }];
+
+  it("lists sessions, loads one into the transcript and deletes it", async () => {
+    const { bridge, store } = mk();
+    fireEvent.click(screen.getByText("History"));
+    expect(bridge.sent).toContainEqual({ type: "history.list" });
+    act(() => bridge.inbound({ type: "history.sessions", sessions }));
+    expect(screen.getByText("old chat")).toBeTruthy();
+
+    fireEvent.click(screen.getByTitle("s1"));
+    expect(bridge.sent).toContainEqual({ type: "history.load", sessionId: "s1" });
+    act(() =>
+      bridge.inbound({
+        type: "history.messages",
+        sessionId: "s1",
+        messages: [
+          { role: "user", content: "earlier" },
+          { role: "assistant", content: "reply", toolCalls: [{ id: "c1", name: "ReadFile", arguments: {} }] },
+          { role: "tool", content: "read a.ts" },
+        ],
+      }),
+    );
+    expect(screen.getByText("earlier")).toBeTruthy();
+    expect(screen.getByText("reply")).toBeTruthy();
+    expect(screen.getByText(/read a\.ts/)).toBeTruthy();
+    expect(store.state.sessionId).toBe("s1");
+    expect(store.state.historyOpen).toBe(false);
+
+    fireEvent.click(screen.getByText("History"));
+    act(() => bridge.inbound({ type: "history.sessions", sessions }));
+    fireEvent.click(screen.getByText("Delete"));
+    expect(bridge.sent).toContainEqual({ type: "history.delete", sessionId: "s1" });
+    expect(bridge.sent.filter((m) => m.type === "history.list").length).toBeGreaterThanOrEqual(2);
+    expect(store.state.sessionId).toBeUndefined();
+  });
+});
+
+describe("webview images", () => {
+  const pngFile = (size = 4) => new File([new Uint8Array(size)], "a.png", { type: "image/png" });
+  const picker = () => document.querySelector('input[type="file"]') as HTMLInputElement;
+  const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+  it("attaches a valid image via the picker and sends it with the message", async () => {
+    const { bridge, store } = mk();
+    fireEvent.change(picker(), { target: { files: [pngFile()] } });
+    await flush();
+    expect(store.state.pendingImages).toHaveLength(1);
+    expect(document.querySelector(".pending-img")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Send"));
+    const msg = bridge.sent.find((m) => m.type === "chat.send");
+    expect(msg && msg.type === "chat.send" && msg.images?.[0]).toMatch(/^data:image\/png;base64,/);
+    expect(store.state.pendingImages).toHaveLength(0);
+  });
+
+  it("rejects a non-image file", async () => {
+    const { store } = mk();
+    fireEvent.change(picker(), { target: { files: [new File(["x"], "a.txt", { type: "text/plain" })] } });
+    await flush();
+    expect(store.state.pendingImages).toHaveLength(0);
+    expect(screen.getByText(/only PNG, JPEG, GIF and WebP/)).toBeTruthy();
+  });
+
+  it("rejects an oversized image and caps at five attachments", async () => {
+    const { store } = mk();
+    act(() => store.addImage(`data:image/png;base64,${"A".repeat(7_000_000)}`));
+    expect(store.state.pendingImages).toHaveLength(0);
+    expect(screen.getByText(/exceeds the 5 MB limit/)).toBeTruthy();
+    for (let i = 0; i < 6; i++) act(() => store.addImage("data:image/png;base64,aGk="));
+    expect(store.state.pendingImages).toHaveLength(5);
+    expect(screen.getByText(/at most 5 images/)).toBeTruthy();
+    act(() => store.removeImage(0));
+    expect(store.state.pendingImages).toHaveLength(4);
+  });
+});
+
+describe("webview editor insert", () => {
+  it("posts editor.insert from an assistant message", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("text_delta", { seq: 0, text: "use this" }));
+      bridge.inbound(ev("run.finished", { status: "done" }));
+    });
+    fireEvent.click(screen.getByText("Insert into editor"));
+    expect(bridge.sent).toContainEqual({ type: "editor.insert", text: "use this" });
+  });
+
+  it("fills the composer from an insertText inbound message", () => {
+    const { bridge } = mk();
+    act(() => bridge.inbound({ type: "insertText", text: "selected code" }));
+    expect((screen.getByPlaceholderText("Ask Stewart") as HTMLTextAreaElement).value).toBe("selected code");
   });
 });
 
@@ -347,5 +443,43 @@ describe("webview settings", () => {
     expect(screen.getByText("First-run setup wizard")).toBeTruthy();
     fireEvent.click(screen.getByText("Finish setup & assign to roles"));
     expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "default-agent", wizard: true });
+  });
+
+  it("imports v1 settings through the draft card", () => {
+    const { bridge, store } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("settings"));
+    fireEvent.click(screen.getByText("Pick stewart.xml…"));
+    expect(bridge.sent).toContainEqual({ type: "v1.import" });
+
+    act(() =>
+      bridge.inbound({
+        type: "v1.draft",
+        files: { "channels.yaml": "version: 1\nitems: []" },
+        warnings: ["skipped secrets"],
+        xml: "<stewart/>",
+      }),
+    );
+    expect(screen.getByText(/skipped secrets/)).toBeTruthy();
+    expect(screen.getByText(/produces: channels\.yaml/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Apply"));
+    expect(bridge.sent).toContainEqual({ type: "config.importV1", xml: "<stewart/>", apply: true });
+    act(() => bridge.inbound({ type: "v1.draft", files: {}, warnings: [], applied: true }));
+    expect(store.state.v1Draft).toBeUndefined();
+    fireEvent.click(screen.getAllByText("Chat")[0]);
+    expect(screen.getByText("v1 settings imported.")).toBeTruthy();
+  });
+
+  it("dismisses a v1 draft without applying", () => {
+    const { bridge, store } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("settings"));
+    act(() => bridge.inbound({ type: "v1.draft", files: { "agents.yaml": "x" }, warnings: [] }));
+    fireEvent.click(screen.getByText("Dismiss"));
+    expect(store.state.v1Draft).toBeUndefined();
+    expect(bridge.sent.some((m) => m.type === "config.importV1")).toBe(false);
   });
 });

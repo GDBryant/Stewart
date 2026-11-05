@@ -26,8 +26,21 @@
       {
         "command": "stewart.openSettings",
         "title": "Stewart: Open Settings"
+      },
+      {
+        "command": "stewart.addSelectionToChat",
+        "title": "Stewart: Add Selection to Chat"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "stewart.addSelectionToChat",
+          "when": "editorHasSelection",
+          "group": "stewart"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node -e \"require('node:fs').cpSync('../../packages/webview/dist','webview',{recursive:true})\" && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",

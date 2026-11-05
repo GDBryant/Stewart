@@ -269,4 +269,55 @@ class HostRequestHandlerTest : BasePlatformTestCase() {
         h.dispose()
         assertTrue(procs.running().isEmpty())
     }
+
+    fun testEditorSelectionNullWithoutEditor() {
+        val h = handler()
+        val r = call(h, "host.editor.selection")
+        assertTrue(r == null || r.toString() == "null")
+    }
+
+    fun testEditorSelectionReturnsPathTextAndLines() {
+        myFixture.configureByText("sel.txt", "hello world\nsecond line")
+        myFixture.editor.selectionModel.setSelection(0, 5)
+        val h = handler()
+        val r = call(h, "host.editor.selection")!!.jsonObject
+        assertEquals("hello", r["text"]!!.jsonPrimitive.content)
+        assertEquals("1", r["startLine"]!!.jsonPrimitive.content)
+        assertEquals("1", r["endLine"]!!.jsonPrimitive.content)
+        assertTrue(r["path"]!!.jsonPrimitive.content.endsWith("sel.txt"))
+    }
+
+    fun testFilesBinaryRoundTripThroughHandler() {
+        val h = handler()
+        call(h, "host.files.writeBinary", buildJsonObject {
+            put("path", JsonPrimitive("bin/x.png"))
+            put("base64", JsonPrimitive("AQID"))
+        })
+        val r = call(h, "host.files.readBinary", buildJsonObject { put("path", JsonPrimitive("bin/x.png")) })!!.jsonObject
+        assertEquals("AQID", r["base64"]!!.jsonPrimitive.content)
+        assertEquals("3", r["size"]!!.jsonPrimitive.content)
+    }
+
+    fun testHandlerRunsOffDispatchThread() {
+        val h = handler()
+        val r = java.util.concurrent.CompletableFuture
+            .supplyAsync { h.handler("host.workspace.stateDir", null).get(15, TimeUnit.SECONDS) }
+            .get(15, TimeUnit.SECONDS)
+        assertNotNull(r)
+    }
+
+    fun testProcRunWithoutCwdOrEnv() {
+        val h = handler()
+        val r = call(h, "host.proc.run", buildJsonObject {
+            put("handle", JsonPrimitive("np"))
+            put("argv", kotlinx.serialization.json.Json.parseToJsonElement("""["/bin/echo","x"]"""))
+        })
+        assertNotNull(r)
+    }
+
+    fun testNotifyLogWithoutLineAndUnknownMethod() {
+        val h = handler()
+        h.notifyHandler("log", buildJsonObject {})
+        h.notifyHandler("unrelated", null)
+    }
 }

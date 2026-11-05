@@ -39,7 +39,8 @@ export interface Tool {
   /** Consecutive calls may run concurrently (orchestration verbs only). */
   readonly parallel?: boolean;
   preview?(args: Json): Promise<ToolPreview | null>;
-  execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string>;
+  /** Text result, or text plus base64 image payloads (`data:` URIs) for vision models. */
+  execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }>;
 }
 
 /** External tool provider plugin seam (e.g. MCP server). */
@@ -50,7 +51,7 @@ export interface ToolProvider {
 }
 
 export type ToolOutcome =
-  | { kind: "success"; content: string }
+  | { kind: "success"; content: string; images?: string[] }
   | { kind: "failure"; message: string }
   | { kind: "rejected"; reason: string }
   | { kind: "invalid"; reason: string }

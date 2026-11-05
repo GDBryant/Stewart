@@ -69,7 +69,7 @@ All routes build an `ImageAttachment` (`chat/ImageAttachment.kt`) via `ImageLoad
 ## Known gaps
 
 - Orchestrator workers and non-planner levels get no images in v1 (`agents/Orchestrator.kt`).
-- No image-reading tool; file paths in text are not auto-read.
+- No image-reading tool in v1 (v2 adds `ReadImage`/`GenerateImage`); file paths in text are not auto-read.
 - Image plus text clipboard pastes as text only.
 - Animated GIF frame handling by providers is unverified.
 - Deferred minors (from the image-attachments SDD ledger):

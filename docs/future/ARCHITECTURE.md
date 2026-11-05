@@ -8,7 +8,7 @@ Decisions taken: **one TypeScript core** shared by VS Code (in-process) and JetB
 - Agents = channel + model + parameters. Roles are tick-box enabled and get an agent assigned.
 - Skills are files in a config folder, assignable per role, with shipped defaults and reset.
 - A cheap, fast **Orchestrator** routes all work to roles; it does no heavy work itself.
-- Same behaviour on JetBrains (2025.1+, all IDEs) and VS Code.
+- Same behaviour on JetBrains (2026.1+, all IDEs) and VS Code.
 
 ## 2. Layout (pnpm monorepo)
 
@@ -276,7 +276,7 @@ Modelled on the provider list in `docs/future/Screenshot…png`:
 Unit/component:
 - Core: `vitest` + `c8` ≥90% line, ≥80% branch; positive and negative test per change; conformance fixtures from v1 run unchanged.
 - Webview: `vitest` + `@testing-library/preact` for components; Playwright against the webview bundle served standalone for chat/settings flows.
-- Hosts: `@vscode/test-electron` smoke; JetBrains `BasePlatformTestCase` for HostPort + `verifyPlugin` on IDEA 2025.1 and PyCharm 2025.3.
+- Hosts: `@vscode/test-electron` smoke; JetBrains `BasePlatformTestCase` for HostPort + `verifyPlugin` on IDEA 2026.1 and PyCharm 2026.2.
 - Protocol: schema tests for every JSON-RPC message and orchestration tool; version-mismatch and capability-degradation negative tests.
 
 Contract suites (keep adapters and hosts honest):
@@ -350,7 +350,7 @@ Core emits typed, persisted events for every run: `run.started`, `plan.created`,
 
 ## 13. Decided
 - JetBrains remote development (Gateway) is out of scope for v2; local IDEs only. The tool window shows a notice in a remote session.
-- Minimum host versions: VS Code `^1.145.0` (current stable at 2026-11-04), JetBrains `since-build 251`, Node 22 LTS.
+- Minimum host versions: VS Code `^1.145.0` (current stable at 2026-11-04), JetBrains `since-build 261` (2026.1+), Node 22 LTS.
 - AI Factory channel preset: `billing: free`, no `unmetered` warning.
 - Test strategy: three e2e levels — core e2e and VS Code host e2e are PR gates; JetBrains host e2e runs nightly under xvfb. New channel types merge only with a passing channel contract suite.
 - Runtime resilience & efficiency: AB-BA lease deadlock detection, one-click run revert via `.stewart/scratch/<runId>/snapshots/`, 30ms stream delta coalescing, atomic multi-window config writes, copy-on-write shipped skills (`baseHash`), role `fallbackAgent`, prefix-cache context ordering, and external `ToolProvider` seam.

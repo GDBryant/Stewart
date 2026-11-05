@@ -130,6 +130,23 @@ class WorkspaceFiles(private val project: Project) {
         return JsonObject(mapOf("size" to JsonPrimitive(f.length())))
     }
 
+    fun readBinary(path: String): JsonObject {
+        val f = resolve(path)
+        if (!f.isFile) throw IOException("not a file: $path")
+        val bytes = f.readBytes()
+        return buildJsonObject {
+            put("base64", JsonPrimitive(java.util.Base64.getEncoder().encodeToString(bytes)))
+            put("size", JsonPrimitive(bytes.size))
+        }
+    }
+
+    fun writeBinary(path: String, base64: String): JsonElement {
+        val f = resolve(path)
+        f.parentFile?.mkdirs()
+        f.writeBytes(java.util.Base64.getDecoder().decode(base64))
+        return JsonObject(emptyMap())
+    }
+
     fun writeAtomic(path: String, content: String): JsonElement {
         val target = resolve(path)
         target.parentFile?.mkdirs()

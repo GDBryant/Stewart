@@ -25,7 +25,7 @@ dependencies {
     testImplementation(libs.opentest4j)
 
     intellijPlatform {
-        intellijIdeaCommunity(libs.versions.ideaCommunity)
+        intellijIdea(libs.versions.ideaCommunity)
         testFramework(TestFrameworkType.Platform)
         pluginVerifier()
     }
@@ -74,14 +74,14 @@ intellijPlatform {
             name = "ADB"
         }
         ideaVersion {
-            sinceBuild = "251"
+            sinceBuild = "261"
         }
     }
 
     pluginVerification {
         ides {
-            create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")
-            create(IntelliJPlatformType.PyCharm, "2025.3")
+            create(IntelliJPlatformType.IntellijIdeaCommunity, "2026.1")
+            create(IntelliJPlatformType.PyCharm, "2026.2")
         }
     }
 }

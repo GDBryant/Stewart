@@ -29,22 +29,66 @@ export function App({ store }: { store: Store }) {
   );
 }
 
+function dataUriFromFile(file: File, done: (uri: string) => void): void {
+  const r = new FileReader();
+  r.onload = () => done(String(r.result));
+  r.readAsDataURL(file);
+}
+
+function isImageFile(f: File): boolean {
+  return /^image\/(png|jpe?g|gif|webp)$/.test(f.type);
+}
+
 function ChatView({ store }: { store: Store }) {
   const s = store.state;
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const insertSeq = useRef(0);
   useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text]);
+  useEffect(() => {
+    const ins = s.composerInsert;
+    if (ins && ins.seq !== insertSeq.current) {
+      insertSeq.current = ins.seq;
+      setDraft((d) => (d ? `${d}\n${ins.text}` : ins.text));
+    }
+  }, [s.composerInsert]);
   const send = () => {
     store.send(draft);
     setDraft("");
   };
+  const attachFiles = (files: Iterable<File>) => {
+    for (const f of files) {
+      if (!isImageFile(f)) {
+        store.rejectAttachment("only PNG, JPEG, GIF and WebP images can be attached");
+        continue;
+      }
+      dataUriFromFile(f, (uri) => store.addImage(uri));
+    }
+  };
   return (
     <div class="chat">
+      <div class="chat-bar">
+        <button class="small" onClick={() => store.newSession()}>New chat</button>
+        <button class="small" onClick={() => store.toggleHistory()}>History</button>
+        {s.sessionId ? <span class="badge">{s.sessionId}</span> : null}
+      </div>
+      {s.historyOpen ? <HistoryPanel store={store} /> : null}
       <div class="items">
         {s.items.map((it) => (
           <div key={it.id} class={`item ${it.role}`}>
             {it.reasoning ? <details class="reasoning"><summary>thinking</summary>{it.reasoning}</details> : null}
-            <div class="bubble">{it.text || (it.streaming ? "…" : "")}</div>
+            <div class="bubble">
+              {it.images?.length ? (
+                <div class="msg-images">
+                  {it.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
+                </div>
+              ) : null}
+              {it.text || (it.streaming ? "…" : "")}
+            </div>
+            {it.role === "assistant" && !it.streaming && it.text ? (
+              <button class="small insert" onClick={() => store.insertIntoEditor(it.text)}>Insert into editor</button>
+            ) : null}
             {it.activity.length ? (
               <div class="activity">
                 {it.activity.map((a, i) => (
@@ -81,12 +125,41 @@ function ChatView({ store }: { store: Store }) {
         ))}
         <div ref={endRef} />
       </div>
-      <div class="composer">
+      <div
+        class="composer"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          attachFiles(e.dataTransfer?.files ?? []);
+        }}
+      >
+        {s.pendingImages.length ? (
+          <div class="pending-images">
+            {s.pendingImages.map((src, i) => (
+              <span key={i} class="pending-img">
+                <img src={src} alt={`attach-${i + 1}`} />
+                <button class="deny" onClick={() => store.removeImage(i)}>×</button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
         <textarea
           value={draft}
           placeholder={s.busyRunId ? "Waiting for reply…" : "Ask Stewart"}
           disabled={!!s.busyRunId}
           onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+          onPaste={(e) => {
+            const items = e.clipboardData?.items ?? [];
+            const files: File[] = [];
+            for (const it of items) {
+              if (it.kind === "file") {
+                const f = it.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length) attachFiles(files);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -94,16 +167,54 @@ function ChatView({ store }: { store: Store }) {
             }
           }}
         />
+        <input
+          ref={pickerRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          style="display:none"
+          onChange={(e) => {
+            attachFiles((e.target as HTMLInputElement).files ?? []);
+            (e.target as HTMLInputElement).value = "";
+          }}
+        />
+        <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
+          📎
+        </button>
         {s.busyRunId ? (
           <button class="stop" onClick={() => store.cancel()}>
             Stop
           </button>
         ) : (
-          <button class="send" disabled={!draft.trim()} onClick={send}>
+          <button class="send" disabled={!draft.trim() && !s.pendingImages.length} onClick={send}>
             Send
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function HistoryPanel({ store }: { store: Store }) {
+  const s = store.state;
+  return (
+    <div class="card history">
+      <div class="card-title">Sessions</div>
+      {s.sessions.length ? (
+        s.sessions.map((sess) => (
+          <div key={sess.sessionId} class={`session-row ${sess.sessionId === s.sessionId ? "active" : ""}`}>
+            <button class="session-open" onClick={() => store.openSession(sess.sessionId)} title={sess.sessionId}>
+              {sess.title || sess.sessionId}
+            </button>
+            <span class="session-meta">
+              {new Date(sess.savedAt).toLocaleString()} · {sess.messageCount} msg
+            </span>
+            <button class="small deny" onClick={() => store.deleteSession(sess.sessionId)}>Delete</button>
+          </div>
+        ))
+      ) : (
+        <p class="hint">No saved sessions.</p>
+      )}
     </div>
   );
 }

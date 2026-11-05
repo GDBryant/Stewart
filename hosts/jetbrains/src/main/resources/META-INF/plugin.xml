@@ -17,5 +17,9 @@
                 text="Stewart Chat" description="Open the Stewart assistant tool window">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        <action id="Stewart.AddSelectionToChat" class="com.adb.stewart.actions.AddSelectionToChatAction"
+                text="Add Selection to Stewart Chat" description="Send the selected code to the Stewart chat">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

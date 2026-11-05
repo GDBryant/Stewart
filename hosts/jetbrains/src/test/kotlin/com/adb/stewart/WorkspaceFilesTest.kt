@@ -251,4 +251,18 @@ class WorkspaceFilesTest : BasePlatformTestCase() {
         val abs = File("/tmp/x")
         assertEquals(abs, files().resolve(abs.path))
     }
+
+    fun testBinaryRoundTripOnDisk() {
+        val f = files()
+        f.writeBinary("bin/y.png", "AQID")
+        val r = f.readBinary("bin/y.png")
+        assertEquals("AQID", r["base64"]!!.jsonPrimitive.content)
+        assertEquals("3", r["size"]!!.jsonPrimitive.content)
+        try {
+            f.readBinary("bin/missing.png")
+            fail("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("not a file"))
+        }
+    }
 }

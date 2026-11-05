@@ -80,6 +80,9 @@ class StewartProjectService(private val project: Project) : Disposable {
         )
     }
 
+    /** Inbound webview message (e.g. "insertText" from Add Selection to Chat). */
+    fun pushInbound(msg: JsonObject) = pushToPanels(msg)
+
     fun createPanel(): StewartPanel {
         val index = WebviewResources.extractWebview(runtimeDir)
         lateinit var panel: StewartPanel
@@ -93,6 +96,8 @@ class StewartProjectService(private val project: Project) : Disposable {
                     FileEditorManager.getInstance(project).openFile(it, true)
                 }
             },
+            pickV1Xml = { pickV1Xml() },
+            insertIntoEditor = { text -> insertIntoEditor(text) },
         )
         panel = StewartPanel(index) { raw -> router.route(raw) }
         panels.add(panel)
@@ -106,7 +111,32 @@ class StewartProjectService(private val project: Project) : Disposable {
         return sup.request(method, params)
     }
 
+    private fun pickV1Xml(): String? {
+        val vf = com.intellij.openapi.fileChooser.FileChooser.chooseFile(
+            com.intellij.openapi.fileChooser.FileChooserDescriptorFactory.createSingleFileDescriptor("xml")
+                .withTitle("Pick stewart.xml"),
+            project,
+            null,
+        ) ?: return null
+        return String(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(vf.path)))
+    }
+
+    private fun insertIntoEditor(text: String) {
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            val sel = editor.selectionModel
+            if (sel.hasSelection()) {
+                editor.document.replaceString(sel.selectionStart, sel.selectionEnd, text)
+            } else {
+                editor.document.insertString(editor.caretModel.offset, text)
+            }
+        }
+    }
+
+    internal var inboundObserver: ((JsonObject) -> Unit)? = null
+
     private fun pushToPanels(msg: JsonObject) {
+        inboundObserver?.invoke(msg)
         for (p in panels) p.pushInbound(msg)
     }
 

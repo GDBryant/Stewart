@@ -77,6 +77,13 @@ export class VsCodeHost implements HostPort {
       const s = await vscode.workspace.fs.stat(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
       return { size: s.size };
     },
+    readBinary: async (p) => {
+      const data = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
+      return { base64: Buffer.from(data).toString("base64"), size: data.byteLength };
+    },
+    writeBinary: async (p, b64) => {
+      await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p), Buffer.from(b64, "base64"));
+    },
     writeAtomic: async (p, content) => {
       const uri = vscode.Uri.file(p);
       await fs.mkdir(path.dirname(p), { recursive: true });
@@ -148,6 +155,19 @@ export class VsCodeHost implements HostPort {
         for (const d of diags) out.push({ path: rel, line: d.range.start.line + 1, message: d.message, severity: vscode.DiagnosticSeverity[d.severity] });
       }
       return out;
+    },
+  };
+
+  readonly editor: HostPort["editor"] = {
+    selection: async () => {
+      const ed = vscode.window.activeTextEditor;
+      if (!ed || ed.selection.isEmpty) return null;
+      return {
+        path: path.relative(this.wsRoot(), ed.document.uri.fsPath),
+        text: ed.document.getText(ed.selection),
+        startLine: ed.selection.start.line + 1,
+        endLine: ed.selection.end.line + 1,
+      };
     },
   };
 
