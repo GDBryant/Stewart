@@ -35,6 +35,9 @@ export interface HostPort {
     /** Post-write verification. */
     readBack(path: string): Promise<string>;
     exists(path: string): Promise<boolean>;
+    /** Recursive relative paths under dir (workspace-relative), capped by host. */
+    list(dir: string): Promise<string[]>;
+    stat(path: string): Promise<{ size: number }>;
     writeAtomic(path: string, content: string): Promise<void>;
   };
   proc: {

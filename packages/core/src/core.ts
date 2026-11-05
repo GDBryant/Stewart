@@ -117,9 +117,14 @@ export class Core {
       }
       case "chat.resume":
         return { ok: true }; // M7: re-dispatch interrupted tasks
-      case "chat.answer":
-      case "chat.approve":
-        return { ok: true }; // M4: wired to approval queue
+      case "chat.answer": {
+        const p = params as { projectId: string; questionId: string; answer: string };
+        return { ok: this.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
+      }
+      case "chat.approve": {
+        const p = params as { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" };
+        return { ok: this.ctx(p.projectId).runs.approve(p.approvalId, p.grant) };
+      }
       case "config.get": {
         const p = params as { projectId: string };
         const ctx = this.ctx(p.projectId);

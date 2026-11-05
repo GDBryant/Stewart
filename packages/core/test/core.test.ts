@@ -24,6 +24,8 @@ const fakeHost = (trusted = true): HostPort => ({
     edit: async () => ({ applied: true as const }),
     readBack: async () => "",
     exists: async () => false,
+    list: async () => [],
+    stat: async () => ({ size: 0 }),
     writeAtomic: async () => {},
   },
   proc: { run: () => { throw new Error("no proc in test"); } },

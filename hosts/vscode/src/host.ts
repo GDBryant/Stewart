@@ -58,6 +58,25 @@ export class VsCodeHost implements HostPort {
         return false;
       }
     },
+    list: async (dir) => {
+      const root = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, dir || ".");
+      const out: string[] = [];
+      const walk = async (uri: vscode.Uri, rel: string) => {
+        for (const [name, ftype] of await vscode.workspace.fs.readDirectory(uri)) {
+          if (name.startsWith(".") || name === "node_modules") continue;
+          const r = rel ? `${rel}/${name}` : name;
+          if (ftype === vscode.FileType.Directory) await walk(vscode.Uri.joinPath(uri, name), r);
+          else if (ftype === vscode.FileType.File) out.push(r);
+          if (out.length >= 20_000) return;
+        }
+      };
+      await walk(root, dir);
+      return out;
+    },
+    stat: async (p) => {
+      const s = await vscode.workspace.fs.stat(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
+      return { size: s.size };
+    },
     writeAtomic: async (p, content) => {
       const uri = vscode.Uri.file(p);
       const tmp = uri.with({ path: `${uri.path}.tmp-${Date.now()}` });
