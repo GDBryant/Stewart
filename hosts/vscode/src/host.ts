@@ -79,9 +79,27 @@ export class VsCodeHost implements HostPort {
     },
     writeAtomic: async (p, content) => {
       const uri = vscode.Uri.file(p);
+      await fs.mkdir(path.dirname(p), { recursive: true });
       const tmp = uri.with({ path: `${uri.path}.tmp-${Date.now()}` });
       await vscode.workspace.fs.writeFile(tmp, Buffer.from(content, "utf8"));
       await vscode.workspace.fs.rename(tmp, uri, { overwrite: true });
+    },
+    appendLine: async (p, line) => {
+      await fs.mkdir(path.dirname(p), { recursive: true });
+      const fh = await fs.open(p, "a");
+      try {
+        await fh.write(`${line}\n`);
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+    },
+    readLines: async (p) => {
+      try {
+        return (await fs.readFile(p, "utf8")).split("\n").filter((l) => l.length > 0);
+      } catch {
+        return [];
+      }
     },
   };
 

@@ -57,6 +57,7 @@ export const settingsSchema = z.object({
     })
     .default({}),
   maxRunHours: z.number().min(0).default(0),
+  planGate: z.boolean().default(false),
   leaseWaitSeconds: z.number().min(1).default(300),
   maxNestedDispatches: z.number().int().min(0).default(3),
   maxReplans: z.number().int().min(0).default(2),

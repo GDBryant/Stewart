@@ -31,6 +31,10 @@ export interface Tool {
   readonly requiresApproval: boolean;
   /** True when execute only waits on the user: no timeout applies. */
   readonly awaitsUser?: boolean;
+  /** Core-handled orchestration verb: never a channel side effect. */
+  readonly coreHandled?: boolean;
+  /** Consecutive calls may run concurrently (orchestration verbs only). */
+  readonly parallel?: boolean;
   preview?(args: Json): Promise<ToolPreview | null>;
   execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string>;
 }

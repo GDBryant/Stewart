@@ -34,6 +34,10 @@ export function fakeHost(files: Record<string, string> = {}, opts: { trusted?: b
       writeAtomic: async (p, c) => {
         files[p] = c;
       },
+      appendLine: async (p, line) => {
+        files[p] = files[p] ? `${files[p]}\n${line}` : line;
+      },
+      readLines: async (p) => (files[p] ? files[p].split("\n").filter((l) => l.length > 0) : []),
     },
     proc: {
       run: (argv, popts): ProcessHandle => {

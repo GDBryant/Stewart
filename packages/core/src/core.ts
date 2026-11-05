@@ -120,8 +120,18 @@ export class Core {
         return { protocol: PROTOCOL_VERSION, capabilities: r.capabilities };
       }
       case "chat.send": {
-        const p = params as { projectId: string; text: string; images?: string[] };
+        const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean };
         const ctx = this.ctx(p.projectId);
+        const stripped = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+        const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
+        if (orchestrator && !p.direct && !p.text.startsWith("/direct ")) {
+          const run = await ctx.runs.orchestrated(p.projectId, {
+            config: ctx.config,
+            channelFor: (id) => this.channelById(id),
+            text: stripped,
+          });
+          return { runId: run.id };
+        }
         const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
         const agent = this.pickChatAgent(ctx.config, role);
         const channel = this.channelForAgent(agent);
@@ -129,15 +139,22 @@ export class Core {
           ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
           : { prompt: undefined, truncated: false };
         if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
-        const run = await ctx.runs.direct(p.projectId, channel, agent, p.text, p.images, role, prompt || undefined);
+        const run = await ctx.runs.direct(p.projectId, channel, agent, stripped, p.images, role, prompt || undefined);
         return { runId: run.id };
       }
       case "chat.cancel": {
         const p = params as { projectId: string; runId: string };
         return { ok: this.ctx(p.projectId).runs.cancel(p.runId) };
       }
-      case "chat.resume":
-        return { ok: true }; // M7: re-dispatch interrupted tasks
+      case "chat.resume": {
+        const p = params as { projectId: string; runId: string };
+        const ctx = this.ctx(p.projectId);
+        const res = await ctx.runs.resume(p.projectId, p.runId, {
+          config: ctx.config,
+          channelFor: (id) => this.channelById(id),
+        });
+        return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
+      }
       case "chat.answer": {
         const p = params as { projectId: string; questionId: string; answer: string };
         return { ok: this.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
@@ -286,8 +303,12 @@ export class Core {
   }
 
   private channelForAgent(agent: { channel: string }): ManagedChannel {
-    const ch = this.managed.get(agent.channel);
-    if (!ch) throw new Error(`channel ${agent.channel} not configured`);
+    return this.channelById(agent.channel);
+  }
+
+  private channelById(channelId: string): ManagedChannel {
+    const ch = this.managed.get(channelId);
+    if (!ch) throw new Error(`channel ${channelId} not configured`);
     return ch;
   }
 }

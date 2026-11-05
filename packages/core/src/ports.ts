@@ -39,6 +39,10 @@ export interface HostPort {
     list(dir: string): Promise<string[]>;
     stat(path: string): Promise<{ size: number }>;
     writeAtomic(path: string, content: string): Promise<void>;
+    /** Append one line and fsync (ledger, idempotency log). */
+    appendLine(path: string, line: string): Promise<void>;
+    /** All lines of an append-only file; absent file → []. */
+    readLines(path: string): Promise<string[]>;
   };
   proc: {
     run(argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle;

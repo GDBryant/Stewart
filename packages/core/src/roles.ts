@@ -24,7 +24,12 @@ function guardWritePaths(tool: Tool, writePaths: string[]): Tool {
   if (!PATH_TOOLS.has(tool.spec.name) || !tool.preview) return tool;
   const base = tool.preview.bind(tool);
   return {
-    ...tool,
+    spec: tool.spec,
+    requiresApproval: tool.requiresApproval,
+    awaitsUser: tool.awaitsUser,
+    coreHandled: tool.coreHandled,
+    parallel: tool.parallel,
+    execute: tool.execute.bind(tool),
     async preview(args: Json): Promise<ToolPreview | null> {
       const p = args.path;
       if (writePaths.length && typeof p === "string" && !writePaths.some((g) => matchGlob(g, p))) {

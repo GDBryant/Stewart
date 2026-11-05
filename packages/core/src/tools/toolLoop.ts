@@ -17,6 +17,15 @@ export interface LoopListener {
   onToolOutcome?(call: ToolCall, outcome: ToolOutcome): void;
   onCompacted?(beforeTokens: number, afterTokens: number): void;
   onCompactionFailed?(message: string): void;
+  /** One model call finished: usage + provider-reported cost (ledger input). */
+  onUsage?(usage: { in: number; out: number } | undefined, costUsd: number | undefined): void;
+}
+
+/** Replay guard: a tool call whose outcome is already recorded is not re-executed. */
+export interface IdempotencyHooks {
+  key(call: ToolCall, index: number): string;
+  lookup(key: string): string | undefined;
+  record(key: string, content: string): Promise<void>;
 }
 
 export interface LoopLimits {
@@ -70,6 +79,7 @@ export class ToolLoop {
     private rolePrompt?: string,
     private terminalTools: Set<string> = new Set(),
     private toolsMode: ToolsMode = "shim",
+    private idempotency?: IdempotencyHooks,
   ) {}
 
   private get schemaMap(): SchemaMap {
@@ -82,6 +92,7 @@ export class ToolLoop {
     let turns = 0;
     let text = "";
     let turnOpen = false;
+    let executed = 0;
     const inFlight = { id: null as string | null, awaitsUser: false };
     try {
       while (true) {
@@ -104,6 +115,8 @@ export class ToolLoop {
         let sawDone = false;
         let postDone = false;
         let failed: Error | null = null;
+        let usage: { in: number; out: number } | undefined;
+        let costUsd: number | undefined;
         try {
           for await (const ev of this.channel.chat({
             model,
@@ -121,12 +134,15 @@ export class ToolLoop {
               calls = ev.calls;
             } else if (ev.kind === "done") {
               sawDone = true;
+              usage = ev.usage;
+              costUsd = ev.costUsd;
             }
           }
         } catch (e) {
           if (signal.aborted) throw e;
           failed = e instanceof Error ? e : new Error(String(e));
         }
+        if (sawDone) listener.onUsage?.(usage, costUsd);
         if (postDone) {
           return { kind: "failed", messages: produced, base, message: "provider emitted events after completion", code: "protocol_error" };
         }
@@ -147,17 +163,35 @@ export class ToolLoop {
         produced.push({ role: "assistant", content: text, toolCalls: calls.length > 0 ? calls : undefined });
         if (calls.length === 0) return { kind: "completed", messages: produced, base };
         const seen = new Set<string>();
-        for (let i = 0; i < calls.length; i++) {
+        let i = 0;
+        while (i < calls.length) {
           const call = calls[i];
           listener.onToolRequested?.(call);
-          const outcome = await this.executeCall(call, seen, listener, inFlight, signal);
-          produced.push({ role: "tool", toolCallId: call.id, content: outcomeMessage(outcome) });
-          if (this.terminalTools.has(call.name) && outcome.kind === "success") {
-            for (const rest of calls.slice(i + 1)) {
-              produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${call.name}' ended the turn` });
+          const batch = [call];
+          if (this.registry.find(call.name)?.parallel) {
+            while (i + batch.length < calls.length && this.registry.find(calls[i + batch.length].name)?.parallel) {
+              const next = calls[i + batch.length];
+              listener.onToolRequested?.(next);
+              batch.push(next);
+            }
+          }
+          const seq = executed;
+          executed += batch.length;
+          const outcomes =
+            batch.length === 1
+              ? [await this.executeCall(call, seen, listener, inFlight, signal, seq)]
+              : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
+          for (let k = 0; k < batch.length; k++) {
+            produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcomes[k]) });
+          }
+          const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
+          if (terminal >= 0) {
+            for (const rest of calls.slice(i + batch.length)) {
+              produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
             }
             return { kind: "completed", messages: produced, base };
           }
+          i += batch.length;
         }
       }
     } catch (e) {
@@ -207,6 +241,7 @@ export class ToolLoop {
     listener: LoopListener,
     inFlight: { id: string | null; awaitsUser: boolean },
     signal: AbortSignal,
+    index: number,
   ): Promise<ToolOutcome> {
     if (seen.has(call.id)) return this.finishOutcome(call, { kind: "invalid", reason: "duplicate tool call id" }, listener);
     seen.add(call.id);
@@ -214,6 +249,9 @@ export class ToolLoop {
     if (!tool) return this.finishOutcome(call, { kind: "invalid", reason: `unknown tool '${call.name}'` }, listener);
     const invalid = this.registry.validate(call);
     if (invalid != null) return this.finishOutcome(call, { kind: "invalid", reason: invalid }, listener);
+    const key = this.idempotency?.key(call, index);
+    const replayed = key ? this.idempotency!.lookup(key) : undefined;
+    if (replayed !== undefined) return this.finishOutcome(call, { kind: "success", content: replayed }, listener);
     let preview: ToolPreview | null = null;
     if (tool.requiresApproval) {
       try {
@@ -256,6 +294,7 @@ export class ToolLoop {
       const s = out.length > this.limits.maxToolOutputChars
         ? `${out.slice(0, this.limits.maxToolOutputChars)}\n[output truncated]`
         : out;
+      if (key) await this.idempotency!.record(key, s);
       return this.finishOutcome(call, { kind: "success", content: s }, listener);
     } catch (e) {
       if (e instanceof Error && e.message === "__tool_timeout__") {
