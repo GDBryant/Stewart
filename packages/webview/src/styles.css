@@ -45,3 +45,19 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .secret { display: inline-flex; gap: 3px; align-items: center; }
 .secret input { width: 110px; }
 .errors { border-color: #c335; }
+
+.plan .reasons, .card.plan ul { margin: 4px 0 0 16px; padding: 0; }
+.badge { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--vscode-badge-background, #444); color: var(--vscode-badge-foreground, #fff); font-size: 11px; }
+.badge.ok { background: #2e7d32; }
+.badge.warn { background: #a15c00; }
+.card.tasks .task { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+.task-role { opacity: 0.8; min-width: 96px; }
+.task-title { flex: 1; }
+.task-status { opacity: 0.8; }
+.task.running .task-status { color: #4da3ff; }
+.task.done .task-status { color: #57a773; }
+.task.failed .task-status { color: #d9534f; }
+.task.waiting .task-status { color: #d1a44a; }
+.task-summary { flex-basis: 100%; opacity: 0.75; font-size: 11px; }
+.card.cost .cost-row { display: flex; justify-content: space-between; font-size: 12px; }
+.cost-note { font-size: 11px; opacity: 0.8; }

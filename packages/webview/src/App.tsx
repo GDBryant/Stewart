@@ -49,6 +49,9 @@ function ChatView({ store }: { store: Store }) {
             ) : null}
           </div>
         ))}
+        {s.plan ? <PlanCard plan={s.plan} /> : null}
+        {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
+        {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
           <div key={a.approvalId} class="card approval">
             <div class="card-title">
@@ -93,6 +96,58 @@ function ChatView({ store }: { store: Store }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function PlanCard({ plan }: { plan: { milestoneCount: number; verdict?: "approve" | "revise"; reasons: string[]; approved: boolean } }) {
+  return (
+    <div class="card plan">
+      <div class="card-title">
+        Plan <span class="badge">{plan.milestoneCount} milestone(s)</span>
+        {plan.approved ? <span class="badge ok">approved</span> : plan.verdict === "revise" ? <span class="badge warn">revise</span> : null}
+      </div>
+      {plan.reasons.length ? <ul class="reasons">{plan.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
+    </div>
+  );
+}
+
+function TaskCard({ tasks }: { tasks: { taskId: string; roleId: string; title: string; status: string; summary?: string; waitingOn?: string }[] }) {
+  return (
+    <div class="card tasks">
+      <div class="card-title">Tasks</div>
+      {tasks.map((t) => (
+        <div key={t.taskId} class={`task ${t.status}`}>
+          <span class="task-role">{t.roleId}</span>
+          <span class="task-title">{t.title}</span>
+          <span class="task-status">{t.status === "waiting" && t.waitingOn ? `waiting for ${t.waitingOn}` : t.status}</span>
+          {t.summary && t.status !== "done" ? <div class="task-summary">{t.summary}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; overshootUsd: number; byRole: Record<string, number>; parked: string[]; freeFinished: string[]; suggestions: { role: string; agent: string; reason: string }[] } }) {
+  return (
+    <div class="card cost">
+      <div class="card-title">
+        Cost <span class="badge">${cost.accruedUsd.toFixed(2)} of ${cost.capUsd.toFixed(2)}</span>
+        {cost.overshootUsd > 0 ? <span class="badge warn">overshoot ${cost.overshootUsd.toFixed(2)}</span> : null}
+      </div>
+      {Object.entries(cost.byRole).map(([role, usd]) => (
+        <div key={role} class="cost-row">
+          <span class="cost-role">{role}</span>
+          <span class="cost-usd">${usd.toFixed(2)}</span>
+        </div>
+      ))}
+      {cost.parked.length ? <div class="cost-note">parked: {cost.parked.join(", ")}</div> : null}
+      {cost.freeFinished.length ? <div class="cost-note">finished free: {cost.freeFinished.join(", ")}</div> : null}
+      {cost.suggestions.map((s) => (
+        <div key={`${s.role}-${s.agent}`} class="cost-note">
+          suggest {s.role} → {s.agent} ({s.reason})
+        </div>
+      ))}
     </div>
   );
 }

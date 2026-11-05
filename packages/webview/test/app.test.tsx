@@ -64,6 +64,89 @@ describe("webview chat", () => {
     expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q1", answer: "yes" });
   });
 
+  it("renders orchestration tasks with their live status", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts", dependsOn: [] }));
+      bridge.inbound(ev("task.created", { taskId: "t2", roleId: "tester", title: "run tests", dependsOn: ["t1"] }));
+      bridge.inbound(ev("task.started", { taskId: "t1", roleId: "code-writer" }));
+    });
+    expect(screen.getByText("write a.ts")).toBeTruthy();
+    expect(screen.getByText("running")).toBeTruthy();
+    expect(screen.getByText("pending")).toBeTruthy();
+    act(() => {
+      bridge.inbound(ev("task.done", { taskId: "t1", roleId: "code-writer", summary: "wrote it" }));
+      bridge.inbound(ev("task.blocked", { taskId: "t2", roleId: "tester", waitingOn: "t1" }));
+      bridge.inbound(ev("task.failed", { taskId: "t2", roleId: "tester", error: "tests failed" }));
+    });
+    expect(screen.getByText("done")).toBeTruthy();
+    expect(screen.getByText("tests failed")).toBeTruthy();
+  });
+
+  it("shows the plan state and its validator verdict", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("plan.created", { milestoneCount: 3 }));
+      bridge.inbound(ev("plan.validated", { verdict: "revise", reasons: ["missing tests"] }));
+    });
+    expect(screen.getByText("3 milestone(s)")).toBeTruthy();
+    expect(screen.getByText("revise")).toBeTruthy();
+    expect(screen.getByText("missing tests")).toBeTruthy();
+    act(() => bridge.inbound(ev("plan.approved", { milestoneCount: 3 })));
+    expect(screen.getByText("approved")).toBeTruthy();
+  });
+
+  it("renders the cost panel with parked work and suggestions", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(
+        ev("cost.summary", {
+          capUsd: 1,
+          accruedUsd: 1.25,
+          overshootUsd: 0.25,
+          byRole: { "code-writer": 1.25 },
+          byAgent: { "a-paid": { costUsd: 1.25, inTokens: 10, outTokens: 5 } },
+          parked: ["write b.ts"],
+          freeFinished: ["look"],
+          suggestions: [{ role: "code-writer", agent: "free-big", reason: "free" }],
+        }),
+      );
+    });
+    expect(screen.getByText("$1.25 of $1.00")).toBeTruthy();
+    expect(screen.getByText("overshoot $0.25")).toBeTruthy();
+    expect(screen.getByText("parked: write b.ts")).toBeTruthy();
+    expect(screen.getByText("finished free: look")).toBeTruthy();
+    expect(screen.getByText(/suggest code-writer → free-big/)).toBeTruthy();
+  });
+
+  it("raises the displayed cap when the cost limit is raised", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("cost.limit_reached", { capUsd: 1, accruedUsd: 1.1 }));
+      bridge.inbound(ev("cost.limit_raised", { capUsd: 2 }));
+    });
+    expect(screen.getByText("$1.10 of $2.00")).toBeTruthy();
+  });
+
+  it("clears tasks, plan and cost when a new run starts", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write", dependsOn: [] }));
+      bridge.inbound(ev("plan.created", { milestoneCount: 1 }));
+      bridge.inbound(ev("cost.limit_reached", { capUsd: 1, accruedUsd: 0.5 }));
+      bridge.inbound(ev("run.finished", { status: "done" }));
+      bridge.inbound({ type: "event", ev: { kind: "run.started", runId: "r2", title: "y" } as never });
+    });
+    expect(store.state.tasks).toHaveLength(0);
+    expect(store.state.plan).toBeUndefined();
+    expect(store.state.cost).toBeUndefined();
+  });
+
   it("marks failed runs in the transcript", () => {
     const { bridge } = mk();
     act(() => {

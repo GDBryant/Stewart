@@ -26,8 +26,38 @@ export interface PendingQuestion {
   options?: string[];
 }
 
+export interface TaskRow {
+  taskId: string;
+  roleId: string;
+  title: string;
+  status: "pending" | "running" | "waiting" | "done" | "failed";
+  summary?: string;
+  waitingOn?: string;
+}
+
+export interface CostState {
+  capUsd: number;
+  accruedUsd: number;
+  overshootUsd: number;
+  byRole: Record<string, number>;
+  byAgent: Record<string, { costUsd: number; inTokens: number; outTokens: number }>;
+  parked: string[];
+  freeFinished: string[];
+  suggestions: { role: string; agent: string; reason: string }[];
+}
+
+export interface PlanState {
+  milestoneCount: number;
+  verdict?: "approve" | "revise";
+  reasons: string[];
+  approved: boolean;
+}
+
 export interface State {
   items: ChatItem[];
+  tasks: TaskRow[];
+  cost?: CostState;
+  plan?: PlanState;
   busyRunId?: string;
   approvals: PendingApproval[];
   questions: PendingQuestion[];
@@ -40,7 +70,7 @@ type Listener = () => void;
 
 /** Minimal observable store; one instance per webview. */
 export class Store {
-  state: State = { items: [], approvals: [], questions: [], channelTest: {}, view: "chat" };
+  state: State = { items: [], tasks: [], approvals: [], questions: [], channelTest: {}, view: "chat" };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
 
@@ -138,7 +168,75 @@ export class Store {
     const ev = m.ev;
     switch (ev.kind) {
       case "run.started":
-        return this.patch({ busyRunId: ev.runId });
+        return this.patch({ busyRunId: ev.runId, tasks: [], cost: undefined, plan: undefined });
+      case "task.created":
+        return this.patch({
+          tasks: [...this.state.tasks, { taskId: ev.taskId ?? "", roleId: ev.roleId ?? "", title: ev.title, status: "pending" }],
+        });
+      case "task.started":
+        return this.patch({ tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "running" } : t)) });
+      case "task.blocked":
+        return this.patch({
+          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "waiting", waitingOn: ev.waitingOn } : t)),
+        });
+      case "task.done":
+        return this.patch({
+          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "done", summary: ev.summary } : t)),
+        });
+      case "task.failed":
+        return this.patch({
+          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "failed", summary: ev.error } : t)),
+        });
+      case "plan.created":
+        return this.patch({ plan: { milestoneCount: ev.milestoneCount, reasons: [], approved: false } });
+      case "plan.validated":
+        return this.patch({
+          plan: { milestoneCount: this.state.plan?.milestoneCount ?? 0, verdict: ev.verdict, reasons: ev.reasons, approved: false },
+        });
+      case "plan.approved":
+        return this.patch({
+          plan: {
+            milestoneCount: ev.milestoneCount,
+            verdict: "approve",
+            reasons: this.state.plan?.reasons ?? [],
+            approved: true,
+          },
+        });
+      case "cost.limit_reached":
+        return this.patch({
+          cost: {
+            ...(this.state.cost ?? {
+              overshootUsd: 0,
+              byRole: {},
+              byAgent: {},
+              parked: [],
+              freeFinished: [],
+              suggestions: [],
+            }),
+            capUsd: ev.capUsd,
+            accruedUsd: ev.accruedUsd,
+          },
+        });
+      case "cost.limit_raised":
+        return this.patch({ cost: this.state.cost ? { ...this.state.cost, capUsd: ev.capUsd } : this.state.cost });
+      case "cost.summary":
+        return this.patch({
+          cost: {
+            capUsd: ev.capUsd,
+            accruedUsd: ev.accruedUsd,
+            overshootUsd: ev.overshootUsd,
+            byRole: ev.byRole,
+            byAgent: ev.byAgent,
+            parked: ev.parked,
+            freeFinished: ev.freeFinished,
+            suggestions: ev.suggestions,
+          },
+        });
+      case "cost.replaced": {
+        const it = this.assistantFor(ev.runId);
+        it.activity = [...it.activity, { kind: "tool-ok", text: `replaced ${ev.roleId} → ${ev.agentId}` }];
+        return this.changed();
+      }
       case "text_delta": {
         const it = this.assistantFor(ev.runId);
         it.text += ev.text;
