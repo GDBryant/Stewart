@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
-import type { ChannelSummary, AgentSummary, RoleSummary, SettingsSummary, ConfigReply } from "./bridge.js";
+import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsSummary, ConfigReply } from "./bridge.js";
 
 type Field = {
   key: string;
@@ -154,16 +154,6 @@ const AGENT_FIELDS: Field[] = [
   { key: "temperature", label: "temperature", kind: "number" },
   { key: "billing", label: "billing", kind: "select", options: ["free", "reported", "priced", "unmetered"] },
 ];
-const ROLE_FIELDS: Field[] = [
-  { key: "id", label: "id" },
-  { key: "enabled", label: "enabled", kind: "bool" },
-  { key: "agent", label: "agent" },
-  { key: "fallbackAgent", label: "fallback agent" },
-  { key: "skills", label: "skills (csv)", kind: "list" },
-  { key: "tools", label: "tools (csv)", kind: "list" },
-  { key: "writePaths", label: "writePaths (csv)", kind: "list" },
-  { key: "turnBudget", label: "turnBudget", placeholder: "number or unlimited" },
-];
 const SETTINGS_FIELDS: Field[] = [
   { key: "costLimit.perRunUsd", label: "cost limit $/run", kind: "number" },
   { key: "costLimit.onLimit", label: "on limit", kind: "select", options: ["ask", "stop"] },
@@ -202,7 +192,7 @@ function SecretInput({ refName, store }: { refName: string; store: Store }) {
 
 export function SettingsView({ store }: { store: Store }) {
   const cfg = store.state.config?.summary;
-  const [active, setActive] = useState<"channels" | "agents" | "roles" | "settings">("channels");
+  const [active, setActive] = useState<"channels" | "agents" | "roles" | "skills" | "settings">("channels");
   if (!cfg) {
     return (
       <div class="settings">
@@ -221,7 +211,7 @@ export function SettingsView({ store }: { store: Store }) {
         </div>
       ) : null}
       <nav class="tabs">
-        {(["channels", "agents", "roles", "settings"] as const).map((t) => (
+        {(["channels", "agents", "roles", "skills", "settings"] as const).map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>
         ))}
       </nav>
@@ -238,14 +228,224 @@ export function SettingsView({ store }: { store: Store }) {
           empty={{ id: "agent", channel: cfg.channels?.[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
         />
       ) : null}
-      {active === "roles" ? (
-        <ItemsSection<RoleSummary>
-          title="Roles" file="roles.yaml" items={cfg.roles ?? []} fields={ROLE_FIELDS} store={store}
-          empty={{ id: "role", enabled: false } as RoleSummary}
-        />
-      ) : null}
+      {active === "roles" ? <RolesSection store={store} roles={cfg.roles ?? []} agents={cfg.agents ?? []} channels={cfg.channels ?? []} skills={cfg.skills ?? []} /> : null}
+      {active === "skills" ? <SkillsSection store={store} skills={cfg.skills ?? []} /> : null}
       {active === "settings" ? <SettingsEditor store={store} settings={s} /> : null}
     </div>
+  );
+}
+
+const SIDE_EFFECT_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]);
+const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = { "image-reader": "vision", "image-writer": "imageGen" };
+
+function agentsForRole(roleId: string, agents: AgentSummary[], channels: ChannelSummary[]): AgentSummary[] {
+  const cap = ROLE_CAPABILITY[roleId];
+  if (!cap) return agents;
+  return agents.filter((a) => {
+    const caps = channels.find((c) => c.id === a.channel)?.modelCaps?.[a.model] as Record<string, unknown> | undefined;
+    return caps?.[cap] === true;
+  });
+}
+
+function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
+  role: RoleSummary;
+  agents: AgentSummary[];
+  channels: ChannelSummary[];
+  allSkills: SkillSummary[];
+  onSave(next: RoleSummary): void;
+  onReset(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const save = (patch: Partial<RoleSummary>) => onSave({ ...role, ...patch });
+  const toggleSkill = (id: string) => {
+    const cur = role.skills ?? [];
+    save({ skills: cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id] });
+  };
+  const candidates = agentsForRole(role.id, agents, channels);
+  const cap = ROLE_CAPABILITY[role.id];
+  const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
+  return (
+    <div class="card">
+      <div class="card-title">
+        <label class="field-inline">
+          <input type="checkbox" checked={role.enabled} onChange={(e) => save({ enabled: (e.target as HTMLInputElement).checked })} />
+          <b>{role.id}</b>
+        </label>
+        <span class="summary">{(role.skills ?? []).join(", ")}</span>
+        <span class="spacer" />
+        <button class="small" onClick={onReset}>Reset</button>
+        <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
+      </div>
+      {open ? (
+        <div class="form">
+          <label class="field">
+            <span>agent</span>
+            <select value={role.agent ?? ""} onChange={(e) => save({ agent: (e.target as HTMLSelectElement).value || undefined })}>
+              <option value="">—</option>
+              {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+            </select>
+          </label>
+          <label class="field">
+            <span>fallback agent</span>
+            <select value={role.fallbackAgent ?? ""} onChange={(e) => save({ fallbackAgent: (e.target as HTMLSelectElement).value || undefined })}>
+              <option value="">—</option>
+              {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+            </select>
+          </label>
+          {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
+          <label class="field">
+            <span>turnBudget</span>
+            <input value={String(role.turnBudget ?? "")} onInput={(e) => {
+              const v = (e.target as HTMLInputElement).value;
+              save({ turnBudget: v === "unlimited" ? "unlimited" : Number(v) || undefined });
+            }} />
+          </label>
+          <label class="field">
+            <span>tools (csv)</span>
+            <input value={(role.tools ?? []).join(", ")} onInput={(e) => save({ tools: (e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+          </label>
+          <label class="field">
+            <span>writePaths (csv)</span>
+            <input value={(role.writePaths ?? []).join(", ")} onInput={(e) => save({ writePaths: (e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+          </label>
+          <div class="field">
+            <span>skills</span>
+            <div class="skill-ticks">
+              {allSkills.map((s) => (
+                <label key={s.id} class="field-inline" title={s.description}>
+                  <input
+                    type="checkbox"
+                    checked={(role.skills ?? []).includes(s.id) || (s.id === "execution-contract" && needsWrite)}
+                    disabled={s.id === "execution-contract" && needsWrite}
+                    onChange={() => toggleSkill(s.id)}
+                  />
+                  {s.id}
+                  {s.updateAvailable ? <span class="warn">↑</span> : null}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RolesSection({ store, roles, agents, channels, skills }: {
+  store: Store; roles: RoleSummary[]; agents: AgentSummary[]; channels: ChannelSummary[]; skills: SkillSummary[];
+}) {
+  const [assignee, setAssignee] = useState("");
+  const save = (next: RoleSummary[]) => store.saveFile("roles.yaml", stringify({ version: 1, items: next }, null, 2));
+  return (
+    <section>
+      <h3>
+        Roles
+        <span class="spacer" />
+        <select value={assignee} onChange={(e) => setAssignee((e.target as HTMLSelectElement).value)}>
+          <option value="">assign agent…</option>
+          {agents.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+        </select>
+        <button class="small" disabled={!assignee} onClick={() => store.assignAgentToAll(assignee)}>Assign to all</button>
+        <button class="small deny" onClick={() => store.resetRole()}>Reset all</button>
+      </h3>
+      {roles.map((r) => (
+        <RoleCard
+          key={r.id}
+          role={r}
+          agents={agents}
+          channels={channels}
+          allSkills={skills}
+          onSave={(next) => save(roles.map((x) => (x.id === r.id ? next : x)))}
+          onReset={() => store.resetRole(r.id)}
+        />
+      ))}
+      {!roles.length ? <p class="hint">No roles configured.</p> : null}
+    </section>
+  );
+}
+
+function SkillCard({ skill, store }: { skill: SkillSummary; store: Store }) {
+  const [editing, setEditing] = useState(false);
+  const [body, setBody] = useState(skill.body);
+  return (
+    <div class="card">
+      <div class="card-title">
+        <b>{skill.id}</b>
+        <span class={`badge src-${skill.source}`}>{skill.source}</span>
+        {skill.edited ? <span class="badge">edited</span> : null}
+        {skill.updateAvailable ? <span class="badge warn" title="Shipped version changed since your edit">update available</span> : null}
+        <span class="summary">{skill.description}</span>
+        <span class="spacer" />
+        {skill.source !== "shipped" ? <button class="small deny" onClick={() => store.resetSkill(skill.id)}>Reset</button> : null}
+        <button class="small" onClick={() => store.openSkill(skill.id)}>Open file</button>
+        <button class="small" onClick={() => { setBody(skill.body); setEditing(!editing); }}>{editing ? "Cancel" : "Edit"}</button>
+      </div>
+      {editing ? (
+        <div class="form">
+          <textarea rows={8} value={body} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} />
+          <button class="send" onClick={() => { store.saveSkill(skill.id, body, skill.description); setEditing(false); }}>Save</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NewSkill({ store, existing }: { store: Store; existing: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [id, setId] = useState("");
+  const [description, setDescription] = useState("");
+  const [body, setBody] = useState("");
+  const clean = id.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  const clash = existing.includes(clean);
+  return (
+    <div class="card">
+      <div class="card-title">
+        <b>New skill</b>
+        <span class="spacer" />
+        <button class="small" onClick={() => setOpen(!open)}>{open ? "Cancel" : "+ New"}</button>
+      </div>
+      {open ? (
+        <div class="form">
+          <label class="field">
+            <span>id</span>
+            <input value={id} placeholder="my-skill" onInput={(e) => setId((e.target as HTMLInputElement).value)} />
+          </label>
+          <label class="field">
+            <span>description</span>
+            <input value={description} onInput={(e) => setDescription((e.target as HTMLInputElement).value)} />
+          </label>
+          <label class="field">
+            <span>body</span>
+            <textarea rows={8} value={body} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} />
+          </label>
+          {clash ? <p class="fail">skill '{clean}' already exists</p> : null}
+          <button
+            class="send"
+            disabled={!clean || clash}
+            onClick={() => {
+              store.saveSkill(clean, body, description);
+              setOpen(false);
+              setId("");
+              setDescription("");
+              setBody("");
+            }}
+          >
+            Create
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SkillsSection({ store, skills }: { store: Store; skills: SkillSummary[] }) {
+  return (
+    <section>
+      <h3>Skills</h3>
+      <NewSkill store={store} existing={skills.map((s) => s.id)} />
+      {skills.map((s) => <SkillCard key={s.id} skill={s} store={store} />)}
+      {!skills.length ? <p class="hint">No skills found.</p> : null}
+    </section>
   );
 }
 

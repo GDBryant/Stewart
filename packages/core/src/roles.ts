@@ -1,0 +1,101 @@
+import { ToolRegistry, type Json, type Tool, type ToolPreview } from "./tools/types.js";
+import type { AgentDef, ChannelDef, RoleDef } from "./config/schema.js";
+
+/** Glob match: `**` crosses directories, `*` and `?` stay within a segment. */
+export function matchGlob(pattern: string, path: string): boolean {
+  const p = path.replace(/\\/g, "/").replace(/^\.?\//, "");
+  const re = globToRegex(pattern);
+  return re.test(p);
+}
+
+function globToRegex(pattern: string): RegExp {
+  const esc = pattern.replace(/\\/g, "/").replace(/[.+^${}()|[\]]/g, "\\$&");
+  const body = esc
+    .split("**")
+    .map((seg) => seg.replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]"))
+    .join(".*");
+  return new RegExp("^" + body + "$");
+}
+
+/** File-writing tools whose `path` arg is checked against role writePaths. */
+const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch"]);
+
+function guardWritePaths(tool: Tool, writePaths: string[]): Tool {
+  if (!PATH_TOOLS.has(tool.spec.name) || !tool.preview) return tool;
+  const base = tool.preview.bind(tool);
+  return {
+    ...tool,
+    async preview(args: Json): Promise<ToolPreview | null> {
+      const p = args.path;
+      if (writePaths.length && typeof p === "string" && !writePaths.some((g) => matchGlob(g, p))) {
+        throw new Error(`path '${p}' is outside this role's writePaths`);
+      }
+      return base(args);
+    },
+  };
+}
+
+/**
+ * The role's effective registry: tools filtered to its list (enforced in core,
+ * not just the prompt). Empty tools list means unrestricted. Write tools are
+ * wrapped so a path outside `writePaths` fails before the preview is produced.
+ */
+export function roleRegistry(registry: ToolRegistry, role: RoleDef): ToolRegistry {
+  const allowed = role.tools.length ? registry.tools.filter((t) => role.tools.includes(t.spec.name)) : registry.tools;
+  return new ToolRegistry(allowed.map((t) => guardWritePaths(t, role.writePaths)));
+}
+
+/** Loop turn cap from the role ("unlimited" → effectively unbounded). */
+export function roleTurnBudget(role: RoleDef): number {
+  return role.turnBudget === "unlimited" ? Number.MAX_SAFE_INTEGER : role.turnBudget;
+}
+
+/** Capability an agent must have to serve a role (undefined = any agent). */
+export const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = {
+  "image-reader": "vision",
+  "image-writer": "imageGen",
+};
+
+export function roleCapability(roleId: string): "vision" | "imageGen" | undefined {
+  return ROLE_CAPABILITY[roleId];
+}
+
+/** Capability flags for an agent's model, from its channel's modelCaps. */
+export function agentCapability(agent: AgentDef, channels: ChannelDef[]): Record<string, boolean> {
+  const caps = channels.find((c) => c.id === agent.channel)?.modelCaps?.[agent.model] ?? {};
+  return caps as Record<string, boolean>;
+}
+
+export function agentServesRole(agent: AgentDef, channels: ChannelDef[], roleId: string): boolean {
+  const cap = roleCapability(roleId);
+  return !cap || agentCapability(agent, channels)[cap] === true;
+}
+
+/**
+ * Configuration errors for roles. An enabled role must have an agent bound (no
+ * silent fallback), the Orchestrator must be enabled once another role is, and
+ * capability roles must point at a capable agent.
+ */
+export function validateRoles(roles: RoleDef[], agents: AgentDef[], channels: ChannelDef[]): string[] {
+  const errors: string[] = [];
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const enabled = roles.filter((r) => r.enabled);
+  for (const r of enabled) {
+    if (!r.agent) errors.push(`role ${r.id}: enabled but no agent bound`);
+    else {
+      const agent = byId.get(r.agent);
+      if (!agent) errors.push(`role ${r.id}: unknown agent '${r.agent}'`);
+      else if (!agentServesRole(agent, channels, r.id)) errors.push(`role ${r.id}: agent '${r.agent}' lacks ${roleCapability(r.id)}`);
+    }
+    if (r.fallbackAgent) {
+      const fb = byId.get(r.fallbackAgent);
+      if (!fb) errors.push(`role ${r.id}: unknown fallbackAgent '${r.fallbackAgent}'`);
+      else if (!agentServesRole(fb, channels, r.id)) errors.push(`role ${r.id}: fallbackAgent '${r.fallbackAgent}' lacks ${roleCapability(r.id)}`);
+    }
+  }
+  const orchestrator = roles.find((r) => r.id === "orchestrator");
+  if (enabled.some((r) => r.id !== "orchestrator") && !orchestrator?.enabled) {
+    errors.push("orchestrator: required when another role is enabled");
+  }
+  return errors;
+}

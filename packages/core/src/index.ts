@@ -21,3 +21,7 @@ export * from "./tools/approvals.js";
 export * from "./tools/shimParser.js";
 export * from "./tools/builtins.js";
 export * from "./tools/toolLoop.js";
+export * from "./roles.js";
+export * from "./skills/skills.js";
+export * from "./defaults/roles.js";
+export * from "./defaults/skills.js";

@@ -5,4 +5,6 @@ import type { ConfigLayer } from "./loader.js";
 export interface ConfigStore {
   read(): Promise<ConfigLayer>;
   write(file: string, yaml: string): Promise<void>;
+  /** Remove a file (skill resets). Absent = file is a no-op. */
+  delete?(file: string): Promise<void>;
 }

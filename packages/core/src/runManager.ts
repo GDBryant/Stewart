@@ -1,6 +1,7 @@
 import type { Clock, HostPort, IdGen } from "./ports.js";
 import { EventBus } from "./events.js";
-import type { AgentDef } from "./config/schema.js";
+import type { AgentDef, RoleDef } from "./config/schema.js";
+import { roleRegistry, roleTurnBudget } from "./roles.js";
 import { ManagedChannel } from "./channels/registry.js";
 import type { ChatMessage } from "./channels/types.js";
 import { DEFAULT_CAPS } from "./channels/types.js";
@@ -69,8 +70,8 @@ export class RunManager {
     return true;
   }
 
-  /** Direct-mode run: stream one agent through the tool loop. */
-  async direct(projectId: string, channel: ManagedChannel, agent: AgentDef, text: string, images?: string[]): Promise<Run> {
+  /** Direct-mode run: stream one agent through the tool loop under a role's constraints. */
+  async direct(projectId: string, channel: ManagedChannel, agent: AgentDef, text: string, images?: string[], role?: RoleDef, rolePrompt?: string): Promise<Run> {
     const run: Run = {
       id: this.deps.ids.next("run"),
       projectId,
@@ -83,17 +84,17 @@ export class RunManager {
     this.runs.set(run.id, run);
     const bus = this.deps.bus;
     bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
-    void this.drive(run, channel, agent).catch((e) => {
+    void this.drive(run, channel, agent, role, rolePrompt).catch((e) => {
       if (run.status === "running") run.status = "failed";
       bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });
     });
     return run;
   }
 
-  private async drive(run: Run, channel: ManagedChannel, agent: AgentDef): Promise<void> {
+  private async drive(run: Run, channel: ManagedChannel, agent: AgentDef, role?: RoleDef, rolePrompt?: string): Promise<void> {
     const bus = this.deps.bus;
     const paths = await ProjectPaths.forProject(this.deps.host);
-    const registry = projectTools(this.deps.host, paths);
+    const registry = role ? roleRegistry(projectTools(this.deps.host, paths), role) : projectTools(this.deps.host, paths);
     const runGrants = new Grants();
     const runId = run.id;
     const gate = async (call: { name: string; arguments: Record<string, unknown> }, preview: import("./tools/types.js").ToolPreview | null): Promise<ApprovalDecision> => {
@@ -113,7 +114,8 @@ export class RunManager {
       });
     };
     const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-    const loop = new ToolLoop(channel, registry, gate, DEFAULT_LIMITS, this.deps.clock, undefined, new Set(), mode);
+    const limits = role ? { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(role) } : DEFAULT_LIMITS;
+    const loop = new ToolLoop(channel, registry, gate, limits, this.deps.clock, rolePrompt, new Set(), mode);
     const listener = {
       onText: (t: string) => bus.emit({ kind: "text_delta", runId, seq: 0, text: t }),
       onReasoning: (t: string) => bus.emit({ kind: "reasoning_delta", runId, seq: 0, text: t }),

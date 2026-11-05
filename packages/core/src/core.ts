@@ -7,7 +7,10 @@ import { OllamaAdapter } from "./channels/ollama.js";
 import { OpenAICompatAdapter } from "./channels/openai.js";
 import { ClaudeCliAdapter } from "./channels/claude/adapter.js";
 import { loadConfig, type Config } from "./config/loader.js";
-import { CONFIG_FILE_SCHEMAS, PROJECT_FILES } from "./config/files.js";
+import { CONFIG_FILE_SCHEMAS, isProjectFile } from "./config/files.js";
+import { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
+import { baseHashFor, composeRolePrompt, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "./skills/skills.js";
+import { stringify as stringifyYaml } from "yaml";
 import type { ConfigStore } from "./config/store.js";
 import { parse as parseYaml } from "yaml";
 import { RunManager } from "./runManager.js";
@@ -32,6 +35,9 @@ interface ProjectCtx {
   trusted: boolean;
   runs: RunManager;
   projectStore: ConfigStore;
+  /** Raw layers as last loaded (skill resolution, role reset). */
+  userLayer: Record<string, string | undefined>;
+  projectLayer: Record<string, string | undefined>;
 }
 
 export class Core {
@@ -53,13 +59,19 @@ export class Core {
     this.channels.register("claude-cli", () => new ClaudeCliAdapter());
   }
 
+  private get defaults(): Record<string, string | undefined> {
+    return { "roles.yaml": DEFAULT_ROLES_YAML, ...this.deps.defaults };
+  }
+
   /** Host calls once per project. */
   async attachProject(projectId: string, host: HostPort): Promise<Config> {
     const trusted = await host.workspace.trusted();
     const projectStore = await this.deps.projectConfig(projectId);
-    const config = loadConfig(await this.deps.userConfig.read(), await projectStore.read(), this.deps.defaults, trusted);
+    const userLayer = await this.deps.userConfig.read();
+    const projectLayer = await projectStore.read();
+    const config = loadConfig(userLayer, projectLayer, this.defaults, trusted);
     const runs = new RunManager({ host, clock: this.clock, ids: this.ids, bus: this.bus });
-    this.projects.set(projectId, { host, config, trusted, runs, projectStore });
+    this.projects.set(projectId, { host, config, trusted, runs, projectStore, userLayer, projectLayer });
     await this.rebuildChannels(config, host);
     return config;
   }
@@ -91,7 +103,9 @@ export class Core {
 
   private async reload(projectId: string): Promise<Config> {
     const ctx = this.ctx(projectId);
-    ctx.config = loadConfig(await this.deps.userConfig.read(), await ctx.projectStore.read(), this.deps.defaults, ctx.trusted);
+    ctx.userLayer = await this.deps.userConfig.read();
+    ctx.projectLayer = await ctx.projectStore.read();
+    ctx.config = loadConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted);
     await this.rebuildChannels(ctx.config, ctx.host);
     return ctx.config;
   }
@@ -108,9 +122,14 @@ export class Core {
       case "chat.send": {
         const p = params as { projectId: string; text: string; images?: string[] };
         const ctx = this.ctx(p.projectId);
-        const agent = this.pickChatAgent(ctx.config);
+        const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
+        const agent = this.pickChatAgent(ctx.config, role);
         const channel = this.channelForAgent(agent);
-        const run = await ctx.runs.direct(p.projectId, channel, agent, p.text, p.images);
+        const { prompt, truncated } = role
+          ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
+          : { prompt: undefined, truncated: false };
+        if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
+        const run = await ctx.runs.direct(p.projectId, channel, agent, p.text, p.images, role, prompt || undefined);
         return { runId: run.id };
       }
       case "chat.cancel": {
@@ -136,6 +155,11 @@ export class Core {
         const { errors, ...summary } = ctx.config;
         return { files, summary, errors };
       }
+      case "config.reload": {
+        const p = params as { projectId: string };
+        await this.reload(p.projectId);
+        return { ok: true };
+      }
       case "config.set": {
         const p = params as { projectId: string; file: string; yaml: string; layer?: "user" | "project" };
         const ctx = this.ctx(p.projectId);
@@ -152,7 +176,7 @@ export class Core {
         const layer = p.layer ?? "user";
         if (layer === "project") {
           if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
-          if (!PROJECT_FILES.has(p.file)) throw new Error(`${p.file} is not allowed at project level`);
+          if (!isProjectFile(p.file)) throw new Error(`${p.file} is not allowed at project level`);
           await ctx.projectStore.write(p.file, p.yaml);
         } else {
           await this.deps.userConfig.write(p.file, p.yaml);
@@ -170,6 +194,61 @@ export class Core {
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
+      }
+      case "skills.save": {
+        const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };
+        const ctx = this.ctx(p.projectId);
+        const shipped = shippedSkill(p.id);
+        const meta = {
+          id: p.id,
+          description: p.description ?? shipped?.description ?? "",
+          defaultRoles: shippedDefaultRoles(p.id),
+          version: shipped?.version ?? 1,
+          baseHash: p.layer === "project" ? undefined : baseHashFor(p.id),
+        };
+        const text = serializeSkillMd(meta, p.body);
+        if (p.layer === "project") {
+          if (!ctx.trusted) throw new Error("project skills require a trusted workspace");
+          await ctx.projectStore.write(`skills/${p.id}.md`, text);
+        } else {
+          await this.deps.userConfig.write(`skills/${p.id}.md`, text);
+        }
+        await this.reload(p.projectId);
+        return { ok: true };
+      }
+      case "skills.reset": {
+        const p = params as { projectId: string; id: string };
+        const file = `skills/${p.id}.md`;
+        if (this.deps.userConfig.delete) await this.deps.userConfig.delete(file);
+        await this.ctx(p.projectId).projectStore.delete?.(file);
+        await this.reload(p.projectId);
+        return { ok: true };
+      }
+      case "roles.reset": {
+        const p = params as { projectId: string; roleId?: string };
+        const ctx = this.ctx(p.projectId);
+        const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
+        const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
+        const next = p.roleId ? items.filter((i) => i.id !== p.roleId) : [];
+        await this.deps.userConfig.write("roles.yaml", stringifyYaml({ version: 1, items: next }));
+        await this.reload(p.projectId);
+        return { ok: true };
+      }
+      case "roles.assignAgent": {
+        const p = params as { projectId: string; agentId: string };
+        const ctx = this.ctx(p.projectId);
+        if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
+        const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
+        const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
+        const byId = new Map(items.map((i) => [String(i.id), i]));
+        for (const r of ctx.config.roles) {
+          const item = byId.get(r.id) ?? { id: r.id };
+          item.agent = p.agentId;
+          byId.set(r.id, item);
+        }
+        await this.deps.userConfig.write("roles.yaml", stringifyYaml({ version: 1, items: [...byId.values()] }));
+        await this.reload(p.projectId);
+        return { ok: true };
       }
       case "secret.set": {
         const p = params as { projectId: string; ref: string; value: string };
@@ -194,10 +273,14 @@ export class Core {
     }
   }
 
-  private pickChatAgent(config: Config): Config["agents"][number] {
-    const gw = config.roles.find((r) => r.id === "general-worker");
-    const agentId = gw?.agent ?? config.agents[0]?.id;
-    const agent = config.agents.find((a) => a.id === agentId);
+  private pickChatAgent(config: Config, role?: Config["roles"][number]): Config["agents"][number] {
+    if (role) {
+      if (!role.agent) throw new Error(`role ${role.id}: enabled but no agent bound`);
+      const bound = config.agents.find((a) => a.id === role.agent);
+      if (!bound) throw new Error(`role ${role.id}: unknown agent '${role.agent}'`);
+      return bound;
+    }
+    const agent = config.agents[0];
     if (!agent) throw new Error("no agent configured — run setup to add a channel and agent");
     return agent;
   }

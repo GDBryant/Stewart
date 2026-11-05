@@ -1,6 +1,8 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { agentsFile, channelsFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
+import { resolveSkills, type ResolvedSkill } from "../skills/skills.js";
+import { validateRoles } from "../roles.js";
 
 /** Raw YAML text per file name, per layer. Host supplies reads + writes. */
 export type ConfigLayer = Record<string, string | undefined>;
@@ -10,6 +12,8 @@ export interface Config {
   agents: AgentDef[];
   roles: RoleDef[];
   settings: Settings;
+  /** Resolved skills (shipped + user + project overrides). */
+  skills: ResolvedSkill[];
   /** Errors surfaced in Settings; last-good config kept on failure. */
   errors: string[];
 }
@@ -69,5 +73,7 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
   const base = st[0] ?? settingsFile.parse({});
   const settings: Settings = { ...base, ...(st[1] ?? {}), ...(st[2] ?? {}), costLimit: { ...base.costLimit, ...(st[1]?.costLimit ?? {}), ...(st[2]?.costLimit ?? {}) } };
 
-  return { channels, agents, roles, settings, errors };
+  const skills = resolveSkills(user, trusted ? proj : undefined);
+  errors.push(...validateRoles(roles, agents, channels));
+  return { channels, agents, roles, settings, skills, errors };
 }

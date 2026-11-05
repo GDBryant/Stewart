@@ -93,6 +93,25 @@ export class Store {
   deleteSecret(ref: string): void {
     this.bridge.post({ type: "secret.delete", ref });
   }
+  saveSkill(id: string, body: string, description?: string): void {
+    this.bridge.post({ type: "skills.save", id, body, description });
+    this.requestConfig();
+  }
+  resetSkill(id: string): void {
+    this.bridge.post({ type: "skills.reset", id });
+    this.requestConfig();
+  }
+  openSkill(id: string): void {
+    this.bridge.post({ type: "skills.open", id });
+  }
+  resetRole(roleId?: string): void {
+    this.bridge.post({ type: "roles.reset", roleId });
+    this.requestConfig();
+  }
+  assignAgentToAll(agentId: string): void {
+    this.bridge.post({ type: "roles.assignAgent", agentId });
+    this.requestConfig();
+  }
   setView(view: State["view"]): void {
     this.patch({ view });
     if (view === "settings") this.requestConfig();

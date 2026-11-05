@@ -39,6 +39,7 @@ export type AgentDef = z.infer<typeof agentSchema>;
 export const roleSchema = z.object({
   id: z.string().min(1),
   enabled: z.boolean().default(false),
+  prompt: z.string().optional(),
   agent: z.string().optional(),
   fallbackAgent: z.string().optional(),
   skills: z.array(z.string()).default([]),

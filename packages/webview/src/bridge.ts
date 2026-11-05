@@ -11,6 +11,11 @@ export type Outbound =
   | { type: "channel.test"; channelId: string }
   | { type: "secret.set"; ref: string; value: string }
   | { type: "secret.delete"; ref: string }
+  | { type: "skills.save"; id: string; body: string; description?: string }
+  | { type: "skills.reset"; id: string }
+  | { type: "skills.open"; id: string }
+  | { type: "roles.reset"; roleId?: string }
+  | { type: "roles.assignAgent"; agentId: string }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -23,7 +28,11 @@ export interface AgentSummary {
 }
 export interface RoleSummary {
   id: string; enabled: boolean; agent?: string; fallbackAgent?: string; skills?: string[];
-  tools?: string[]; writePaths?: string[]; turnBudget?: number | string;
+  tools?: string[]; writePaths?: string[]; turnBudget?: number | string; prompt?: string;
+}
+export interface SkillSummary {
+  id: string; description: string; body: string; version: number;
+  source: "shipped" | "user" | "project"; edited: boolean; updateAvailable: boolean;
 }
 export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
@@ -38,6 +47,7 @@ export interface ConfigSummary {
   channels: ChannelSummary[];
   agents: AgentSummary[];
   roles: RoleSummary[];
+  skills: SkillSummary[];
   settings: SettingsSummary;
 }
 

@@ -11,3 +11,6 @@ export const CONFIG_FILE_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
 /** Project layer may only carry these (trusted-workspace gated in loader). */
 export const PROJECT_FILES = new Set(["roles.yaml"]);
+export function isProjectFile(name: string): boolean {
+  return PROJECT_FILES.has(name) || name.startsWith("skills/");
+}

@@ -3,7 +3,7 @@ import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
-import { MockBridge } from "../src/bridge.js";
+import { MockBridge, type ConfigReply } from "../src/bridge.js";
 
 afterEach(cleanup);
 
@@ -75,13 +75,26 @@ describe("webview chat", () => {
 });
 
 describe("webview settings", () => {
-  const configReply = {
+  const configReply: { type: "config" } & ConfigReply = {
     type: "config" as const,
     files: { "channels.yaml": "version: 1\nitems: []\n" },
     summary: {
-      channels: [{ id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" }],
-      agents: [{ id: "a1", channel: "c1", model: "m", effort: "medium" }],
-      roles: [{ id: "general-worker", enabled: true, agent: "a1" }],
+      channels: [
+        { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" },
+        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true } } },
+      ],
+      agents: [
+        { id: "a1", channel: "c1", model: "m", effort: "medium" },
+        { id: "va", channel: "c2", model: "v", effort: "medium" },
+      ],
+      roles: [
+        { id: "general-worker", enabled: true, agent: "a1", skills: ["execution-contract"], tools: ["WriteFile"] },
+        { id: "image-reader", enabled: false },
+      ],
+      skills: [
+        { id: "execution-contract", description: "contract", body: "BODY", version: 1, source: "shipped", edited: false, updateAvailable: false },
+        { id: "tdd", description: "tests first", body: "TDD BODY", version: 1, source: "user", edited: true, updateAvailable: true },
+      ],
       settings: { costLimit: { perRunUsd: 5, onLimit: "ask" } },
     },
     errors: [],
@@ -92,7 +105,7 @@ describe("webview settings", () => {
     fireEvent.click(screen.getAllByText("Settings")[0]);
     act(() => bridge.inbound(configReply));
     expect(screen.getByText("c1")).toBeTruthy();
-    fireEvent.click(screen.getByText("Edit"));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
     const input = screen.getByPlaceholderText("http://localhost:11434");
     fireEvent.input(input, { target: { value: "http://new" } });
     fireEvent.click(screen.getByText("Save"));
@@ -105,7 +118,7 @@ describe("webview settings", () => {
     const { bridge } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);
     act(() => bridge.inbound(configReply));
-    fireEvent.click(screen.getByText("Test"));
+    fireEvent.click(screen.getAllByText("Test")[0]);
     expect(bridge.sent).toContainEqual({ type: "channel.test", channelId: "c1" });
     act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m1", "m2"] }));
     expect(screen.getByText(/m1, m2/)).toBeTruthy();
@@ -116,5 +129,90 @@ describe("webview settings", () => {
     fireEvent.click(screen.getAllByText("Settings")[0]);
     act(() => bridge.inbound({ ...configReply, errors: ["channels.yaml: bad"] }));
     expect(screen.getByText(/channels.yaml: bad/)).toBeTruthy();
+  });
+
+  const openRoles = (bridge: MockBridge) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("roles"));
+  };
+
+  it("ticks a role on and saves roles.yaml", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    const box = screen.getByText("image-reader").parentElement!.querySelector("input")!;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    const set = bridge.sent.find((m) => m.type === "config.set");
+    expect(set && set.type === "config.set" && set.file).toBe("roles.yaml");
+    expect(set && set.type === "config.set" && set.yaml).toContain("enabled: true");
+    expect(set && set.type === "config.set" && set.yaml).toContain("image-reader");
+  });
+
+  it("filters the role agent dropdown by required capability", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getAllByText("Edit")[1]);
+    const selects = document.querySelectorAll("select");
+    const opts = [...selects[selects.length - 2].options].map((o) => o.value);
+    expect(opts).toContain("va");
+    expect(opts).not.toContain("a1");
+  });
+
+  it("resets a role and all roles", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getAllByText("Reset")[0]);
+    expect(bridge.sent).toContainEqual({ type: "roles.reset", roleId: "general-worker" });
+    fireEvent.click(screen.getByText("Reset all"));
+    expect(bridge.sent).toContainEqual({ type: "roles.reset", roleId: undefined });
+  });
+
+  it("assigns one agent to all roles", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    const picker = screen.getByText("assign agent…").parentElement as HTMLSelectElement;
+    fireEvent.change(picker, { target: { value: "a1" } });
+    fireEvent.click(screen.getByText("Assign to all"));
+    expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "a1" });
+  });
+
+  const openSkills = (bridge: MockBridge) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("skills"));
+  };
+
+  it("opens a skill file in the editor", () => {
+    const { bridge } = mk();
+    openSkills(bridge);
+    fireEvent.click(screen.getAllByText("Open file")[1]);
+    expect(bridge.sent).toContainEqual({ type: "skills.open", id: "tdd" });
+  });
+
+  it("saves an edited skill body and resets a user skill", () => {
+    const { bridge } = mk();
+    openSkills(bridge);
+    fireEvent.click(screen.getAllByText("Edit")[1]);
+    const area = document.querySelector("textarea")!;
+    fireEvent.input(area, { target: { value: "new body" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(bridge.sent).toContainEqual({ type: "skills.save", id: "tdd", body: "new body", description: "tests first" });
+    fireEvent.click(screen.getAllByText("Reset")[0]);
+    expect(bridge.sent).toContainEqual({ type: "skills.reset", id: "tdd" });
+  });
+
+  it("creates a new skill and rejects a duplicate id", () => {
+    const { bridge } = mk();
+    openSkills(bridge);
+    fireEvent.click(screen.getByText("+ New"));
+    fireEvent.input(screen.getByPlaceholderText("my-skill"), { target: { value: "my skill" } });
+    fireEvent.click(screen.getByText("Create"));
+    expect(bridge.sent).toContainEqual({ type: "skills.save", id: "my-skill", body: "", description: "" });
+
+    fireEvent.click(screen.getByText("+ New"));
+    fireEvent.input(screen.getByPlaceholderText("my-skill"), { target: { value: "tdd" } });
+    expect(screen.getByText(/already exists/)).toBeTruthy();
+    expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(true);
   });
 });
