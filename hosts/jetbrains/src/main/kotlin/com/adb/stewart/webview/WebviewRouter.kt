@@ -25,6 +25,7 @@ class WebviewRouter(
     private val insertIntoEditor: (String) -> Unit = {},
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val routeLock = Any()
 
     fun route(raw: String) {
         val m = try {
@@ -41,6 +42,7 @@ class WebviewRouter(
             return
         }
         try {
+            synchronized(routeLock) {
             when (type) {
                 "ready" -> {
                     request("hello", buildJsonObject {
@@ -52,6 +54,15 @@ class WebviewRouter(
                 "config.get" -> {
                     val r = request("config.get", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("config"))))
+                }
+                "config.set" -> {
+                    request("config.set", withProject(m)).get()
+                    val r = request("config.get", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("config"))))
+                }
+                "setup.recommend" -> {
+                    val r = request("setup.recommend", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("setup.recommend.result"))))
                 }
                 "channel.test" -> {
                     val r = request("channel.test", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
@@ -101,6 +112,7 @@ class WebviewRouter(
                 else -> {
                     request(type, withProject(m)).get()
                 }
+            }
             }
         } catch (e: Throwable) {
             send(errorMsg(e.cause?.message ?: e.message ?: "error"))

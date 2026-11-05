@@ -91,7 +91,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${panel.webview.cspSource};">
 <link rel="stylesheet" href="${css}"></head>
 <body><div id="app"></div><script nonce="${nonce}" src="${js}"></script></body></html>`;
-    panel.webview.onDidReceiveMessage((m: { type: string; [k: string]: unknown }) => void route(core, host, panel!, m), undefined, context.subscriptions);
+    let routeChain: Promise<void> = Promise.resolve();
+    panel.webview.onDidReceiveMessage((m: { type: string; [k: string]: unknown }) => {
+      routeChain = routeChain.then(() => route(core, host, panel!, m)).catch(() => {});
+    }, undefined, context.subscriptions);
     panel.onDidDispose(() => (panel = undefined));
   };
 
@@ -118,6 +121,12 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         await panel.webview.postMessage({ type: "ready" });
         return;
       case "config.get": {
+        const r = await core.dispatch("config.get", { projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "config", ...(r as object) });
+        return;
+      }
+      case "config.set": {
+        await core.dispatch("config.set", { ...m, projectId: PROJECT_ID });
         const r = await core.dispatch("config.get", { projectId: PROJECT_ID });
         await panel.webview.postMessage({ type: "config", ...(r as object) });
         return;
@@ -172,6 +181,11 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         await panel.webview.postMessage({ type: "v1.draft", files: r.files, warnings: r.warnings, xml });
         return;
       }
+      case "setup.recommend": {
+        const r = await core.dispatch("setup.recommend", { projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "setup.recommend.result", ...(r as object) });
+        return;
+      }
       case "editor.insert": {
         const ed = vscode.window.activeTextEditor;
         if (!ed) throw new Error("no active editor");
@@ -206,7 +220,6 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
           | "chat.revert"
           | "chat.answer"
           | "chat.approve"
-          | "config.set"
           | "secret.set"
           | "secret.delete"
           | "skills.save"

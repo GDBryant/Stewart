@@ -61,6 +61,59 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `config set refreshes config and sends a config reply`() {
+        val rig = Rig { m, _ ->
+            if (m == "config.get") Json.parseToJsonElement("""{"summary":{"channels":[]},"errors":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"config.set","file":"channels.yaml","yaml":"version: 1"}""")
+        assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        assertEquals("config.set", rig.calls[0].first)
+        assertEquals("channels.yaml", rig.calls[0].second!!["file"]!!.jsonPrimitive.content)
+        assertEquals("config.get", rig.calls[1].first)
+    }
+
+    @Test
+    fun `queued messages are processed in order`() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val rig = Rig { m, _ ->
+            if (m == "config.set") {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+            }
+            JsonObject(emptyMap())
+        }
+        val t1 = Thread { rig.router.route("""{"type":"config.set","file":"f.yaml","yaml":"v: 1"}""") }
+        t1.start()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        val t2 = Thread { rig.router.route("""{"type":"config.get"}""") }
+        t2.start()
+        Thread.sleep(200)
+        assertEquals(listOf("config.set"), rig.calls.map { it.first })
+        release.countDown()
+        t1.join(5000)
+        t2.join(5000)
+        assertEquals(listOf("config.set", "config.get", "config.get"), rig.calls.map { it.first })
+        assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `setup recommend sends a shaped result`() {
+        val rig = Rig { m, _ ->
+            if (m == "setup.recommend") Json.parseToJsonElement("""{"ok":true,"assignments":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"setup.recommend"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("setup.recommend.result", m.type())
+        assertTrue(m.containsKey("assignments"))
+        assertEquals("setup.recommend", rig.calls[0].first)
+        assertEquals("p1", rig.calls[0].second!!["projectId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `channel test shaped result`() {
         val rig = Rig()
         rig.router.route("""{"type":"channel.test","channelId":"c1"}""")
@@ -167,10 +220,10 @@ class WebviewRouterTest {
     @Test
     fun `all remaining message types forward with project id`() {
         val rig = Rig()
-        for (t in listOf("chat.resume", "chat.revert", "chat.answer", "config.set", "secret.set", "secret.delete", "skills.save", "skills.reset", "roles.reset", "roles.assignAgent")) {
+        for (t in listOf("chat.resume", "chat.revert", "chat.answer", "secret.set", "secret.delete", "skills.save", "skills.reset", "roles.reset", "roles.assignAgent")) {
             rig.router.route("""{"type":"$t","x":1}""")
         }
-        assertEquals(10, rig.calls.size)
+        assertEquals(9, rig.calls.size)
         rig.calls.forEachIndexed { i, (m, p) ->
             assertEquals(p!!["projectId"]!!.jsonPrimitive.content, "p1")
             assertEquals(1, p["x"]!!.jsonPrimitive.content.toInt())
@@ -380,6 +433,40 @@ class WebviewRouterTest {
         val d = rig.sent.poll(2, TimeUnit.SECONDS)!!
         assertEquals("v1.draft", d.type())
         assertEquals("false", d["applied"]!!.jsonPrimitive.content)
+        rig.router.route("""{"type":"config.set","file":"f.yaml","yaml":"v: 1"}""")
+        assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"setup.recommend"}""")
+        assertEquals("setup.recommend.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+    @Test
+    fun `config importV1 without xml key sends empty xml`() {
+        val rig = Rig { m, _ ->
+            if (m == "config.importV1") Json.parseToJsonElement("""{"files":{},"warnings":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"config.importV1"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("v1.draft", m.type())
+        assertEquals("", m["xml"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `request failure without message yields generic error`() {
+        val rig = Rig { _, _ -> throw RuntimeException() }
+        rig.router.route("""{"type":"config.get"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("error", m.type())
+        assertEquals("error", m["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `config set failure yields error message`() {
+        val rig = Rig { m, _ -> if (m == "config.set") throw IllegalStateException("bad yaml") else JsonObject(emptyMap()) }
+        rig.router.route("""{"type":"config.set","file":"f.yaml","yaml":"v"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("error", m.type())
+        assertEquals("bad yaml", m["message"]!!.jsonPrimitive.content)
     }
 
     @Test

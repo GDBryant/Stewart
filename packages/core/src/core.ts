@@ -18,6 +18,7 @@ import type { ChannelDeps, ModelCaps } from "./channels/types.js";
 import { expandMentions } from "./mentions.js";
 import { normalizeImages } from "./images.js";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
+import { recommendAssignments } from "./recommend.js";
 
 export interface CoreDeps {
   fetcher?: Fetcher;
@@ -322,6 +323,10 @@ export class Core {
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
+      }
+      case "setup.recommend": {
+        const p = params as { projectId: string };
+        return recommendAssignments(this.ctx(p.projectId).config, this.managed);
       }
       case "skills.save": {
         const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };

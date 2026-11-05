@@ -86,6 +86,14 @@ export interface State {
   v1Draft?: V1Draft;
   /** Host pushed text into the composer (e.g. "Add selection to chat"). */
   composerInsert?: { text: string; seq: number };
+  /** Last {type:"error"} message; shown in Settings since it may carry no chat context. */
+  lastError?: string;
+  recommendBusy?: boolean;
+  recommendation?: {
+    assignments: { role: string; channel: string; model: string; reason?: string }[];
+    researcher?: { channel: string; model: string };
+  };
+  recommendError?: string;
 }
 
 type Listener = () => void;
@@ -213,7 +221,6 @@ export class Store {
   }
   saveFile(file: string, yaml: string, layer?: "user" | "project"): void {
     this.bridge.post({ type: "config.set", file, yaml, layer });
-    this.requestConfig();
   }
   testChannel(channelId: string): void {
     this.bridge.post({ type: "channel.test", channelId });
@@ -249,6 +256,14 @@ export class Store {
   setWizardOpen(wizardOpen: boolean): void {
     this.patch({ wizardOpen });
   }
+  recommend(): void {
+    if (this.state.recommendBusy) return;
+    this.bridge.post({ type: "setup.recommend" });
+    this.patch({ recommendBusy: true, recommendError: undefined });
+  }
+  dismissRecommendation(): void {
+    this.patch({ recommendation: undefined });
+  }
   setView(view: State["view"]): void {
     this.patch({ view });
     if (view === "settings") this.requestConfig();
@@ -264,7 +279,7 @@ export class Store {
   }
 
   private onInbound(m: Inbound): void {
-    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors } });
+    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors }, lastError: undefined });
     if (m.type === "channel.test.result")
       return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
     if (m.type === "channel.probe.result")
@@ -305,8 +320,18 @@ export class Store {
       return this.patch({ v1Draft: { files: m.files, warnings: m.warnings, xml: m.xml } });
     }
     if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
+    if (m.type === "setup.recommend.result") {
+      if (m.ok)
+        return this.patch({
+          recommendBusy: false,
+          recommendation: { assignments: m.assignments ?? [], researcher: m.researcher },
+          recommendError: undefined,
+        });
+      return this.patch({ recommendBusy: false, recommendation: undefined, recommendError: m.error ?? "recommendation failed" });
+    }
     if (m.type === "error")
       return this.patch({
+        lastError: m.message,
         items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
       });
     if (m.type !== "event") return;

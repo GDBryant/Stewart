@@ -46,26 +46,29 @@ function unflatten(form: Record<string, string>, fields: Field[]): Record<string
 }
 
 function ItemCard<T extends object>({
-  item, fields, onSave, onRemove, extra,
+  item, fields, onSave, onRemove, extra, startEditing,
 }: {
   item: T;
   fields: Field[];
   onSave(next: T): void;
   onRemove?(): void;
   extra?: (item: T) => unknown;
+  startEditing?: boolean;
 }) {
   const { form, set } = useForm(item as object);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!startEditing);
+  const idMissing = fields.some((f) => f.key === "id") && !(form.id ?? "").trim();
   return (
     <div class="card">
       <div class="card-title">
-        <b>{(item as { id?: string }).id}</b> {extra ? extra(item) : null}
+        <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
         <span class="spacer" />
         {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
         <button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button>
         {editing ? (
           <button
             class="send"
+            disabled={idMissing}
             onClick={() => {
               const merged = { ...(item as object), ...unflatten(form, fields) };
               onSave(merged as T);
@@ -116,10 +119,11 @@ function ItemsSection<T extends { id: string }>({
   renderExtra?: (item: T, store: Store) => unknown;
 }) {
   const save = (next: T[]) => store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
+  const [draft, setDraft] = useState<T | undefined>(undefined);
   return (
     <section>
       <h3>
-        {title} <button class="small" onClick={() => save([...items, { ...empty, id: `${empty.id || "new"}-${items.length + 1}` }])}>+ Add</button>
+        {title} <button class="small" onClick={() => setDraft({ ...empty, id: "" })}>+ Add</button>
       </h3>
       {items.map((it) => (
         <ItemCard
@@ -131,7 +135,20 @@ function ItemsSection<T extends { id: string }>({
           onRemove={() => save(items.filter((x) => x.id !== it.id))}
         />
       ))}
-      {!items.length ? <p class="hint">None configured.</p> : null}
+      {draft ? (
+        <ItemCard
+          item={draft}
+          fields={fields}
+          startEditing
+          extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
+          onSave={(next) => {
+            save([...items, next]);
+            setDraft(undefined);
+          }}
+          onRemove={() => setDraft(undefined)}
+        />
+      ) : null}
+      {!items.length && !draft ? <p class="hint">None configured.</p> : null}
     </section>
   );
 }
@@ -215,7 +232,7 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
   );
 }
 
-function SetupWizard({ store, channels, agents }: { store: Store; channels: ChannelSummary[]; agents: AgentSummary[] }) {
+function SetupWizard({ store, channels, agents, roles }: { store: Store; channels: ChannelSummary[]; agents: AgentSummary[]; roles: RoleSummary[] }) {
   const [chId, setChId] = useState("local-ollama");
   const [chType, setChType] = useState("ollama");
   const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
@@ -230,6 +247,31 @@ function SetupWizard({ store, channels, agents }: { store: Store; channels: Chan
     store.assignAgentToAll(agId, true);
     store.setWizardOpen(false);
   };
+  const applyRecommendation = () => {
+    const rec = store.state.recommendation;
+    if (!rec) return;
+    const pairToAgent = new Map<string, string>();
+    const nextAgents = new Map(agents.map((a) => [a.id, { ...a }] as const));
+    for (const a of rec.assignments) {
+      const key = `${a.channel}:${a.model}`;
+      if (pairToAgent.has(key)) continue;
+      const base = `${a.channel}-${a.model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+      let id = base;
+      for (let n = 2; new Set(pairToAgent.values()).has(id); n++) id = `${base}-${n}`;
+      pairToAgent.set(key, id);
+      const type = channels.find((c) => c.id === a.channel)?.type;
+      const billing = type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered";
+      nextAgents.set(id, { id, channel: a.channel, model: a.model, effort: "medium", billing });
+    }
+    const nextRoles = roles.map((r) => {
+      const a = rec.assignments.find((x) => x.role === r.id);
+      return a ? { ...r, agent: pairToAgent.get(`${a.channel}:${a.model}`), enabled: true } : r;
+    });
+    store.saveFile("agents.yaml", stringify({ version: 1, items: [...nextAgents.values()] }, null, 2));
+    store.saveFile("roles.yaml", stringify({ version: 1, items: nextRoles }, null, 2));
+    store.dismissRecommendation();
+  };
+  const rec = store.state.recommendation;
   return (
     <div class="card wizard">
       <div class="card-title">
@@ -252,8 +294,29 @@ function SetupWizard({ store, channels, agents }: { store: Store; channels: Chan
         <label class="field"><span>Model</span><input placeholder="wizard-model" value={model} onInput={(e) => setModel((e.target as HTMLInputElement).value)} /></label>
         <div class="row">
           <button class="small" onClick={() => store.testChannel(chId)}>Test connection</button>
+          <button class="small" disabled={store.state.recommendBusy || !channels.length} onClick={() => store.recommend()}>
+            {store.state.recommendBusy ? "Researching…" : "Research & assign with AI"}
+          </button>
           <button class="send" onClick={createAll}>Finish setup &amp; assign to roles</button>
         </div>
+        {store.state.recommendError ? <div class="fail">{store.state.recommendError}</div> : null}
+        {rec ? (
+          <div class="card">
+            <div class="card-title">
+              <b>AI recommendation (via {rec.researcher ? `${rec.researcher.channel}:${rec.researcher.model}` : "?"})</b>
+            </div>
+            {rec.assignments.map((a) => (
+              <div key={a.role} class="summary" title={a.reason}>
+                {a.role} → {a.channel}:{a.model}
+                {a.reason ? <span class="hint"> — {a.reason}</span> : null}
+              </div>
+            ))}
+            <div class="row">
+              <button class="send" onClick={applyRecommendation}>Apply</button>
+              <button class="small deny" onClick={() => store.dismissRecommendation()}>Dismiss</button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -280,7 +343,12 @@ export function SettingsView({ store }: { store: Store }) {
           {errors.map((e, i) => <div key={i} class="fail">⚠ {e}</div>)}
         </div>
       ) : null}
-      {showWizard ? <SetupWizard store={store} channels={cfg.channels ?? []} agents={cfg.agents ?? []} /> : null}
+      {store.state.lastError ? (
+        <div class="card errors">
+          <div class="fail">⚠ {store.state.lastError}</div>
+        </div>
+      ) : null}
+      {showWizard ? <SetupWizard store={store} channels={cfg.channels ?? []} agents={cfg.agents ?? []} roles={cfg.roles ?? []} /> : null}
       <nav class="tabs">
         {(["channels", "agents", "roles", "skills", "settings", "integrations"] as const).map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>

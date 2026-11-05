@@ -473,6 +473,87 @@ describe("webview settings", () => {
     expect(screen.getByText("v1 settings imported.")).toBeTruthy();
   });
 
+  it("+ Add opens a draft card and saves config.set only after an id is entered", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    const configGets = () => bridge.sent.filter((m) => m.type === "config.get").length;
+    const getsBefore = configGets();
+    fireEvent.click(screen.getByText("+ Add"));
+    expect(bridge.sent.some((m) => m.type === "config.set")).toBe(false);
+    const save = screen.getByText("Save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.input(document.querySelector(".form input")!, { target: { value: "channel-3" } });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const set = bridge.sent.find((m) => m.type === "config.set");
+    expect(set && set.type === "config.set" && set.file).toBe("channels.yaml");
+    expect(set && set.type === "config.set" && set.yaml).toContain("channel-3");
+    expect(configGets()).toBe(getsBefore);
+  });
+
+  it("shows host errors in settings and clears them on the next config reply", () => {
+    const { bridge, store } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    act(() => bridge.inbound({ type: "error", message: "invalid channels.yaml: bad" }));
+    expect(store.state.lastError).toBe("invalid channels.yaml: bad");
+    expect(screen.getByText(/invalid channels\.yaml: bad/)).toBeTruthy();
+    act(() => bridge.inbound(configReply));
+    expect(store.state.lastError).toBeUndefined();
+    expect(screen.queryByText(/invalid channels\.yaml: bad/)).toBeNull();
+  });
+
+  const openWizard = (bridge: MockBridge) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("Run setup"));
+  };
+
+  it("researches role assignments with AI and applies the recommendation", () => {
+    const { bridge, store } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Research & assign with AI"));
+    expect(bridge.sent).toContainEqual({ type: "setup.recommend" });
+    act(() =>
+      bridge.inbound({
+        type: "setup.recommend.result",
+        ok: true,
+        researcher: { channel: "c1", model: "m" },
+        assignments: [{ role: "general-worker", channel: "c1", model: "m", reason: "strong tools" }],
+      }),
+    );
+    expect(screen.getByText(/AI recommendation \(via c1:m\)/)).toBeTruthy();
+    expect(screen.getByText(/general-worker → c1:m/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Apply"));
+    const agents = bridge.sent.find((m) => m.type === "config.set" && m.file === "agents.yaml");
+    expect(agents && agents.type === "config.set" && agents.yaml).toContain("c1-m");
+    const roles = bridge.sent.find((m) => m.type === "config.set" && m.file === "roles.yaml");
+    expect(roles && roles.type === "config.set" && roles.yaml).toContain("agent: c1-m");
+    expect(store.state.recommendation).toBeUndefined();
+  });
+
+  it("dismisses a recommendation and renders a failed result", () => {
+    const { bridge, store } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Research & assign with AI"));
+    act(() =>
+      bridge.inbound({
+        type: "setup.recommend.result",
+        ok: true,
+        researcher: { channel: "c1", model: "m" },
+        assignments: [{ role: "general-worker", channel: "c1", model: "m" }],
+      }),
+    );
+    fireEvent.click(screen.getByText("Dismiss"));
+    expect(store.state.recommendation).toBeUndefined();
+    expect(bridge.sent.some((m) => m.type === "config.set")).toBe(false);
+    fireEvent.click(screen.getByText("Research & assign with AI"));
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "no models discovered; check channels" }));
+    expect(screen.getByText(/no models discovered/)).toBeTruthy();
+    expect(store.state.recommendBusy).toBe(false);
+  });
+
   it("dismisses a v1 draft without applying", () => {
     const { bridge, store } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);
