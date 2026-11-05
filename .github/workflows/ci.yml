@@ -20,6 +20,7 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r typecheck
       - run: pnpm -r test
+      - run: pnpm run test:scripts
       - run: pnpm --filter stewart run package
         working-directory: hosts/vscode
 

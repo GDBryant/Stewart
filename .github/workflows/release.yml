@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 env:
   VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -16,6 +18,9 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://gdbryant.github.io/Stewart/updatePlugins.xml
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,37 +37,86 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
 
-      - name: Package VS Code extension
-        run: pnpm --filter stewart run package
+      - name: Resolve tag version
+        id: ver
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "tag is not semver: $GITHUB_REF_NAME" >&2; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "vscode_version=${VERSION%%-*}" >> "$GITHUB_OUTPUT"
+          if [ "$VERSION" != "${VERSION%%-*}" ]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Package VS Code extension at the tag version
+        run: |
+          V="${{ steps.ver.outputs.vscode_version }}"
+          if [ "${{ steps.ver.outputs.prerelease }}" = "true" ]; then
+            pnpm --filter stewart exec vsce package "$V" --pre-release --no-dependencies --skip-license --out "stewart-$V.vsix" </dev/null
+          else
+            pnpm --filter stewart exec vsce package "$V" --no-dependencies --skip-license --out "stewart-$V.vsix" </dev/null
+          fi
         working-directory: hosts/vscode
 
       - name: Build per-OS JetBrains zips with bundled Node
         run: |
           set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p release-out
           for key in linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64; do
             rm -rf dist/node
             node scripts/bundle-node.mjs "$key"
-            ./gradlew buildPlugin -q
-            mv build/distributions/stewart-*.zip "release-out/stewart-${GITHUB_REF_NAME#v}-${key}.zip"
+            ./gradlew buildPlugin -Pversion="$VERSION" -q
+            mv build/distributions/stewart-*.zip "release-out/stewart-${VERSION}-${key}.zip"
           done
           rm -rf dist/node
-          ./gradlew buildPlugin -q
-          mv build/distributions/stewart-*.zip "release-out/stewart-${GITHUB_REF_NAME#v}.zip"
+          ./gradlew buildPlugin -Pversion="$VERSION" -q
+          mv build/distributions/stewart-*.zip "release-out/stewart-${VERSION}.zip"
+
+      - name: Fail if built artifact versions differ from the tag
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          VSCODE_VERSION="${{ steps.ver.outputs.vscode_version }}"
+          unzip -p "release-out/stewart-${VERSION}.zip" "stewart/lib/stewart-${VERSION}.jar" > /tmp/plugin.jar
+          unzip -p /tmp/plugin.jar META-INF/plugin.xml | grep "<version>${VERSION}</version>"
+          unzip -p "hosts/vscode/stewart-${VSCODE_VERSION}.vsix" extension/package.json | grep "\"version\": \"${VSCODE_VERSION}\""
+
+      - name: Generate JetBrains update feed
+        if: steps.ver.outputs.prerelease == 'false'
+        run: node scripts/gen-update-feed.mjs "${{ steps.ver.outputs.version }}" updatePlugins.xml
 
       - name: Sign JetBrains plugin (when signing secrets are set)
         if: env.CERTIFICATE_CHAIN != '' && env.PRIVATE_KEY != ''
         run: |
           rm -rf dist/node
-          ./gradlew signPlugin -q
+          ./gradlew signPlugin -Pversion="${{ steps.ver.outputs.version }}" -q
           mv build/distributions/stewart-*-signed.zip release-out/ 2>/dev/null || true
 
       - name: Create GitHub release
-        run: gh release create "${{ github.ref_name }}" --title "Stewart ${{ github.ref_name }}" --generate-notes release-out/* hosts/vscode/stewart.vsix
+        run: |
+          set -euo pipefail
+          EXTRA=""
+          PRE=""
+          if [ "${{ steps.ver.outputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
+          if [ -f updatePlugins.xml ]; then EXTRA="updatePlugins.xml"; fi
+          gh release create "${{ github.ref_name }}" $PRE --title "Stewart ${{ github.ref_name }}" --generate-notes release-out/* "hosts/vscode/stewart-${{ steps.ver.outputs.vscode_version }}.vsix" $EXTRA
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish VSIX to marketplace (when VSCE_PAT is set)
-        if: env.VSCE_PAT != ''
-        run: pnpm --filter stewart exec vsce publish --packagePath stewart.vsix -p "$VSCE_PAT"
+      - name: Publish update feed to GitHub Pages (non-prerelease)
+        if: steps.ver.outputs.prerelease == 'false'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: updatePlugins.xml
+
+      - name: Deploy update feed to GitHub Pages (non-prerelease)
+        if: steps.ver.outputs.prerelease == 'false'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Publish VSIX to marketplace (non-prerelease, when VSCE_PAT is set)
+        if: env.VSCE_PAT != '' && steps.ver.outputs.prerelease == 'false'
+        run: pnpm --filter stewart exec vsce publish --packagePath "stewart-${{ steps.ver.outputs.vscode_version }}.vsix" -p "$VSCE_PAT"
         working-directory: hosts/vscode
