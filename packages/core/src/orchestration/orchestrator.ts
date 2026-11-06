@@ -1,4 +1,5 @@
 import type { RoleDef } from "../config/schema.js";
+import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { roleTurnBudget } from "../roles.js";
 import { projectTools } from "../tools/builtins.js";
@@ -14,7 +15,7 @@ import { freeCandidates, parseReplacements, rankDeterministic, validateReplaceme
 import type { OrchestrationRuntime } from "./types.js";
 
 export interface OrchestrationOutcome {
-  status: "done" | "failed" | "cancelled" | "stopped";
+  status: "done" | "failed" | "cancelled" | "stopped" | "no_dispatch";
   error?: string;
   suggestions: Replacement[];
 }
@@ -29,11 +30,16 @@ function isWriteCapableRole(role: RoleDef): boolean {
   return role.tools.some((t) => WRITE_ROLE_TOOLS.has(t));
 }
 
-/** Resolve the role to run for a dispatch; a disabled role falls back to General Worker. */
+/** Resolve an enabled role by id. Unknown or disabled ids return undefined; there is no silent fallback. */
 export function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef | undefined {
-  const wanted = rt.config.roles.find((r) => r.id === roleId && r.enabled);
-  if (wanted) return wanted;
-  return rt.config.roles.find((r) => r.id === "general-worker" && r.enabled);
+  return rt.config.roles.find((r) => r.id === roleId && r.enabled);
+}
+
+/** Warning text for an Orchestrator run that never dispatched; includes the last reply so the user sees it. */
+function noDispatchMessage(messages: ChatMessage[]): string {
+  const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim() !== "");
+  const reply = last ? last.content.trim().replace(/\s+/g, " ").slice(0, 300) : "";
+  return `Orchestrator finished without dispatching any tasks (model produced no tool call). Last reply: ${reply || "(none)"}`;
 }
 
 /**
@@ -57,6 +63,8 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   const overrides = (rt.roleAgentOverrides ??= new Map<string, string>());
   let suggestions: Replacement[] = [];
   let replans = 0;
+  /** Dispatch calls that named a valid role; zero means the Orchestrator never routed work. */
+  let dispatchCalls = 0;
   let milestoneCount = 0;
   let limitAnnounced = false;
   let planApproved = false;
@@ -242,12 +250,20 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
     }
   };
 
-  const dispatchArgs = async (args: { role: string; task: string; files?: string[]; dependsOn?: string[]; expect?: string; title?: string }, depth: number): Promise<string> => {
+  const dispatchArgs = async (args: { role?: string; task: string; files?: string[]; dependsOn?: string[]; expect?: string; title?: string }, depth: number): Promise<string> => {
+    // Only an omitted role falls back to General Worker; an unknown id is rejected with the valid list.
+    const requested = args.role?.trim() ? args.role.trim() : "general-worker";
+    const role = resolveRole(rt, requested);
+    if (!role) {
+      const valid = rt.config.roles.filter((r) => r.enabled).map((r) => r.id);
+      return JSON.stringify({ status: "rejected", error: `unknown role '${requested}'. Valid role ids: ${valid.join(", ") || "(none enabled)"}` });
+    }
+    dispatchCalls++;
     const id = rt.ids.next("task");
     const spec: TaskSpec = {
       id,
-      roleId: args.role,
-      title: args.title ?? `${args.role}: ${args.task.slice(0, 60)}`,
+      roleId: role.id,
+      title: args.title ?? `${role.id}: ${args.task.slice(0, 60)}`,
       task: args.task,
       files: args.files ?? [],
       dependsOn: args.dependsOn ?? [],
@@ -417,6 +433,9 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   if (result.kind === "failed") return { status: "failed", error: result.message, suggestions };
   if (result.kind === "turn_limit") return { status: "stopped", error: "turn limit reached", suggestions };
   if (rt.signal.aborted) return { status: "cancelled", suggestions };
+  // Simple rule by design: any completed run with zero valid dispatches is flagged, including
+  // direct answers that never routed work. The reply is included so the answer is not lost.
+  if (dispatchCalls === 0) return { status: "no_dispatch", error: noDispatchMessage(result.messages), suggestions };
   return { status: "done", suggestions };
 }
 

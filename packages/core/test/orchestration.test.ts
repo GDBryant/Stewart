@@ -704,20 +704,54 @@ describe("runOrchestrated", () => {
     expect(dependent).toHaveLength(2);
   });
 
-  it("falls back to General Worker for a disabled role", async () => {
+  it("rejects a disabled role with an error tool-result listing valid role ids", async () => {
     const cfg = config({ roles: { "code-writer": "enabled: false\n    agent: a-paid" } });
-    const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? (n === 1 ? [calls(plan("code-writer", "x")), done()] : [text("done"), done()]) : [text("ok"), done()]));
+    let toolResult = "";
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role !== "orchestrator") return [text("ok"), done()];
+      if (n === 1) return [calls(plan("code-writer", "x")), done()];
+      toolResult = [...req.messages].reverse().find((m) => m.role === "tool")?.content as string;
+      return [text("done"), done()];
+    });
     const { rt, events } = await runtime(cfg, channel);
-    await runOrchestrated(rt, "go");
+    const out = await runOrchestrated(rt, "go");
+    expect(JSON.parse(toolResult)).toMatchObject({ status: "rejected", error: expect.stringContaining("Valid role ids:") });
+    const validList = JSON.parse(toolResult).error.split("Valid role ids: ")[1];
+    expect(validList).toContain("general-worker");
+    expect(validList).not.toContain("code-writer");
+    expect(events.some((e) => e.kind === "task.created")).toBe(false);
+    expect(out.status).toBe("no_dispatch");
+  });
+
+  it("falls back to General Worker only when the role is blank", async () => {
+    const cfg = config();
+    // The schema requires the key, so a blank string is the only way a model reaches the fallback.
+    const omitted = { id: "call-omit", name: "dispatch", arguments: { role: "  ", task: "x" } };
+    const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? (n === 1 ? [calls(omitted), done()] : [text("done"), done()]) : [text("ok"), done()]));
+    const { rt, events } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "go");
     expect(events.find((e) => e.kind === "task.created")).toMatchObject({ roleId: "general-worker" });
+    expect(out.status).toBe("done");
+  });
+
+  it("flags a run whose Orchestrator never dispatches and keeps its last reply in the warning", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("Here is the answer"), done()]);
+    const { rt, events } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("no_dispatch");
+    expect(out.error).toContain("finished without dispatching any tasks");
+    expect(out.error).toContain("Last reply: Here is the answer");
+    expect(events.some((e) => e.kind === "task.created")).toBe(false);
   });
 
   it("fails a dispatch when no role and no fallback is enabled", async () => {
     const cfg = config({ roles: { "code-writer": "enabled: false\n    agent: a-paid", "general-worker": "enabled: false\n    agent: a-free" } });
     const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? (n === 1 ? [calls(plan("code-writer", "x")), done()] : [text("done"), done()]) : [text("ok"), done()]));
-    const { rt } = await runtime(cfg, channel);
+    const { rt, events } = await runtime(cfg, channel);
     const out = await runOrchestrated(rt, "go");
-    expect(out.status).toBe("done");
+    expect(out.status).toBe("no_dispatch");
+    expect(events.some((e) => e.kind === "task.created")).toBe(false);
   });
 
   it("stops dispatching after maxRunHours", async () => {
@@ -1005,6 +1039,53 @@ describe("runOrchestrated", () => {
   });
 });
 
+describe("RunManager orchestrated status", () => {
+  const mk = (roles?: Record<string, string>) => {
+    const cfg = config({ roles });
+    const script = (role: string, n: number): ChatEvent[] =>
+      role === "orchestrator"
+        ? n === 1
+          ? [calls({ id: "c-d", name: "dispatch", arguments: { role: "investigator", task: "look" } }), done()]
+          : [text("ok"), done()]
+        : [text("looked"), done()];
+    const { channel } = fakeChannel(script);
+    const fake = fakeHost({ "a.ts": "a" });
+    const events: RunEvent[] = [];
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    return { manager, opts: { config: cfg, channelFor: () => channel }, events };
+  };
+
+  it("persists stopped (not done) when the Orchestrator hits its turn budget", async () => {
+    const { manager, opts, events } = mk({
+      orchestrator: "enabled: true\n    agent: a-paid\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n    turnBudget: 1",
+    });
+    const run = await manager.orchestrated("p", { ...opts, text: "go" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("stopped"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped", error: "turn limit reached" });
+  });
+
+  it("persists done for a completed run that dispatched work", async () => {
+    const { manager, opts, events } = mk();
+    const run = await manager.orchestrated("p", { ...opts, text: "go" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "done" });
+  });
+
+  it("persists no_dispatch and attaches the warning to run.finished", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("just prose"), done()]);
+    const events: RunEvent[] = [];
+    const fake = fakeHost({ "a.ts": "a" });
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.orchestrated("p", { config: cfg, channelFor: () => channel, text: "go" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("no_dispatch"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({
+      status: "no_dispatch",
+      error: expect.stringContaining("Last reply: just prose"),
+    });
+  });
+});
+
 describe("RunManager resume", () => {
   const mk = async () => {
     const cfg = config();
@@ -1025,14 +1106,14 @@ describe("RunManager resume", () => {
   it("refuses a run that already finished", async () => {
     const { manager, opts } = await mk();
     const run = await manager.orchestrated("p", { ...opts, text: "go" });
-    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
-    expect(await manager.resume("p", run.id, opts)).toEqual({ ok: false, reason: "run is done" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("no_dispatch"));
+    expect(await manager.resume("p", run.id, opts)).toEqual({ ok: false, reason: "run is no_dispatch" });
   });
 
   it("fails closed for an interrupted in-memory run instead of replaying the prompt", async () => {
     const { manager, opts, events, fake } = await mk();
     const run = await manager.orchestrated("p", { ...opts, text: "go" });
-    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("no_dispatch"));
     manager.get(run.id)!.status = "interrupted";
     const before = { ...fake.files };
     const res = await manager.resume("p", run.id, opts);

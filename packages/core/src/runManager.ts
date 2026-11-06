@@ -22,7 +22,7 @@ import type { OrchestrationRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
 import { loadProjectContext } from "./projectContext.js";
 
-export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted";
+export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted" | "stopped" | "no_dispatch";
 
 export interface Run {
   id: string;
@@ -434,10 +434,11 @@ export class RunManager {
       this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: outcome.error });
       return;
     }
-    run.status = "done";
+    const finalStatus: RunStatus = outcome.status === "stopped" || outcome.status === "no_dispatch" ? outcome.status : "done";
+    run.status = finalStatus;
     await this.journal(run, stateDir);
     await this.saveHistory(run);
-    this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: outcome.status === "stopped" ? "stopped" : "done", error: outcome.error });
+    this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: finalStatus, error: outcome.error });
   }
 
   private async drive(run: Run, channel: ManagedChannel, agent: AgentDef, role?: RoleDef, rolePrompt?: string): Promise<void> {
