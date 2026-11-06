@@ -21,6 +21,9 @@ export interface OrchestrationOutcome {
 }
 
 const ORCHESTRATION_ROLES = new Set(["orchestrator"]);
+/** Used when the orchestrator role lists no tools: routing only, never project tools. */
+export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements"];
+const ORCHESTRATOR_MAX_TOOL_OUTPUT = 4_000;
 const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
 const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "image-reader"]);
 
@@ -327,10 +330,11 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
 
   const paths = await ProjectPaths.forProject(rt.host);
   const tools = [...projectTools(rt.host, paths).tools, ...orchestrationTools(handlers)];
-  const registry = new ToolRegistry(tools.filter((t) => !orchestrator.tools.length || orchestrator.tools.includes(t.spec.name)));
+  const allowed = orchestrator.tools.length ? orchestrator.tools : ORCHESTRATOR_DEFAULT_TOOLS;
+  const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
   const prompt = await buildRolePrompt(rt, orchestrator);
   const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-  const limits = { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(orchestrator) };
+  const limits = { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(orchestrator), maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT };
   const loop = new ToolLoop(
     channel,
     registry,

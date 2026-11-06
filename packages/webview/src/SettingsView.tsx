@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
+import { SetupWizard } from "./SetupWizard.js";
 import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsSummary, ConfigReply } from "./bridge.js";
 
 type Field = {
@@ -284,107 +285,6 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
   );
 }
 
-function SetupWizard({ store, channels, agents, roles }: { store: Store; channels: ChannelSummary[]; agents: AgentSummary[]; roles: RoleSummary[] }) {
-  const [chId, setChId] = useState("local-ollama");
-  const [chType, setChType] = useState("ollama");
-  const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
-  const [agId, setAgId] = useState("default-agent");
-  const [pickedModel, setModel] = useState("");
-  const wizModels = modelsForChannel(channels, store.state.channelTest, chId);
-  const model = pickedModel || wizModels[0] || "";
-  const createAll = () => {
-    if (!model) return;
-    const nextCh = [...channels.filter((c) => c.id !== chId), { id: chId, type: chType, enabled: true, baseUrl }];
-    const billing = chType === "ollama" || chId === "aif" ? "free" : chType === "claude-cli" ? "reported" : "unmetered";
-    const nextAg = [...agents.filter((a) => a.id !== agId), { id: agId, channel: chId, model, effort: "medium", billing }];
-    store.saveFile("channels.yaml", stringify({ version: 1, items: nextCh }, null, 2));
-    store.saveFile("agents.yaml", stringify({ version: 1, items: nextAg }, null, 2));
-    store.assignAgentToAll(agId, true);
-    store.setWizardOpen(false);
-  };
-  const applyRecommendation = () => {
-    const rec = store.state.recommendation;
-    if (!rec) return;
-    const pairToAgent = new Map<string, string>();
-    const nextAgents = new Map(agents.map((a) => [a.id, { ...a }] as const));
-    for (const a of rec.assignments) {
-      const key = `${a.channel}:${a.model}`;
-      if (pairToAgent.has(key)) continue;
-      const base = `${a.channel}-${a.model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-      let id = base;
-      for (let n = 2; new Set(pairToAgent.values()).has(id); n++) id = `${base}-${n}`;
-      pairToAgent.set(key, id);
-      const type = channels.find((c) => c.id === a.channel)?.type;
-      const billing = type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered";
-      nextAgents.set(id, { id, channel: a.channel, model: a.model, effort: "medium", billing });
-    }
-    const nextRoles = roles.map((r) => {
-      const a = rec.assignments.find((x) => x.role === r.id);
-      return a ? { ...r, agent: pairToAgent.get(`${a.channel}:${a.model}`), enabled: true } : r;
-    });
-    store.saveFile("agents.yaml", stringify({ version: 1, items: [...nextAgents.values()] }, null, 2));
-    store.saveFile("roles.yaml", stringify({ version: 1, items: nextRoles }, null, 2));
-    store.dismissRecommendation();
-  };
-  const rec = store.state.recommendation;
-  return (
-    <div class="card wizard">
-      <div class="card-title">
-        <b>First-run setup wizard</b>
-        <span class="spacer" />
-        <button class="small" onClick={() => store.setWizardOpen(false)}>Close</button>
-      </div>
-      <div class="form">
-        <label class="field"><span>Channel ID</span><input placeholder="wizard-channel-id" value={chId} onInput={(e) => setChId((e.target as HTMLInputElement).value)} /></label>
-        <label class="field">
-          <span>Channel Type</span>
-          <select value={chType} onChange={(e) => setChType((e.target as HTMLSelectElement).value)}>
-            <option value="ollama">ollama</option>
-            <option value="openai-compatible">openai-compatible</option>
-            <option value="claude-cli">claude-cli</option>
-          </select>
-        </label>
-        <label class="field"><span>Base URL</span><input placeholder="wizard-base-url" value={baseUrl} onInput={(e) => setBaseUrl((e.target as HTMLInputElement).value)} /></label>
-        <label class="field"><span>Agent ID</span><input placeholder="wizard-agent-id" value={agId} onInput={(e) => setAgId((e.target as HTMLInputElement).value)} /></label>
-        <label class="field">
-          <span>Model</span>
-          {wizModels.length ? (
-            <select aria-label="wizard-model" value={model} onChange={(e) => setModel((e.target as HTMLSelectElement).value)}>
-              {wizModels.map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
-          ) : (
-            <input placeholder="wizard-model (run Test connection to list)" value={pickedModel} onInput={(e) => setModel((e.target as HTMLInputElement).value)} />
-          )}
-        </label>
-        <div class="row">
-          <button class="small" onClick={() => store.testChannel(chId)}>Test connection</button>
-          <button class="small" disabled={store.state.recommendBusy || !channels.length} onClick={() => store.recommend()}>
-            {store.state.recommendBusy ? "Researching…" : "Research & assign with AI"}
-          </button>
-          <button class="send" disabled={!model} onClick={createAll}>Finish setup &amp; assign to roles</button>
-        </div>
-        {store.state.recommendError ? <div class="fail">{store.state.recommendError}</div> : null}
-        {rec ? (
-          <div class="card">
-            <div class="card-title">
-              <b>AI recommendation (via {rec.researcher ? `${rec.researcher.channel}:${rec.researcher.model}` : "?"})</b>
-            </div>
-            {rec.assignments.map((a) => (
-              <div key={a.role} class="summary" title={a.reason}>
-                {a.role} → {a.channel}:{a.model}
-                {a.reason ? <span class="hint"> — {a.reason}</span> : null}
-              </div>
-            ))}
-            <div class="row">
-              <button class="send" onClick={applyRecommendation}>Apply</button>
-              <button class="small deny" onClick={() => store.dismissRecommendation()}>Dismiss</button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 export function SettingsView({ store }: { store: Store }) {
   const cfg = store.state.config?.summary;

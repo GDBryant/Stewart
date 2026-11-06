@@ -437,31 +437,6 @@ describe("webview settings", () => {
     expect(screen.getByText("Re-probe")).toBeTruthy();
   });
 
-  it("runs the first-run setup wizard and binds the created agent", () => {
-    const { bridge } = mk();
-    fireEvent.click(screen.getAllByText("Settings")[0]);
-    act(() => bridge.inbound(configReply));
-    fireEvent.click(screen.getByText("Run setup"));
-    expect(screen.getByText("First-run setup wizard")).toBeTruthy();
-    act(() => bridge.inbound({ type: "channel.test.result", channelId: "local-ollama", ok: true, models: ["qwen2.5-coder:7b", "gemma4:e4b"] }));
-    fireEvent.click(screen.getByText("Finish setup & assign to roles"));
-    expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "default-agent", wizard: true });
-    const saved = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
-    expect(saved.yaml).toContain("model: qwen2.5-coder:7b");
-    expect(saved.yaml).not.toMatch(/model: qwen2\.5-coder\s*$/m);
-  });
-
-  it("wizard blocks finish until a model is known", () => {
-    const { bridge } = mk();
-    fireEvent.click(screen.getAllByText("Settings")[0]);
-    act(() => bridge.inbound(configReply));
-    fireEvent.click(screen.getByText("Run setup"));
-    const btn = screen.getByText("Finish setup & assign to roles") as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    fireEvent.click(btn);
-    expect(bridge.sent.some((m: any) => m.type === "roles.assignAgent")).toBe(false);
-  });
-
   it("imports v1 settings through the draft card", () => {
     const { bridge, store } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);
@@ -635,49 +610,127 @@ describe("webview settings", () => {
     act(() => bridge.inbound(configReply));
     fireEvent.click(screen.getByText("Run setup"));
   };
+  const toStep = (bridge: MockBridge, n: number) => {
+    fireEvent.click(screen.getByText("Start"));
+    if (n < 2) return;
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
+    fireEvent.click(screen.getByText("Next: discover models"));
+    if (n < 3) return;
+    fireEvent.click(screen.getByText("Next: choose evaluator"));
+  };
 
-  it("researches role assignments with AI and applies the recommendation", () => {
-    const { bridge, store } = mk();
+  it("walks the welcome step and blocks Next until a channel passes its test", () => {
+    const { bridge } = mk();
     openWizard(bridge);
-    fireEvent.click(screen.getByText("Research & assign with AI"));
-    expect(bridge.sent).toContainEqual({ type: "setup.recommend" });
-    act(() =>
-      bridge.inbound({
-        type: "setup.recommend.result",
-        ok: true,
-        researcher: { channel: "c1", model: "m" },
-        assignments: [{ role: "general-worker", channel: "c1", model: "m", reason: "strong tools" }],
-      }),
-    );
-    expect(screen.getByText(/AI recommendation \(via c1:m\)/)).toBeTruthy();
-    expect(screen.getByText(/general-worker → c1:m/)).toBeTruthy();
-    fireEvent.click(screen.getByText("Apply"));
-    const agents = bridge.sent.find((m) => m.type === "config.set" && m.file === "agents.yaml");
-    expect(agents && agents.type === "config.set" && agents.yaml).toContain("c1-m");
-    const roles = bridge.sent.find((m) => m.type === "config.set" && m.file === "roles.yaml");
-    expect(roles && roles.type === "config.set" && roles.yaml).toContain("agent: c1-m");
-    expect(store.state.recommendation).toBeUndefined();
+    expect(screen.getByText("First-run setup wizard")).toBeTruthy();
+    expect(screen.getByText(/at least one/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Start"));
+    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(true);
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: false, error: "fetch failed ECONNREFUSED" }));
+    expect(screen.getByText(/Is it installed and running/)).toBeTruthy();
+    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(true);
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m"] }));
+    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("dismisses a recommendation and renders a failed result", () => {
+  it("adds an openai-compatible channel with URL and key; key goes to secrets, not YAML", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Start"));
+    fireEvent.change(screen.getByLabelText("channel preset"), { target: { value: "OpenAI" } });
+    expect((screen.getByLabelText("base url") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
+    fireEvent.input(screen.getByLabelText("api key"), { target: { value: "sk-secret-123" } });
+    fireEvent.click(screen.getByText("Add this channel"));
+    expect(bridge.sent).toContainEqual({ type: "secret.set", ref: "channel-openai", value: "sk-secret-123" });
+    const saved = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "channels.yaml") as any;
+    expect(saved.yaml).toContain("id: openai");
+    expect(saved.yaml).toContain("secretRef: channel-openai");
+    expect(saved.yaml).not.toContain("sk-secret-123");
+  });
+
+  it("hides the API key and URL fields where they do not apply and maps 401 errors", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Start"));
+    expect(screen.queryByLabelText("api key")).toBeNull();
+    fireEvent.change(screen.getByLabelText("channel preset"), { target: { value: "Claude CLI" } });
+    expect(screen.queryByLabelText("base url")).toBeNull();
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c2", ok: false, error: "GET /models → 401" }));
+    expect(screen.getByText(/rejected the API key/)).toBeTruthy();
+  });
+
+  it("probes discovered models and shows their abilities", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    toStep(bridge, 2);
+    expect(bridge.sent).toContainEqual({ type: "channel.probe", channelId: "c1", model: "big:32b", force: false });
+    act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c1", model: "big:32b", ok: true, caps: { tools: "native", reasoning: true, contextTokens: 32000 } }));
+    expect(screen.getByText(/tools:native · reasoning · 32k ctx/)).toBeTruthy();
+  });
+
+  it("builds a rules proposal, lets the user edit a row and applies agents + roles", () => {
     const { bridge, store } = mk();
     openWizard(bridge);
-    fireEvent.click(screen.getByText("Research & assign with AI"));
+    toStep(bridge, 3);
+    fireEvent.click(screen.getByText("Build proposal"));
+    expect(bridge.sent).toContainEqual({ type: "setup.recommend", mode: "rules" });
     act(() =>
       bridge.inbound({
         type: "setup.recommend.result",
         ok: true,
-        researcher: { channel: "c1", model: "m" },
-        assignments: [{ role: "general-worker", channel: "c1", model: "m" }],
+        assignments: [{ role: "general-worker", channel: "c1", model: "big:32b", reason: "native tools", score: 14, warnings: ["model is ~4B"], source: "rules" }],
+        unfilled: [{ role: "image-reader", reason: "no model with: vision" }],
       }),
     );
-    fireEvent.click(screen.getByText("Dismiss"));
+    expect(screen.getByText(/⚠ model is ~4B/)).toBeTruthy();
+    expect(screen.getByText(/disabled: no model with: vision/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Apply"));
+    const agents = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
+    expect(agents.yaml).toContain("c1-big-32b");
+    const roles = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "roles.yaml") as any;
+    expect(roles.yaml).toContain("agent: c1-big-32b");
+    expect(roles.yaml).toMatch(/id: image-reader\n\s+enabled: false/);
     expect(store.state.recommendation).toBeUndefined();
-    expect(bridge.sent.some((m) => m.type === "config.set")).toBe(false);
-    fireEvent.click(screen.getByText("Research & assign with AI"));
-    act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "no models discovered; check channels" }));
-    expect(screen.getByText(/no models discovered/)).toBeTruthy();
-    expect(store.state.recommendBusy).toBe(false);
+    expect(screen.getByText(/Setup complete/)).toBeTruthy();
+  });
+
+  it("reuses an existing agent for an edited row and can disable a role", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    toStep(bridge, 3);
+    fireEvent.click(screen.getByText("Build proposal"));
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "general-worker", channel: "c1", model: "big:32b" }] }));
+    fireEvent.change(screen.getByLabelText("role general-worker"), { target: { value: "c1:m" } });
+    fireEvent.change(screen.getByLabelText("role image-reader"), { target: { value: "" } });
+    fireEvent.click(screen.getByText("Apply"));
+    const roles = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "roles.yaml") as any;
+    expect(roles.yaml).toContain("agent: a1");
+  });
+
+  it("AI mode sends the chosen evaluator, and a failure offers a rules fallback", () => {
+    const { bridge, store } = mk();
+    openWizard(bridge);
+    toStep(bridge, 3);
+    fireEvent.click(screen.getByLabelText(/AI refine/));
+    fireEvent.change(screen.getByLabelText("evaluator"), { target: { value: "c1:big:32b" } });
+    fireEvent.click(screen.getByText("Build proposal"));
+    expect(bridge.sent).toContainEqual({ type: "setup.recommend", mode: "ai", evaluator: { channel: "c1", model: "big:32b" } });
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "could not parse recommendation" }));
+    expect(screen.getByText(/could not parse/)).toBeTruthy();
+    expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("Use rules instead"));
+    expect(bridge.sent.filter((m: any) => m.type === "setup.recommend").at(-1)).toEqual({ type: "setup.recommend", mode: "rules" });
+    expect(store.state.recommendBusy).toBe(true);
+  });
+
+  it("Back buttons return to the previous step and Close dismisses the wizard", () => {
+    const { bridge, store } = mk();
+    openWizard(bridge);
+    toStep(bridge, 3);
+    fireEvent.click(screen.getByText("Back"));
+    expect(screen.getByText(/checks what each model can do|wait while Stewart checks/i)).toBeTruthy();
+    fireEvent.click(screen.getByText("Close"));
+    expect(store.state.wizardOpen).toBe(false);
   });
 
   it("dismisses a v1 draft without applying", () => {

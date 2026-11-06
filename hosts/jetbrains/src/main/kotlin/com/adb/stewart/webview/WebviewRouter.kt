@@ -61,7 +61,7 @@ class WebviewRouter(
                     send(JsonObject(r + ("type" to JsonPrimitive("config"))))
                 }
                 "setup.recommend" -> {
-                    val r = request("setup.recommend", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    val r = request("setup.recommend", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("setup.recommend.result"))))
                 }
                 "channel.test" -> {

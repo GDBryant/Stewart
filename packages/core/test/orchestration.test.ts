@@ -615,6 +615,33 @@ describe("runOrchestrated", () => {
     expect(out.error).toContain("no agent bound");
   });
 
+  it("limits an orchestrator with no listed tools to routing tools", async () => {
+    const cfg = config({ roles: { orchestrator: "enabled: true\n    agent: a-paid\n    tools: []" } });
+    let names: string[] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      names = (req.tools ?? []).map((t) => t.name);
+      return [text("x"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    await runOrchestrated(rt, "go");
+    expect(names).toContain("dispatch");
+    expect(names).not.toContain("WriteFile");
+    expect(names).not.toContain("ReadFile");
+  });
+
+  it("keeps explicitly listed project tools for the orchestrator", async () => {
+    const cfg = config();
+    let names: string[] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      names = (req.tools ?? []).map((t) => t.name);
+      return [text("x"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    await runOrchestrated(rt, "go");
+    expect(names).toContain("ReadFile");
+    expect(names).not.toContain("WriteFile");
+  });
+
   it("fails the run and records no cost when the ledger append rejects", async () => {
     const cfg = config();
     const { channel } = fakeChannel(() => [text("hi"), done({ in: 1000, out: 500 }, 0.05)]);

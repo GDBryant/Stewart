@@ -243,3 +243,32 @@ describe("Core debug wiring", () => {
     expect(await run("calls")).toEqual([]);
   });
 });
+
+describe("Ollama context sizing", () => {
+  it("autoNumCtx leaves small prompts alone and sizes large ones within caps", async () => {
+    const { autoNumCtx, estimatePromptTokens } = await import("../src/channels/ollama.js");
+    expect(autoNumCtx(500)).toBeUndefined();
+    expect(autoNumCtx(3000)).toBe(5120);
+    expect(autoNumCtx(100_000)).toBe(32768);
+    expect(autoNumCtx(3000, 4096)).toBe(4096);
+    expect(estimatePromptTokens([{ content: "x".repeat(350) }], undefined)).toBeGreaterThan(100);
+  });
+
+  it("records an error when the provider evaluated far fewer tokens than sent", async () => {
+    const cap = new Capture();
+    const big = "x".repeat(20_000);
+    const { fetcher } = fakeFetcher([{ body: ['{"message":{"content":"hi"},"done":true,"prompt_eval_count":500,"eval_count":1}'] }]);
+    const r = { ...req(), messages: [{ role: "user" as const, content: big }] };
+    await collect(new OllamaAdapter({ fetcher, debug: cap }).chat(ollamaCfg, undefined, r));
+    expect(cap.entries[0].payload.startsWith("num_ctx=")).toBe(true);
+    expect(cap.entries[0].payload).not.toContain("num_ctx=default");
+    expect(cap.entries.some((e) => e.direction === "error" && e.payload.includes("prompt truncated"))).toBe(true);
+  });
+
+  it("does not flag truncation when counts match", async () => {
+    const cap = new Capture();
+    const { fetcher } = fakeFetcher([{ body: ['{"message":{"content":"hi"},"done":true,"prompt_eval_count":12,"eval_count":1}'] }]);
+    await collect(new OllamaAdapter({ fetcher, debug: cap }).chat(ollamaCfg, undefined, req()));
+    expect(cap.entries.some((e) => e.direction === "error")).toBe(false);
+  });
+});

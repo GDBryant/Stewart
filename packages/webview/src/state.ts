@@ -90,8 +90,10 @@ export interface State {
   lastError?: string;
   recommendBusy?: boolean;
   recommendation?: {
-    assignments: { role: string; channel: string; model: string; reason?: string }[];
+    assignments: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
     researcher?: { channel: string; model: string };
+    unfilled?: { role: string; reason: string }[];
+    dropped?: string[];
   };
   recommendError?: string;
 }
@@ -258,9 +260,9 @@ export class Store {
   setWizardOpen(wizardOpen: boolean): void {
     this.patch({ wizardOpen });
   }
-  recommend(): void {
+  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } }): void {
     if (this.state.recommendBusy) return;
-    this.bridge.post({ type: "setup.recommend" });
+    this.bridge.post(opts ? { type: "setup.recommend", ...opts } : { type: "setup.recommend" });
     this.patch({ recommendBusy: true, recommendError: undefined });
   }
   dismissRecommendation(): void {
@@ -326,7 +328,7 @@ export class Store {
       if (m.ok)
         return this.patch({
           recommendBusy: false,
-          recommendation: { assignments: m.assignments ?? [], researcher: m.researcher },
+          recommendation: { assignments: m.assignments ?? [], researcher: m.researcher, unfilled: m.unfilled, dropped: m.dropped },
           recommendError: undefined,
         });
       return this.patch({ recommendBusy: false, recommendation: undefined, recommendError: m.error ?? "recommendation failed" });

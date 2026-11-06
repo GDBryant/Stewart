@@ -1,5 +1,6 @@
 import type { Config } from "./config/loader.js";
 import type { ChatEvent, ChatRequest } from "./channels/types.js";
+import { meetsHardRequirements, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
 
 export interface RecommendChannelInfo {
   id: string;
@@ -13,15 +14,25 @@ export interface Assignment {
   channel: string;
   model: string;
   reason?: string;
+  score?: number;
+  warnings?: string[];
+  source?: "rules" | "ai";
+}
+
+export interface RecommendOptions {
+  /** `rules` = deterministic only (no model call). `ai` (default) = evaluator model refines. */
+  mode?: "rules" | "ai";
+  evaluator?: { channel: string; model: string };
 }
 
 export type RecommendResult =
   | {
       ok: true;
       assignments: Assignment[];
-      researcher: { channel: string; model: string };
+      researcher?: { channel: string; model: string };
       channels: RecommendChannelInfo[];
       dropped?: string[];
+      unfilled?: Unfilled[];
     }
   | { ok: false; error: string; raw?: string; channels?: RecommendChannelInfo[]; dropped?: string[] };
 
@@ -37,7 +48,11 @@ const CAP_KEYS = ["tools", "vision", "reasoning", "imageGen", "contextTokens"] a
  * best model per role, then validate the answer against what was discovered.
  * Never writes config — the webview applies the proposal explicitly.
  */
-export async function recommendAssignments(config: Config, managed: { get(id: string): RecommendChannel | undefined }): Promise<RecommendResult> {
+export async function recommendAssignments(
+  config: Config,
+  managed: { get(id: string): RecommendChannel | undefined },
+  opts: RecommendOptions = {},
+): Promise<RecommendResult> {
   const channels: RecommendChannelInfo[] = [];
   for (const c of config.channels) {
     if (!c.enabled) continue;
@@ -58,8 +73,17 @@ export async function recommendAssignments(config: Config, managed: { get(id: st
   }
 
   const byId = new Map(channels.map((c) => [c.id, c]));
+  const candidates: Candidate[] = channels.flatMap((c) =>
+    c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: config.channels.find((d) => d.id === c.id)?.modelCaps?.[model] ?? {} })),
+  );
+  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
+  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates);
+  if (opts.mode === "rules") {
+    return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
+  }
   let researcher: { channel: string; model: string } | undefined;
-  for (const a of config.agents) {
+  if (opts.evaluator && byId.get(opts.evaluator.channel)?.models.includes(opts.evaluator.model)) researcher = opts.evaluator;
+  for (const a of researcher ? [] : config.agents) {
     const info = byId.get(a.channel);
     if (info?.models.includes(a.model)) {
       researcher = { channel: a.channel, model: a.model };
@@ -97,6 +121,9 @@ export async function recommendAssignments(config: Config, managed: { get(id: st
     chanLines,
     "",
     'Return ONLY a JSON object {"assignments":[{"role":"roleId","channel":"channelId","model":"model","reason":"short"}]}.',
+    "A deterministic scorer proposed this baseline (keep it unless you have a clear reason):",
+    rules.assignments.map((a) => `- ${a.role}: ${a.channel}:${a.model}`).join("\n") || "(none)",
+    "",
     "Choose the best model for each role. Every role must appear; channel and model must come from the candidates above.",
     "Prefer reasoning models for orchestrator, planner and plan-validator; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
   ].join("\n");
@@ -146,10 +173,15 @@ export async function recommendAssignments(config: Config, managed: { get(id: st
       dropped.push(`${role}: unknown model '${model}' on ${channel}`);
       continue;
     }
+    const c = cand.get(`${channel}:${model}`);
+    if (c && !meetsHardRequirements(role, c)) {
+      dropped.push(`${role}: ${channel}:${model} fails hard requirements`);
+      continue;
+    }
     assignments.push({ role, channel, model, reason: typeof a.reason === "string" ? a.reason : undefined });
   }
   if (!assignments.length) {
     return { ok: false, error: "recommendation was empty or invalid", channels, dropped };
   }
-  return { ok: true, assignments, researcher, channels, dropped };
+  return { ok: true, assignments, researcher, channels, dropped, unfilled: rules.unfilled };
 }

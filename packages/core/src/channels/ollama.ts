@@ -55,7 +55,9 @@ export class OllamaAdapter implements ChannelAdapter {
       return { role: m.role, content: m.content, images: m.images };
     });
     const dbg = this.deps.debug;
-    const numCtx = cfg.modelCaps?.[req.model]?.numCtx;
+    const caps = cfg.modelCaps?.[req.model];
+    const estTokens = estimatePromptTokens(messages, tools);
+    const numCtx = caps?.numCtx ?? autoNumCtx(estTokens, caps?.contextTokens);
     const body = JSON.stringify({
       model: req.model,
       messages,
@@ -111,6 +113,14 @@ export class OllamaAdapter implements ChannelAdapter {
         }
         if (j.done === true) {
           usage = { in: j.prompt_eval_count ?? 0, out: j.eval_count ?? 0 };
+          if (usage.in > 0 && usage.in < estTokens * 0.6) {
+            dbg?.record({
+              direction: "error",
+              provider: this.type,
+              model: req.model,
+              payload: `prompt truncated by provider: ~${estTokens} tokens sent, ${usage.in} evaluated (num_ctx=${numCtx ?? "default"}); raise numCtx`,
+            });
+          }
           truncated = j.done_reason === "length";
           sawDone = true;
           break;
@@ -124,4 +134,20 @@ export class OllamaAdapter implements ChannelAdapter {
     if (calls.length) yield { kind: "tool_calls", calls };
     yield { kind: "done", usage, truncated };
   }
+}
+
+/** Rough prompt size (~3.5 chars/token, incl. JSON overhead). */
+export function estimatePromptTokens(messages: unknown, tools: unknown): number {
+  return Math.ceil((JSON.stringify(messages).length + (tools ? JSON.stringify(tools).length : 0)) / 3.5);
+}
+
+const MIN_AUTO_CTX = 4096;
+const MAX_AUTO_CTX = 32768;
+
+/** Ollama's default context silently drops the oldest prompt content; size num_ctx to fit when none is configured. */
+export function autoNumCtx(estTokens: number, modelMax?: number): number | undefined {
+  if (estTokens * 1.25 <= 2048) return undefined;
+  const want = Math.ceil((estTokens * 1.25 + 1024) / 1024) * 1024;
+  const cap = Math.min(MAX_AUTO_CTX, modelMax && modelMax > 0 ? modelMax : MAX_AUTO_CTX);
+  return Math.max(Math.min(want, cap), Math.min(MIN_AUTO_CTX, cap));
 }

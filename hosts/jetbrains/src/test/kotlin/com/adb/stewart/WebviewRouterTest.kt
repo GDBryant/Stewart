@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -111,6 +112,20 @@ class WebviewRouterTest {
         assertTrue(m.containsKey("assignments"))
         assertEquals("setup.recommend", rig.calls[0].first)
         assertEquals("p1", rig.calls[0].second!!["projectId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `setup recommend forwards mode and evaluator`() {
+        val rig = Rig { m, _ ->
+            if (m == "setup.recommend") Json.parseToJsonElement("""{"ok":true,"assignments":[]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"setup.recommend","mode":"rules","evaluator":{"channel":"c1","model":"m"}}""")
+        rig.sent.poll(2, TimeUnit.SECONDS)!!
+        val p = rig.calls[0].second!!
+        assertEquals("rules", p["mode"]!!.jsonPrimitive.content)
+        assertEquals("c1", p["evaluator"]!!.jsonObject["channel"]!!.jsonPrimitive.content)
+        assertTrue(!p.containsKey("type"))
     }
 
     @Test

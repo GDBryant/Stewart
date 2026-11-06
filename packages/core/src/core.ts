@@ -364,8 +364,8 @@ export class Core {
         }
       }
       case "setup.recommend": {
-        const p = params as { projectId: string };
-        return recommendAssignments(this.ctx(p.projectId).config, this.managed);
+        const p = params as { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } };
+        return recommendAssignments(this.ctx(p.projectId).config, this.managed, { mode: p.mode, evaluator: p.evaluator });
       }
       case "skills.save": {
         const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };

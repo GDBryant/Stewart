@@ -24,7 +24,7 @@ export type Outbound =
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
-  | { type: "setup.recommend" }
+  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -97,8 +97,10 @@ export type Inbound =
   | {
       type: "setup.recommend.result";
       ok: boolean;
-      assignments?: { role: string; channel: string; model: string; reason?: string }[];
+      assignments?: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
       researcher?: { channel: string; model: string };
+      unfilled?: { role: string; reason: string }[];
+      dropped?: string[];
       error?: string;
     }
   | { type: "error"; message: string };
