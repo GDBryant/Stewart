@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsSummary, ConfigReply } from "./bridge.js";
@@ -6,7 +6,7 @@ import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsS
 type Field = {
   key: string;
   label: string;
-  kind?: "text" | "bool" | "number" | "list" | "select";
+  kind?: "text" | "bool" | "number" | "list" | "select" | "model";
   options?: string[];
   placeholder?: string;
 };
@@ -40,13 +40,13 @@ function unflatten(form: Record<string, string>, fields: Field[]): Record<string
     if (f.kind === "bool") node[leaf] = raw === "true";
     else if (f.kind === "number") node[leaf] = Number(raw);
     else if (f.kind === "list") node[leaf] = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    else if (f.kind === "select" || !f.kind) node[leaf] = raw;
+    else if (f.kind === "select" || f.kind === "model" || !f.kind) node[leaf] = raw;
   }
   return out;
 }
 
 function ItemCard<T extends object>({
-  item, fields, onSave, onRemove, extra, startEditing,
+  item, fields, onSave, onRemove, extra, startEditing, modelsFor,
 }: {
   item: T;
   fields: Field[];
@@ -54,6 +54,7 @@ function ItemCard<T extends object>({
   onRemove?(): void;
   extra?: (item: T) => unknown;
   startEditing?: boolean;
+  modelsFor?: (channelId: string) => string[];
 }) {
   const { form, set } = useForm(item as object);
   const [editing, setEditing] = useState(!!startEditing);
@@ -89,6 +90,13 @@ function ItemCard<T extends object>({
                   <option value="">—</option>
                   {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
+              ) : f.kind === "model" ? (
+                <select value={form[f.key] ?? ""} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
+                  <option value="">—</option>
+                  {[...new Set([...(modelsFor?.(form.channel ?? "") ?? []), ...(form[f.key] ? [form[f.key]] : [])])].map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
               ) : f.kind === "bool" ? (
                 <select value={form[f.key] ?? "false"} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
                   <option value="true">true</option>
@@ -108,7 +116,7 @@ function ItemCard<T extends object>({
 }
 
 function ItemsSection<T extends { id: string }>({
-  title, file, items, fields, store, empty, renderExtra,
+  title, file, items, fields, store, empty, renderExtra, modelsFor,
 }: {
   title: string;
   file: string;
@@ -117,6 +125,7 @@ function ItemsSection<T extends { id: string }>({
   store: Store;
   empty: T;
   renderExtra?: (item: T, store: Store) => unknown;
+  modelsFor?: (channelId: string) => string[];
 }) {
   const save = (next: T[]) => store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
   const [draft, setDraft] = useState<T | undefined>(undefined);
@@ -130,6 +139,7 @@ function ItemsSection<T extends { id: string }>({
           key={it.id}
           item={it}
           fields={fields}
+          modelsFor={modelsFor}
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
           onSave={(next) => save(items.map((x) => (x.id === it.id ? next : x)))}
           onRemove={() => save(items.filter((x) => x.id !== it.id))}
@@ -139,6 +149,7 @@ function ItemsSection<T extends { id: string }>({
         <ItemCard
           item={draft}
           fields={fields}
+          modelsFor={modelsFor}
           startEditing
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
           onSave={(next) => {
@@ -165,8 +176,8 @@ const CHANNEL_FIELDS: Field[] = [
 ];
 const AGENT_FIELDS: Field[] = [
   { key: "id", label: "id" },
-  { key: "channel", label: "channel" },
-  { key: "model", label: "model" },
+  { key: "channel", label: "channel", kind: "select" },
+  { key: "model", label: "model", kind: "model" },
   { key: "effort", label: "effort", kind: "select", options: ["low", "medium", "high", "max"] },
   { key: "temperature", label: "temperature", kind: "number" },
   { key: "billing", label: "billing", kind: "select", options: ["free", "reported", "priced", "unmetered"] },
@@ -185,6 +196,13 @@ const SETTINGS_FIELDS: Field[] = [
   { key: "log.level", label: "log level", kind: "select", options: ["off", "calls", "full"] },
   { key: "log.retainDays", label: "log retain days", kind: "number" },
 ];
+
+export function modelsForChannel(
+  channels: ChannelSummary[], tests: Record<string, { ok: boolean; models?: string[] }>, chId: string,
+): string[] {
+  const ch = channels.find((c) => c.id === chId);
+  return [...new Set([...(tests[chId]?.ok ? tests[chId].models ?? [] : []), ...(ch?.extraModels ?? []), ...Object.keys(ch?.modelCaps ?? {})])];
+}
 
 function ChannelExtra({ item, store }: { item: ChannelSummary; store: Store }) {
   const test = store.state.channelTest[item.id];
@@ -215,6 +233,8 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
   const probe = store.state.probeResults[`${item.channel}:${item.model}`];
   const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
   const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
+  const [pending, setPending] = useState<{ prev: unknown } | null>(null);
+  const waiting = pending !== null && pending.prev === probe;
   const isUnmetered =
     item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
   return (
@@ -225,7 +245,13 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
       {caps.reasoning ? <span class="badge">reasoning</span> : null}
       {caps.imageGen ? <span class="badge">imageGen</span> : null}
       {typeof caps.contextTokens === "number" ? <span class="badge">{Math.round(caps.contextTokens / 1000)}k</span> : null}
-      <button class="small" onClick={() => store.probeModel(item.channel, item.model, true)}>
+      {waiting ? <span class="hint">probing…</span> : null}
+      {!waiting && probe ? (
+        probe.ok
+          ? <span class="ok" title={probe.probedAt ? new Date(probe.probedAt).toLocaleString() : undefined}>✓ probed{probe.cached ? " (cached)" : ""}</span>
+          : <span class="fail">✗ {probe.error ?? "probe failed"}</span>
+      ) : null}
+      <button class="small" disabled={waiting} onClick={() => { setPending({ prev: probe }); store.probeModel(item.channel, item.model, true); }}>
         {probe ? "Re-probe" : "Probe"}
       </button>
     </span>
@@ -325,6 +351,10 @@ function SetupWizard({ store, channels, agents, roles }: { store: Store; channel
 export function SettingsView({ store }: { store: Store }) {
   const cfg = store.state.config?.summary;
   const [active, setActive] = useState<"channels" | "agents" | "roles" | "skills" | "settings" | "integrations">("channels");
+  useEffect(() => {
+    if (active !== "agents") return;
+    for (const c of cfg?.channels ?? []) if (c.enabled && !store.state.channelTest[c.id]) store.testChannel(c.id);
+  }, [active, cfg?.channels]);
   if (!cfg) {
     return (
       <div class="settings">
@@ -365,7 +395,9 @@ export function SettingsView({ store }: { store: Store }) {
       ) : null}
       {active === "agents" ? (
         <ItemsSection<AgentSummary>
-          title="Agents" file="agents.yaml" items={cfg.agents ?? []} fields={AGENT_FIELDS} store={store}
+          title="Agents" file="agents.yaml" items={cfg.agents ?? []} store={store}
+          fields={AGENT_FIELDS.map((f) => (f.key === "channel" ? { ...f, options: (cfg.channels ?? []).map((c) => c.id) } : f))}
+          modelsFor={(chId) => modelsForChannel(cfg.channels ?? [], store.state.channelTest, chId)}
           empty={{ id: "agent", channel: cfg.channels?.[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
           renderExtra={(i, st) => <AgentExtra item={i} channels={cfg.channels ?? []} store={st} />}
         />

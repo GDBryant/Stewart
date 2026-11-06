@@ -5,6 +5,7 @@ import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
 import { MockBridge, type ConfigReply } from "../src/bridge.js";
+import { modelsForChannel } from "../src/SettingsView.js";
 
 afterEach(cleanup);
 
@@ -563,6 +564,111 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByText("Dismiss"));
     expect(store.state.v1Draft).toBeUndefined();
     expect(bridge.sent.some((m) => m.type === "config.importV1")).toBe(false);
+  });
+
+  const openAgents = (bridge: MockBridge, reply: typeof configReply = configReply) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(reply));
+    fireEvent.click(screen.getByText("agents"));
+  };
+
+  it("agents tab sends channel.test for enabled channels only", () => {
+    const { bridge } = mk();
+    const reply = {
+      ...configReply,
+      summary: {
+        ...configReply.summary,
+        channels: [...configReply.summary.channels, { id: "c3", type: "ollama", enabled: false, baseUrl: "http://z" }],
+      },
+    };
+    openAgents(bridge, reply);
+    expect(bridge.sent).toContainEqual({ type: "channel.test", channelId: "c1" });
+    expect(bridge.sent).toContainEqual({ type: "channel.test", channelId: "c2" });
+    expect(bridge.sent).not.toContainEqual({ type: "channel.test", channelId: "c3" });
+  });
+
+  it("agents tab does not re-test a channel that already has a result", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m1"] }));
+    fireEvent.click(screen.getByText("agents"));
+    expect(bridge.sent.filter((m) => m.type === "channel.test" && m.channelId === "c1")).toHaveLength(0);
+    expect(bridge.sent).toContainEqual({ type: "channel.test", channelId: "c2" });
+  });
+
+  it("agent model select lists tested models and ignores failed test results", () => {
+    const { bridge } = mk();
+    openAgents(bridge);
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m1", "m2"] }));
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c2", ok: false, error: "down", models: ["bad"] }));
+    fireEvent.click(screen.getAllByText("Edit")[1]);
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const selects = screen.getAllByText("model").map((l) => l.parentElement!.querySelector("select")!);
+    expect([...selects[0].options].map((o) => o.value)).toEqual(["", "m1", "m2", "m"]);
+    expect([...selects[1].options].map((o) => o.value)).toEqual(["", "v"]);
+    const channelSel = screen.getAllByText("channel")[0].parentElement!.querySelector("select")!;
+    expect([...channelSel.options].map((o) => o.value)).toEqual(["", "c1", "c2"]);
+  });
+
+  it("probe shows probing and disables the button until a result arrives", () => {
+    const { bridge } = mk();
+    openAgents(bridge);
+    const btn = screen.getAllByText("Probe")[0] as HTMLButtonElement;
+    fireEvent.click(btn);
+    expect(screen.getByText("probing…")).toBeTruthy();
+    expect(btn.disabled).toBe(true);
+    act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c2", model: "v", ok: true, probedAt: 1 }));
+    expect(screen.getByText("probing…")).toBeTruthy();
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("successful probe shows ✓ probed and re-enables the button", () => {
+    const { bridge } = mk();
+    openAgents(bridge);
+    const btn = screen.getAllByText("Probe")[0] as HTMLButtonElement;
+    fireEvent.click(btn);
+    act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c1", model: "m", ok: true, probedAt: 1 }));
+    expect(screen.queryByText("probing…")).toBeNull();
+    expect(screen.getByText("✓ probed")).toBeTruthy();
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("failed probe shows the error and re-enables the button", () => {
+    const { bridge } = mk();
+    openAgents(bridge);
+    const btn = screen.getAllByText("Probe")[0] as HTMLButtonElement;
+    fireEvent.click(btn);
+    act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c1", model: "m", ok: false, error: "model not found" }));
+    expect(screen.queryByText("probing…")).toBeNull();
+    expect(screen.getByText("✗ model not found")).toBeTruthy();
+    expect(screen.queryByText("✓ probed")).toBeNull();
+    expect(btn.disabled).toBe(false);
+  });
+});
+
+describe("modelsForChannel", () => {
+  const channels = [
+    { id: "c1", type: "ollama", enabled: true, extraModels: ["x1", "m1"], modelCaps: { m2: {}, m1: {} } },
+    { id: "c2", type: "openai-compatible", enabled: true },
+  ];
+
+  it("merges tested, extra and capability models and de-duplicates them", () => {
+    const tests = { c1: { ok: true, models: ["m1", "m2", "m3"] } };
+    expect(modelsForChannel(channels, tests, "c1")).toEqual(["m1", "m2", "m3", "x1"]);
+  });
+
+  it("ignores a failed test result but keeps configured models", () => {
+    const tests = { c1: { ok: false, models: ["bad"], error: "down" } };
+    expect(modelsForChannel(channels, tests, "c1")).toEqual(["x1", "m1", "m2"]);
+  });
+
+  it("returns no models for a channel without config or tests", () => {
+    expect(modelsForChannel(channels, {}, "c2")).toEqual([]);
+  });
+
+  it("returns [] for an unknown channel with no test result", () => {
+    expect(modelsForChannel(channels, {}, "zz")).toEqual([]);
   });
 });
 
