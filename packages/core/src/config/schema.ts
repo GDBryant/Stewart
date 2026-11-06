@@ -33,6 +33,7 @@ export const agentSchema = z.object({
   temperature: z.number().optional(),
   billing: z.enum(["free", "reported", "priced", "unmetered"]).optional(),
   price: z.object({ inPerMTok: z.number(), outPerMTok: z.number() }).optional(),
+  costs: z.boolean().optional(), // known cost flag shown on assigned roles; default derived (claude-cli, reported/priced billing)
 });
 export type AgentDef = z.infer<typeof agentSchema>;
 

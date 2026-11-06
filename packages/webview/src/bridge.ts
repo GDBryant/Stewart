@@ -32,7 +32,7 @@ export interface ChannelSummary {
   extraModels?: string[]; maxParallel?: number; modelCaps?: Record<string, unknown>;
 }
 export interface AgentSummary {
-  id: string; channel: string; model: string; effort?: string; temperature?: number; billing?: string;
+  id: string; channel: string; model: string; effort?: string; temperature?: number; billing?: string; costs?: boolean;
   price?: { inPerMTok: number; outPerMTok: number };
 }
 export interface RoleSummary {
@@ -150,4 +150,12 @@ export class MockBridge implements Bridge {
   inbound(msg: Inbound): void {
     for (const l of this.listeners) l(msg);
   }
+}
+
+/** Known-cost flag: explicit `costs` wins; else priced/reported billing, or a claude-cli channel by default. */
+export function agentCosts(a: AgentSummary | undefined, channels: ChannelSummary[]): boolean {
+  if (!a) return false;
+  if (typeof a.costs === "boolean") return a.costs;
+  if (a.billing) return a.billing === "priced" || a.billing === "reported";
+  return channels.find((c) => c.id === a.channel)?.type === "claude-cli";
 }

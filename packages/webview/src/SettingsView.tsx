@@ -3,6 +3,7 @@ import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import { SetupWizard } from "./SetupWizard.js";
 import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsSummary, ConfigReply } from "./bridge.js";
+import { agentCosts } from "./bridge.js";
 
 type Field = {
   key: string;
@@ -266,6 +267,7 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
     item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
   return (
     <span class="extra">
+      {agentCosts(item, channels) ? <span class="badge warn" title="This agent incurs cost">$ costs</span> : null}
       {isUnmetered ? <span class="badge warn" title="Spend is not visible to cost limit">unmetered</span> : null}
       {typeof caps.tools === "string" ? <span class="badge">tools:{caps.tools}</span> : null}
       {caps.vision ? <span class="badge">vision</span> : null}
@@ -390,6 +392,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
           <b>{role.id}</b>
         </label>
         <span class="summary">{(role.skills ?? []).join(", ")}</span>
+        {agentCosts(agents.find((a) => a.id === role.agent), channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
         <span class="spacer" />
         <button class="small" onClick={onReset}>Reset</button>
         <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>

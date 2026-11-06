@@ -4,7 +4,7 @@ import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
-import { MockBridge, type ConfigReply } from "../src/bridge.js";
+import { MockBridge, agentCosts, type ConfigReply } from "../src/bridge.js";
 import { modelsForChannel } from "../src/SettingsView.js";
 
 afterEach(cleanup);
@@ -862,5 +862,23 @@ describe("webview theme styles", () => {
     expect(css).toMatch(/select[^{]*\{[^}]*background:\s*var\(--st-input-bg\)/);
     expect(css).toMatch(/select option\s*\{[^}]*color:\s*var\(--st-input-fg\)/);
     expect(css).toMatch(/\.send\s*\{[^}]*background:\s*var\(--st-accent\)/);
+  });
+});
+
+describe("agentCosts", () => {
+  const chs = [
+    { id: "cl", type: "claude-cli", enabled: true },
+    { id: "ol", type: "ollama", enabled: true },
+  ];
+  it("flags claude-cli by default, priced/reported billing, and explicit costs", () => {
+    expect(agentCosts({ id: "a", channel: "cl", model: "m" }, chs)).toBe(true);
+    expect(agentCosts({ id: "a", channel: "ol", model: "m", billing: "priced" }, chs)).toBe(true);
+    expect(agentCosts({ id: "a", channel: "ol", model: "m", costs: true }, chs)).toBe(true);
+  });
+  it("does not flag free/unmetered/local agents, explicit false, or missing agent", () => {
+    expect(agentCosts({ id: "a", channel: "ol", model: "m" }, chs)).toBe(false);
+    expect(agentCosts({ id: "a", channel: "cl", model: "m", billing: "free" }, chs)).toBe(false);
+    expect(agentCosts({ id: "a", channel: "cl", model: "m", costs: false }, chs)).toBe(false);
+    expect(agentCosts(undefined, chs)).toBe(false);
   });
 });

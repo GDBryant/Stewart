@@ -121,7 +121,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
       let id = base;
       for (let n = 2; nextAgents.has(id); n++) id = `${base}-${n}`;
       const type = channels.find((c) => c.id === ch)?.type;
-      nextAgents.set(id, { id, channel: ch, model, effort: "medium", billing: type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered" });
+      nextAgents.set(id, { id, channel: ch, model, effort: "medium", billing: type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered", ...(type === "claude-cli" ? { costs: true } : {}) });
       pairToAgent.set(ref, id);
     }
     const nextRoles = roles.map((r) => {

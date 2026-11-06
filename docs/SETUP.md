@@ -12,3 +12,6 @@ Settings → Run setup (opens automatically when no channels/agents exist). Step
 
 ## Not yet
 Resume after IDE restart, YAML undo backup, Claude CLI auto-detect, quality-vs-free toggle.
+
+## Cost flag
+Agents carry optional `costs: boolean`. Default is derived: `priced`/`reported` billing, or a `claude-cli` channel. Settings shows a `$ costs` badge on the agent and on every role whose agent costs. The wizard sets `costs: true` on Claude CLI agents.
