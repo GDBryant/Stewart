@@ -64,3 +64,6 @@ bundled Node runtimes.
 - JetBrains update feed: `scripts/gen-update-feed.mjs <version>` writes `updatePlugins.xml` pointing at the BASE zip (system-Node fallback) at `releases/download/v<version>/stewart-<version>.zip`. On non-prerelease tags the workflow uploads it to GitHub Pages and attaches it as a release asset: `https://gdbryant.github.io/Stewart/updatePlugins.xml`. Per-OS bundled-Node zips (`stewart-<v>-<os>-<arch>.zip`) are manual downloads — not advertised by the feed.
 - User install via the feed: IDE → Settings → Plugins → gear → Manage Plugin Repositories → `+` → `https://gdbryant.github.io/Stewart/updatePlugins.xml` → OK → install/update Stewart.
 - One-time maintainer setup: repo Settings → Pages → Source: GitHub Actions; create a VS Code Marketplace publisher and add the `VSCE_PAT` secret (`hosts/vscode/package.json` `publisher: "stewart"` must be changed to the real publisher id — confirm before the first marketplace publish); `CERTIFICATE_CHAIN`/`PRIVATE_KEY`(/`PRIVATE_KEY_PASSWORD`) are optional for `signPlugin`.
+
+## Keeping workflow actions current
+`.github/dependabot.yml` opens weekly PRs for outdated `uses:` versions in `.github/workflows`, so runtime deprecations (e.g. Node 20 actions) arrive as PRs. `packages/sidecar/test/workflows.test.mjs` fails if an action lacks a version ref or the Pages upload path is not a directory.
