@@ -65,6 +65,8 @@ export interface ConfigReply {
   files: Record<string, string | undefined>;
   summary: ConfigSummary;
   errors: string[];
+  /** secretRef -> whether a value is stored (never the value itself). */
+  secrets?: Record<string, boolean>;
 }
 
 export interface SessionSummary {

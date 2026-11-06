@@ -243,6 +243,25 @@ describe("Core config", () => {
     expect(secrets.has("sk")).toBe(false);
   });
 
+  it("config.get reports which secretRefs are stored, never their values", async () => {
+    const secrets = new Map<string, string>([["has", "topsecret"]]);
+    const host = fakeHost();
+    host.secrets = {
+      get: async (k) => secrets.get(k),
+      set: async (k, v) => void secrets.set(k, v),
+      delete: async (k) => void secrets.delete(k),
+    };
+    const user = memStore({
+      "channels.yaml":
+        "version: 1\nitems:\n  - id: a\n    type: ollama\n    baseUrl: http://x\n    secretRef: has\n  - id: b\n    type: ollama\n    baseUrl: http://y\n    secretRef: missing\n  - id: c\n    type: ollama\n    baseUrl: http://z\n",
+    });
+    const core = new Core({ defaults: {}, userConfig: user, projectConfig: async () => memStore(), fetcher: fakeFetcher([]).fetcher, emitEvent: () => {} });
+    await core.attachProject("p", host);
+    const r = (await core.dispatch("config.get", { projectId: "p" })) as { secrets: Record<string, boolean> };
+    expect(r.secrets).toEqual({ has: true, missing: false });
+    expect(JSON.stringify(r)).not.toContain("topsecret");
+  });
+
   it("suppresses self-writes on watcher reload and caches capability probes", async () => {
     const { fetcher, calls } = fakeFetcher([
       { body: ['{"capabilities":["tools","vision"],"model_info":{"general.context_length":65536}}'] },

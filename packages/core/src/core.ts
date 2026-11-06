@@ -295,7 +295,11 @@ export class Core {
         const projectFiles = ctx.trusted ? await ctx.projectStore.read() : {};
         const files = { ...this.deps.defaults, ...userFiles, ...projectFiles };
         const { errors, ...summary } = ctx.config;
-        return { files, summary, errors };
+        const secrets: Record<string, boolean> = {};
+        for (const c of ctx.config.channels) {
+          if (c.secretRef && !(c.secretRef in secrets)) secrets[c.secretRef] = (await ctx.host.secrets.get(c.secretRef)) !== undefined;
+        }
+        return { files, summary, errors, secrets };
       }
       case "config.reload": {
         const p = params as { projectId: string; fromWatcher?: boolean };

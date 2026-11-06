@@ -230,9 +230,11 @@ export class Store {
   }
   setSecret(ref: string, value: string): void {
     this.bridge.post({ type: "secret.set", ref, value });
+    this.requestConfig();
   }
   deleteSecret(ref: string): void {
     this.bridge.post({ type: "secret.delete", ref });
+    this.requestConfig();
   }
   saveSkill(id: string, body: string, description?: string): void {
     this.bridge.post({ type: "skills.save", id, body, description });
@@ -279,7 +281,7 @@ export class Store {
   }
 
   private onInbound(m: Inbound): void {
-    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors }, lastError: undefined });
+    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors, secrets: m.secrets }, lastError: undefined });
     if (m.type === "channel.test.result")
       return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
     if (m.type === "channel.probe.result")

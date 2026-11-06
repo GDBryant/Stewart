@@ -175,6 +175,23 @@ class WorkspaceFilesTest : BasePlatformTestCase() {
         assertEquals("two", File(project.basePath, "state/y.txt").readText())
     }
 
+    fun testReadAfterWriteAtomicSeesNewContent() {
+        val f = write("cfg/channels.yaml", "items: [a, b]")
+        val vf = LocalFileSystem.getInstance().findFileByIoFile(f)!!
+        FileDocumentManager.getInstance().getDocument(vf)!!
+        assertEquals("items: [a, b]", files().read("cfg/channels.yaml")["content"]!!.jsonPrimitive.content)
+        files().writeAtomic("cfg/channels.yaml", "items: [a]")
+        assertEquals("items: [a]", files().read("cfg/channels.yaml")["content"]!!.jsonPrimitive.content)
+    }
+
+    fun testReadPrefersUnsavedEditorBuffer() {
+        val f = write("unsaved-a.txt", "disk")
+        val doc = FileDocumentManager.getInstance().getDocument(LocalFileSystem.getInstance().findFileByIoFile(f)!!)!!
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) { doc.setText("buffer") }
+        assertEquals("buffer", files().read("unsaved-a.txt")["content"]!!.jsonPrimitive.content)
+        assertEquals("disk", f.readText())
+    }
+
     fun testAppendCreatesNestedDirs() {
         files().appendLine("deep/nested/log.txt", "L")
         assertEquals(1, files().readLines("deep/nested/log.txt").jsonArray.size)

@@ -6,7 +6,7 @@ import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsS
 type Field = {
   key: string;
   label: string;
-  kind?: "text" | "bool" | "number" | "list" | "select" | "model";
+  kind?: "text" | "bool" | "number" | "list" | "select" | "model" | "secret";
   options?: string[];
   placeholder?: string;
 };
@@ -50,7 +50,7 @@ function ItemCard<T extends object>({
 }: {
   item: T;
   fields: Field[];
-  onSave(next: T): void;
+  onSave(next: T, secrets: Record<string, string>): void;
   onRemove?(): void;
   extra?: (item: T) => unknown;
   startEditing?: boolean;
@@ -65,14 +65,17 @@ function ItemCard<T extends object>({
         <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
         <span class="spacer" />
         {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
-        <button onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button>
+        <button onClick={() => { if (editing) set("apiKey", ""); setEditing(!editing); }}>{editing ? "Cancel" : "Edit"}</button>
         {editing ? (
           <button
             class="send"
             disabled={idMissing}
             onClick={() => {
               const merged = { ...(item as object), ...unflatten(form, fields) };
-              onSave(merged as T);
+              const secrets: Record<string, string> = {};
+              for (const f of fields) if (f.kind === "secret" && form[f.key]) secrets[f.key] = form[f.key];
+              onSave(merged as T, secrets);
+              set("apiKey", "");
               setEditing(false);
             }}
           >
@@ -97,6 +100,8 @@ function ItemCard<T extends object>({
                     <option key={o} value={o}>{o}</option>
                   ))}
                 </select>
+              ) : f.kind === "secret" ? (
+                <input type="password" autocomplete="off" value={form[f.key] ?? ""} placeholder={f.placeholder} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />
               ) : f.kind === "bool" ? (
                 <select value={form[f.key] ?? "false"} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
                   <option value="true">true</option>
@@ -109,7 +114,7 @@ function ItemCard<T extends object>({
           ))}
         </div>
       ) : (
-        <div class="summary">{fields.filter((f) => form[f.key] !== undefined && form[f.key] !== "").map((f) => `${f.label}: ${form[f.key]}`).join(" · ")}</div>
+        <div class="summary">{fields.filter((f) => f.kind !== "secret" && form[f.key] !== undefined && form[f.key] !== "").map((f) => `${f.label}: ${form[f.key]}`).join(" · ")}</div>
       )}
     </div>
   );
@@ -128,6 +133,15 @@ function ItemsSection<T extends { id: string }>({
   modelsFor?: (channelId: string) => string[];
 }) {
   const save = (next: T[]) => store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
+  // An entered API key goes to the IDE secret store; only its ref name is written to YAML.
+  const withSecret = (next: T, secrets: Record<string, string>): T => {
+    const key = secrets.apiKey;
+    if (!key) return next;
+    const o = next as T & { secretRef?: string };
+    const ref = o.secretRef && !looksLikeKey(o.secretRef) ? o.secretRef : `channel-${o.id}`;
+    store.setSecret(ref, key);
+    return { ...o, secretRef: ref };
+  };
   const [draft, setDraft] = useState<T | undefined>(undefined);
   return (
     <section>
@@ -141,7 +155,7 @@ function ItemsSection<T extends { id: string }>({
           fields={fields}
           modelsFor={modelsFor}
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
-          onSave={(next) => save(items.map((x) => (x.id === it.id ? next : x)))}
+          onSave={(next, sec) => save(items.map((x) => (x.id === it.id ? withSecret(next, sec) : x)))}
           onRemove={() => save(items.filter((x) => x.id !== it.id))}
         />
       ))}
@@ -152,8 +166,8 @@ function ItemsSection<T extends { id: string }>({
           modelsFor={modelsFor}
           startEditing
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
-          onSave={(next) => {
-            save([...items, next]);
+          onSave={(next, sec) => {
+            save([...items, withSecret(next, sec)]);
             setDraft(undefined);
           }}
           onRemove={() => setDraft(undefined)}
@@ -170,7 +184,7 @@ const CHANNEL_FIELDS: Field[] = [
   { key: "type", label: "type", kind: "select", options: ["openai-compatible", "ollama", "claude-cli"] },
   { key: "enabled", label: "enabled", kind: "bool" },
   { key: "baseUrl", label: "baseUrl", placeholder: "http://localhost:11434" },
-  { key: "secretRef", label: "secretRef", placeholder: "ref name (stored in IDE secrets)" },
+  { key: "apiKey", label: "API key", kind: "secret", placeholder: "paste to store in IDE secrets (leave blank to keep)" },
   { key: "extraModels", label: "extraModels (csv)", kind: "list" },
   { key: "maxParallel", label: "maxParallel", kind: "number" },
 ];
@@ -204,26 +218,38 @@ export function modelsForChannel(
   return [...new Set([...(tests[chId]?.ok ? tests[chId].models ?? [] : []), ...(ch?.extraModels ?? []), ...Object.keys(ch?.modelCaps ?? {})])];
 }
 
+/** A secretRef is a short name; a pasted API key is not. */
+export function looksLikeKey(ref: string): boolean {
+  return ref.length >= 32 || /^(sk|rk|pk|ghp|xox[a-z])[-_]/i.test(ref);
+}
+
 function ChannelExtra({ item, store }: { item: ChannelSummary; store: Store }) {
   const test = store.state.channelTest[item.id];
+  const ref = item.secretRef;
+  const stored = ref ? store.state.config?.secrets?.[ref] : undefined;
+  const leaked = !!ref && looksLikeKey(ref);
+  const moveToStore = () => {
+    if (!ref) return;
+    const newRef = `channel-${item.id}`;
+    store.setSecret(newRef, ref);
+    const items = (store.state.config?.summary.channels ?? []).map((c) => (c.id === item.id ? { ...c, secretRef: newRef } : c));
+    store.saveFile("channels.yaml", stringify({ version: 1, items }, null, 2));
+  };
   return (
     <span class="extra">
       {test ? (test.ok ? <span class="ok">✓ {(test.models ?? []).join(", ")}</span> : <span class="fail">✗ {test.error}</span>) : null}
       <button class="small" onClick={() => store.testChannel(item.id)}>Test</button>
-      {item.secretRef ? (
-        <SecretInput refName={item.secretRef} store={store} />
+      {leaked ? (
+        <span class="fail">
+          API key is saved as plain text in channels.yaml.{" "}
+          <button class="small" onClick={moveToStore}>Move to secret store</button>
+        </span>
+      ) : ref ? (
+        <span class="secret">
+          {stored ? <span class="ok">key stored</span> : <span class="hint">no key stored</span>}
+          {stored ? <button class="small deny" onClick={() => store.deleteSecret(ref)}>Clear key</button> : null}
+        </span>
       ) : null}
-    </span>
-  );
-}
-
-function SecretInput({ refName, store }: { refName: string; store: Store }) {
-  const [v, setV] = useState("");
-  return (
-    <span class="secret">
-      <input type="password" placeholder={`set ${refName}`} value={v} onInput={(e) => setV((e.target as HTMLInputElement).value)} />
-      <button class="small" disabled={!v} onClick={() => { store.setSecret(refName, v); setV(""); }}>Store</button>
-      <button class="small deny" onClick={() => store.deleteSecret(refName)}>Clear</button>
     </span>
   );
 }
@@ -263,8 +289,11 @@ function SetupWizard({ store, channels, agents, roles }: { store: Store; channel
   const [chType, setChType] = useState("ollama");
   const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
   const [agId, setAgId] = useState("default-agent");
-  const [model, setModel] = useState("qwen2.5-coder");
+  const [pickedModel, setModel] = useState("");
+  const wizModels = modelsForChannel(channels, store.state.channelTest, chId);
+  const model = pickedModel || wizModels[0] || "";
   const createAll = () => {
+    if (!model) return;
     const nextCh = [...channels.filter((c) => c.id !== chId), { id: chId, type: chType, enabled: true, baseUrl }];
     const billing = chType === "ollama" || chId === "aif" ? "free" : chType === "claude-cli" ? "reported" : "unmetered";
     const nextAg = [...agents.filter((a) => a.id !== agId), { id: agId, channel: chId, model, effort: "medium", billing }];
@@ -317,13 +346,22 @@ function SetupWizard({ store, channels, agents, roles }: { store: Store; channel
         </label>
         <label class="field"><span>Base URL</span><input placeholder="wizard-base-url" value={baseUrl} onInput={(e) => setBaseUrl((e.target as HTMLInputElement).value)} /></label>
         <label class="field"><span>Agent ID</span><input placeholder="wizard-agent-id" value={agId} onInput={(e) => setAgId((e.target as HTMLInputElement).value)} /></label>
-        <label class="field"><span>Model</span><input placeholder="wizard-model" value={model} onInput={(e) => setModel((e.target as HTMLInputElement).value)} /></label>
+        <label class="field">
+          <span>Model</span>
+          {wizModels.length ? (
+            <select aria-label="wizard-model" value={model} onChange={(e) => setModel((e.target as HTMLSelectElement).value)}>
+              {wizModels.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input placeholder="wizard-model (run Test connection to list)" value={pickedModel} onInput={(e) => setModel((e.target as HTMLInputElement).value)} />
+          )}
+        </label>
         <div class="row">
           <button class="small" onClick={() => store.testChannel(chId)}>Test connection</button>
           <button class="small" disabled={store.state.recommendBusy || !channels.length} onClick={() => store.recommend()}>
             {store.state.recommendBusy ? "Researching…" : "Research & assign with AI"}
           </button>
-          <button class="send" onClick={createAll}>Finish setup &amp; assign to roles</button>
+          <button class="send" disabled={!model} onClick={createAll}>Finish setup &amp; assign to roles</button>
         </div>
         {store.state.recommendError ? <div class="fail">{store.state.recommendError}</div> : null}
         {rec ? (

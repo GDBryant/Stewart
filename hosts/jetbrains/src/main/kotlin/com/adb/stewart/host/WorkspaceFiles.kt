@@ -55,11 +55,21 @@ class WorkspaceFiles(private val project: Project) {
         return ref.get()
     }
 
+    /**
+     * Unsaved editor edits win; otherwise read disk directly. The VFS/Document cache
+     * lags behind java.io writes (writeAtomic), so trusting it returns stale text.
+     */
+    private fun currentText(vf: VirtualFile, doc: Document?): String {
+        if (doc != null && FileDocumentManager.getInstance().isDocumentUnsaved(doc)) return doc.text
+        val f = File(vf.path)
+        return if (f.isFile) f.readText(Charsets.UTF_8) else doc?.text ?: VfsUtil.loadText(vf)
+    }
+
     fun read(path: String): JsonObject {
         val vf = virtualFile(path)
         return ApplicationManager.getApplication().runReadAction(Computable {
             val doc = FileDocumentManager.getInstance().getDocument(vf)
-            val content = doc?.text ?: VfsUtil.loadText(vf)
+            val content = currentText(vf, doc)
             buildJsonObject {
                 put("content", JsonPrimitive(content))
                 if (doc != null) put("version", JsonPrimitive(doc.modificationStamp))
@@ -102,7 +112,7 @@ class WorkspaceFiles(private val project: Project) {
     fun readBack(path: String): JsonElement {
         val vf = virtualFile(path)
         return ApplicationManager.getApplication().runReadAction(Computable {
-            JsonPrimitive(FileDocumentManager.getInstance().getDocument(vf)?.text ?: VfsUtil.loadText(vf))
+            JsonPrimitive(currentText(vf, FileDocumentManager.getInstance().getDocument(vf)))
         })
     }
 
@@ -160,6 +170,7 @@ class WorkspaceFiles(private val project: Project) {
             tmp.delete()
             throw IOException("cannot move temp file to $path")
         }
+        LocalFileSystem.getInstance().refreshIoFiles(listOf(target), true, false, null)
         return JsonObject(emptyMap())
     }
 

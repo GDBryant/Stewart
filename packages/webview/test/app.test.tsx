@@ -443,8 +443,23 @@ describe("webview settings", () => {
     act(() => bridge.inbound(configReply));
     fireEvent.click(screen.getByText("Run setup"));
     expect(screen.getByText("First-run setup wizard")).toBeTruthy();
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "local-ollama", ok: true, models: ["qwen2.5-coder:7b", "gemma4:e4b"] }));
     fireEvent.click(screen.getByText("Finish setup & assign to roles"));
     expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "default-agent", wizard: true });
+    const saved = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
+    expect(saved.yaml).toContain("model: qwen2.5-coder:7b");
+    expect(saved.yaml).not.toMatch(/model: qwen2\.5-coder\s*$/m);
+  });
+
+  it("wizard blocks finish until a model is known", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("Run setup"));
+    const btn = screen.getByText("Finish setup & assign to roles") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(bridge.sent.some((m: any) => m.type === "roles.assignAgent")).toBe(false);
   });
 
   it("imports v1 settings through the draft card", () => {
@@ -491,6 +506,116 @@ describe("webview settings", () => {
     expect(set && set.type === "config.set" && set.file).toBe("channels.yaml");
     expect(set && set.type === "config.set" && set.yaml).toContain("channel-3");
     expect(configGets()).toBe(getsBefore);
+  });
+
+  it("Remove on a saved channel sends config.set without it", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getAllByText("Remove")[0]);
+    const set = bridge.sent.find((m) => m.type === "config.set" && m.file === "channels.yaml") as any;
+    expect(set.yaml).not.toContain("id: c1");
+    expect(set.yaml).toContain("id: c2");
+  });
+
+  it("Remove on an unsaved draft discards it without config.set", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("+ Add"));
+    const removes = screen.getAllByText("Remove").length;
+    fireEvent.click(screen.getAllByText("Remove")[removes - 1]);
+    expect(screen.getAllByText("Remove").length).toBe(removes - 1);
+    expect(bridge.sent.some((m) => m.type === "config.set")).toBe(false);
+  });
+
+  describe("channel API key", () => {
+    const withChannels = (channels: unknown[], secrets: Record<string, boolean>) =>
+      ({ ...configReply, summary: { ...configReply.summary, channels }, secrets }) as typeof configReply;
+    const KEY = "sk-live-0123456789abcdef";
+
+    it("draft with an API key stores it via secret.set and writes only the ref to YAML", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() => bridge.inbound(configReply));
+      fireEvent.click(screen.getByText("+ Add"));
+      const inputs = document.querySelectorAll(".form input");
+      fireEvent.input(inputs[0], { target: { value: "aif" } });
+      const keyInput = document.querySelector('.form input[type="password"]') as HTMLInputElement;
+      fireEvent.input(keyInput, { target: { value: KEY } });
+      fireEvent.click(screen.getByText("Save"));
+      const secretIdx = bridge.sent.findIndex((m) => m.type === "secret.set");
+      const setIdx = bridge.sent.findIndex((m) => m.type === "config.set");
+      expect(bridge.sent[secretIdx]).toEqual({ type: "secret.set", ref: "channel-aif", value: KEY });
+      expect(secretIdx).toBeLessThan(setIdx);
+      const yaml = (bridge.sent[setIdx] as { yaml: string }).yaml;
+      expect(yaml).toContain("secretRef: channel-aif");
+      expect(yaml).not.toContain(KEY);
+      expect(yaml).not.toContain("apiKey");
+    });
+
+    it("no secret.set when the key box is blank", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() => bridge.inbound(configReply));
+      fireEvent.click(screen.getByText("+ Add"));
+      fireEvent.input(document.querySelectorAll(".form input")[0], { target: { value: "plain" } });
+      fireEvent.click(screen.getByText("Save"));
+      expect(bridge.sent.some((m) => m.type === "secret.set")).toBe(false);
+      expect((bridge.sent.find((m) => m.type === "config.set") as { yaml: string }).yaml).not.toContain("secretRef");
+    });
+
+    it("cancelling an edit discards the typed key", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() => bridge.inbound(configReply));
+      fireEvent.click(screen.getAllByText("Edit")[0]);
+      fireEvent.input(document.querySelector('.form input[type="password"]')!, { target: { value: KEY } });
+      fireEvent.click(screen.getByText("Cancel"));
+      fireEvent.click(screen.getAllByText("Edit")[0]);
+      expect((document.querySelector('.form input[type="password"]') as HTMLInputElement).value).toBe("");
+      expect(bridge.sent.some((m) => m.type === "secret.set")).toBe(false);
+    });
+
+    it("shows stored / not-stored status and Clear key only when stored", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() =>
+        bridge.inbound(
+          withChannels(
+            [
+              { id: "a", type: "openai-compatible", enabled: true, secretRef: "channel-a" },
+              { id: "b", type: "openai-compatible", enabled: true, secretRef: "channel-b" },
+            ],
+            { "channel-a": true, "channel-b": false },
+          ),
+        ),
+      );
+      expect(screen.getAllByText("key stored").length).toBe(1);
+      expect(screen.getAllByText("no key stored").length).toBe(1);
+      fireEvent.click(screen.getByText("Clear key"));
+      expect(bridge.sent).toContainEqual({ type: "secret.delete", ref: "channel-a" });
+    });
+
+    it("warns about a pasted key in secretRef and moves it into the secret store", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() => bridge.inbound(withChannels([{ id: "aif", type: "openai-compatible", enabled: true, secretRef: KEY }], { [KEY]: false })));
+      expect(screen.getByText(/saved as plain text/)).toBeTruthy();
+      expect(screen.queryByText("Clear key")).toBeNull();
+      fireEvent.click(screen.getByText("Move to secret store"));
+      expect(bridge.sent).toContainEqual({ type: "secret.set", ref: "channel-aif", value: KEY });
+      const yaml = (bridge.sent.find((m) => m.type === "config.set") as { yaml: string }).yaml;
+      expect(yaml).toContain("secretRef: channel-aif");
+      expect(yaml).not.toContain(KEY);
+    });
+
+    it("does not warn for a normal ref name", () => {
+      const { bridge } = mk();
+      fireEvent.click(screen.getAllByText("Settings")[0]);
+      act(() => bridge.inbound(withChannels([{ id: "a", type: "ollama", enabled: true, secretRef: "my-ref" }], { "my-ref": true })));
+      expect(screen.queryByText(/saved as plain text/)).toBeNull();
+    });
   });
 
   it("shows host errors in settings and clears them on the next config reply", () => {
