@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.adb.stewart"
-version = providers.gradleProperty("version").orNull ?: "2.0.1"
+version = providers.gradleProperty("version").orNull ?: "2.0.3"
 
 repositories {
     mavenCentral()
