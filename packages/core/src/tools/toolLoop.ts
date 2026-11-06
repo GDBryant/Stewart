@@ -2,6 +2,7 @@ import type { ManagedChannel } from "../channels/registry.js";
 import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, type SchemaMap } from "./shimParser.js";
+import { buildToolsBlock } from "./shimPrompt.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
   type ToolOutcome, type ToolPreview,
@@ -86,6 +87,13 @@ export class ToolLoop {
     return Object.fromEntries(this.registry.tools.map((t) => [t.spec.name, t.spec.parameters]));
   }
 
+  /** Built fresh per request: role prompt plus, in shim mode, the `<tools>` block. Never stored in history. */
+  private systemPrompt(): string | undefined {
+    const toolsBlock = this.toolsMode === "shim" ? buildToolsBlock(this.registry.specs) : null;
+    const joined = [this.rolePrompt, toolsBlock].filter((s): s is string => !!s).join("\n\n");
+    return joined === "" ? undefined : joined;
+  }
+
   async run(model: string, history: ChatMessage[], listener: LoopListener, signal: AbortSignal): Promise<LoopResult> {
     const produced: ChatMessage[] = [];
     const base = history;
@@ -130,8 +138,9 @@ export class ToolLoop {
         text = "";
         turnOpen = true;
         let calls: ToolCall[] = [];
-        const outbound: ChatMessage[] = this.rolePrompt
-          ? [{ role: "system", content: this.rolePrompt }, ...base, ...produced]
+        const system = this.systemPrompt();
+        const outbound: ChatMessage[] = system
+          ? [{ role: "system", content: system }, ...base, ...produced]
           : [...base, ...produced];
         let sawDone = false;
         let sawTruncated = false;

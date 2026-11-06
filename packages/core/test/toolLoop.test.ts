@@ -220,3 +220,67 @@ describe("ToolLoop", () => {
     expect(failedCompactions).toHaveLength(1);
   });
 });
+
+describe("ToolLoop tool injection", () => {
+  const sysOf = (req: unknown) => ((req as { messages: ChatMessage[] }).messages.find((m) => m.role === "system") as { content: string } | undefined)?.content;
+
+  it("shim mode: system prompt carries the tools block with names, schema and call format", async () => {
+    let req: unknown;
+    const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, "ROLE", new Set(), "shim");
+    await loop.run("m", hist, {}, sig());
+    const sys = sysOf(req) ?? "";
+    expect(sys.startsWith("ROLE\n\n<tools>")).toBe(true);
+    expect(sys).toContain('"name":"Echo"');
+    expect(sys).toContain(JSON.stringify(echoTool.spec.parameters));
+    expect(sys).toContain("<tool_call>");
+    expect((req as { tools?: unknown }).tools).toBeUndefined();
+  });
+
+  it("shim mode is the default and still injects", async () => {
+    let req: unknown;
+    const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
+    await new ToolLoop(ch, registryOf([echoTool]) as never, approve).run("m", hist, {}, sig());
+    expect(sysOf(req)).toContain("<tools>");
+  });
+
+  it("native mode: sends tools natively and injects no tools block (negative)", async () => {
+    let req: unknown;
+    const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native");
+    await loop.run("m", hist, {}, sig());
+    expect((req as { tools?: unknown[] }).tools).toHaveLength(1);
+    expect(sysOf(req)).toBeUndefined();
+    expect(JSON.stringify((req as { messages: unknown }).messages)).not.toContain("<tools>");
+  });
+
+  it("shim mode with zero tools: no tools block and no system message (negative)", async () => {
+    let req: unknown;
+    const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
+    await new ToolLoop(ch, registryOf([]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(sysOf(req)).toBeUndefined();
+    expect((req as { messages: ChatMessage[] }).messages).toEqual(hist);
+  });
+
+  it("does not accumulate the tools block across turns and leaves history untouched", async () => {
+    const reqs: unknown[] = [];
+    const ch = fakeChannel(
+      [
+        [{ kind: "text", text: '<tool_call>{"name":"Echo","arguments":{"text":"yo"}}</tool_call>' }, { kind: "done" }],
+        [{ kind: "text", text: "final" }, { kind: "done" }],
+      ],
+      (r) => reqs.push(r),
+    );
+    const base: ChatMessage[] = [{ role: "user", content: "go" }];
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", base, {}, sig());
+    expect(r.kind).toBe("completed");
+    expect(reqs).toHaveLength(2);
+    for (const req of reqs) {
+      const sys = sysOf(req) ?? "";
+      expect(sys.split("<tools>").length - 1).toBe(1);
+      expect((req as { messages: ChatMessage[] }).messages.filter((m) => m.role === "system")).toHaveLength(1);
+    }
+    expect(base).toEqual([{ role: "user", content: "go" }]);
+  });
+});
+
