@@ -45,11 +45,16 @@ export function archiveDirName(archive) {
   return archive.replace(/\.(tar\.gz|zip)$/, "");
 }
 
+export function memberPath(archive, member) {
+  return `${archiveDirName(archive)}/${member}`;
+}
+
 function extractMember(archivePath, archive, { member, zip }) {
+  const path = memberPath(archive, member);
   if (zip) {
-    return execFileSync("unzip", ["-p", archivePath, member], { maxBuffer: 256 * 1024 * 1024 });
+    return execFileSync("unzip", ["-p", archivePath, path], { maxBuffer: 256 * 1024 * 1024 });
   }
-  return execFileSync("tar", ["-xzOf", archivePath, `${archiveDirName(archive)}/${member}`], { maxBuffer: 256 * 1024 * 1024 });
+  return execFileSync("tar", ["-xzOf", archivePath, path], { maxBuffer: 256 * 1024 * 1024 });
 }
 
 export async function bundleNode(key, outRoot = "dist/node", version = NODE_VERSION) {

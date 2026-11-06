@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NODE_VERSION, TARGETS, sha256Hex, shasumFor, verifyArchive } from "../../../scripts/bundle-node.mjs";
+import { NODE_VERSION, TARGETS, memberPath, sha256Hex, shasumFor, verifyArchive } from "../../../scripts/bundle-node.mjs";
 
 describe("bundle-node targets", () => {
   it("maps every required platform to an archive and exe name", () => {
@@ -19,6 +19,20 @@ describe("bundle-node targets", () => {
       expect(t.archive).toContain("{v}");
       expect(t.archive.replace("{v}", NODE_VERSION)).not.toContain("{v}");
     }
+  });
+});
+
+describe("archive member path", () => {
+  it("prefixes the zip's top-level dir for windows (node.exe is not at the zip root)", () => {
+    expect(memberPath("node-v22.20.0-win-x64.zip", "node.exe")).toBe("node-v22.20.0-win-x64/node.exe");
+  });
+
+  it("prefixes the tarball's top-level dir for unix", () => {
+    expect(memberPath("node-v22.20.0-linux-x64.tar.gz", "bin/node")).toBe("node-v22.20.0-linux-x64/bin/node");
+  });
+
+  it("does not leave the bare member name", () => {
+    expect(memberPath("node-v22.20.0-win-x64.zip", "node.exe")).not.toBe("node.exe");
   });
 });
 
