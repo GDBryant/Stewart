@@ -262,6 +262,79 @@ describe("ToolLoop tool injection", () => {
     expect((req as { messages: ChatMessage[] }).messages).toEqual(hist);
   });
 
+  it("shim: unknown tool call is fed back as a user message and the loop continues", async () => {
+    const reqs: unknown[] = [];
+    const ch = fakeChannel(
+      [
+        [{ kind: "text", text: '<tool_call>{"name":"Nope","arguments":{}}</tool_call>' }, { kind: "done" }],
+        [{ kind: "text", text: "final" }, { kind: "done" }],
+      ],
+      (r) => reqs.push(r),
+    );
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(r.kind).toBe("completed");
+    expect(reqs).toHaveLength(2);
+    const fed = (reqs[1] as { messages: ChatMessage[] }).messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+    expect(fed).toContain("unknown tool 'Nope'");
+    expect(fed).toContain("Known tools: Echo");
+    expect(r.messages.at(-1)).toMatchObject({ role: "assistant", content: "final" });
+  });
+
+  it("shim: a persistent parse error ends as turn_limit, bounded by maxModelTurns", async () => {
+    const ch = fakeChannel([[{ kind: "text", text: '<|tool_call>call:Nope{x:<|"|>1<|"|>}<tool_call|>' }, { kind: "done" }]]);
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { ...DEFAULT_LIMITS, maxModelTurns: 2 }, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(r.kind).toBe("turn_limit");
+  });
+
+  it("shim: bare JSON call with a known name executes", async () => {
+    const ch = fakeChannel([
+      [{ kind: "text", text: '{"name": "Echo", "arguments": {"text": "yo"}}' }, { kind: "done" }],
+      [{ kind: "text", text: "final" }, { kind: "done" }],
+    ]);
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(r.messages[1]).toMatchObject({ role: "tool", content: "echo:yo" });
+  });
+
+  it("shim: schema-invalid args are returned as an invalid outcome, not executed (negative)", async () => {
+    const ch = fakeChannel([
+      [{ kind: "text", text: '<tool_call>{"name":"Echo","arguments":{}}</tool_call>' }, { kind: "done" }],
+      [{ kind: "text", text: "final" }, { kind: "done" }],
+    ]);
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(r.messages[1].content).toMatch(/Invalid tool call: missing required/);
+  });
+
+  it("shim: prose with an unknown bare JSON name completes without feedback (negative, no loop)", async () => {
+    const reqs: unknown[] = [];
+    const ch = fakeChannel([[{ kind: "text", text: 'Schema: {"name": "Nope", "arguments": {}}' }, { kind: "done" }]], (r) => reqs.push(r));
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    expect(r.kind).toBe("completed");
+    expect(reqs).toHaveLength(1);
+  });
+
+  it("native: text tool call is used when no native tool_calls arrive", async () => {
+    const ch = fakeChannel([
+      [{ kind: "text", text: '<|tool_call>call:Echo{text:<|"|>yo<|"|>}<tool_call|>' }, { kind: "done" }],
+      [{ kind: "text", text: "final" }, { kind: "done" }],
+    ]);
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native").run("m", hist, {}, sig());
+    expect(r.messages[1]).toMatchObject({ role: "tool", content: "echo:yo" });
+  });
+
+  it("native: native tool_calls win and text calls are not executed twice (negative)", async () => {
+    const outcomes: string[] = [];
+    const ch = fakeChannel([
+      [
+        { kind: "tool_calls", calls: [{ id: "n", name: "Echo", arguments: { text: "x" } }] },
+        { kind: "text", text: '<tool_call>{"name":"Echo","arguments":{"text":"y"}}</tool_call>' },
+        { kind: "done" },
+      ],
+      [{ kind: "text", text: "final" }, { kind: "done" }],
+    ]);
+    await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native").run("m", hist, { onToolOutcome: (_c, o) => outcomes.push(o.kind === "success" ? o.content : o.kind) }, sig());
+    expect(outcomes).toEqual(["echo:x"]);
+  });
+
   it("does not accumulate the tools block across turns and leaves history untouched", async () => {
     const reqs: unknown[] = [];
     const ch = fakeChannel(

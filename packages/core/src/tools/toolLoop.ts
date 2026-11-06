@@ -1,7 +1,7 @@
 import type { ManagedChannel } from "../channels/registry.js";
 import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
-import { parseToolCalls, type SchemaMap } from "./shimParser.js";
+import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
 import { buildToolsBlock } from "./shimPrompt.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
@@ -199,17 +199,25 @@ export class ToolLoop {
           return { kind: "failed", messages: produced, base, message: "stream ended before completion", code: "incomplete_stream" };
         }
         turnOpen = false;
-        if (this.toolsMode === "shim") {
+        // Shim mode always parses text. Native mode parses only when the provider sent no native calls.
+        let errors: ParseError[] = [];
+        if (this.toolsMode === "shim" || calls.length === 0) {
           const parsed = parseToolCalls(text, this.schemaMap);
-          if (parsed.reasoning) listener.onReasoning?.(parsed.reasoning);
-          if (parsed.calls.length > 0 && parsed.clean !== text) {
+          if (this.toolsMode === "shim" && parsed.reasoning) listener.onReasoning?.(parsed.reasoning);
+          if (parsed.calls.length > 0) {
             // only strip the call blocks when calls parsed; leftover text is kept
-            text = parsed.clean || text;
+            if (parsed.clean !== text) text = parsed.clean || text;
+            calls = parsed.calls;
           }
-          calls = parsed.calls;
+          errors = parsed.errors;
         }
         produced.push({ role: "assistant", content: text, toolCalls: calls.length > 0 ? calls : undefined });
-        if (calls.length === 0) return { kind: "completed", messages: produced, base };
+        if (calls.length === 0) {
+          if (errors.length === 0) return { kind: "completed", messages: produced, base };
+          // Call-like text that failed: tell the model and retry, bounded by maxModelTurns.
+          produced.push({ role: "user", content: this.parseFeedback(errors) });
+          continue;
+        }
         const seen = new Set<string>();
         let i = 0;
         while (i < calls.length) {
@@ -245,6 +253,7 @@ export class ToolLoop {
           }
           i += batch.length;
         }
+        if (errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(errors) });
       }
     } catch (e) {
       this.closeOpenToolCalls(produced, inFlight);
@@ -252,6 +261,11 @@ export class ToolLoop {
       if (signal.aborted) throw new RunCancelledError(base, produced, e);
       throw e;
     }
+  }
+
+  private parseFeedback(errors: ParseError[]): string {
+    const known = this.registry.specs.map((s) => s.name).join(", ") || "none";
+    return `Tool call not executed: ${errors.map((e) => e.message).join("; ")}. Known tools: ${known}. Emit a valid call (<tool_call>{"name": "NAME", "arguments": {...}}</tool_call>) or answer without one.`;
   }
 
   private closeOpenToolCalls(produced: ChatMessage[], inFlight: { id: string | null; awaitsUser: boolean }): void {

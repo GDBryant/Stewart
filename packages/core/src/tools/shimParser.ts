@@ -10,6 +10,10 @@ export const FAILURE_REASONS: Record<string, string> = {
   "TC-FUNC-NO-HEADER": "<function=NAME> header is missing or malformed",
   "TC-ARGS-INVALID": "arguments must be a JSON object",
   "TC-NATIVE-INVALID": "native call must name an offered function with valid arguments",
+  "TC-GEMMA-NO-CALL": "Gemma-style block does not start with call:NAME{",
+  "TC-GEMMA-INVALID": "Gemma-style arguments are not well-formed",
+  "TC-UNKNOWN-TOOL": "tool name is not one of the offered tools",
+  "TC-PARSE": "unexpected parse failure",
 };
 
 export class ToolCallParseException extends Error {
@@ -19,22 +23,37 @@ export class ToolCallParseException extends Error {
   }
 }
 
+/** A call-like block that could not become an executable call. Fed back to the model. */
+export interface ParseError {
+  code: string;
+  message: string;
+}
+
 export interface ParseResult {
   clean: string;
   calls: ToolCall[];
   reasoning: string | null;
+  errors: ParseError[];
 }
 
 export type SchemaMap = Record<string, Json>;
 
-const TAG_RE = /<tool_call>|<call>|<function=[^>]*>/g;
-const CLOSERS: Record<string, string | undefined> = {
+const TAG_RE = /<\|tool_call>|<tool_call>|<call>|<function=[^>]*>/g;
+const GEMMA_OPEN = "<|tool_call>";
+const CLOSERS: Record<string, string> = {
+  "<|tool_call>": "<tool_call|>",
   "<tool_call>": "</tool_call>",
   "<call>": "</call>",
 };
 const PREFIX_NAME_RE = /^[A-Za-z_][\w.\-:]*$/;
 const BARE_LITERAL_RE = /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)$/;
-const FENCE_RE = /```/g;
+const FENCE_OPEN_RE = /^[ \t]*```([^\n`]*)$/gm;
+const FENCE_CLOSE_RE = /^[ \t]*```[ \t\r]*$/gm;
+/** Fence languages whose bodies are scanned for calls. Untagged and other fences are code. */
+const PARSABLE_FENCES = new Set(["json", "tool_code", "tool_call"]);
+const GEMMA_STR = '<|"|>';
+const GEMMA_KEY_RE = /([{,]\s*)([A-Za-z_]\w*)\s*:/g;
+const GEMMA_NAME_RE = /^\s*call:([A-Za-z_][\w.\-:]*)\s*\{/;
 const NUMBER_RE = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 
 let idCounter = 0;
@@ -45,6 +64,10 @@ export function newCallId(): string {
 
 function isObj(v: unknown): v is Json {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function known(name: string, schema: SchemaMap): boolean {
+  return Object.prototype.hasOwnProperty.call(schema, name);
 }
 
 function checkStrict(el: unknown): void {
@@ -71,49 +94,207 @@ function strictDecode(text: string): unknown {
   return el;
 }
 
-export function parseToolCalls(text: string, schema: SchemaMap, startInFence = false): ParseResult {
-  const [stripped, reasoning] = stripThink(text);
-  const calls: ToolCall[] = [];
-  const cleanParts: string[] = [];
-  let pos = 0;
-  let fenceCount = startInFence ? 1 : 0;
-  TAG_RE.lastIndex = 0;
-  while (true) {
-    TAG_RE.lastIndex = pos;
-    const m = TAG_RE.exec(stripped);
-    if (!m) {
-      const tail = stripped.slice(pos);
-      fenceCount += countFences(tail);
-      cleanParts.push(tail);
-      break;
-    }
-    const before = stripped.slice(pos, m.index);
-    fenceCount += countFences(before);
-    cleanParts.push(before);
-    const fenced = fenceCount % 2 === 1 || (m.index > 0 && stripped[m.index - 1] === "`");
-    if (fenced) {
-      cleanParts.push(m[0]);
-      pos = m.index + m[0].length;
-      continue;
-    }
-    const [raw, end] = findBlockEnd(stripped, m.index, m[0]);
-    const inner = m[0] in CLOSERS ? innermostToolCall(raw, m[0]) : raw;
-    const parsed = readCall(inner, schema);
-    if (parsed == null || !(parsed[0] in schema)) {
-      cleanParts.push(stripped.slice(m.index, end));
-    } else {
-      calls.push({ id: newCallId(), name: parsed[0], arguments: parsed[1] });
-    }
-    pos = end;
-  }
-  return { clean: cleanParts.join("").trim(), calls, reasoning };
+interface Scan {
+  text: string;
+  schema: SchemaMap;
+  calls: ToolCall[];
+  errors: ParseError[];
+  /** Character spans consumed by successful calls (removed from clean text). */
+  removed: [number, number][];
 }
 
-function countFences(s: string): number {
-  FENCE_RE.lastIndex = 0;
-  let n = 0;
-  while (FENCE_RE.exec(s)) n++;
-  return n;
+export function parseToolCalls(text: string, schema: SchemaMap, startInFence = false): ParseResult {
+  const [stripped, reasoning] = stripThink(text);
+  const ctx: Scan = { text: stripped, schema, calls: [], errors: [], removed: [] };
+  let from = 0;
+  if (startInFence) {
+    const close = nextFenceClose(stripped, 0, stripped.length);
+    from = close ? close.end : stripped.length;
+  }
+  scanSpan(ctx, from, stripped.length, true, true);
+  let out = "";
+  let p = 0;
+  for (const [s, e] of ctx.removed) {
+    out += stripped.slice(p, s);
+    p = e;
+  }
+  out += stripped.slice(p);
+  return { clean: out.trim(), calls: ctx.calls, reasoning, errors: ctx.errors };
+}
+
+/**
+ * Left-to-right scan of text[from, to). At each point the earliest of: an explicit tag,
+ * a line-start code fence, or a bare JSON opener is handled. Tags win over fences that start
+ * later, so a fence marker inside a tagged argument never affects the scan.
+ */
+function scanSpan(ctx: Scan, from: number, to: number, fences: boolean, tags: boolean): void {
+  const { text } = ctx;
+  let pos = from;
+  while (pos < to) {
+    let fence: { index: number; lineEnd: number; lang: string } | null = null;
+    let fenceIdx = Infinity;
+    if (fences) {
+      FENCE_OPEN_RE.lastIndex = pos;
+      const m = FENCE_OPEN_RE.exec(text);
+      if (m && m.index < to) {
+        fence = { index: m.index, lineEnd: m.index + m[0].length, lang: m[1].trim().toLowerCase() };
+        fenceIdx = m.index;
+      }
+    }
+    let tagM: RegExpExecArray | null = null;
+    let tagIdx = Infinity;
+    if (tags) {
+      TAG_RE.lastIndex = pos;
+      const m = TAG_RE.exec(text);
+      if (m && m.index < to) {
+        tagM = m;
+        tagIdx = m.index;
+      }
+    }
+    const limit = Math.min(fenceIdx, tagIdx, to);
+    let jsonIdx = -1;
+    for (let j = pos; j < limit; j++) {
+      const c = text[j];
+      if (c === "{" || c === "[") {
+        jsonIdx = j;
+        break;
+      }
+    }
+    if (jsonIdx >= 0) {
+      pos = bareAt(ctx, jsonIdx, to);
+      continue;
+    }
+    if (tagM && tagIdx < fenceIdx) {
+      pos = tagAt(ctx, tagM, to);
+      continue;
+    }
+    if (fence) {
+      pos = fenceAt(ctx, fence, to);
+      continue;
+    }
+    break;
+  }
+}
+
+function nextFenceClose(text: string, from: number, to: number): { index: number; end: number } | null {
+  FENCE_CLOSE_RE.lastIndex = from;
+  const m = FENCE_CLOSE_RE.exec(text);
+  if (!m || m.index >= to) return null;
+  return { index: m.index, end: m.index + m[0].length };
+}
+
+function fenceAt(ctx: Scan, f: { index: number; lineEnd: number; lang: string }, to: number): number {
+  const bodyStart = Math.min(f.lineEnd + 1, to);
+  const close = nextFenceClose(ctx.text, bodyStart, to);
+  // An unclosed fence marker is ordinary text, so it cannot disable calls after it.
+  if (close === null) return f.lineEnd;
+  if (!PARSABLE_FENCES.has(f.lang)) return close.end;
+  const mark = ctx.removed.length;
+  scanSpan(ctx, bodyStart, close.index, false, true);
+  const bodySpans = ctx.removed.splice(mark);
+  if (bodySpans.length > 0 && isBlank(ctx.text, bodyStart, close.index, bodySpans)) {
+    ctx.removed.push([f.index, close.end]);
+  } else {
+    ctx.removed.push(...bodySpans);
+  }
+  return close.end;
+}
+
+function isBlank(text: string, a: number, b: number, spans: [number, number][]): boolean {
+  let out = "";
+  let p = a;
+  for (const [s, e] of spans) {
+    out += text.slice(p, s);
+    p = e;
+  }
+  out += text.slice(p, b);
+  return out.trim() === "";
+}
+
+/** Explicit tagged call. Errors are reported only for closed blocks; an unclosed opener is text unless it parses. */
+function tagAt(ctx: Scan, m: RegExpExecArray, to: number): number {
+  const { text, schema } = ctx;
+  const opener = m[0];
+  const start = m.index;
+  const tagEnd = start + opener.length;
+  const isFn = opener.startsWith("<function=");
+  const closer = isFn ? "</function>" : CLOSERS[opener];
+  let closeAt = text.indexOf(closer, tagEnd);
+  if (closeAt === -1 || closeAt + closer.length > to) closeAt = -1;
+  const closed = closeAt !== -1;
+  const end = closed ? closeAt + closer.length : to;
+  // A tag quoted inline as `<tool_call>...</tool_call>` is a mention, not a call.
+  if (closed && start > 0 && text[start - 1] === "`" && text[end] === "`") return end;
+  const raw = isFn
+    ? text.slice(start, end)
+    : innermostToolCall(text.slice(tagEnd, closed ? closeAt : to), opener);
+  let parsed: [string, Json] | null = null;
+  let code = "";
+  try {
+    parsed = opener === GEMMA_OPEN ? parseGemma(raw) : parseBlock(raw, schema);
+  } catch (e) {
+    code = e instanceof ToolCallParseException ? e.code : "TC-PARSE";
+  }
+  if (!closed) {
+    if (parsed === null) return tagEnd;
+    const [name, args] = normalizeCall(parsed, schema);
+    if (!known(name, schema)) return tagEnd;
+    ctx.calls.push({ id: newCallId(), name, arguments: args });
+    ctx.removed.push([start, to]);
+    return to;
+  }
+  if (parsed === null) {
+    ctx.errors.push({ code, message: `malformed tool call (${FAILURE_REASONS[code] ?? code})` });
+    return end;
+  }
+  const [name, args] = normalizeCall(parsed, schema);
+  if (!known(name, schema)) {
+    ctx.errors.push({ code: "TC-UNKNOWN-TOOL", message: `unknown tool '${name}'` });
+    return end;
+  }
+  ctx.calls.push({ id: newCallId(), name, arguments: args });
+  ctx.removed.push([start, end]);
+  return end;
+}
+
+/** Bare JSON: an object (or array of objects) exactly shaped {name, arguments|parameters|args}. */
+function bareAt(ctx: Scan, i: number, to: number): number {
+  const slice = ctx.text.slice(i, to);
+  const endRel = firstJsonValueEnd(slice);
+  if (endRel === -1) return i + 1;
+  let value: unknown;
+  try {
+    value = strictDecode(slice.slice(0, endRel));
+  } catch {
+    return i + 1;
+  }
+  const end = i + endRel;
+  const items: unknown[] = Array.isArray(value) ? value : [value];
+  if (items.length === 0) return end;
+  const shapes: { name: string; args: Json; known: boolean }[] = [];
+  for (const it of items) {
+    const shape = isObj(it) ? callShape(it, ctx.schema) : null;
+    // Plain JSON that is not call-shaped is ordinary text.
+    if (shape === null) return end;
+    shapes.push(shape);
+  }
+  // Bare JSON needs a known name. An unknown name is ordinary text (often a prose example), so no error.
+  if (shapes.some((s) => !s.known)) return end;
+  for (const s of shapes) ctx.calls.push({ id: newCallId(), name: s.name, arguments: s.args });
+  ctx.removed.push([i, end]);
+  return end;
+}
+
+function callShape(obj: Json, schema: SchemaMap): { name: string; args: Json; known: boolean } | null {
+  const keys = Object.keys(obj);
+  const nameVal = obj["name"];
+  if (keys.length !== 2 || typeof nameVal !== "string" || nameVal.trim() === "") return null;
+  const argKey = keys.find((k) => k !== "name");
+  if (argKey !== "arguments" && argKey !== "parameters" && argKey !== "args") return null;
+  const argsVal = obj[argKey];
+  if (!isObj(argsVal)) return null;
+  const [name, args] = normalizeCall([nameVal.trim(), argsVal], schema);
+  return { name, args, known: known(name, schema) };
 }
 
 export interface RawCall {
@@ -126,7 +307,7 @@ export function repairNativeCall(raw: RawCall, schema: SchemaMap): ToolCall[] {
   const name = raw.name;
   const argsText = raw.arguments;
   if (name.trim() === "") throw new ToolCallParseException("TC-NATIVE-INVALID");
-  if (name in schema) {
+  if (known(name, schema)) {
     let args: unknown;
     try {
       args = strictDecode(argsText);
@@ -143,7 +324,7 @@ export function repairNativeCall(raw: RawCall, schema: SchemaMap): ToolCall[] {
   for (const piece of text.replace(/<\/tool_call>/g, "").split("<tool_call>")) {
     if (piece.trim() === "") continue;
     const parsed = readCall(piece, schema);
-    if (parsed == null || !(parsed[0] in schema)) throw new ToolCallParseException("TC-NATIVE-INVALID");
+    if (parsed == null || !known(parsed[0], schema)) throw new ToolCallParseException("TC-NATIVE-INVALID");
     repaired.push({ id: newCallId(), name: parsed[0], arguments: parsed[1] });
   }
   if (repaired.length === 0) throw new ToolCallParseException("TC-NATIVE-INVALID");
@@ -174,7 +355,7 @@ function stripThink(text: string): [string, string | null] {
 }
 
 function toolProperties(schema: SchemaMap, name: string): Json {
-  const props = schema[name]?.["properties"];
+  const props = known(name, schema) ? schema[name]?.["properties"] : undefined;
   return isObj(props) ? props : {};
 }
 
@@ -276,14 +457,18 @@ function repairJson(s: string): string {
   return out.trimEnd() + stack.reverse().join("");
 }
 
-const CLEAN_FENCE_RE = /```(?:json)?\s*/;
+const CLEAN_FENCE_RE = /^```(?:json)?\s*/;
 const CLEAN_FUNCNAME_RE = /^<\s*function[\s_]*name\s*=\s*(?=")/;
 const CLEAN_FIRSTKEY_RE = /^(\{\s*)"(?:function_name|function|name)\s*=\s*"?([\w.-]+)>?"/;
 
 function cleanJsonBlock(raw0: string): string {
   let raw = raw0.trim();
-  const m = CLEAN_FENCE_RE.exec(raw);
-  if (m) raw = raw.slice(m.index + m[0].length).split("```", 1)[0];
+  // Strip a wrapping fence only; a ``` inside a string argument must survive.
+  if (raw.startsWith("```")) {
+    raw = raw.replace(CLEAN_FENCE_RE, "");
+    const close = raw.lastIndexOf("```");
+    if (close !== -1) raw = raw.slice(0, close);
+  }
   raw = raw.replace(CLEAN_FUNCNAME_RE, '{"name": ');
   return raw.replace(CLEAN_FIRSTKEY_RE, (_mm, g1: string, g2: string) => `${g1}"name": "${g2}"`);
 }
@@ -371,10 +556,10 @@ function findJsonToolName(obj0: Json, prefix: string): [string, Json] {
 }
 
 function jsonCallArguments(obj: Json): Json {
-  let args: unknown =
-    "arguments" in obj || "parameters" in obj
-      ? (obj["arguments"] ?? obj["parameters"])
-      : Object.fromEntries(Object.entries(obj).filter(([k]) => !["name", "function", "function_name"].includes(k)));
+  const hasArgs = "arguments" in obj || "parameters" in obj || "args" in obj;
+  let args: unknown = hasArgs
+    ? (obj["arguments"] ?? obj["parameters"] ?? obj["args"])
+    : Object.fromEntries(Object.entries(obj).filter(([k]) => !["name", "function", "function_name"].includes(k)));
   if (typeof args === "string") {
     try {
       args = strictDecode(args);
@@ -390,6 +575,37 @@ function parseJsonCall(raw: string, schema: SchemaMap): [string, Json] {
   const [obj, prefix] = decodeJsonObject(cleanJsonBlock(raw));
   const [name, obj2] = findJsonToolName(obj, prefix);
   return [name, jsonCallArguments(obj2)];
+}
+
+/**
+ * Gemma tool-call body: `call:NAME{key:<|"|>value<|"|>,n:3}`. Strings are wrapped in <|"|>,
+ * keys are bare. Converted to JSON segment by segment, never via repairJson.
+ */
+function parseGemma(raw: string): [string, Json] {
+  const m = GEMMA_NAME_RE.exec(raw);
+  if (!m) throw new ToolCallParseException("TC-GEMMA-NO-CALL");
+  const brace = m.index + m[0].length - 1;
+  const close = raw.lastIndexOf("}");
+  if (close < brace) throw new ToolCallParseException("TC-GEMMA-INVALID");
+  return [m[1], decodeGemmaObject(raw.slice(brace, close + 1))];
+}
+
+function decodeGemmaObject(body: string): Json {
+  const parts = body.split(GEMMA_STR);
+  // An even delimiter count leaves a string unclosed.
+  if (parts.length % 2 === 0) throw new ToolCallParseException("TC-GEMMA-INVALID");
+  let out = "";
+  parts.forEach((seg, k) => {
+    out += k % 2 === 1 ? JSON.stringify(seg) : seg.replace(GEMMA_KEY_RE, '$1"$2":');
+  });
+  let obj: unknown;
+  try {
+    obj = strictDecode(out);
+  } catch {
+    throw new ToolCallParseException("TC-GEMMA-INVALID");
+  }
+  if (!isObj(obj)) throw new ToolCallParseException("TC-ARGS-INVALID");
+  return obj;
 }
 
 const PARAM_RE = /<parameter=([^>]*)>([\s\S]*?)<\/parameter>/g;
@@ -464,23 +680,10 @@ function commandList(args: Json): string[] | null {
 
 function normalizeCall(parsed: [string, Json], schema: SchemaMap): [string, Json] {
   const [name, args] = parsed;
-  if (name in schema || !EXEC_ALIASES.has(name) || !(EXEC_TOOL in schema)) return parsed;
+  if (known(name, schema) || !EXEC_ALIASES.has(name) || !known(EXEC_TOOL, schema)) return parsed;
   const cmds = commandList(args);
   if (cmds == null || cmds.length !== 1) return parsed;
   return [EXEC_TOOL, { command: cmds[0] }];
-}
-
-function findBlockEnd(text: string, tagStart: number, tag: string): [string, number] {
-  const start = tagStart + tag.length;
-  const closer = CLOSERS[tag];
-  if (closer != null) {
-    const end = text.indexOf(closer, start);
-    if (end === -1) return [text.slice(start), text.length];
-    return [text.slice(start, end), end + closer.length];
-  }
-  const end = text.indexOf("</function>", start);
-  if (end === -1) return [text.slice(tagStart), text.length];
-  return [text.slice(tagStart, end) + "</function>", end + "</function>".length];
 }
 
 function innermostToolCall(raw: string, opener: string): string {
