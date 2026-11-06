@@ -19,6 +19,7 @@ import { expandMentions } from "./mentions.js";
 import { normalizeImages } from "./images.js";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
+import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
   fetcher?: Fetcher;
@@ -31,6 +32,8 @@ export interface CoreDeps {
   /** Shipped default config layer. */
   defaults: Record<string, string | undefined>;
   emitEvent(ev: RunEvent): void;
+  /** Built when settings.log.level is not `off`; rebuilt when level or retainDays change. Default: no-op. */
+  debugSinkFactory?: (opts: { level: Exclude<DebugLevel, "off">; retainDays: number }) => DebugSink;
 }
 
 interface ProjectCtx {
@@ -55,15 +58,42 @@ export class Core {
   private clock: Clock;
   private ids: IdGen;
   private bus: EventBus;
+  /** Stable logger handed to adapters; reconfigured by applyDebug. */
+  private debug = new DebugLogger(() => [...this.secretValues.values()]);
+  private debugKey = "";
+  /** Channel secrets by ref, for redaction only. */
+  private secretValues = new Map<string, string>();
 
   constructor(private deps: CoreDeps) {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.ids ?? counterIds();
-    this.chDeps = { fetcher: deps.fetcher ?? nodeFetch };
+    this.chDeps = { fetcher: deps.fetcher ?? nodeFetch, debug: this.debug };
     this.bus = new EventBus(deps.emitEvent);
+    this.bus.subscribe((ev) => {
+      if (this.debug.level !== "full") return;
+      const entry = eventEntry(ev);
+      if (entry) this.debug.record(entry);
+    });
     this.channels.register("ollama", (d) => new OllamaAdapter(d as ChannelDeps));
     this.channels.register("openai-compatible", (d) => new OpenAICompatAdapter(d as ChannelDeps));
-    this.channels.register("claude-cli", () => new ClaudeCliAdapter());
+    this.channels.register("claude-cli", (d) => new ClaudeCliAdapter({ debug: (d as ChannelDeps).debug }));
+  }
+
+  /** Reconfigures the debug log from settings.log; the sink is rebuilt only when level or retention changes. */
+  private applyDebug(config: Config): void {
+    const { level, retainDays } = config.settings.log;
+    const key = `${level}:${retainDays}`;
+    if (key === this.debugKey) return;
+    this.debugKey = key;
+    if (level === "off" || !this.deps.debugSinkFactory) {
+      this.debug.configure("off", NOOP_DEBUG_SINK);
+      return;
+    }
+    try {
+      this.debug.configure(level, this.deps.debugSinkFactory({ level, retainDays }));
+    } catch {
+      this.debug.configure("off", NOOP_DEBUG_SINK);
+    }
   }
 
   subscribe(fn: EventSubscriber): () => void {
@@ -84,6 +114,7 @@ export class Core {
     const projectGuard = new SelfWriteGuard();
     projectGuard.syncLayer(projectLayer);
     const config = this.applyProbes(loadConfig(userLayer, projectLayer, this.defaults, trusted));
+    this.applyDebug(config);
     const runs = new RunManager({ host, clock: this.clock, ids: this.ids, bus: this.bus });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
     this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
@@ -112,7 +143,10 @@ export class Core {
         const mc = new ManagedChannel(adapter, { ...c, maxParallel });
         if (c.secretRef) {
           const secret = await host.secrets.get(c.secretRef);
-          if (secret !== undefined) mc.setSecret(secret);
+          if (secret !== undefined) {
+            mc.setSecret(secret);
+            this.secretValues.set(c.secretRef, secret);
+          }
         }
         this.managed.set(c.id, mc);
       } catch (e) {
@@ -145,6 +179,7 @@ export class Core {
       return { config: ctx.config, suppressed: false };
     }
     ctx.config = nextConfig;
+    this.applyDebug(nextConfig);
     ctx.runs.historyRetentionDays = nextConfig.settings.historyRetentionDays;
     await this.rebuildChannels(ctx.config, ctx.host);
     return { config: ctx.config, suppressed: false };
@@ -397,6 +432,7 @@ export class Core {
         const p = params as { projectId: string; ref: string; value: string };
         const ctx = this.ctx(p.projectId);
         await ctx.host.secrets.set(p.ref, p.value);
+        this.secretValues.set(p.ref, p.value);
         for (const c of ctx.config.channels) {
           if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(p.value);
         }
@@ -406,6 +442,7 @@ export class Core {
         const p = params as { projectId: string; ref: string };
         const ctx = this.ctx(p.projectId);
         await ctx.host.secrets.delete(p.ref);
+        this.secretValues.delete(p.ref);
         for (const c of ctx.config.channels) {
           if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(undefined);
         }

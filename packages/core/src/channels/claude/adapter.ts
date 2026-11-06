@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest, ModelCaps, ToolCall } from "../types.js";
 import { ChannelError } from "../types.js";
+import type { DebugSink } from "../../debug/debug.js";
 import { ClaudeStreamParser, classify } from "./parser.js";
 import { argv as claudeArgv, normalizeModel, prepare } from "./transcript.js";
 import { nodeSpawn, makeTempDir, rmDir, writeTempFile, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
@@ -11,6 +12,8 @@ export interface ClaudeDeps {
   writeTempFile?: (content: string) => Promise<string>;
   rmDir?: (dir: string) => Promise<void>;
   authTimeoutMs?: number;
+  /** Records stdin, stdout lines, stderr and exit failures at calls level. */
+  debug?: DebugSink;
 }
 
 export interface ClaudeLoginState {
@@ -110,6 +113,9 @@ export class ClaudeCliAdapter implements ChannelAdapter {
       throw new ChannelError("Claude does not support native tools", 0, undefined, "native_tools_unsupported");
     }
     const input = prepare(req.messages);
+    const dbg = this.deps.debug;
+    const rec = (direction: "outgoing" | "incoming" | "stderr" | "error", payload: string) =>
+      dbg?.record({ direction, provider: this.type, model: req.model, payload });
     const mk = this.deps.makeTempDir ?? makeTempDir;
     const rm = this.deps.rmDir ?? rmDir;
     const cwd = await mk();
@@ -123,13 +129,17 @@ export class ClaudeCliAdapter implements ChannelAdapter {
       try {
         proc = this.spawn(argv, { cwd, env: this.childEnv(cfg) });
       } catch (e) {
+        rec("error", `cannot start: ${e instanceof Error ? e.message : e}`);
         throw new ChannelError(`cannot start Claude CLI at ${this.cliPath(cfg)}: ${e instanceof Error ? e.message : e}`, 0, undefined, "cli_not_found");
       }
-      proc.stdin(input.hasImages ? input.streamJsonLine() + "\n" : input.text);
+      const stdin = input.hasImages ? input.streamJsonLine() + "\n" : input.text;
+      rec("outgoing", stdin);
+      proc.stdin(stdin);
 
       const parser = new ClaudeStreamParser();
       let failure: { message: string; code: string } | undefined;
       for await (const line of proc.stdout) {
+        rec("incoming", line);
         if (req.signal.aborted) {
           await proc.kill();
           throw abortError();
@@ -160,6 +170,11 @@ export class ClaudeCliAdapter implements ChannelAdapter {
       }
       if (failure) throw new ChannelError(failure.message, 0, undefined, failure.code);
       const { code: exitCode } = await proc.done;
+      if (dbg) {
+        const err = await proc.stderrText();
+        if (err) rec("stderr", err.slice(-2000));
+        if (exitCode !== 0) rec("error", `exit code ${exitCode}`);
+      }
       if (parser.toolTurnEnded || (parser.cutPending && !parser.resultSeen)) {
         const u = parser.turnUsage();
         yield { kind: "done", usage: usageOf(u), costUsd: u?.costUsd };

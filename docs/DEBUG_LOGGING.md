@@ -1,5 +1,40 @@
 # Debug Logging
 
+## v2 (Stewart sidecar)
+
+Settings → `settings.yaml`: `log: { level: off|calls|full, retainDays: 7 }` (default `off`, `7`).
+
+- `off`: nothing is written.
+- `calls`: provider requests, responses, HTTP/connection errors, stream errors and Claude CLI stdin/stdout/stderr/exit.
+- `full`: `calls` plus every bus event as `[core] [-]` with a JSON payload. `text_delta` frames are skipped.
+
+Core: `packages/core/src/debug/debug.ts` (`DebugLogger` gating + redaction, `formatDebugLine`, `redact`, `eventEntry`).
+Adapters receive the logger via `ChannelDeps.debug` / `ClaudeDeps.debug`. Core builds the sink through
+`CoreDeps.debugSinkFactory` when `settings.log.level` is not `off`, and rebuilds it only when level or
+`retainDays` change (checked on attach and reload). Logging never throws and never breaks a call.
+
+Sidecar: `packages/sidecar/src/debugSink.ts` (`FileDebugSink`, `pruneDebugLogs`). The host announces the folder
+with a `log.dir` notification (JetBrains: `PathManager.getLogPath()/stewart/debug_logs`). Lines arriving before
+`log.dir` are dropped. The sidecar never writes to stderr.
+
+Format: one line per record in `<dir>/yyyy-MM-dd.log` (UTC day, appended, mode `0600`, folder `0700`):
+`[<ISO-8601>] [<direction>] [<provider>] [<model>] [<payload>]`. Directions: `outgoing`, `incoming`, `stderr`,
+`error`, `event`. `\`, CR, LF and TAB are escaped in every field. Writes are buffered (about 250 ms) and flushed on exit.
+
+Redaction (before the sink): `Authorization` header values, standalone `Bearer <token>` and every stored channel
+secret value become `[REDACTED]`. Prompt and response text is otherwise verbatim, so treat the files as sensitive.
+
+Retention: `retainDays` 0 keeps everything; N keeps today (UTC) plus the previous N days. Pruning runs when the
+sink is created and when a new day's file is first written. Only files named `yyyy-MM-dd(.N)?.log` whose first
+line matches the format are deleted; foreign files are kept.
+
+Not yet: size-based rotation (`.N.log` names are accepted by pruning, but nothing creates them), a settings UI
+for `log`, and per-project levels (the last loaded project's setting wins).
+
+---
+
+## v1 (reference)
+
 Opt-in record of every model call, for diagnosing provider and prompt problems without a debugger.
 Implemented by `com.adb.stewart.debug.DebugLogSink`.
 

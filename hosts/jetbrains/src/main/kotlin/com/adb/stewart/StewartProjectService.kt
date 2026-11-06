@@ -80,6 +80,7 @@ class StewartProjectService(private val project: Project) : Disposable {
             userConfigDir,
             File(project.basePath ?: "", ".stewart"),
             pushInbound = { msg -> pushToPanels(msg) },
+            debugLogDir = File(PathManager.getLogPath(), "stewart/debug_logs"),
         )
     }
 

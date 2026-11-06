@@ -1,4 +1,5 @@
 import type { Fetcher } from "../ports.js";
+import type { DebugSink } from "../debug/debug.js";
 
 export type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
 export type ChatMessage =
@@ -55,7 +56,7 @@ export interface ChannelAdapter {
   generateImage?(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }>;
 }
 
-export type ChannelDeps = { fetcher: Fetcher; stallTimeoutMs?: number };
+export type ChannelDeps = { fetcher: Fetcher; stallTimeoutMs?: number; debug?: DebugSink };
 
 export class ChannelError extends Error {
   constructor(message: string, readonly status?: number, readonly retryAfterMs?: number, readonly code?: string) {

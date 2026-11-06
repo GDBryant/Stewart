@@ -13,6 +13,8 @@ export interface SidecarContext {
   host: HostPort;
   store: ConfigStore;
   projectStore: ConfigStore;
+  /** Debug log folder announced by the host via `log.dir`; undefined until then. */
+  logDir: () => string | undefined;
 }
 
 export const SIDECAR_PROTOCOL = 1;
@@ -51,13 +53,15 @@ export function runStdio(factory: (ctx: SidecarContext) => CoreLike): RpcLink {
   const host = remoteHost(link);
   const dir: { current?: string } = {};
   const projectDir: { current?: string } = {};
+  const logDir: { current?: string } = {};
   const store = remoteConfigStore(host, dir);
   const projectStore = remoteConfigStore(host, projectDir);
   link.onNotification((method, params) => {
     if (method === "config.dir") dir.current = (params as { dir?: string }).dir;
     if (method === "config.projectDir") projectDir.current = (params as { dir?: string }).dir;
+    if (method === "log.dir") logDir.current = (params as { dir?: string }).dir;
   });
-  serve(factory({ emit: (ev) => link.notify("event", ev), host, store, projectStore }), link);
+  serve(factory({ emit: (ev) => link.notify("event", ev), host, store, projectStore, logDir: () => logDir.current }), link);
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk: string) => link.feed(chunk));
   process.stdin.on("end", () => link.close("stdin closed"));

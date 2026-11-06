@@ -25,6 +25,7 @@ object SidecarWiring {
         projectConfigDir: File,
         pushInbound: (JsonObject) -> Unit,
         onLog: (String) -> Unit = { LOG.info(it) },
+        debugLogDir: File? = null,
     ) {
         link.onRequest { method, params -> hostHandler.handler(method, params) }
         link.onNotification { method, params ->
@@ -36,6 +37,7 @@ object SidecarWiring {
         }
         link.notify("config.dir", buildJsonObject { put("dir", JsonPrimitive(userConfigDir.absolutePath)) })
         link.notify("config.projectDir", buildJsonObject { put("dir", JsonPrimitive(projectConfigDir.absolutePath)) })
+        debugLogDir?.let { link.notify("log.dir", buildJsonObject { put("dir", JsonPrimitive(it.absolutePath)) }) }
         link.request(
             "project.attach",
             buildJsonObject {

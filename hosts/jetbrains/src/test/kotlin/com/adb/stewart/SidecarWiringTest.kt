@@ -52,6 +52,40 @@ class SidecarWiringTest : BasePlatformTestCase() {
         ide.close(); side.close()
     }
 
+    fun testDebugLogDirAnnouncedOnlyWhenGiven() {
+        val (ide, side) = linkPair()
+        val seen = LinkedBlockingQueue<String>()
+        side.onRequest { m, _ ->
+            seen.add(m)
+            CompletableFuture.completedFuture(JsonObject(mapOf("protocol" to JsonPrimitive(1))))
+        }
+        val notifs = LinkedBlockingQueue<String>()
+        side.onNotification { m, p -> notifs.add("$m:$p") }
+        SidecarWiring.attach(ide, handler(), "p1", File("/tmp/u"), File("/tmp/p"), {}, debugLogDir = File("/tmp/ij-log/stewart/debug_logs"))
+        assertEquals("project.attach", seen.poll(5, TimeUnit.SECONDS))
+        val all = mutableListOf<String>()
+        while (true) all.add(notifs.poll(1, TimeUnit.SECONDS) ?: break)
+        assertTrue(all.any { it.startsWith("log.dir:") && it.contains("/tmp/ij-log/stewart/debug_logs") })
+        ide.close(); side.close()
+    }
+
+    fun testNoLogDirNotificationByDefault() {
+        val (ide, side) = linkPair()
+        val seen = LinkedBlockingQueue<String>()
+        side.onRequest { m, _ ->
+            seen.add(m)
+            CompletableFuture.completedFuture(JsonObject(mapOf("protocol" to JsonPrimitive(1))))
+        }
+        val notifs = LinkedBlockingQueue<String>()
+        side.onNotification { m, p -> notifs.add("$m:$p") }
+        SidecarWiring.attach(ide, handler(), "p1", File("/tmp/u"), File("/tmp/p"), {})
+        assertEquals("project.attach", seen.poll(5, TimeUnit.SECONDS))
+        val all = mutableListOf<String>()
+        while (true) all.add(notifs.poll(1, TimeUnit.SECONDS) ?: break)
+        assertTrue(all.none { it.startsWith("log.dir:") })
+        ide.close(); side.close()
+    }
+
     fun testHostRequestRoutedToHandler() {
         val (ide, side) = linkPair()
         SidecarWiring.attach(ide, handler(), "p1", File("/tmp/u"), File("/tmp/p"), {})

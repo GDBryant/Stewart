@@ -1,5 +1,6 @@
 export * from "./ports.js";
 export * from "./events.js";
+export * from "./debug/debug.js";
 export * from "./channels/types.js";
 export * from "./channels/stream.js";
 export * from "./channels/ollama.js";
