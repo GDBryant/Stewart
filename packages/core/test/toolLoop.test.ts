@@ -456,3 +456,23 @@ describe("ToolLoop summarize stage", () => {
     expect(t.seen.some((msgs) => msgs.some((m) => typeof m.content === "string" && m.content.startsWith("[summary")))).toBe(false);
   });
 });
+
+describe("ToolLoop live text", () => {
+  it("does not stream tool_call blocks to onText in shim mode", async () => {
+    const turns: ChatEvent[][] = [
+      [{ kind: "text", text: "Checking <tool_" }, { kind: "text", text: 'call>{"name":"Echo","arguments":{"text":"hi"}}</tool_call>' }, { kind: "done" }],
+      [{ kind: "text", text: "all done" }, { kind: "done" }],
+    ];
+    const shown: string[] = [];
+    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "shim");
+    await loop.run("m", hist, { onText: (t) => shown.push(t) }, sig());
+    expect(shown.join("")).toBe("Checking all done");
+  });
+  it("still shows call-like text that never parsed as a call", async () => {
+    const turns: ChatEvent[][] = [[{ kind: "text", text: "use <call> to wrap" }, { kind: "done" }]];
+    const shown: string[] = [];
+    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "shim");
+    await loop.run("m", hist, { onText: (t) => shown.push(t) }, sig());
+    expect(shown.join("")).toBe("use <call> to wrap");
+  });
+});

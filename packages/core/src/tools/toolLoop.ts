@@ -3,6 +3,7 @@ import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
 import { buildToolsBlock } from "./shimPrompt.js";
+import { ToolCallStreamFilter } from "./streamFilter.js";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "./compaction.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
@@ -87,6 +88,8 @@ interface StreamOutcome {
   failed: Error | null;
   usage: { in: number; out: number } | undefined;
   costUsd: number | undefined;
+  /** Text the stream filter held back (unfinished call block). */
+  held?: string;
 }
 
 function rejected(): ApprovalDecision {
@@ -174,6 +177,8 @@ export class ToolLoop {
         turn.open = false;
         const parsed = this.parseCalls(turn.text, s.calls, listener);
         turn.text = parsed.text;
+        // Held-back call-like text that was not a call: show it after all.
+        if (s.held && parsed.calls.length === 0 && parsed.errors.length === 0) listener.onText?.(s.held);
         produced.push({ role: "assistant", content: turn.text, toolCalls: parsed.calls.length > 0 ? parsed.calls : undefined });
         if (parsed.calls.length === 0) {
           if (parsed.errors.length === 0) return { kind: "completed", messages: produced, base };
@@ -216,6 +221,7 @@ export class ToolLoop {
       usage: undefined,
       costUsd: undefined,
     };
+    const filter = this.toolsMode === "shim" ? new ToolCallStreamFilter() : undefined;
     const callTimeoutMs = this.limits.modelCallTimeoutMs ?? 0;
     const callCtl = callTimeoutMs > 0 ? new AbortController() : undefined;
     const onAbort = callCtl ? () => callCtl.abort() : undefined;
@@ -236,7 +242,8 @@ export class ToolLoop {
         if (s.sawDone) s.postDone = true;
         else if (ev.kind === "text") {
           turn.text += ev.text;
-          listener.onText?.(ev.text);
+          const shown = filter ? filter.push(ev.text) : ev.text;
+          if (shown) listener.onText?.(shown);
         } else if (ev.kind === "reasoning") {
           listener.onReasoning?.(ev.text);
         } else if (ev.kind === "tool_calls") {
@@ -248,6 +255,7 @@ export class ToolLoop {
           s.costUsd = ev.costUsd;
         }
       }
+      s.held = filter?.flush() ?? "";
     } catch (e) {
       if (signal.aborted) throw e;
       if (callCtl?.signal.aborted) {
