@@ -259,7 +259,7 @@ Order (each step ships green, behavior-preserving, with tests; strangler style):
 0. (Done) Scaffold the workspace (§9; `scripts/new-module.mjs` creates a package): `modules/*` glob, shared `tsconfig.base.json`, `check-layers.mjs`, one empty package per module with its `api.ts`.
 1. (Done) Boundary lint in warn mode: `pnpm check:boundaries` (`scripts/boundaries.json` maps today's files to modules; known violations in `boundaries.baseline.json`, only new ones fail; `--update` ratchets).
 2. (Done: kernel wire types, toolcall-format, compaction, scheduling, catalog, models, budget.) Extract pure leaves first (each becomes its own package): `toolcall-format`, `compaction`, `scheduling`, `budget`, `models`, `catalog`. Zero behavior risk.
-3. Extract `permissions` and `ledger` (stateful but self-contained).
+3. (Done; ports moved into `kernel` first. `replacements.ts` stays in core: it needs roles-skills, same layer as ledger.) Extract `permissions` and `ledger` (stateful but self-contained).
 4. Split `HostPort` into narrow ports; change callers to `Pick<>`.
 5. Extract `agent-loop` surface (`AgentSession`), then `run-state`.
 6. Extract `orchestration` and `recovery`, injecting `Recovery`.

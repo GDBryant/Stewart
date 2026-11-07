@@ -13,7 +13,7 @@ import type { ToolPreview } from "@stewart/permissions";
 import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
-import { costOfCall } from "./ledger.js";
+import { costOfCall } from "@stewart/ledger";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
 import { loadProjectContext } from "../projectContext.js";
 import type { OrchestrationRuntime } from "./types.js";

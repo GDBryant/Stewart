@@ -13,7 +13,7 @@ import { Grants, type GrantDecision } from "@stewart/permissions";
 import { categoryOf } from "@stewart/permissions";
 import { ToolRegistry } from "./tools/types.js";
 import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
-import { RunLedger, CostLimit } from "./orchestration/ledger.js";
+import { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import { IdempotencyLog } from "./orchestration/idempotency.js";
 import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";

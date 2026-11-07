@@ -151,6 +151,10 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/ledger:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -306,6 +310,9 @@ importers:
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel
+      '@stewart/ledger':
+        specifier: workspace:*
+        version: link:../../modules/ledger
       '@stewart/models':
         specifier: workspace:*
         version: link:../../modules/models

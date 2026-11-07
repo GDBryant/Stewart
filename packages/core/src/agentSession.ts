@@ -8,7 +8,7 @@ import type { ToolRegistry } from "./tools/types.js";
 import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
 import { ToolLoop, type ApprovalGate, type IdempotencyHooks, type LoopListener } from "./tools/toolLoop.js";
 import { profileFromChannel, type ModelProfile } from "@stewart/models";
-import { costOfCall, type CostLimit, type RunLedger } from "./orchestration/ledger.js";
+import { costOfCall, type CostLimit, type RunLedger } from "@stewart/ledger";
 
 export interface SessionSpec {
   agent: AgentDef;

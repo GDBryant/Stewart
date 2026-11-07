@@ -21,7 +21,8 @@
     "@stewart/catalog": "workspace:*",
     "@stewart/models": "workspace:*",
     "@stewart/budget": "workspace:*",
-    "@stewart/permissions": "workspace:*"
+    "@stewart/permissions": "workspace:*",
+    "@stewart/ledger": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

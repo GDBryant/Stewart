@@ -8,7 +8,7 @@ import { RunManager } from "../src/runManager.js";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
 import { TaskGraph, LeaseManager } from "@stewart/scheduling";
 import { isCosting } from "@stewart/models";
-import { RunLedger, CostLimit, costOfCall } from "../src/orchestration/ledger.js";
+import { RunLedger, CostLimit, costOfCall } from "@stewart/ledger";
 import { IdempotencyLog } from "../src/orchestration/idempotency.js";
 import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements } from "../src/orchestration/replacements.js";
 import { leasedTools, LeaseCycleError, LeaseTimeoutError } from "../src/orchestration/writeGuard.js";

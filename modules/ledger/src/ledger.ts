@@ -1,5 +1,4 @@
 import type { Clock, HostPort } from "@stewart/kernel";
-import type { AgentDef } from "../config/schema.js";
 
 export interface LedgerEntry {
   runId: string;
@@ -78,7 +77,7 @@ export class RunLedger {
 
 /** Cost of one call from an agent's billing mode. */
 export function costOfCall(
-  agent: Pick<AgentDef, "billing" | "price">,
+  agent: { billing?: string; price?: { inPerMTok: number; outPerMTok: number } },
   usage: { in: number; out: number } | undefined,
   reportedUsd: number | undefined,
 ): number {

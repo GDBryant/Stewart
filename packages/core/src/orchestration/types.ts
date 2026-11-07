@@ -5,7 +5,7 @@ import type { ManagedChannel } from "../channels/registry.js";
 import type { ToolPreview } from "@stewart/permissions";
 import type { ToolCall } from "@stewart/kernel";
 import type { ApprovalDecision } from "../tools/toolLoop.js";
-import type { RunLedger, CostLimit } from "./ledger.js";
+import type { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph } from "@stewart/scheduling";
 import type { IdempotencyLog } from "./idempotency.js";
 import type { BudgetProfile } from "@stewart/budget";

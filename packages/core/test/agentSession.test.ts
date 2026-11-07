@@ -5,7 +5,7 @@ import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
 import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "../src/agentSession.js";
-import { RunLedger, CostLimit } from "../src/orchestration/ledger.js";
+import { RunLedger, CostLimit } from "@stewart/ledger";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
 import { type ApprovalDecision } from "../src/tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "../src/tools/types.js";
