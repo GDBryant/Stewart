@@ -12,7 +12,7 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 | 2 | ~~AIF model discovery from the API~~ done 2026-10-31 | done |
 | 3 | ~~Qwen/AIF edit calls + post-write verification~~ done 2026-10-31 — see §3 note | done |
 | 4 | ~~Ollama native tools~~ (done 2026-10-31) | feature |
-| 5 | ~~Visual Studio support~~ done 2026-10-31 — `docs/VISUAL_STUDIO.md` (VS Code) | feasibility |
+| 5 | ~~Visual Studio support~~ done 2026-10-31 — `docs/archived_v2/VISUAL_STUDIO.md` (VS Code) | feasibility |
 | 6 | Nemotron model | investigation |
 
 ## Rules for every item (from `AGENTS.md`)
@@ -36,7 +36,7 @@ Verified by the user in PyCharm with the installed plugin: all 8 slash commands 
 - Mid-run: `/cost` works, `/clear` reports "not available while running", plain text is ignored, the button stops.
 - Unknown `/foo` → error, input kept. `//x` is sent as text `/x`.
 
-**Done when** all pass; record the date in `docs/COMPATIBILITY.md` → Manual smoke, and drop Open Item 1 in `docs/PLAN.md`. Any failure becomes a bug item with a failing test first.
+**Done when** all pass; record the date in `docs/COMPATIBILITY.md` → Manual smoke, and drop Open Item 1 in `docs/archived_v1/PLAN.md`. Any failure becomes a bug item with a failing test first.
 
 ---
 
@@ -75,8 +75,8 @@ Resolved: `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3
 - Write the findings (redacted samples, one per class seen) into `docs/QWEN_EDITS.md` before fixing anything.
 
 ### 3b. Fix by class
-- **A:** add the verbatim sample as a fixture to `ToolCallParserTest`/`StreamTranslatorTest` (positive) plus a near-miss negative; fix the parser/collector. New format → `docs/SHIM_PARITY.md` intentional-differences entry. Never accept an incomplete call.
-- **B:** do **not** loosen `additionalProperties=false`. Options, in order: (i) tighten the tool descriptions in `ProjectTools.kt` specs (name the exact argument names, give one example); (ii) add a role-independent note to the system prompt for the tools path; (iii) only if the same alias recurs across models, add an alias normalisation in `ToolCallParser` (like the existing `RunTerminal` aliases, `docs/SHIM_PARITY.md` §1) with verbatim tests. Rejected calls already return `Invalid tool call: …` to the model so it can retry within the turn budget.
+- **A:** add the verbatim sample as a fixture to `ToolCallParserTest`/`StreamTranslatorTest` (positive) plus a near-miss negative; fix the parser/collector. New format → `docs/archived_v1/SHIM_PARITY.md` intentional-differences entry. Never accept an incomplete call.
+- **B:** do **not** loosen `additionalProperties=false`. Options, in order: (i) tighten the tool descriptions in `ProjectTools.kt` specs (name the exact argument names, give one example); (ii) add a role-independent note to the system prompt for the tools path; (iii) only if the same alias recurs across models, add an alias normalisation in `ToolCallParser` (like the existing `RunTerminal` aliases, `docs/archived_v1/SHIM_PARITY.md` §1) with verbatim tests. Rejected calls already return `Invalid tool call: …` to the model so it can retry within the turn budget.
 - **C:** usually a model error (stale content). Make the error text actionable ("read the file again and copy the exact text"); no behaviour change.
 - **D:** see 3c.
 
@@ -112,10 +112,10 @@ Not a fallback. If a model's edit call cannot be mapped (class A unfixable or cl
 ---
 
 ## 5. Visual Studio support — DONE (2026-10-31)
-Written up in `docs/VISUAL_STUDIO.md`. The user chose Visual Studio Code (not Visual Studio 2022); recommendation is go, as a separate TypeScript repo (`stewart-vscode`) reusing this repo's recorded fixtures, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. No code here; Scope still excludes non-JetBrains IDEs. The original feasibility questions are kept below for reference.
+Written up in `docs/archived_v2/VISUAL_STUDIO.md`. The user chose Visual Studio Code (not Visual Studio 2022); recommendation is go, as a separate TypeScript repo (`stewart-vscode`) reusing this repo's recorded fixtures, phased P1 chat → P2 tools → P3 Claude CLI + orchestration → P4 packaging. No code here; Scope still excludes non-JetBrains IDEs. The original feasibility questions are kept below for reference.
 Visual Studio is not a JetBrains host: the IntelliJ Platform ZIP, `plugin.xml`, VFS/PSI, `WriteCommandAction`, `PasswordSafe` and the Swing tool window do not exist there. This item ends in a written plan and a go/no-go, not code in this repo.
 
-**Questions to answer** (write to `docs/VISUAL_STUDIO.md`):
+**Questions to answer** (write to `docs/archived_v2/VISUAL_STUDIO.md`):
 1. Target: Visual Studio 2022 (VSIX, .NET, Windows) vs Visual Studio Code (extension, TypeScript, cross-platform). The todo says "Visual Studio"; confirm with the user — the two share nothing.
 2. What is portable: provider protocols (Ollama NDJSON, AIF SSE, Claude CLI stream-json) and the tool-call parser/translator (a Python reference already exists at `/srv/compose/aif_shim`); the orchestration protocol (`submit_plan`/`submit_tasks`/`submit_result`/`ask_user` JSON schemas). What is not: everything under `tools/` (VFS, documents, undo), `ui/`, `settings/`.
 3. Host equivalents needed: secret store, undoable document edits, diff preview + approval UI, cancellable process runner, per-project history location.
@@ -135,5 +135,5 @@ Nemotron on the AIF account is `nemotron-3-embed-8b`, an embeddings-only model �
 
 ## After the items
 - `docs/PROGRESS.md`: one line per item with hash, test count, coverage.
-- `docs/PLAN.md` → Open Items: remove done items; Open Question 7 → **Built** once item 2 lands; path table → confirm Ollama row once item 4 lands.
+- `docs/archived_v1/PLAN.md` → Open Items: remove done items; Open Question 7 → **Built** once item 2 lands; path table → confirm Ollama row once item 4 lands.
 - `./gradlew buildPlugin verifyPlugin`, then `scripts/install-plugin.sh --no-build` and a manual smoke test.

@@ -1,6 +1,6 @@
 # Fault recovery
 
-Recovers worker and level faults before the run fails. Spec: `docs/superpowers/specs/2026-11-04-fault-recovery-design.md`.
+Recovers worker and level faults before the run fails. Spec: `docs/archived_v2/2026-11-04-fault-recovery-design.md`.
 
 ## Fault kinds
 

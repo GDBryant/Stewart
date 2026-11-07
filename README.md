@@ -185,7 +185,7 @@ See [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) for the full rule set, parser r
 |---------|---------------|
 | Ollama model list is empty | Confirm the server is running, check `ollama list`, and verify the Ollama URL. If Ollama runs in a container or on another host, `localhost` may not reach it from the IDE. |
 | Connection refused or timeout | Check the endpoint, port, proxy and firewall. Test reachability from the machine running the IDE. |
-| Claude login or executable error | Confirm the configured CLI path, verify the CLI works outside the IDE, and use the settings login check. See [Claude transport notes](docs/CLAUDE_FEASIBILITY.md) for supported CLI assumptions. |
+| Claude login or executable error | Confirm the configured CLI path, verify the CLI works outside the IDE, and use the settings login check. See [Claude transport notes](docs/archived_v2/CLAUDE_FEASIBILITY.md) for supported CLI assumptions. |
 | The model describes actions but does not call tools | Check **Enable tools**, select a tool-capable model, and review its native/shim override. Do not blindly retry if an action may already have executed. |
 | Commands unexpectedly skip approval | Run `/permissions` and inspect category, chat and program grants. Use `/permissions revoke all` to remove this project's active grants. |
 | Plugin does not appear | Confirm the IDE build is 261+, install the plugin zip rather than its enclosing artifact archive, and restart the IDE. |
@@ -204,7 +204,7 @@ Tool window (chat UI, model picker, mode toggle, approval dialogs)
     └── ToolRegistry → validate → approve → execute → correlated result
 ```
 
-Kotlin throughout, Swing UI, coroutines for I/O, no bundled Node runtime. Full design, execution contract and provider details: [`docs/PLAN.md`](docs/PLAN.md).
+Kotlin throughout, Swing UI, coroutines for I/O, no bundled Node runtime. Full design, execution contract and provider details: [`docs/archived_v1/PLAN.md`](docs/archived_v1/PLAN.md).
 
 ## Building and testing
 
@@ -244,7 +244,7 @@ scripts/         install-plugin.sh, claude-feasibility.sh
 
 | Doc | Contents |
 |-----|----------|
-| [`docs/PLAN.md`](docs/PLAN.md) | Architecture, providers, execution contract, milestones |
+| [`docs/archived_v1/PLAN.md`](docs/archived_v1/PLAN.md) | Architecture, providers, execution contract, milestones |
 | [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) | Approval categories, grants, parser rules, storage |
 | [`docs/PHASE2.md`](docs/PHASE2.md) | Phase 2 roadmap (orchestration, sessions) |
 | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |

@@ -1,6 +1,6 @@
 # Progress
 
-v2 rebuild on branch `v2`, per `docs/future/ARCHITECTURE.md`. One commit per milestone.
+v2 rebuild on branch `v2`, per `docs/archived_v2/ARCHITECTURE.md`. One commit per milestone.
 
 | Milestone | Scope | Status |
 |---|---|---|

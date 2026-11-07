@@ -1,6 +1,6 @@
 # Permissions
 
-Per-project approval bypass for tools that ask before acting. See `docs/BYPASS_MODE_PLAN.md` for the build plan.
+Per-project approval bypass for tools that ask before acting. See `docs/archived_v1/BYPASS_MODE_PLAN.md` for the build plan.
 
 ## Categories
 
@@ -61,7 +61,7 @@ Every auto-approved call writes a `DebugLogSink` record (`auto-approve`, tool na
 
 Application-level `stewart-permissions.xml` maps `project.locationHash` → path, ticks, programs. It lives in the IDE config dir but is `SettingsCategory.SYSTEM`, so Settings Sync and export skip it — a location hash is meaningless on another machine.
 
-Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `stewart-permissions.xml` (old file kept); see `docs/RENAME_PLAN.md`.
+Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `stewart-permissions.xml` (old file kept); see `docs/archived_v1/RENAME_PLAN.md`.
 
 ## Scratch auto-approval
 

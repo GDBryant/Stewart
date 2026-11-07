@@ -4,7 +4,7 @@
 
 **Build state:** `./gradlew check` passes (824 tests, 0 failures, 7 live skipped; Kover ≥90% line / ≥80% branch; `verifyPlugin` Compatible on IDEA 2025.1 and PyCharm 2025.3). Milestones M1–M10 and the post-M10 handoff items are complete.
 
-### Missing from `docs/PLAN.md` (Phase 1 gaps)
+### Missing from `docs/archived_v1/PLAN.md` (Phase 1 gaps)
 
 | Area | Plan reference | Current codebase state | Impact |
 |---|---|---|---|
@@ -165,7 +165,7 @@ Fixed (not effort-scaled): `maxTasksPerRound=10`, `toolTimeout`, `maxHandoffChar
 2. **Streaming `RunTerminal`:** stream stdout/stderr chunks to the UI while running (`ProjectTools.kt:417`), optionally mirrored into the IDE Terminal tool window (optional `org.jetbrains.plugins.terminal` dependency).
 3. **Transient error backoff:** bounded exponential backoff for 429/502/503/504 in `AifProvider`/`OllamaProvider`/`ClaudeProvider`, honouring cancellation.
 4. **Multi-session history & `/resume`:** named conversations per project instead of one overwritten `ChatHistoryStore` file, selectable by header dropdown or `/resume`.
-5. **Approval bypass modes (per tool category):** *(superseded — implemented as `docs/BYPASS_MODE_PLAN.md`, see `docs/PERMISSIONS.md`)* every approval dialog (`FileApprovalDialog`, `CommandApprovalDialog`, `GenericApprovalDialog` in `ui/ApprovalDialogs.kt`) gains three choices instead of Approve/Reject only: **Approve once**, **Allow for this session**, **Allow always**. Scope is per tool category, not per call — file edits (`ToolPreview.FileChange`), shell commands (`ToolPreview.Command`), and a generic bucket for everything else. "Session" grants live in `IdeApprovalGate`'s in-memory set (cleared on project close / session end); "always" grants persist in `StewartSettings.State` (e.g. `alwaysAllowEdits`, `alwaysAllowCommands`, `alwaysAllowOther`) and subsume today's boolean `autoApproveEdits`. `IdeApprovalGate.review` short-circuits before prompting when the category is granted in either set. Settings page gets checkboxes to view/revoke "always" grants; `/approve` (or a `/permissions`) command lists and clears grants. Security note: "always" for commands must be opt-in per project and visibly indicated in the status line while active.
+5. **Approval bypass modes (per tool category):** *(superseded — implemented as `docs/archived_v1/BYPASS_MODE_PLAN.md`, see `docs/PERMISSIONS.md`)* every approval dialog (`FileApprovalDialog`, `CommandApprovalDialog`, `GenericApprovalDialog` in `ui/ApprovalDialogs.kt`) gains three choices instead of Approve/Reject only: **Approve once**, **Allow for this session**, **Allow always**. Scope is per tool category, not per call — file edits (`ToolPreview.FileChange`), shell commands (`ToolPreview.Command`), and a generic bucket for everything else. "Session" grants live in `IdeApprovalGate`'s in-memory set (cleared on project close / session end); "always" grants persist in `StewartSettings.State` (e.g. `alwaysAllowEdits`, `alwaysAllowCommands`, `alwaysAllowOther`) and subsume today's boolean `autoApproveEdits`. `IdeApprovalGate.review` short-circuits before prompting when the category is granted in either set. Settings page gets checkboxes to view/revoke "always" grants; `/approve` (or a `/permissions`) command lists and clears grants. Security note: "always" for commands must be opt-in per project and visibly indicated in the status line while active.
 
 ---
 

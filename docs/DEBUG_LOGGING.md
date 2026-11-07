@@ -40,7 +40,7 @@ Implemented by `com.adb.stewart.debug.DebugLogSink`.
 
 ## Enabling
 
-Settings → Tools → Stewart (settings stored in `stewart.xml`; old AIJB settings are migrated on first load, see `docs/RENAME_PLAN.md`):
+Settings → Tools → Stewart (settings stored in `stewart.xml`; old AIJB settings are migrated on first load, see `docs/archived_v1/RENAME_PLAN.md`):
 
 - **Debug log: record every model call (Ollama, AIF, Claude CLI)** — master switch, off by default.
 - **Debug log folder** — defaults to `./log/debug_logs/`. Relative paths resolve under the IDE log

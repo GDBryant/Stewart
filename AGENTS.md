@@ -14,26 +14,27 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build + install: `./scripts/build-install.sh`
 
 ## References
-- Plan: `docs/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.
+- Plan: `docs/archived_v1/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.
 - Progress: `docs/PROGRESS.md` — milestone status table; update on every milestone commit.
 - Compatibility: `docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
-- VS Code feasibility: `docs/VISUAL_STUDIO.md` — target choice (VS Code), portable layers, host mapping, options, phased plan.
-- Claude feasibility: `docs/CLAUDE_FEASIBILITY.md` — M1 gate for the Claude Code CLI transport.
+- VS Code feasibility: `docs/archived_v2/VISUAL_STUDIO.md` — target choice (VS Code), portable layers, host mapping, options, phased plan.
+- Claude feasibility: `docs/archived_v2/CLAUDE_FEASIBILITY.md` — M1 gate for the Claude Code CLI transport.
 - Handoff: `docs/HANDOFF.md` — post-M10 plans for the outstanding items (runIde check, AIF model list, Qwen edits + write verification, Ollama native tools, Visual Studio, Nemotron). Previous handoff text is in git history (`0ee6ce2`).
 - Phase 2: `docs/PHASE2.md` — Phase 1 plan/build audit, missing items, and Phase 2 multi-layered agent roadmap (M11–M15).
-- Shim parity: `docs/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
+- Shim parity: `docs/archived_v1/SHIM_PARITY.md` — Python rev, function map, intentional differences, skipped tests.
 - Debug logging: `docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
-- Debug retention plan: `docs/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
+- Debug retention plan: `docs/archived_v1/DEBUG_RETENTION_PLAN.md` — outstanding retention gaps and build steps.
 - Releasing: `docs/RELEASING.md` — VSIX packaging, per-OS bundled-Node zips, CI/release workflows, secrets-gated signing/publishing.
-- Bypass mode plan: `docs/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching (implemented).
+- Bypass mode plan: `docs/archived_v1/BYPASS_MODE_PLAN.md` — per-category approval bypass, chat/always grants, sub-command matching (implemented).
 - Permissions: `docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
-- Rename plan: `docs/RENAME_PLAN.md` — AIJB Assistant → Stewart name map, persisted-key migration, steps, verification.
-- Chat UX plan: `docs/superpowers/plans/2026-11-02-chat-ux.md` — right-aligned user bubbles, busy/active-role label, collapsible tool rows, Up/Down prompt recall.
+- Rename plan: `docs/archived_v1/RENAME_PLAN.md` — AIJB Assistant → Stewart name map, persisted-key migration, steps, verification.
+- Chat UX plan: `docs/archived_v1/2026-11-02-chat-ux.md` — right-aligned user bubbles, busy/active-role label, collapsible tool rows, Up/Down prompt recall.
 - Images: `docs/IMAGES.md` — image attachments (paste/drop/picker//image), provider wire formats, vision gate, persistence, known gaps.
-- Fault recovery spec: `docs/superpowers/specs/2026-11-04-fault-recovery-design.md` — num_ctx per model, adjustable worker turn budgets, turn-limit continue question, split recovery, scratch dir.
-- v2 rebuild architecture: `docs/future/ARCHITECTURE.md` — shared TS core + JetBrains sidecar, channels/agents/roles/skills, kept vs dropped v1 items.
+- Fault recovery spec: `docs/archived_v2/2026-11-04-fault-recovery-design.md` — num_ctx per model, adjustable worker turn budgets, turn-limit continue question, split recovery, scratch dir.
+- v2 rebuild architecture: `docs/archived_v2/ARCHITECTURE.md` — shared TS core + JetBrains sidecar, channels/agents/roles/skills, kept vs dropped v1 items.
 - Setup wizard: `docs/SETUP.md` — steps, assignment engine, protocol, gaps.
 - Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
+- Budgets + setup info: `docs/BUDGETS_AND_SETUP_INFO.md` — model-aware turn/time profiles (quick/normal/deep), task-size classifier, richer setup-agent inputs (proposed).
 
 ## Conventions
 - Stack: TypeScript pnpm monorepo (`packages/*` shared, `hosts/*` per-IDE); JetBrains plugin module in Kotlin added at M2.

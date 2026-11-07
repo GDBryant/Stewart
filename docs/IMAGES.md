@@ -1,6 +1,6 @@
 # Image attachments
 
-Plan: `docs/superpowers/plans/2026-11-03-image-attachments.md`.
+Plan: `docs/archived_v2/2026-11-03-image-attachments.md`.
 
 ## Spike: Claude CLI image input (Task 1) — PASS
 

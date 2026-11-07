@@ -57,7 +57,7 @@ the M2 platform level; re-check on 2026.1) and Kotlin-generated overrides of
   populated from the local Ollama container, streaming replies and send/cancel
   worked correctly.
 - `scripts/claude-feasibility.sh`: all scripted checks PASS on Claude Code CLI
-  2.1.309 (see `docs/CLAUDE_FEASIBILITY.md`); supported CLI version for M3 is
+  2.1.309 (see `docs/archived_v2/CLAUDE_FEASIBILITY.md`); supported CLI version for M3 is
   2.1.309. Managed-policy check 6 passed 2026-10-29 on CLI 2.1.312.
 
 ## AIF live check (2026-10-29)
