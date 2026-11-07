@@ -1,6 +1,6 @@
 # Model-aware budgets and richer setup information (spec)
 
-Status: **proposed, not implemented.** Written for handoff. Baseline commit `e6a149e` (branch `active-background-tasks`).
+Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background-tasks`). M6 (profile escalation) descoped — requires the v1 continue-question/split machinery that does not exist in the TS core; see `docs/FAULT_RECOVERY.md`.
 
 ## Problem
 
@@ -159,7 +159,7 @@ Order: 1, 2 and 4 are independent and can go in parallel; 3 needs 1-2; 5 needs 4
 
 ## Open questions
 
-1. Should bench results be shared across projects (user-level cache) or per-workspace config? Suggested: user-level cache, copied into config on Apply.
-2. Is a bundled price catalog acceptable to maintain? If not, A2 reduces to "prefer live provider pricing, else ask in the wizard".
-3. Should `/quick` and `/deep` also select a cheaper or stronger agent for the role, or only change budgets? Suggested for v1: budgets only.
-4. Default reference values (`refTokPerSec = 40`, cost reference, multipliers) are guesses; tune them after a few real runs.
+1. Should bench results be shared across projects (user-level cache) or per-workspace config? Suggested: user-level cache, copied into config on Apply. Yes.
+2. Is a bundled price catalog acceptable to maintain? If not, A2 reduces to "prefer live provider pricing, else ask in the wizard". Yes use bundled price catalog.
+3. Should `/quick` and `/deep` also select a cheaper or stronger agent for the role, or only change budgets? Suggested for v1: budgets only. It should change the agent strength and cost.
+4. Default reference values (`refTokPerSec = 40`, cost reference, multipliers) are guesses; tune them after a few real runs. Acceptable.
