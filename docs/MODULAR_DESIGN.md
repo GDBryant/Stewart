@@ -1,6 +1,6 @@
 # Stewart — Modular Design (healthy-code structure)
 
-Status: proposal. Derived from `project_features.md` only, not from the current file layout. Maps to today's code in §7. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
+Status: implemented through §7 step 7 (all 22 modules extracted, `core.ts` is a router); step 8 (lint limits) deferred. Originally derived from `project_features.md`; §3 now reflects the as-built manifests and §11 lists where the build deviates from the §4 sketches. As-built detail lives in `ARCHITECTURE_NOW.md`; progress in `MODULAR_MIGRATION_STATUS.md`. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
 
 ## 1. Health rules (the design constraints)
 
@@ -35,7 +35,7 @@ L1   platform     config · catalog · toolcall-format · diagnostics
 L0   kernel       Result, errors, ids, Clock, IdGen, EventBus, schema helpers, HostPort types
 ```
 
-`interaction` is the single owner of user-facing prompts (approvals, `ask_user`, continue question, plan gate, cost-limit card, `withdraw`). `permissions`, `ledger`, `orchestration` and `recovery` all use it instead of building their own.
+`interaction` is the single owner of user-facing prompt cards (approvals, `ask_user`, `withdraw`). As built, `runs` holds the one `Interaction` and hands prompts down through the runtime (`rt.ask`, `rt.askTimed`, `rt.approve`); `orchestration`, `recovery` and `ledger` consume those functions and never build their own cards. The continue question, plan gate and cost card are rendered by their owners as text/options over `rt.ask*` rather than as typed `Prompt<A>` values (see §11).
 
 ### Outside core
 
@@ -48,37 +48,37 @@ L0   kernel       Result, errors, ids, Clock, IdGen, EventBus, schema helpers, H
 
 ## 3. Modules and their surfaces
 
-Each row: what it owns, the surface others may use, what it depends on. Surfaces are sketched in §4.
+Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surface others may use, and the `@stewart/*` dependencies declared in its manifest as built (`@stewart/protocol` sits outside the layer table and is allowed from any layer). Surfaces are sketched in §4; each module's `README.md` says how to fake it.
 
-| # | Module | Owns (feature) | Surface | Depends on |
+| L | Module | Owns (feature) | Surface | Depends on (as built) |
 |---|---|---|---|---|
-| 0 | `kernel` | Result/errors, `Clock`, `IdGen`, `EventBus`, `HostPort` types | types + tiny helpers | — |
-| 1a | `config` | YAML load, zod validate, shipped<user<project merge by id, watch, `SelfWriteGuard`, atomic write, v1 import | `ConfigService` | kernel |
-| 1b | `catalog` | bundled price/limits/context data, `lookupModelInfo`, `costTier` | `Catalog` (pure) | kernel |
-| 1c | `toolcall-format` | shim parser, JSON repair, alias map, stream filter, shim prompt | `parseToolCalls`, `ToolCallStreamFilter`, `shimPrompt` (pure) | kernel |
-| 1d | `diagnostics` | debug log sink, redaction, retention | `DebugLog` | kernel |
-| 2a | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile`; declares the `ProbeLoop` contract and `ModelPerf` | `ModelProfiles` (pure), `ProbeLoop` types | kernel, catalog |
-| 2a | `interaction` | user prompts: approvals, `ask_user`, continue question, plan gate, cost card; FIFO, `withdraw` | `Interaction` | kernel |
-| 2b | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelService` | kernel, config |
-| 2b | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | `Budget` (pure) | kernel, models |
-| 2b | `ledger` | append-only cost ledger, cost limit, replacement ranking | `Ledger`, `CostPolicy` | kernel, models, interaction |
-| 2b | `permissions` | categories, grants (once/chat/always), shell splitter, fail-closed decisions | `Permissions` | kernel, config, interaction |
-| 2b | `roles-skills` | role + skill definitions, validation, tool filter, `writePaths`, copy-on-write, prompt composition inputs | `RoleCatalog`, `SkillCatalog` | kernel, config, models |
-| 2b | `scheduling` | `TaskGraph`, `LeaseManager`, deadlock detection | `TaskGraph`, `Leases` (pure) | kernel |
-| 2b | `run-state` | journal, idempotency log, pre-image snapshots/revert, scratch dir, chat history | `RunStore`, `Snapshots`, `HistoryStore` | kernel (uses `HostPort`) |
-| 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), `ToolProvider` seam, ingest cap | `ToolRegistry`, `ToolProvider` | kernel, permissions, roles-skills |
-| 3a | `compaction` | prune / summarize / clip as pure message transforms | `compact(messages, plan)` | kernel |
-| 3a | `context` | prompt composition, `@mentions`, images, `AGENTS.md`/`MEMORY.md` bounds, briefings | `ContextBuilder` | kernel, roles-skills, models |
-| 3b | `agent-loop` | `ToolLoop` stream→parse→execute and `createAgentSession` (the only loop builder); declares `Recovery` + fault types | `AgentSession`, `Recovery`, `Fault`, `createProbeLoop` | channels, tools, toolcall-format, compaction, budget, ledger, permissions, models, diagnostics |
-| 4 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing | `Orchestrator` | agent-loop (incl. `Recovery`), scheduling, roles-skills, run-state, interaction |
-| 4 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery` | agent-loop, budget, run-state, interaction |
-| 4 | `setup` | five-phase setup session (§10): channels, evaluator choice, evaluate, assign, approve + save; draft persistence and undo | `SetupService`, `SetupSession` | channels, models, roles-skills, config, catalog (the benchmark loop is injected as a `ProbeLoop`, no `agent-loop` import) |
-| 5 | `runs` | `RunManager`: one pipeline, three strategies, cancel, revert, resume; slash-command parsing (`/direct /quick /deep /resume /permissions /image`) | `RunService`, `parseCommand` | orchestration, recovery, ledger, run-state, permissions, interaction |
-| 6 | `app` | wiring, RPC method → service routing, 30 ms event batching toward the host; nothing else | `Core.dispatch` | all |
+| 0 | `kernel` | wire types, `Clock`, `IdGen`, `EventBus`, `HostPort` + narrow ports, test fakes | types + tiny helpers, `fakeHost`/`fakeFetcher` | protocol |
+| 1 | `config` | YAML load, zod validate, shipped<user<project merge by id, `SelfWriteGuard`, atomic write, user config dir | `loadConfig` (raw), `ConfigStore`, schemas | — |
+| 1 | `catalog` | bundled price/limits/context data, `lookupModelInfo`, `costTier`, `normalizeModel` | pure functions | — |
+| 1 | `toolcall-format` | shim parser, JSON repair, alias map, stream filter, shim prompt | `parseToolCalls`, `ToolCallStreamFilter`, `shimPrompt` (pure) | kernel |
+| 1 | `diagnostics` | debug log sink, redaction, retention | `DebugLogger`, `DebugSink` | protocol |
+| 2 | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile` | `resolveModelProfile`, `profileFromChannel` (pure) | catalog |
+| 2 | `interaction` | approval + `ask_user` cards, timeout/abort `withdraw` | `Interaction` | kernel, protocol |
+| 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry` | kernel, catalog, diagnostics, models |
+| 3 | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | pure functions | catalog, models |
+| 3 | `ledger` | append-only cost ledger, cost limit | `RunLedger`, `CostLimit`, `costOfCall` | kernel |
+| 3 | `permissions` | categories, grants (once/chat/always), tool previews, shell splitter | `Grants`, `categoryOf`, `splitShellPrograms` | — |
+| 3 | `roles-skills` | role + skill definitions, validation, tool filter, `writePaths`, copy-on-write, prompt composition, effective config (`loadConfig` + skills + role validation) | `loadConfig`, `composeRolePrompt`, role/skill helpers | kernel, config, models |
+| 3 | `scheduling` | `TaskGraph`, `LeaseManager`, deadlock detection | `TaskGraph`, `LeaseManager` (pure) | — |
+| 3 | `run-state` | idempotency log, pre-image snapshots/revert, chat history | `IdempotencyLog`, `revertRunSnapshots`, `ChatHistoryStore` | kernel |
+| 4 | `compaction` | prune / summarize / clip as pure message transforms | pure functions | kernel |
+| 4 | `context` | `@mentions`, image limits, `AGENTS.md`/`MEMORY.md` bounds | `expandMentions`, `normalizeImages`, `loadProjectContext` | kernel |
+| 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), role guards, lease wrapper | `ToolRegistry`, `projectTools`, `roleRegistry`, `leasedTools` | kernel, config, context, permissions, roles-skills, run-state, scheduling |
+| 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `classifyFault`, `Recovery`, runtime types | kernel, protocol, budget, channels, compaction, config, ledger, models, permissions, roles-skills, run-state, scheduling, toolcall-format, tools |
+| 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
+| 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, kernel, permissions, roles-skills, scheduling, tools |
+| 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel`, `scanWorkspace` | agent-loop, catalog, channels, config, kernel, models, roles-skills, tools |
+| 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume, approval gate + grants; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |
+| 9 | `app` (`packages/core`) | wiring, RPC method → handler table, 30 ms event batching toward the host, `v1import` | `Core.dispatch` | all |
 
 ## 4. Interfaces (contract first)
 
-Sketches, not final code. Naming: verbs for commands, nouns for queries; options object past 4 params; all fallible calls return `Result`.
+Sketches, not final code; the build kept the existing concrete types (`ManagedChannel`, `Grants`, `ToolLoop`, `RunRuntime`) rather than introducing these facades — §11 lists each deviation. Naming: verbs for commands, nouns for queries; options object past 4 params; all fallible calls return `Result`.
 
 ### kernel
 ```ts
@@ -227,11 +227,11 @@ Direct, orchestrated and resume are three `RunStrategy` objects (`plan(req) → 
 
 ## 6. Enforcement (so it stays healthy)
 
-1. Package boundaries (§9) give most of this for free: `exports` allows only the public entry, and manifests list only lower-layer dependencies. `scripts/check-layers.mjs` (table in `scripts/layers.json`) fails CI if a package depends on its own layer or above, or on a package missing from the layer table. `dependency-cruiser` covers cycles and deep imports inside a package.
-2. Lint limits from §1 (`max-lines`, `max-lines-per-function`, `complexity`, `max-depth`, `max-params`).
-3. Per-module `README.md` of five lines: purpose, surface, owns, depends on, how to fake it.
-4. The `code-health-reviewer` role scores each module folder; Green (≥ 9.5) is the merge bar for new modules, no worse than current for touched ones.
-5. `ARCHITECTURE_NOW.md` stays the as-built map; update it with each extraction commit.
+1. (Done) Package boundaries (§9) give most of this for free: `exports` allows only the public entry, and manifests list only lower-layer dependencies. `scripts/check-layers.mjs` (table in `scripts/layers.json`) fails CI (`ci.yml` runs `check:layers` and `check:boundaries`) if a package depends on its own layer or above, on a package missing from the layer table, or exposes more than the `.` export. `dependency-cruiser` is not installed: cross-package deep imports already fail to resolve, and intra-package cycles are not checked.
+2. (Deferred, step 8) Lint limits from §1 via the full eslint rule set (`max-lines`, `max-lines-per-function`, `complexity`, `max-depth`, `max-params`) across every package. Today only `check-boundaries` enforces `maxLines` 300 on `packages/core/src`.
+3. (Done) Per-module `README.md` of five lines: purpose, surface, owns, depends on, how to fake it. `scripts/new-module.mjs` writes the template.
+4. The `code-health-reviewer` role scores each module folder; Green (≥ 9.5) is the merge bar for new modules, no worse than current for touched ones. Not yet run over `modules/*`.
+5. (Done) `ARCHITECTURE_NOW.md` stays the as-built map; update it with each extraction commit.
 
 ## 7. Mapping from today's code and migration
 
@@ -297,9 +297,9 @@ Per-package conventions:
 - Name `@stewart/<module>`; version-locked, never published separately.
 - `src/api.ts` is the only public file. `package.json` has `"exports": { ".": { "types": "./dist/api.d.ts", "default": "./dist/api.js" } }`, so a deep import fails to resolve.
 - Dependencies use `"workspace:*"` and only point to packages in lower layers. No peer or dev cycles.
-- Each package has its own `tsconfig.json` with project `references` to its dependencies, `vitest` config, and a `test/` folder using in-memory fakes of its ports.
+- Each package has its own `tsconfig.json` (extends `tsconfig.base.json`; no project `references` — `pnpm -r build` orders packages topologically from the manifests, and `exports` resolves to `dist/`) and a `test/` folder using in-memory fakes of its ports (vitest defaults; no per-package config file).
 - Per-package scripts `build`, `typecheck`, `test`; `pnpm -r build` stays topological. Developers run one module with `pnpm --filter @stewart/budget... test` (the `...` also runs its dependencies' builds).
-- Coverage gate (≥90% line, ≥80% branch) applies per package, so a weak module cannot hide behind a strong one.
+- Coverage gate (≥90% line, ≥80% branch) is intended per package, so a weak module cannot hide behind a strong one. Not yet wired (lands with step 8).
 - `docs/ARCHITECTURE_NOW.md` module table is updated per extraction commit; `packages/core` shrinks as modules leave it.
 - Release packaging bundles the sidecar and VSIX from `@stewart/core`, which pulls the modules in by workspace dependency; no release script change beyond the bundler picking up the new paths.
 
@@ -443,3 +443,24 @@ Resume after IDE restart (draft), YAML undo backup (backup + Undo), approval bou
 - Assign: hard-filter violations never assigned; AI pick failing a requirement dropped with fallback message; edit to an invalid choice returns `assignment_invalid`; priority change re-scores without probing.
 - Approve/save: token mismatch after a draft or disk change returns `stale_approval`; invalid merged config writes nothing; mid-write failure restores the backup; Undo restores the previous files; draft deleted after success.
 - Resume: restart mid-`evaluate` resumes with prior results; expired or version-mismatched draft is discarded with a notice.
+
+## 11. As-built deviations from the sketches
+
+Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, not an oversight; revisit when the listed trigger appears.
+
+| Sketch (§) | As built | Why / trigger to revisit |
+|---|---|---|
+| `Result<T, StewartError>` for all fallible calls (§1, §4) | Modules throw or return `T \| undefined`; errors surface as `RunEvent` variants or thrown `Error`s caught at the strategy/handler edge | Sweeping change across every surface; do it per module when a module is next reworked |
+| `ChannelService` facade (§4) | Consumers receive `ManagedChannel` via `channelFor(id)` on the runtime; `ChannelRegistry` + `ManagedChannel` are the surface | A facade would wrap one method; add when a second consumer needs `health()` |
+| `Permissions.decide/ask` facade (§4); `permissions` and `ledger` depend on `interaction` (§3) | Grant policy (`Grants`, `categoryOf`) stays in `permissions`; the gate that combines grants with an approval card lives in `runs` (`RunService.gate`) and is injected as `rt.approve`. `permissions`, `ledger`, `orchestration`, `recovery` have no `interaction` dependency | The gate is the only place policy meets prompting; moving it down would make `permissions` depend on `interaction` for one call |
+| `Interaction` as FIFO queue with `Prompt<A>`, `pending()` (§4) | `Interaction` exposes `approval`, `ask`, `askTimed` + `resolveApproval`/`resolveAnswer`; prompts are concurrent, not queued; continue question / plan gate / cost card are rendered by their owners as question + options over `rt.ask*` | Build the queue and typed prompts when a second UI (JetBrains native cards) or prompt ordering becomes a requirement |
+| `setup` takes an injected `ProbeLoop` declared in `models`; no `agent-loop` import (§3, §4) | `setup/bench.ts` imports `createAgentSession` directly; `setup` and `agent-loop` are both layer 7/6 so the dependency is legal | Introduce the seam when `setup` tests need to run without a channel, or when the five-phase session (§10) is built |
+| `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
+| `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
+| `RunHandle.events: AsyncIterable` (§4) | Runs emit through the shared `EventBus`; handlers return `{ runId }` | Protocol is event-push; an iterable per run would duplicate the bus |
+| `ToolRegistry.for(role)` decorator (§4) | `roleRegistry(registry, role)` function in `tools/roleRegistry.ts`; `leasedTools` wraps for leases | Same shape, free function instead of method |
+| `dependency-cruiser` for intra-package cycles (§6) | Not installed; `exports` already blocks cross-package deep imports | Add if a module grows internal cycles (none today) |
+| Per-package coverage gate (§9) | Not wired; `@vitest/coverage-v8` present only in `packages/core` | Step 8 |
+| `tsconfig` project `references` (§9) | Not used; pnpm topological build + `dist/` exports suffice | Only needed for `tsc -b` incremental builds |
+| `v1import` into `config` (§3) | Stays in `packages/core` because it needs `catalog` (same layer as `config`) | Move when `catalog` and `config` split layers |
+| Slash commands `/resume /permissions /image` in `parseCommand` (§3) | Only `/direct /quick /deep`; `/resume` is the `chat.resume` RPC, the others are webview-side | Add when a core-side command appears |

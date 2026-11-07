@@ -1,7 +1,7 @@
 # @stewart/orchestration
 
-- Purpose: hub verbs, plan gate, nested dispatch
+- Purpose: Orchestrated runs: hub verbs, role task runner, replacement ranking
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `orchestrator.ts` (`runOrchestrated`, `resolveRole`, plan gate, nested dispatch), `roleRunner.ts` (`runRoleTask`, `buildRolePrompt`, `compactionFor`), `tools.ts` (`orchestrationTools`: dispatch/ask_user/submit_*), `replacements.ts` (`freeCandidates`, `rankDeterministic`, `validateReplacements`)
+- Depends on: `@stewart/agent-loop`, `@stewart/budget`, `@stewart/channels`, `@stewart/compaction`, `@stewart/config`, `@stewart/context`, `@stewart/kernel`, `@stewart/ledger`, `@stewart/models`, `@stewart/permissions`, `@stewart/roles-skills`, `@stewart/run-state`, `@stewart/scheduling`, `@stewart/tools` (lower layers only; `scripts/layers.json`)
+- Fake it: Build an `OrchestrationRuntime` with scripted channels and a `createRecovery(runRoleTask)` service; assert on emitted `RunEvent`s

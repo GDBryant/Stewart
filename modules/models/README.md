@@ -1,7 +1,7 @@
 # @stewart/models
 
-- Purpose: ModelProfile merge; ProbeLoop contract
+- Purpose: One merge of caps/probe/bench/catalog/price into a `ModelProfile`
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `caps.ts` (`ModelCaps`, `ModelPerf`, `ToolsMode`, `DEFAULT_CAPS`, `isCosting`, `mergeProbeCaps`), `profile.ts` (`ModelProfile`, `resolveModelProfile`, `profileFromChannel`)
+- Depends on: `@stewart/catalog` (lower layers only; `scripts/layers.json`)
+- Fake it: Pure; build a `ModelProfile` literal in tests

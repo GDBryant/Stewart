@@ -1,7 +1,7 @@
 # @stewart/setup
 
-- Purpose: five-phase setup session
+- Purpose: Setup assistance: rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `assign.ts` (`ROLE_PROFILES`, `scoreAssignments`, `meetsHardRequirements`), `recommend.ts` (`recommendAssignments`), `bench.ts` (`benchModel`, `BENCH_VERSION`), `setupContext.ts` (`scanWorkspace`, `gatherHardware`)
+- Depends on: `@stewart/agent-loop`, `@stewart/catalog`, `@stewart/channels`, `@stewart/config`, `@stewart/kernel`, `@stewart/models`, `@stewart/roles-skills`, `@stewart/tools` (lower layers only; `scripts/layers.json`)
+- Fake it: Scorer is pure; `recommendAssignments` takes a `Map<string, ManagedChannel>` of scripted channels; scan runs over `fakeHost()`

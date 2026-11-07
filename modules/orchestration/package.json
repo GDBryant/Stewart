@@ -33,7 +33,6 @@
     "@stewart/run-state": "workspace:*",
     "@stewart/scheduling": "workspace:*",
     "@stewart/context": "workspace:*",
-    "@stewart/compaction": "workspace:*",
-    "@stewart/protocol": "workspace:*"
+    "@stewart/compaction": "workspace:*"
   }
 }

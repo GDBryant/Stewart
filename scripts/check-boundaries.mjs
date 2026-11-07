@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-// Warn-mode boundary lint for code not yet extracted (docs/MODULAR_DESIGN.md §7 step 1).
-// Reports imports in packages/core/src that point to the same or a higher layer than the importer's
-// target module, and files over the line limit. Known violations live in scripts/boundaries.baseline.json;
-// only NEW ones fail. Fix and remove entries as modules are extracted; `--update` rewrites the baseline.
+// Boundary lint for packages/core/src (docs/MODULAR_DESIGN.md §7 steps 1 and 8).
+// Reports files over `maxLines` and, for any file still mapped to a module in scripts/boundaries.json,
+// relative imports that point to the same or a higher layer. The map is empty now that every module has
+// been extracted, so only the size rule applies to core. Known violations live in
+// scripts/boundaries.baseline.json; only NEW ones fail. `--update` rewrites the baseline.
+// Step 8 (deferred) replaces the size rule with eslint `max-lines` etc. across every package.
 import { readFileSync, readdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -1,7 +1,7 @@
 # @stewart/compaction
 
-- Purpose: prune/summarize/clip message transforms
+- Purpose: Context compaction as pure message transforms
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `compaction.ts` (measure, clip-to-note, `pruneStale`, `summarizeMiddle`)
+- Depends on: `@stewart/kernel` (lower layers only; `scripts/layers.json`)
+- Fake it: Pure; pass `ChatMessage[]` and a plan

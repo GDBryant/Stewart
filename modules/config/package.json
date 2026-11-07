@@ -20,7 +20,6 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
-    "@stewart/kernel": "workspace:*",
     "yaml": "2.8.1",
     "zod": "3.25.76"
   }

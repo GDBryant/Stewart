@@ -11,6 +11,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build all: `pnpm -r build`
 - Tests: `pnpm -r test`
 - Typecheck: `pnpm -r typecheck`
+- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export) + `pnpm check:boundaries` (core file size); both run in CI
+- New module: `node scripts/new-module.mjs <name> "<purpose>"`, then add it to `scripts/layers.json` and fill its `README.md`
 - JetBrains: `./gradlew test koverVerify buildPlugin`; JCEF e2e: `./gradlew test -Pe2e` (needs display/xvfb)
 - Build + install: `./scripts/build-install.sh`
 
@@ -37,8 +39,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - v2 rebuild architecture: `docs/archived_v2/ARCHITECTURE.md` — shared TS core + JetBrains sidecar, channels/agents/roles/skills, kept vs dropped v1 items.
 - Setup wizard: `docs/SETUP.md` — steps, assignment engine, protocol, gaps.
 - Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
-- Modular design: `docs/MODULAR_DESIGN.md` — feature-derived layered modules, surfaces/interfaces, health rules, enforcement, migration order (proposal).
-- Migration status: `docs/MODULAR_MIGRATION_STATUS.md` — verified state + outstanding steps for the §7 migration (step 6 uncommitted).
+- Modular design: `docs/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–7 done, 8 deferred), §11 sketch-vs-build deviations.
+- Migration status: `docs/MODULAR_MIGRATION_STATUS.md` — verified state, what each step landed, remaining work (step 8 eslint limits).
 - Refactoring: `docs/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
 - Code health: `docs/2026-11-07-code-health.md` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).
 - Budgets + setup info: `docs/BUDGETS_AND_SETUP_INFO.md` — model-aware turn/time profiles (quick/normal/deep), task-size classifier, richer setup-agent inputs (proposed).

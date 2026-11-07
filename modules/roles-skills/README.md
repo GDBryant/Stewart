@@ -1,7 +1,7 @@
 # @stewart/roles-skills
 
-- Purpose: role and skill definitions, validation, prompts
+- Purpose: Role and skill definitions, validation, tool filter, prompt composition, effective config
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `roles.ts` (globs, `isWriteCapableRole`, `validateRoles`, `roleTurnBudget`), `skills.ts` (copy-on-write skills, `composeRolePrompt`, `serializeSkillMd`), `effective.ts` (`loadConfig` = config loader + skills + role validation), `defaults/*`
+- Depends on: `@stewart/config`, `@stewart/models`, `yaml` (lower layers only; `scripts/layers.json`)
+- Fake it: Build a `Config` via `loadConfig` from YAML strings; roles as `RoleDef` literals

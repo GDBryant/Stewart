@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@stewart/kernel": "workspace:*",
-    "@stewart/channels": "workspace:*",
     "@stewart/tools": "workspace:*",
     "@stewart/permissions": "workspace:*",
     "@stewart/config": "workspace:*",

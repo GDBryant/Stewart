@@ -1,5 +1,5 @@
 {
-  "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN \u00a77). First match wins; unmapped = app.",
+  "comment": "Maps packages/core/src files still awaiting extraction to their target module (MODULAR_DESIGN §7). Empty since M-7: every module is extracted; only the maxLines rule applies to core. First match wins; unmapped = app.",
   "map": [],
   "appLayer": 9,
   "maxLines": 300

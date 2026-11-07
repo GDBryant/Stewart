@@ -20,7 +20,6 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
-    "@stewart/kernel": "workspace:*",
     "@stewart/config": "workspace:*",
     "@stewart/models": "workspace:*",
     "yaml": "2.8.1"

@@ -1,7 +1,7 @@
 # @stewart/ledger
 
-- Purpose: append-only cost ledger and cost limit
+- Purpose: Append-only cost ledger and per-run cost cap
 - Surface: `src/api.ts`
-- Owns: TODO
-- Depends on: see `package.json` (lower layers only; `scripts/layers.json`)
-- Fake it: TODO
+- Owns: `ledger.ts` (`RunLedger` fsync'd JSONL + replay, `costOfCall`, `CostLimit`)
+- Depends on: `@stewart/kernel` (lower layers only; `scripts/layers.json`)
+- Fake it: `new RunLedger(fakeHost(), path, clock)`; `CostLimit` is pure

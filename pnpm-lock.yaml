@@ -103,9 +103,6 @@ importers:
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../catalog
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
       '@stewart/models':
         specifier: workspace:*
         version: link:../models
@@ -175,9 +172,6 @@ importers:
 
   modules/config:
     dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
       yaml:
         specifier: 2.8.1
         version: 2.8.1
@@ -213,9 +207,6 @@ importers:
 
   modules/diagnostics:
     dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -286,9 +277,6 @@ importers:
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../catalog
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -332,9 +320,6 @@ importers:
       '@stewart/permissions':
         specifier: workspace:*
         version: link:../permissions
-      '@stewart/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
@@ -375,9 +360,6 @@ importers:
       '@stewart/agent-loop':
         specifier: workspace:*
         version: link:../agent-loop
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
       '@stewart/config':
         specifier: workspace:*
         version: link:../config
@@ -412,9 +394,6 @@ importers:
       '@stewart/config':
         specifier: workspace:*
         version: link:../config
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
       '@stewart/models':
         specifier: workspace:*
         version: link:../models
@@ -507,10 +486,6 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/scheduling:
-    dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
