@@ -1,13 +1,12 @@
 import type { AgentDef, RoleDef, Settings } from "../config/schema.js";
 import type { ChatMessage, ToolCall } from "../channels/types.js";
-import { DEFAULT_CAPS } from "../channels/types.js";
 import type { ManagedChannel } from "../channels/registry.js";
 import { isWriteCapableRole } from "../roles.js";
-import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type ApprovalDecision, type ToolsMode } from "../tools/toolLoop.js";
+import { RunCancelledError } from "../tools/toolLoop.js";
+import { createAgentSession } from "../agentSession.js";
 import { ToolRegistry, type Json, type Tool, type ToolPreview } from "../tools/types.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { actionsSoFar, countToolCalls, detectStuck, type FaultKind } from "./faults.js";
-import { costOfCall } from "./ledger.js";
 import { runRoleTask, type TaskResult } from "./roleRunner.js";
 import type { TaskSpec } from "./tasks.js";
 import type { OrchestrationRuntime } from "./types.js";
@@ -218,35 +217,21 @@ async function recoveryCall(rt: OrchestrationRuntime, brain: RecoveryBrain, brie
     plan = parseRecoveryArgs(args, { maxSubTasks: R.maxSubTasks, ceiling });
     return `Recovery plan recorded with ${plan.subtasks.length} sub-task(s).`;
   });
-  const registry = new ToolRegistry([tool]);
-  const mode: ToolsMode = (brain.channel.cfg.modelCaps?.[brain.agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-  const loop = new ToolLoop(
-    brain.channel,
-    registry,
-    async () => ({ kind: "approved" }) as ApprovalDecision,
-    { ...DEFAULT_LIMITS, maxModelTurns: 4 },
+  const session = createAgentSession(
+    {
+      agent: brain.agent,
+      channel: brain.channel,
+      registry: new ToolRegistry([tool]),
+      approve: async () => ({ kind: "approved" }),
+      prompt: "You split an oversized or stuck task into smaller sub-tasks. Reply only with submit_recovery.",
+      terminal: new Set(["submit_recovery"]),
+      limitsOverride: { maxModelTurns: 4 },
+      meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, roleId: "recovery" },
+    },
     rt.clock,
-    "You split an oversized or stuck task into smaller sub-tasks. Reply only with submit_recovery.",
-    new Set(["submit_recovery"]),
-    mode,
   );
   try {
-    const result = await loop.run(brain.agent.model, [{ role: "user", content: brief }], {
-      onUsage: async (usage, reported) => {
-        const costUsd = costOfCall(brain.agent, usage, reported);
-        await rt.ledger.record({
-          runId: rt.runId,
-          roleId: "recovery",
-          agentId: brain.agent.id,
-          model: brain.agent.model,
-          billing: brain.agent.billing ?? "reported",
-          inTokens: usage?.in ?? 0,
-          outTokens: usage?.out ?? 0,
-          costUsd,
-        });
-        rt.cost.accrued += costUsd;
-      },
-    }, rt.signal);
+    const result = await session.loop.run(brain.agent.model, [{ role: "user", content: brief }], session.listener, rt.signal);
     if (result.kind !== "completed") {
       logRecovery(rt, `layer 1: recovery call failed (${result.kind === "failed" ? result.message : result.kind})`);
       return undefined;

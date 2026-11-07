@@ -1,7 +1,9 @@
 import type { ManagedChannel } from "./channels/registry.js";
 import { DEFAULT_CAPS, type ModelPerf } from "./channels/types.js";
+import type { AgentDef } from "./config/schema.js";
+import { createAgentSession } from "./agentSession.js";
 import type { Clock } from "./ports.js";
-import { DEFAULT_LIMITS, ToolLoop, type ToolsMode } from "./tools/toolLoop.js";
+import { ToolLoop, type ToolsMode } from "./tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "./tools/types.js";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */
@@ -41,17 +43,20 @@ const editProbeTool: Tool = {
   execute: async () => "edited",
 };
 
-function benchLoop(channel: ManagedChannel, tools: Tool[], terminal: string, mode: ToolsMode, clock: Clock): ToolLoop {
-  return new ToolLoop(
-    channel,
-    new ToolRegistry(tools),
-    approve,
-    { ...DEFAULT_LIMITS, maxModelTurns: 3 },
+/** Synthetic agent: the probe runs on the model's channel caps, not a configured agent. */
+function benchLoop(channel: ManagedChannel, model: string, tools: Tool[], terminal: string, clock: Clock): ToolLoop {
+  const agent: AgentDef = { id: "bench", channel: channel.cfg.id, model, effort: "medium" };
+  return createAgentSession(
+    {
+      agent,
+      channel,
+      registry: new ToolRegistry(tools),
+      approve,
+      terminal: new Set([terminal]),
+      limitsOverride: { maxModelTurns: 3 },
+    },
     clock,
-    undefined,
-    new Set([terminal]),
-    mode,
-  );
+  ).loop;
 }
 
 /**
@@ -98,7 +103,7 @@ export async function benchModel(channel: ManagedChannel, model: string, clock: 
       let ok = 0;
       for (let i = 0; i < TOOL_TRIALS; i++) {
         let called = false;
-        const r = await benchLoop(channel, [pingTool], "bench_ping", mode, clock).run(
+        const r = await benchLoop(channel, model, [pingTool], "bench_ping", clock).run(
           model,
           [{ role: "user", content: 'Call the bench_ping tool exactly once with {"ok": true}. Do not write any other text.' }],
           { onToolOutcome: (c, o) => { if (c.name === "bench_ping" && o.kind === "success") called = true; } },
@@ -115,7 +120,7 @@ export async function benchModel(channel: ManagedChannel, model: string, clock: 
     try {
       let edited = false;
       const body = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join("\n");
-      const r = await benchLoop(channel, [editProbeTool], "EditFile", mode, clock).run(
+      const r = await benchLoop(channel, model, [editProbeTool], "EditFile", clock).run(
         model,
         [{ role: "user", content: `A file notes.txt contains:\n${body}\nUse the EditFile tool to change "line3" to "three".` }],
         { onToolOutcome: (c, o) => { if (c.name === "EditFile" && o.kind === "success") edited = true; } },

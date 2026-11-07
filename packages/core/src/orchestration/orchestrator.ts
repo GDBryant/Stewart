@@ -1,12 +1,11 @@
 import type { AgentDef, RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
-import { DEFAULT_CAPS } from "../channels/types.js";
 import type { ManagedChannel } from "../channels/registry.js";
-import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, resolveLimits } from "../limits.js";
-import { profileFromChannel } from "../modelProfile.js";
+import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs } from "../limits.js";
+import { createAgentSession } from "../agentSession.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
-import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopListener, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
+import { RunCancelledError, type LoopResult } from "../tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
 import { LeaseCycleError } from "./writeGuard.js";
@@ -102,21 +101,22 @@ class OrchestratedRun {
     const allowed = this.orchestrator.tools.length ? this.orchestrator.tools : ORCHESTRATOR_DEFAULT_TOOLS;
     const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
     const prompt = await buildRolePrompt(rt, this.orchestrator);
-    const mode: ToolsMode = (this.channel.cfg.modelCaps?.[this.agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-    const limits = {
-      ...resolveLimits({ role: this.orchestrator, agent: this.agent, profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60, model: profileFromChannel(this.channel.cfg, { channel: this.agent.channel, model: this.agent.model, agent: this.agent }) }),
-      maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT,
-    };
-    const loop = new ToolLoop(
-      this.channel,
-      registry,
-      (call, preview) => rt.approve(call, preview, { roleId: this.orchestrator.id, taskId: "orchestrator" }),
-      limits,
+    const session = createAgentSession(
+      {
+        agent: this.agent,
+        role: this.orchestrator,
+        channel: this.channel,
+        registry,
+        approve: (call, preview) => rt.approve(call, preview, { roleId: this.orchestrator.id, taskId: "orchestrator" }),
+        prompt,
+        terminal: new Set(["submit_replacements"]),
+        budget: { profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60 },
+        limitsOverride: { maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT },
+        meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, roleId: this.orchestrator.id },
+        idem: rt.idem.hooks("orchestrator"),
+        events: { bus: rt.bus, runId: rt.runId, roleId: this.orchestrator.id },
+      },
       rt.clock,
-      prompt,
-      new Set(["submit_replacements"]),
-      mode,
-      rt.idem.hooks("orchestrator"),
     );
 
     let result: LoopResult;
@@ -125,7 +125,7 @@ class OrchestratedRun {
       let retried = false;
       let input: ChatMessage[] = [{ role: "user", content: this.userText }];
       while (true) {
-        result = await loop.run(this.agent.model, input, this.loopListener(), rt.signal);
+        result = await session.loop.run(this.agent.model, input, session.listener, rt.signal);
         const fault = classifyFault(result);
         if (fault && !retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
           retried = true;
@@ -154,37 +154,6 @@ class OrchestratedRun {
     // direct answers that never routed work. The reply is included so the answer is not lost.
     if (this.dispatchCalls === 0) return { status: "no_dispatch", error: noDispatchMessage(result.messages), suggestions: this.suggestions };
     return { status: "done", suggestions: this.suggestions };
-  }
-
-  private loopListener(): LoopListener {
-    const rt = this.rt;
-    const roleId = this.orchestrator.id;
-    return {
-      onText: (t) => rt.bus.emit({ kind: "text_delta", runId: rt.runId, roleId, seq: 0, text: t }),
-      onReasoning: (t) => rt.bus.emit({ kind: "reasoning_delta", runId: rt.runId, roleId, seq: 0, text: t }),
-      onCompacted: (before, after) => rt.bus.emit({ kind: "compaction", runId: rt.runId, roleId, droppedTokens: Math.max(0, before - after) }),
-      onToolRequested: (call) =>
-        rt.bus.emit({ kind: "tool.request", runId: rt.runId, roleId, callId: call.id, tool: call.name, args: call.arguments, category: call.name }),
-      onToolOutcome: (call, outcome) =>
-        rt.bus.emit({ kind: "tool.outcome", runId: rt.runId, roleId, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind }),
-      onUsage: (usage, reported) => this.recordUsage(usage, reported),
-    };
-  }
-
-  private async recordUsage(usage: { in: number; out: number } | undefined, reported: number | undefined): Promise<void> {
-    const rt = this.rt;
-    const costUsd = costOfCall(this.agent, usage, reported);
-    await rt.ledger.record({
-      runId: rt.runId,
-      roleId: this.orchestrator.id,
-      agentId: this.agent.id,
-      model: this.agent.model,
-      billing: this.agent.billing ?? "reported",
-      inTokens: usage?.in ?? 0,
-      outTokens: usage?.out ?? 0,
-      costUsd,
-    });
-    rt.cost.accrued += costUsd;
   }
 
   private async syncGraph(): Promise<void> {
