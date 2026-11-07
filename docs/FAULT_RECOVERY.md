@@ -31,6 +31,10 @@ Options, recommended first:
 
 Split comes first when stuck. A timeout (`continueQuestionTimeoutMinutes`, 0 = wait forever), a run cancel, or a question that can't be asked (setting off, caps reached) goes to Split if possible, else stops. Timeouts/cancels emit `question.withdrawn` so the card is cleared. Free text is passed to the worker as a user message and continues. Plain chat offers Continue and Stop only; timeout stops. Plain chat is a single-task run (`RunManager.driveDirect` → `runRoleTask`); the question is asked there, and the run's time cap, cost cap and cancel behave as for orchestrated runs. Direct runs are not journaled, so they are not resumable after a restart.
 
+## Resume
+
+Direct runs are journaled like orchestrated ones (`run.json` with a single `direct` task + `agentId`). `/resume` replays the original request only (no chat history) on the journaled agent; executed tool calls are skipped via the idempotency log. A run hitting `maxRunHours` or the cost cap ends `interrupted` and is resumable.
+
 ## Scratch dir
 
 - Location: `<project>/.stewart/scratch/<runId>/task-<taskId>/` (inside the workspace; `ProjectPaths` denies `.stewart/` except `scratch/`).
