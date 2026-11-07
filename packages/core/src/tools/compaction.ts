@@ -41,3 +41,37 @@ export function compactIfOver(
   }
   return false;
 }
+
+const PRUNE_MIN_CHARS = 500;
+const PRUNE_TAIL = 4;
+
+/**
+ * Prune stage (no LLM): stubs bulky tool results that are stale — superseded by a later call of the
+ * same tool+path, or outside the last `PRUNE_TAIL` messages. Message pairs stay intact; only the
+ * result content changes. Mutates `produced`; returns the number of results stubbed.
+ */
+export function pruneStale(produced: ChatMessage[]): number {
+  const calls = new Map<string, { name: string; key: string }>();
+  const latest = new Map<string, string>();
+  for (const m of produced) {
+    if (m.role === "assistant" && m.toolCalls) {
+      for (const c of m.toolCalls) {
+        const key = `${c.name}:${typeof c.arguments.path === "string" ? c.arguments.path : JSON.stringify(c.arguments)}`;
+        calls.set(c.id, { name: c.name, key });
+        latest.set(key, c.id);
+      }
+    }
+  }
+  let n = 0;
+  const cutoff = produced.length - PRUNE_TAIL;
+  produced.forEach((m, i) => {
+    if (m.role !== "tool" || m.content.length < PRUNE_MIN_CHARS || m.content.startsWith("[elided")) return;
+    const c = calls.get(m.toolCallId);
+    if (!c) return;
+    const superseded = latest.get(c.key) !== m.toolCallId;
+    if (!superseded && i >= cutoff) return;
+    produced[i] = { ...m, content: `[elided: ${c.key} ${m.content.length} chars; re-run the tool if needed]` };
+    n++;
+  });
+  return n;
+}

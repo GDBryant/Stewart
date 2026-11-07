@@ -100,6 +100,7 @@ export const settingsSchema = z.object({
     })
     .default({}),
   planGate: z.boolean().default(false),
+  compaction: z.object({ prune: z.boolean().default(false) }).default({}),
   leaseWaitSeconds: z.number().min(1).default(300),
   maxNestedDispatches: z.number().int().min(0).default(3),
   maxReplans: z.number().int().min(0).default(2),

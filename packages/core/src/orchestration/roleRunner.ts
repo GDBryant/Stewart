@@ -137,6 +137,7 @@ export async function runRoleTask(
       prompt,
       terminal,
       budget: { profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60 },
+      limitsOverride: rt.config.settings.compaction?.prune ? { prune: true } : undefined,
       meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, taskId: spec.id, roleId: role.id },
       idem: rt.idem.hooks(spec.id, deps.idemOffset),
       events: { bus: rt.bus, runId: rt.runId, taskId: spec.id, roleId: role.id },

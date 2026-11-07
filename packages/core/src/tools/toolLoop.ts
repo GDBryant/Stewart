@@ -3,7 +3,7 @@ import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
 import { buildToolsBlock } from "./shimPrompt.js";
-import { compactIfOver } from "./compaction.js";
+import { compactIfOver, measureMessages, pruneStale } from "./compaction.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
   type ToolOutcome, type ToolPreview,
@@ -38,6 +38,8 @@ export interface LoopLimits {
   maxToolOutputChars: number;
   maxContextChars: number;
   maxTruncationRetries: number;
+  /** Stub stale bulky tool results once context passes 60% of `maxContextChars` (R3 prune stage). */
+  prune?: boolean;
 }
 
 export const DEFAULT_LIMITS: LoopLimits = {
@@ -123,6 +125,7 @@ export class ToolLoop {
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
+        if (this.limits.prune && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.6) pruneStale(produced);
         if (compactIfOver(base, produced, this.limits.maxContextChars, listener)) {
           return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
         }
