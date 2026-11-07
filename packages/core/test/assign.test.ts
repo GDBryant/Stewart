@@ -131,3 +131,50 @@ describe("agent costs flag", () => {
     expect(agentSchema.safeParse({ id: "a", channel: "c", model: "m", costs: "yes" }).success).toBe(false);
   });
 });
+
+describe("perf and cost scoring", () => {
+  const perf = (p: Partial<import("../src/channels/types.js").ModelPerf>) => ({ benchedAt: 1, benchVersion: 1, ...p });
+
+  it("hard-filters on measured edit and tool reliability, warns when unknown", () => {
+    const badEdit = c("a:30b", { tools: "native", perf: perf({ editOk: false, toolReliability: 1 }) });
+    expect(scoreAssignments(["code-writer"], [badEdit]).unfilled[0].reason).toContain("edit bench");
+    const flaky = c("b:30b", { tools: "native", perf: perf({ editOk: true, toolReliability: 0.5 }) });
+    expect(scoreAssignments(["code-writer"], [flaky]).unfilled[0].reason).toContain("tool reliability");
+    const unknown = c("c:30b", { tools: "native" });
+    const r = scoreAssignments(["code-writer"], [unknown]);
+    expect(r.unfilled).toEqual([]);
+    expect(r.assignments[0].warnings.join(" ")).toContain("not measured");
+  });
+
+  it("rewards measured speed and reliability in the reason text", () => {
+    const fast = c("a:30b", { tools: "native", perf: perf({ tokPerSec: 80, toolReliability: 1, editOk: true }) });
+    const r = scoreAssignments(["code-writer"], [fast]);
+    expect(r.assignments[0].reason).toContain("80 tok/s");
+    expect(r.assignments[0].reason).toContain("tool 3/3");
+    expect(r.assignments[0].reason).toContain("edit ok");
+  });
+
+  it("weighs interactive roles toward faster models", () => {
+    const slowBig = c("big:70b", { tools: "native", reasoning: true, perf: perf({ tokPerSec: 5 }) }, "openai-compatible", "c2");
+    const fastSmall = c("small:8b", { tools: "native", perf: perf({ tokPerSec: 90 }) });
+    expect(pick("investigator", [slowBig, fastSmall]).model).toBe("small:8b");
+  });
+
+  it("penalises cost by sensitivity and reorders on priorities", () => {
+    const pricey = { ...c("p:70b", { tools: "native", reasoning: true }, "openai-compatible", "c2"), costTier: "high" as const, costBlended: 20 };
+    const free = { ...c("f:8b", { tools: "native" }), costTier: "free" as const, costBlended: 0 };
+    expect(pick("investigator", [pricey, free]).model).toBe("f:8b");
+    const strong = { ...c("p", { tools: "native", reasoning: true }, "openai-compatible", "c2"), costTier: "high" as const, costBlended: 20 };
+    const local = { ...c("f:30b", { tools: "native" }), costTier: "free" as const, costBlended: 0 };
+    const costLow = scoreAssignments(["orchestrator"], [strong, local], { priorities: { speed: 2, cost: 1, quality: 2 } });
+    const costHigh = scoreAssignments(["orchestrator"], [strong, local], { priorities: { speed: 2, cost: 3, quality: 2 } });
+    expect(costLow.assignments[0].model).toBe("p");
+    expect(costHigh.assignments[0].model).toBe("f:30b");
+  });
+
+  it("warns when a local model likely exceeds memory", () => {
+    const huge = c("huge:110b", { tools: "native" });
+    const r = scoreAssignments(["tester"], [huge], { hardware: { os: "linux", ramGb: 16 } });
+    expect(r.assignments[0].warnings.join(" ")).toContain("GB available");
+  });
+});

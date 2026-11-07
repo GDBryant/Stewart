@@ -24,7 +24,7 @@ export type Outbound =
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
-  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } }
+  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -51,6 +51,8 @@ export interface SettingsSummary {
   maxNestedDispatches?: number;
   maxReplans?: number;
   skillBudgetTokens?: number;
+  setupPriorities?: { speed?: number; cost?: number; quality?: number };
+  setupTypicalWork?: string;
   log?: { level?: string; retainDays?: number };
 }
 export interface ConfigSummary {

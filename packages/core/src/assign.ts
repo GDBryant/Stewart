@@ -1,4 +1,5 @@
 import type { ModelCaps } from "./channels/types.js";
+import type { SetupContext } from "./setupContext.js";
 
 /** One selectable model with whatever capabilities are known. */
 export interface Candidate {
@@ -6,6 +7,10 @@ export interface Candidate {
   channelType: string;
   model: string;
   caps: Partial<ModelCaps>;
+  /** USD per MTok (user-set agent.price wins, then live, then catalog). Undefined = unknown. */
+  price?: { inPerMTok?: number; outPerMTok?: number };
+  costBlended?: number;
+  costTier?: "free" | "low" | "mid" | "high";
 }
 
 export interface ScoredAssignment {
@@ -33,24 +38,46 @@ interface Profile {
   wantsCoder?: boolean;
   /** Prefer smaller/faster models. */
   cheap?: boolean;
+  /** Does a human wait on this role? Interactive weights speed harder. Default: batch. */
+  latency?: "interactive" | "batch";
+  /** Expected tool turns, shown to the AI evaluator. */
+  typicalTurns?: [number, number];
+  /** Requires a passing edit bench when measured. */
+  needsEdit?: boolean;
+  /** Hard filter when perf is known, warning when unknown. */
+  minToolReliability?: number;
+  /** How hard the cost penalty weighs. Default: medium. */
+  costSensitivity?: "low" | "medium" | "high";
+  /** Many instances at once → prefer cheap/fast. */
+  parallelism?: "high" | "low";
 }
 
 export const ROLE_PROFILES: Record<string, Profile> = {
-  orchestrator: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true },
-  planner: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true },
-  "plan-validator": { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true },
-  investigator: { needs: { tools: true }, minCtx: 16384 },
-  architect: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true },
-  "general-worker": { needs: { tools: true }, minCtx: 16384, wantsCoder: true },
-  "code-writer": { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true },
-  "code-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true },
-  tester: { needs: { tools: true }, minCtx: 16384, wantsCoder: true },
-  "document-writer": { cheap: true },
-  "image-reader": { needs: { vision: true } },
-  "image-writer": { needs: { imageGen: true } },
+  orchestrator: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
+  planner: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
+  "plan-validator": { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [1, 4], costSensitivity: "low" },
+  investigator: { needs: { tools: true }, minCtx: 16384, latency: "interactive", typicalTurns: [5, 20], costSensitivity: "high", parallelism: "high" },
+  architect: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
+  "general-worker": { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
+  "code-writer": { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
+  "code-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true, latency: "batch", typicalTurns: [5, 15], costSensitivity: "medium" },
+  tester: { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
+  "document-writer": { cheap: true, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "high" },
+  "image-reader": { needs: { vision: true }, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "medium" },
+  "image-writer": { needs: { imageGen: true }, latency: "interactive", typicalTurns: [1, 3], costSensitivity: "medium" },
 };
 
-const DEFAULT_PROFILE: Profile = { needs: { tools: true } };
+const DEFAULT_PROFILE: Profile = { needs: { tools: true }, latency: "interactive", typicalTurns: [1, 10], costSensitivity: "medium" };
+
+/** Scoring weights for the perf/cost terms; one place so tests can pin them. */
+export const SCORE_WEIGHTS = {
+  interactiveSpeed: 3,
+  batchSpeed: 1,
+  costPerTier: { low: 1, medium: 2, high: 4 },
+  reliability: 2,
+  edit: 1.5,
+  parallelismCost: 1.5,
+} as const;
 
 /** Parameter count in billions from a model name (`gemma4:e4b` → 4, `qwen3:30b-a3b` → 30). */
 export function modelSizeB(name: string): number | undefined {
@@ -71,6 +98,11 @@ function eligible(c: Candidate, p: Profile): string | undefined {
   if (p.needs?.tools && c.caps.tools === "none") return "no tool support";
   if (p.needs?.vision && c.caps.vision !== true) return "no vision";
   if (p.needs?.imageGen && c.caps.imageGen !== true) return "no image generation";
+  const perf = c.caps.perf;
+  if (p.needsEdit && perf?.editOk === false) return "failed edit bench";
+  if (p.minToolReliability !== undefined && perf?.toolReliability !== undefined && perf.toolReliability < p.minToolReliability) {
+    return `tool reliability ${perf.toolReliability} < ${p.minToolReliability}`;
+  }
   return undefined;
 }
 
@@ -79,9 +111,11 @@ export function meetsHardRequirements(role: string, c: Candidate): boolean {
   return eligible(c, ROLE_PROFILES[role] ?? DEFAULT_PROFILE) === undefined;
 }
 
-function score(c: Candidate, p: Profile): { score: number; why: string[]; warnings: string[] } {
+function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; why: string[]; warnings: string[] } {
   const why: string[] = [];
   const warnings: string[] = [];
+  const priorities = sctx?.priorities ?? { speed: 2, cost: 2, quality: 2 };
+  const q = priorities.quality / 2;
   let s = 10;
   const size = effectiveSize(c);
   if (size !== undefined) {
@@ -90,7 +124,7 @@ function score(c: Candidate, p: Profile): { score: number; why: string[]; warnin
       s += 3 - Math.abs(sz - 2); // favour small-mid models
       why.push("fast/cheap");
     } else {
-      s += sz;
+      s += sz * q;
     }
     if (p.minSizeB && size < p.minSizeB) {
       s -= 4;
@@ -104,26 +138,61 @@ function score(c: Candidate, p: Profile): { score: number; why: string[]; warnin
     why.push("native tools");
   }
   if (p.wantsReasoning && c.caps.reasoning) {
-    s += 3;
+    s += 3 * q;
     why.push("reasoning");
   }
   if (p.wantsCoder && CODER.test(c.model)) {
-    s += 2;
+    s += 2 * q;
     why.push("coding model");
   }
   if (p.needs?.vision && c.caps.vision) why.push("vision");
   if (p.needs?.imageGen && c.caps.imageGen) why.push("image generation");
-  const ctx = c.caps.numCtx ?? c.caps.contextTokens;
-  if (p.minCtx && ctx !== undefined) {
-    if (ctx >= p.minCtx) s += 1;
+  const numCtx = c.caps.numCtx ?? c.caps.contextTokens;
+  if (p.minCtx && numCtx !== undefined) {
+    if (numCtx >= p.minCtx) s += 1;
     else {
       s -= 3;
-      warnings.push(`context ${ctx} < ${p.minCtx}`);
+      warnings.push(`context ${numCtx} < ${p.minCtx}`);
     }
   }
   if (c.channelType === "ollama") {
     s += 1;
     why.push("local/free");
+  }
+  const perf = c.caps.perf;
+  if (perf?.tokPerSec !== undefined) {
+    const speedTerm = Math.min(Math.max(Math.log2(perf.tokPerSec / 20), -1.5), 2);
+    s += speedTerm * (p.latency === "interactive" ? SCORE_WEIGHTS.interactiveSpeed : SCORE_WEIGHTS.batchSpeed) * (priorities.speed / 2);
+    why.push(`${Math.round(perf.tokPerSec)} tok/s`);
+  }
+  if (p.needsEdit) {
+    if (perf?.editOk === true) {
+      s += SCORE_WEIGHTS.edit;
+      why.push("edit ok");
+    } else {
+      warnings.push("edit ability not measured");
+    }
+  }
+  if (p.minToolReliability !== undefined) {
+    if (perf?.toolReliability === undefined) {
+      warnings.push("tool reliability not measured");
+    } else {
+      s += SCORE_WEIGHTS.reliability * perf.toolReliability;
+      why.push(`tool ${Math.round(perf.toolReliability * 3)}/3`);
+    }
+  }
+  if (c.costTier) {
+    const idx = { free: 0, low: 1, mid: 2, high: 3 }[c.costTier];
+    if (idx > 0) {
+      const w = SCORE_WEIGHTS.costPerTier[p.costSensitivity ?? "medium"] * (priorities.cost / 2) * (p.parallelism === "high" ? SCORE_WEIGHTS.parallelismCost : 1);
+      s -= idx * w;
+    }
+    why.push(c.costTier === "free" ? "free" : `${c.costTier} cost`);
+  }
+  if (sctx?.hardware && c.channelType === "ollama" && size !== undefined) {
+    const need = size * 0.6;
+    const budget = sctx.hardware.gpus?.reduce((m, g) => Math.max(m, g.vramGb), 0) || sctx.hardware.ramGb;
+    if (need > budget) warnings.push(`~${size}B needs ~${Math.round(need)}GB at Q4; ~${Math.round(budget)}GB available`);
   }
   return { score: s, why, warnings };
 }
@@ -132,7 +201,7 @@ function score(c: Candidate, p: Profile): { score: number; why: string[]; warnin
  * Deterministic best-match of candidates to roles. Hard requirements filter; soft weights rank.
  * A role nobody can fill is reported in `unfilled` instead of getting a bad model.
  */
-export function scoreAssignments(roleIds: string[], candidates: Candidate[]): { assignments: ScoredAssignment[]; unfilled: Unfilled[] } {
+export function scoreAssignments(roleIds: string[], candidates: Candidate[], ctx?: SetupContext): { assignments: ScoredAssignment[]; unfilled: Unfilled[] } {
   const assignments: ScoredAssignment[] = [];
   const unfilled: Unfilled[] = [];
   const uses = new Map<string, number>();
@@ -146,7 +215,7 @@ export function scoreAssignments(roleIds: string[], candidates: Candidate[]): { 
         reasons.add(why);
         continue;
       }
-      const raw = score(c, p);
+      const raw = score(c, p, ctx);
       const key = `${c.channel}:${c.model}`;
       const eff = raw.score * (1 - 0.05 * (uses.get(key) ?? 0)); // spread across models when near-equal
       if (!best || eff > best.eff) best = { c, eff, raw };

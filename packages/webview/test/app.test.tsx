@@ -698,7 +698,9 @@ describe("webview settings", () => {
     openWizard(bridge);
     toStep(bridge, 3);
     fireEvent.click(screen.getByText("Build proposal"));
-    expect(bridge.sent).toContainEqual({ type: "setup.recommend", mode: "rules" });
+    expect(bridge.sent).toContainEqual(
+      expect.objectContaining({ type: "setup.recommend", mode: "rules", context: expect.objectContaining({ priorities: { speed: 2, cost: 2, quality: 2 } }) }),
+    );
     act(() =>
       bridge.inbound({
         type: "setup.recommend.result",
@@ -762,7 +764,9 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByLabelText(/AI refine/));
     fireEvent.change(screen.getByLabelText("evaluator"), { target: { value: "c1:big:32b" } });
     fireEvent.click(screen.getByText("Build proposal"));
-    expect(bridge.sent).toContainEqual({ type: "setup.recommend", mode: "ai", evaluator: { channel: "c1", model: "big:32b" } });
+    expect(bridge.sent).toContainEqual(
+      expect.objectContaining({ type: "setup.recommend", mode: "ai", evaluator: { channel: "c1", model: "big:32b" } }),
+    );
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "could not parse recommendation" }));
     expect(screen.getByText(/could not parse/)).toBeTruthy();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);

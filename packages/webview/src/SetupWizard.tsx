@@ -60,6 +60,11 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   const [evalMode, setEvalMode] = useState<"rules" | "ai">("rules");
   const [evaluator, setEvaluator] = useState("");
   const [bench, setBench] = useState(false);
+  const [priorities, setPriorities] = useState(() => {
+    const p = store.state.config?.summary.settings?.setupPriorities;
+    return { speed: p?.speed ?? 2, cost: p?.cost ?? 2, quality: p?.quality ?? 2 };
+  });
+  const [typicalWork, setTypicalWork] = useState(store.state.config?.summary.settings?.setupTypicalWork ?? "");
   const [edits, setEdits] = useState<Record<string, string>>({});
 
   const tests = store.state.channelTest;
@@ -115,7 +120,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
     const f = evaluator || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "");
     const i = f.indexOf(":");
     const ev = evalMode === "ai" && f ? { evaluator: { channel: f.slice(0, i), model: f.slice(i + 1) } } : {};
-    store.recommend({ mode: evalMode, ...ev });
+    store.recommend({ mode: evalMode, ...ev, context: { priorities, ...(typicalWork ? { typicalWork } : {}) }, bench });
     setStep(4);
   };
 
@@ -266,6 +271,30 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
               </select>
             </label>
           ) : null}
+          <div class="hint">What matters most? (1 = less, 3 = more)</div>
+          {(["speed", "cost", "quality"] as const).map((k) => (
+            <label key={k} class="field">
+              <span>{k}: {priorities[k]}</span>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                aria-label={`priority ${k}`}
+                value={priorities[k]}
+                onInput={(e) => setPriorities({ ...priorities, [k]: Number((e.target as HTMLInputElement).value) })}
+              />
+            </label>
+          ))}
+          <label class="field">
+            <span>Typical work</span>
+            <select aria-label="typical work" value={typicalWork} onChange={(e) => setTypicalWork((e.target as HTMLSelectElement).value)}>
+              <option value="">(not sure)</option>
+              <option value="scripts">small scripts and one-liners</option>
+              <option value="features">features in one area</option>
+              <option value="refactors">cross-cutting refactors</option>
+              <option value="mixed">a mix</option>
+            </select>
+          </label>
           <div class="row">
             <button class="small" onClick={() => setStep(2)}>Back</button>
             <button class="send" onClick={buildProposal}>Build proposal</button>

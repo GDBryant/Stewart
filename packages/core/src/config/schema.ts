@@ -75,6 +75,14 @@ export const settingsSchema = z.object({
   maxReplans: z.number().int().min(0).default(2),
   skillBudgetTokens: z.number().int().positive().default(8000),
   historyRetentionDays: z.number().int().min(0).default(30),
+  setupPriorities: z
+    .object({
+      speed: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
+      cost: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
+      quality: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
+    })
+    .default({ speed: 2, cost: 2, quality: 2 }),
+  setupTypicalWork: z.enum(["scripts", "features", "refactors", "mixed"]).optional(),
   log: z.object({ level: z.enum(["off", "calls", "full"]).default("off"), retainDays: z.number().int().min(0).default(7) }).default({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;

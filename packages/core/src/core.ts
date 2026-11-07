@@ -21,6 +21,7 @@ import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
+import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
@@ -426,9 +427,69 @@ export class Core {
     }
   }
 
-  private handleSetupRecommend(params: unknown): unknown {
-    const p = params as { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } };
-    return recommendAssignments(this.ctx(p.projectId).config, this.managed, { mode: p.mode, evaluator: p.evaluator });
+  private async handleSetupRecommend(params: unknown): Promise<unknown> {
+    const p = params as {
+      projectId: string;
+      mode?: "rules" | "ai";
+      evaluator?: { channel: string; model: string };
+      context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
+      bench?: boolean;
+    };
+    const ctx = this.ctx(p.projectId);
+    if (p.bench) {
+      for (const c of ctx.config.channels.filter((c) => c.enabled)) {
+        const ch = this.managed.get(c.id);
+        if (!ch) continue;
+        let models: string[] = [];
+        try {
+          models = [...new Set([...(await ch.listModels()), ...(c.extraModels ?? [])])];
+        } catch {
+          continue;
+        }
+        for (const model of models) {
+          const hit = this.probeCache.get(`${c.id}:${model}`);
+          if (hit?.caps.imageGen === true || c.modelCaps?.[model]?.perf?.benchVersion === BENCH_VERSION) continue;
+          if (hit?.caps.perf?.benchVersion === BENCH_VERSION) continue;
+          await this.handleChannelProbe({ projectId: p.projectId, channelId: c.id, model, bench: true });
+        }
+      }
+    }
+    const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
+    if (p.context?.priorities || p.context?.typicalWork) {
+      const raw = (await this.deps.userConfig.read())["settings.yaml"] ?? "";
+      const doc = (parseYaml(raw.trim() ? raw : "version: 1\n") ?? {}) as Record<string, unknown>;
+      if (p.context.priorities) {
+        doc.setupPriorities = {
+          speed: clamp(p.context.priorities.speed),
+          cost: clamp(p.context.priorities.cost),
+          quality: clamp(p.context.priorities.quality),
+        };
+      }
+      if (p.context.typicalWork) doc.setupTypicalWork = p.context.typicalWork;
+      const yaml = stringifyYaml(doc);
+      this.userGuard.recordWrite("settings.yaml", yaml);
+      await this.deps.userConfig.write("settings.yaml", yaml);
+      await this.reload(p.projectId);
+    }
+    const context: Partial<SetupContext> = {
+      ...(p.context?.priorities
+        ? { priorities: { speed: clamp(p.context.priorities.speed), cost: clamp(p.context.priorities.cost), quality: clamp(p.context.priorities.quality) } }
+        : ctx.config.settings.setupPriorities
+          ? { priorities: ctx.config.settings.setupPriorities }
+          : {}),
+      ...(p.context?.typicalWork ? { typicalWork: p.context.typicalWork as SetupContext["typicalWork"] } : ctx.config.settings.setupTypicalWork ? { typicalWork: ctx.config.settings.setupTypicalWork } : {}),
+      workspace: await scanWorkspace(ctx.host).catch(() => undefined),
+      hardware: await gatherHardware(ctx.host).catch(() => undefined),
+    };
+    return recommendAssignments(ctx.config, this.managed, {
+      mode: p.mode,
+      evaluator: p.evaluator,
+      context,
+      priceFor: async (channelId, model) => {
+        const ch = this.managed.get(channelId);
+        return ch ? this.catalogFor(ch, model) : undefined;
+      },
+    });
   }
 
   private async handleSkillsSave(params: unknown): Promise<unknown> {

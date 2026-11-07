@@ -1,6 +1,8 @@
 import type { Config } from "./config/loader.js";
 import type { ChatEvent, ChatRequest } from "./channels/types.js";
-import { meetsHardRequirements, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { blendedCost, costTier, type ModelInfo } from "./catalog.js";
+import type { SetupContext } from "./setupContext.js";
 
 export interface RecommendChannelInfo {
   id: string;
@@ -23,6 +25,10 @@ export interface RecommendOptions {
   /** `rules` = deterministic only (no model call). `ai` (default) = evaluator model refines. */
   mode?: "rules" | "ai";
   evaluator?: { channel: string; model: string };
+  /** Environment/workload facts; priorities reweight the scorer. */
+  context?: Partial<SetupContext>;
+  /** Resolves live/catalog price info per model (agent.price always wins over it). */
+  priceFor?: (channel: string, model: string) => Promise<ModelInfo | undefined>;
 }
 
 export type RecommendResult =
@@ -77,7 +83,25 @@ export async function recommendAssignments(
     c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: config.channels.find((d) => d.id === c.id)?.modelCaps?.[model] ?? {} })),
   );
   const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
-  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates);
+  const agentPrice = new Map(config.agents.filter((a) => a.price).map((a) => [`${a.channel}:${a.model}`, a.price!]));
+  await Promise.all(
+    candidates.map(async (c) => {
+      const own = agentPrice.get(`${c.channel}:${c.model}`);
+      if (own) c.price = own;
+      else {
+        const info = await opts.priceFor?.(c.channel, c.model);
+        if (info) {
+          c.price = { inPerMTok: info.inPerMTok, outPerMTok: info.outPerMTok };
+          if (c.caps.contextTokens === undefined && info.contextTokens !== undefined) {
+            c.caps = { ...c.caps, contextTokens: info.contextTokens };
+          }
+        }
+      }
+      c.costBlended = blendedCost(c.price);
+      c.costTier = costTier(c.costBlended);
+    }),
+  );
+  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates, opts.context);
   if (opts.mode === "rules") {
     return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
   }
@@ -96,21 +120,38 @@ export async function recommendAssignments(
   }
 
   const channelDef = new Map(config.channels.map((c) => [c.id, c]));
-  const roleLines = config.roles.map((r) => `- ${r.id}: ${(r.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 160)}`).join("\n");
+  const roleLines = config.roles
+    .map((r) => {
+      const t = ROLE_PROFILES[r.id]?.typicalTurns;
+      return `- ${r.id}${t ? ` (~${t[0]}-${t[1]} turns)` : ""}: ${(r.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 160)}`;
+    })
+    .join("\n");
   const chanLines = channels
     .map((c) => {
       const models = c.models
         .map((m) => {
           const caps = channelDef.get(c.id)?.modelCaps?.[m] ?? {};
-          const cs = CAP_KEYS.filter((k) => caps[k] !== undefined)
-            .map((k) => `${k}=${caps[k]}`)
-            .join(", ");
-          return cs ? `${m} (${cs})` : m;
+          const parts = CAP_KEYS.filter((k) => caps[k] !== undefined).map((k) => `${k}=${caps[k]}`);
+          const perf = caps.perf;
+          if (perf?.tokPerSec !== undefined) parts.push(`${Math.round(perf.tokPerSec)}tok/s`);
+          if (perf?.toolReliability !== undefined) parts.push(`tool=${Math.round(perf.toolReliability * 3)}/3`);
+          if (perf?.editOk !== undefined) parts.push(`edit=${perf.editOk}`);
+          const cd = cand.get(`${c.id}:${m}`);
+          if (cd?.costBlended !== undefined) parts.push(`$${cd.costBlended.toFixed(2)}/MTok(${cd.costTier})`);
+          return parts.length ? `${m} (${parts.join(", ")})` : m;
         })
         .join("; ");
       return `- ${c.id} (${c.type})${c.error ? ` [listModels failed: ${c.error}]` : ""}: ${models}`;
     })
     .join("\n");
+  const sc = opts.context;
+  const ctxLines = [
+    sc?.workspace ? `- workspace: ${sc.workspace.sizeClass} (${sc.workspace.files} files, ~${sc.workspace.loc} loc${sc.workspace.monorepo ? ", monorepo" : ""})` : "",
+    sc?.hardware ? `- hardware: ${sc.hardware.os}, ${sc.hardware.ramGb}GB RAM${sc.hardware.gpus?.length ? `, GPU ${sc.hardware.gpus.map((g) => `${g.name} ${g.vramGb}GB`).join("/")}` : ""}` : "",
+    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed}, cost ${sc.priorities.cost}, quality ${sc.priorities.quality}` : "",
+    sc?.typicalWork ? `- typical work: ${sc.typicalWork}` : "",
+  ].filter(Boolean);
+  const ctxBlock = ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";
   const prompt = [
     "You are assigning models to agent roles for a coding assistant.",
     "",
@@ -119,6 +160,7 @@ export async function recommendAssignments(
     "",
     "Available channels and discovered models (known capabilities in parentheses):",
     chanLines,
+    ctxBlock,
     "",
     'Return ONLY a JSON object {"assignments":[{"role":"roleId","channel":"channelId","model":"model","reason":"short"}]}.',
     "A deterministic scorer proposed this baseline (keep it unless you have a clear reason):",
