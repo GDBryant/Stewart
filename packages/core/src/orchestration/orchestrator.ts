@@ -3,6 +3,7 @@ import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import type { ManagedChannel } from "../channels/registry.js";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, resolveLimits } from "../limits.js";
+import { profileFromChannel } from "../modelProfile.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopListener, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
@@ -103,7 +104,7 @@ class OrchestratedRun {
     const prompt = await buildRolePrompt(rt, this.orchestrator);
     const mode: ToolsMode = (this.channel.cfg.modelCaps?.[this.agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
     const limits = {
-      ...resolveLimits({ role: this.orchestrator, agent: this.agent, profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60, perf: this.channel.cfg.modelCaps?.[this.agent.model]?.perf, channelType: this.channel.cfg.type }),
+      ...resolveLimits({ role: this.orchestrator, agent: this.agent, profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60, model: profileFromChannel(this.channel.cfg, { channel: this.agent.channel, model: this.agent.model, agent: this.agent }) }),
       maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT,
     };
     const loop = new ToolLoop(

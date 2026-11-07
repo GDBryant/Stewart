@@ -1,6 +1,7 @@
 import { ToolRegistry, type Json, type Tool, type ToolPreview } from "./tools/types.js";
 import { splitShellPrograms } from "./tools/approvals.js";
 import type { AgentDef, ChannelDef, RoleDef } from "./config/schema.js";
+import { resolveModelProfile } from "./modelProfile.js";
 
 /** Glob match: `**` crosses directories, `*` and `?` stay within a segment. */
 export function matchGlob(pattern: string, path: string): boolean {
@@ -123,8 +124,7 @@ export function roleCapability(roleId: string): "vision" | "imageGen" | undefine
 
 /** Capability flags for an agent's model, from its channel's modelCaps. */
 export function agentCapability(agent: AgentDef, channels: ChannelDef[]): Record<string, boolean> {
-  const caps = channels.find((c) => c.id === agent.channel)?.modelCaps?.[agent.model] ?? {};
-  return caps as Record<string, boolean>;
+  return resolveModelProfile({ channels }, { channel: agent.channel, model: agent.model }).caps as Record<string, boolean>;
 }
 
 export function agentServesRole(agent: AgentDef, channels: ChannelDef[], roleId: string): boolean {

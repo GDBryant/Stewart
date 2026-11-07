@@ -42,6 +42,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Runs | `runManager.ts` | run lifecycle, approvals/answers, ledger, history, journal, revert, resume |
 | Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `recovery`/`faults` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch), `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |
 | Setup | `assign.ts`, `recommend.ts`, `bench.ts`, `catalog.ts`(+`.data.json`), `setupContext.ts` | rules + AI assignment, benchmarks (`ModelPerf`), price catalog, workspace/hardware context |
+| Model facts | `modelProfile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier; used by `limits.ts`, `roles.ts` |
 | Misc | `history.ts`, `images.ts`, `mentions.ts`, `projectContext.ts`, `v1import.ts`, `debug/debug.ts` | |
 
 ## 3. Run paths (current reality)
@@ -58,7 +59,7 @@ Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model s
 
 ## 4. Model facts
 
-Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. Merging happens in `core.ts` (`applyProbes`, probe handler), `recommend.ts` (price), `roles.ts` (`agentCaps`), `limits.ts` (catalog price fallback), and adapters (`ollama.ts` reads `numCtx`).
+Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. `modelProfile.ts` is the single merge for `roles.ts` and `limits.ts`; `core.ts` (`applyProbes`, probe handler), `recommend.ts` (price) and `ollama.ts` (`numCtx`) still merge on their own (R1 step 2).
 
 ## 5. Config and state
 

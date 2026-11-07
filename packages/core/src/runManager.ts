@@ -4,6 +4,7 @@ import type { AgentDef, RoleDef } from "./config/schema.js";
 import type { Config } from "./config/loader.js";
 import { roleRegistry } from "./roles.js";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, resolveLimits, type BudgetProfile } from "./limits.js";
+import { profileFromChannel } from "./modelProfile.js";
 import { ManagedChannel } from "./channels/registry.js";
 import type { ChatMessage, ToolCall } from "./channels/types.js";
 import { DEFAULT_CAPS } from "./channels/types.js";
@@ -514,8 +515,7 @@ export class RunManager {
       agent,
       profile,
       ceiling: budget?.ceiling ?? 60,
-      perf: channel.cfg.modelCaps?.[agent.model]?.perf,
-      channelType: channel.cfg.type,
+      model: profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent }),
     });
     const capMs = effectiveRunCapMs(budget?.maxRunHours ?? 0, profile);
     let timeCapped = false;

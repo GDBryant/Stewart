@@ -1,8 +1,8 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
-import type { ModelPerf } from "./channels/types.js";
 import { roleTurnBudget } from "./roles.js";
-import { blendedCost, lookupModelInfo } from "./catalog.js";
+import { blendedCost } from "./catalog.js";
 import { isCosting } from "./orchestration/ledger.js";
+import type { ModelProfile } from "./modelProfile.js";
 import { DEFAULT_LIMITS, type LoopLimits } from "./tools/toolLoop.js";
 
 export type BudgetProfileName = "quick" | "normal" | "deep";
@@ -55,17 +55,17 @@ export function resolveLimits(opts: {
   profile: BudgetProfile;
   /** settings.maxWorkerTurnsCeiling. */
   ceiling: number;
-  perf?: ModelPerf;
-  channelType?: string;
+  /** Resolved model facts (perf, price); see `profileFromChannel`. */
+  model?: ModelProfile;
 }): LoopLimits {
   const { role, agent, profile } = opts;
-  const perf = opts.perf;
+  const perf = opts.model?.perf;
   const timeoutFactor =
     agent?.budget?.timeoutFactor ?? clamp(REF_TOK_PER_SEC / (perf?.tokPerSec ?? REF_TOK_PER_SEC), 0.5, 4);
   const reliabilityFactor = perf?.toolReliability !== undefined && perf.toolReliability < 0.67 ? 0.75 : 1;
   let costFactor = 1;
   if (agent && isCosting(agent)) {
-    const blended = blendedCost(agent.price) ?? (opts.channelType ? blendedCost(lookupModelInfo(opts.channelType, agent.model)) : undefined);
+    const blended = blendedCost(agent.price) ?? blendedCost(opts.model?.price);
     if (blended !== undefined && blended > 0) costFactor = clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
   }
   const turnFactor = agent?.budget?.turnFactor ?? costFactor * reliabilityFactor;

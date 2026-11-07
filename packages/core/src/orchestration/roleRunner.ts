@@ -4,6 +4,7 @@ import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
 import { agentServesRole, roleRegistry } from "../roles.js";
 import { DEFAULT_BUDGET_PROFILES, resolveLimits } from "../limits.js";
+import { profileFromChannel } from "../modelProfile.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { RunCancelledError, ToolLoop, type ApprovalDecision, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
@@ -123,8 +124,7 @@ export async function runRoleTask(
     agent,
     profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal,
     ceiling: rt.maxWorkerTurnsCeiling ?? 60,
-    perf: channel.cfg.modelCaps?.[agent.model]?.perf,
-    channelType: channel.cfg.type,
+    model: profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent }),
   });
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
   const filesTouched: string[] = [];

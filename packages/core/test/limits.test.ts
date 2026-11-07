@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits } from "../src/limits.js";
 import type { AgentDef, RoleDef } from "../src/config/schema.js";
+import { profileFromChannel } from "../src/modelProfile.js";
 
 const role = (turnBudget: number | "unlimited" = 25): RoleDef => ({
   id: "r",
@@ -14,6 +15,8 @@ const role = (turnBudget: number | "unlimited" = 25): RoleDef => ({
 const agent = (over: Partial<AgentDef> = {}): AgentDef => ({ id: "a", channel: "c", model: "m", effort: "medium", ...over });
 const perf = (p: Partial<import("../src/channels/types.js").ModelPerf>) => ({ benchedAt: 1, benchVersion: 1, ...p });
 const normal = DEFAULT_BUDGET_PROFILES.normal;
+const modelFor = (p?: import("../src/channels/types.js").ModelPerf, type = "openai-compatible") =>
+  profileFromChannel({ type, modelCaps: p ? { m: { perf: p } } : undefined }, { channel: "c", model: "m" });
 
 describe("resolveLimits", () => {
   it("scales turns by profile and clamps to ceiling x multiplier", () => {
@@ -34,10 +37,10 @@ describe("resolveLimits", () => {
   });
 
   it("slow models get longer timeouts; unknown speed means factor 1", () => {
-    const slow = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, perf: perf({ tokPerSec: 10 }) });
+    const slow = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, model: modelFor(perf({ tokPerSec: 10 })) });
     expect(slow.toolTimeoutMs).toBe(240_000); // 60s * 4 (clamped)
     expect(slow.modelCallTimeoutMs).toBe(4 * DEFAULT_MODEL_CALL_TIMEOUT_MS);
-    const fast = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, perf: perf({ tokPerSec: 80 }) });
+    const fast = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, model: modelFor(perf({ tokPerSec: 80 })) });
     expect(fast.toolTimeoutMs).toBe(30_000);
     const unknown = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60 });
     expect(unknown.toolTimeoutMs).toBe(60_000);
@@ -49,10 +52,10 @@ describe("resolveLimits", () => {
       agent: agent({ billing: "priced", price: { inPerMTok: 40, outPerMTok: 40 } }),
       profile: normal,
       ceiling: 60,
-      channelType: "openai-compatible",
+      model: modelFor(),
     });
     expect(pricey.maxModelTurns).toBe(13); // 25 * 0.5 (costFactor clamped)
-    const flaky = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, perf: perf({ toolReliability: 0.3 }) });
+    const flaky = resolveLimits({ role: role(), agent: agent(), profile: normal, ceiling: 60, model: modelFor(perf({ toolReliability: 0.3 })) });
     expect(flaky.maxModelTurns).toBe(19); // 25 * 0.75
     const free = resolveLimits({
       role: role(),
@@ -69,7 +72,7 @@ describe("resolveLimits", () => {
       agent: agent({ budget: { turnFactor: 2, timeoutFactor: 0.5 } }),
       profile: normal,
       ceiling: 60,
-      perf: perf({ toolReliability: 0.3 }),
+      model: modelFor(perf({ toolReliability: 0.3 })),
     });
     expect(l.maxModelTurns).toBe(50);
     expect(l.toolTimeoutMs).toBe(30_000);
