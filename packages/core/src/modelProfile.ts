@@ -21,6 +21,11 @@ export interface ModelProfile {
   costTier?: CostTier;
 }
 
+/** Merge probe-discovered caps under user `modelCaps`: probe fills gaps, user wins. */
+export function mergeProbeCaps(user: Partial<ModelCaps> | undefined, probe: Partial<ModelCaps>): Partial<ModelCaps> {
+  return { ...probe, ...(user ?? {}) };
+}
+
 /** Single place that merges model facts. `live` is a channel price list keyed by model id. */
 export function resolveModelProfile(
   config: Pick<Config, "channels">,

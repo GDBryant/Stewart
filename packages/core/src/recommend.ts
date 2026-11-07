@@ -3,6 +3,7 @@ import type { ChatEvent, ChatRequest } from "./channels/types.js";
 import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
 import { blendedCost, costTier, type ModelInfo } from "./catalog.js";
 import type { SetupContext } from "./setupContext.js";
+import { resolveModelProfile } from "./modelProfile.js";
 
 export interface RecommendChannelInfo {
   id: string;
@@ -80,7 +81,7 @@ export async function recommendAssignments(
 
   const byId = new Map(channels.map((c) => [c.id, c]));
   const candidates: Candidate[] = channels.flatMap((c) =>
-    c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: config.channels.find((d) => d.id === c.id)?.modelCaps?.[model] ?? {} })),
+    c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: resolveModelProfile(config, { channel: c.id, model }).caps })),
   );
   const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
   const agentPrice = new Map(config.agents.filter((a) => a.price).map((a) => [`${a.channel}:${a.model}`, a.price!]));
@@ -119,7 +120,6 @@ export async function recommendAssignments(
     researcher = { channel: first.id, model: first.models[0] };
   }
 
-  const channelDef = new Map(config.channels.map((c) => [c.id, c]));
   const roleLines = config.roles
     .map((r) => {
       const t = ROLE_PROFILES[r.id]?.typicalTurns;
@@ -130,7 +130,7 @@ export async function recommendAssignments(
     .map((c) => {
       const models = c.models
         .map((m) => {
-          const caps = channelDef.get(c.id)?.modelCaps?.[m] ?? {};
+          const caps = resolveModelProfile(config, { channel: c.id, model: m }).caps;
           const parts = CAP_KEYS.filter((k) => caps[k] !== undefined).map((k) => `${k}=${caps[k]}`);
           const perf = caps.perf;
           if (perf?.tokPerSec !== undefined) parts.push(`${Math.round(perf.tokPerSec)}tok/s`);

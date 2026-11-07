@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { profileFromChannel, resolveModelProfile, type PriceMap } from "../src/modelProfile.js";
+import { mergeProbeCaps, profileFromChannel, resolveModelProfile, type PriceMap } from "../src/modelProfile.js";
 import type { ModelPerf } from "../src/channels/types.js";
 
 const perf: ModelPerf = { benchedAt: 1, benchVersion: 1, tokPerSec: 50 };
@@ -87,5 +87,29 @@ describe("resolveModelProfile", () => {
     expect(p.toolsMode).toBe("shim");
     expect(p.price).toBeUndefined();
     expect(p.costBlended).toBeUndefined();
+  });
+});
+
+describe("mergeProbeCaps", () => {
+  it("probe fills fields the user did not set", () => {
+    const merged = mergeProbeCaps({ vision: false }, { tools: "native", contextTokens: 8192, vision: true });
+    expect(merged).toEqual({ tools: "native", contextTokens: 8192, vision: false });
+  });
+
+  it("user value wins over probe value for the same key", () => {
+    const merged = mergeProbeCaps({ tools: "none" }, { tools: "native" });
+    expect(merged.tools).toBe("none");
+  });
+
+  it("undefined user caps yields the probe caps unchanged", () => {
+    expect(mergeProbeCaps(undefined, { reasoning: true })).toEqual({ reasoning: true });
+  });
+
+  it("does not mutate its inputs", () => {
+    const user = { vision: true };
+    const probe = { tools: "native" as const };
+    mergeProbeCaps(user, probe);
+    expect(user).toEqual({ vision: true });
+    expect(probe).toEqual({ tools: "native" });
   });
 });

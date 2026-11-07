@@ -19,6 +19,7 @@ import { expandMentions } from "./mentions.js";
 import { normalizeImages } from "./images.js";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
+import { mergeProbeCaps } from "./modelProfile.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
@@ -150,7 +151,7 @@ export class Core {
       for (const [key, entry] of this.probeCache.entries()) {
         if (!key.startsWith(`${ch.id}:`)) continue;
         const model = key.slice(ch.id.length + 1);
-        ch.modelCaps[model] = { ...entry.caps, ...(ch.modelCaps[model] ?? {}) };
+        ch.modelCaps[model] = mergeProbeCaps(ch.modelCaps[model], entry.caps);
       }
     }
     return config;
