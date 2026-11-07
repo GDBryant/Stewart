@@ -50,6 +50,16 @@ export function compactionThresholds(profile: BudgetProfile): { pruneAt: number;
   return { pruneAt: 0.6, summarizeAt: 0.8 };
 }
 
+/** Chars of context kept per window token: ~4 chars/token minus headroom for the reply, system prompt and tool specs. */
+export const CONTEXT_CHARS_PER_TOKEN = 3;
+export const MIN_CONTEXT_CHARS = 8_000;
+
+/** Context cap in chars for a model window; the fixed default is the ceiling, unknown window keeps it. */
+export function contextCharsFor(contextTokens: number | undefined): number {
+  if (!contextTokens || contextTokens <= 0) return DEFAULT_LIMITS.maxContextChars;
+  return clamp(Math.floor(contextTokens * CONTEXT_CHARS_PER_TOKEN), MIN_CONTEXT_CHARS, DEFAULT_LIMITS.maxContextChars);
+}
+
 /**
  * Model-aware limits: turn budget scaled by profile and by cost/reliability
  * factors, tool and per-model-call timeouts scaled by profile and measured
@@ -84,6 +94,7 @@ export function resolveLimits(opts: {
   return {
     ...DEFAULT_LIMITS,
     maxModelTurns,
+    maxContextChars: contextCharsFor(opts.model?.contextTokens),
     ...compactionThresholds(profile),
     toolTimeoutMs: Math.round(DEFAULT_LIMITS.toolTimeoutMs * profile.timeoutMultiplier * timeoutFactor),
     modelCallTimeoutMs: Math.round(DEFAULT_MODEL_CALL_TIMEOUT_MS * profile.timeoutMultiplier * timeoutFactor),

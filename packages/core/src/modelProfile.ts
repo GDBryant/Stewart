@@ -19,6 +19,8 @@ export interface ModelProfile {
   price?: { inPerMTok: number; outPerMTok: number; source: "agent" | "live" | "catalog" };
   costBlended?: number;
   costTier?: CostTier;
+  /** Usable context window in tokens: `numCtx` (server-side actual) > `contextTokens` > catalog. Unknown stays undefined. */
+  contextTokens?: number;
 }
 
 /** Merge probe-discovered caps under user `modelCaps`: probe fills gaps, user wins. */
@@ -51,6 +53,8 @@ export function profileFromChannel(
     if (info?.inPerMTok !== undefined) price = { inPerMTok: info.inPerMTok, outPerMTok: info.outPerMTok ?? info.inPerMTok, source: "catalog" };
   }
   const costBlended = blendedCost(price);
+  const contextTokens =
+    caps.numCtx ?? caps.contextTokens ?? (channelType ? lookupModelInfo(channelType, ref.model)?.contextTokens : undefined);
   return {
     channelId: ref.channel,
     channelType,
@@ -61,5 +65,6 @@ export function profileFromChannel(
     price,
     costBlended,
     costTier: costTier(costBlended),
+    contextTokens,
   };
 }

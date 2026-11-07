@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits, compactionThresholds } from "../src/limits.js";
+import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits, compactionThresholds, contextCharsFor } from "../src/limits.js";
 import type { AgentDef, RoleDef } from "../src/config/schema.js";
 import { profileFromChannel } from "../src/modelProfile.js";
 
@@ -110,5 +110,27 @@ describe("compactionThresholds", () => {
   });
   it("is carried by resolveLimits", () => {
     expect(resolveLimits({ profile: DEFAULT_BUDGET_PROFILES.quick, ceiling: 60 })).toMatchObject({ pruneAt: 0.4, summarizeAt: 0.6 });
+  });
+});
+
+describe("context cap from the model profile", () => {
+  const ctx = (caps: Record<string, unknown>, type = "openai-compatible") =>
+    resolveLimits({ profile: normal, ceiling: 60, model: profileFromChannel({ type, modelCaps: { m: caps } }, { channel: "c", model: "m" }) }).maxContextChars;
+  it("scales a small window down", () => {
+    expect(ctx({ numCtx: 8192 })).toBe(24_576);
+    expect(ctx({ contextTokens: 32_000 })).toBe(96_000);
+  });
+  it("prefers numCtx over contextTokens", () => {
+    expect(ctx({ numCtx: 8192, contextTokens: 128_000 })).toBe(24_576);
+  });
+  it("never exceeds the default ceiling or drops below the floor", () => {
+    expect(ctx({ contextTokens: 1_000_000 })).toBe(400_000);
+    expect(contextCharsFor(100)).toBe(8_000);
+  });
+  it("keeps the default when the window is unknown or invalid", () => {
+    expect(ctx({})).toBe(400_000);
+    expect(contextCharsFor(undefined)).toBe(400_000);
+    expect(contextCharsFor(0)).toBe(400_000);
+    expect(resolveLimits({ profile: normal, ceiling: 60 }).maxContextChars).toBe(400_000);
   });
 });

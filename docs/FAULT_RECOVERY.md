@@ -10,7 +10,7 @@ Recovers worker and level faults before the run fails.
 - `incomplete_stream`: stream ended early (`"incomplete_stream"`).
 - `turn_limit`: level hit its tool-turn budget.
 
-`context_limit` (a `failed` code, not a recoverable fault): context over `maxContextChars` after every compaction stage. Stages in order: prune stale tool results (60%), summarize via the `compactor` role (80%), emergency clip; each reports a `compaction` event with before/after tokens, `pruned` and `summarized`. Full transcript stays in the journal.
+`context_limit` (a `failed` code, not a recoverable fault): context over `maxContextChars` (derived from the model's context window, max 400k chars) after every compaction stage. Stages in order: prune stale tool results (60%), summarize via the `compactor` role (80%), emergency clip; each reports a `compaction` event with before/after tokens, `pruned` and `summarized`. Full transcript stays in the journal.
 
 `classifyFault()` (`faults.ts`) maps a `LoopResult` to a fault; completed and other failures return undefined.
 
