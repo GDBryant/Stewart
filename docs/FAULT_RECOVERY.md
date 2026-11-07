@@ -27,7 +27,7 @@ Options, recommended first:
 - `Split into smaller tasks`: layer 1 (only when a split is possible).
 - `Stop this task`.
 
-Split comes first when stuck. A timeout (`continueQuestionTimeoutMinutes`, 0 = wait forever), a run cancel, or a question that can't be asked (setting off, caps reached) goes to Split if possible, else stops. Timeouts/cancels emit `question.withdrawn` so the card is cleared. Free text is passed to the worker as a user message and continues. Plain chat offers Continue and Stop only; timeout stops.
+Split comes first when stuck. A timeout (`continueQuestionTimeoutMinutes`, 0 = wait forever), a run cancel, or a question that can't be asked (setting off, caps reached) goes to Split if possible, else stops. Timeouts/cancels emit `question.withdrawn` so the card is cleared. Free text is passed to the worker as a user message and continues. Plain chat offers Continue and Stop only; timeout stops. Plain chat is a single-task run (`RunManager.driveDirect` → `runRoleTask`); the question is asked there, and the run's time cap, cost cap and cancel behave as for orchestrated runs. Direct runs are not journaled, so they are not resumable after a restart.
 
 ## Scratch dir
 
