@@ -1,6 +1,6 @@
 import type { ToolCall } from "@stewart/kernel";
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
-import type { Fetcher } from "../ports.js";
+import type { Fetcher } from "@stewart/kernel";
 import { ChannelError } from "./types.js";
 import { lines } from "./stream.js";
 

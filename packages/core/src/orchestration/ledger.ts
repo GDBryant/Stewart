@@ -1,4 +1,4 @@
-import type { Clock, HostPort } from "../ports.js";
+import type { Clock, HostPort } from "@stewart/kernel";
 import type { AgentDef } from "../config/schema.js";
 
 export interface LedgerEntry {

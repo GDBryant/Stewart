@@ -1,4 +1,4 @@
-import type { Fetcher } from "../ports.js";
+import type { Fetcher } from "@stewart/kernel";
 import type { DebugSink } from "../debug/debug.js";
 
 import type { ToolCall, ChatMessage } from "@stewart/kernel";

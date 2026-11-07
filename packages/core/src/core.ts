@@ -1,6 +1,6 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES, type RunEvent } from "@stewart/protocol";
-import type { Clock, Fetcher, HostPort, IdGen } from "./ports.js";
-import { systemClock, counterIds, nodeFetch } from "./ports.js";
+import type { Clock, Fetcher, HostPort, IdGen } from "@stewart/kernel";
+import { systemClock, counterIds, nodeFetch } from "@stewart/kernel";
 import { EventBus, type EventSubscriber } from "./events.js";
 import { ChannelRegistry, ManagedChannel } from "./channels/registry.js";
 import { OllamaAdapter } from "./channels/ollama.js";

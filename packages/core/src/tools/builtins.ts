@@ -1,4 +1,4 @@
-import type { HostPort } from "../ports.js";
+import type { HostPort } from "@stewart/kernel";
 import { IMAGE_LIMITS, mediaTypeFor } from "../images.js";
 import {
   MAX_COMMAND_OUTPUT, MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, ProjectPaths,

@@ -1,4 +1,4 @@
-export * from "./ports.js";
+export * from "@stewart/kernel";
 export * from "./events.js";
 export * from "./debug/debug.js";
 export * from "./channels/types.js";

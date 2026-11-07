@@ -5,8 +5,8 @@ import type { ChannelAdapter, ChannelConfig, ChatEvent } from "../src/channels/t
 import { loadConfig } from "../src/config/loader.js";
 import { Core } from "../src/core.js";
 import type { ConfigStore } from "../src/config/store.js";
-import type { Clock, HostPort } from "../src/ports.js";
-import { systemClock } from "../src/ports.js";
+import type { Clock, HostPort } from "@stewart/kernel";
+import { systemClock } from "@stewart/kernel";
 
 function fakeChannel(
   turns: ChatEvent[][],

@@ -1,5 +1,5 @@
 import os from "node:os";
-import type { HostPort } from "./ports.js";
+import type { HostPort } from "@stewart/kernel";
 
 export interface WorkspaceInfo {
   files: number;

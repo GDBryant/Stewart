@@ -1,4 +1,4 @@
-import type { HostPort } from "../ports.js";
+import type { HostPort } from "@stewart/kernel";
 import type { IdempotencyHooks } from "../tools/toolLoop.js";
 
 /**

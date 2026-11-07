@@ -3,7 +3,7 @@ import type { ChannelAdapter, ChatEvent, ChatRequest } from "../src/channels/typ
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
-import { systemClock } from "../src/ports.js";
+import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "../src/agentSession.js";
 import { RunLedger, CostLimit } from "../src/orchestration/ledger.js";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";

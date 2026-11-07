@@ -2,7 +2,7 @@ import type { ManagedChannel } from "./channels/registry.js";
 import { DEFAULT_CAPS, type ModelPerf, type ToolsMode } from "@stewart/models";
 import type { AgentDef } from "./config/schema.js";
 import { createAgentSession } from "./agentSession.js";
-import type { Clock } from "./ports.js";
+import type { Clock } from "@stewart/kernel";
 import { ToolLoop } from "./tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "./tools/types.js";
 

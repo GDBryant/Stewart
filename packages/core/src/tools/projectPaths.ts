@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { HostPort } from "../ports.js";
+import type { HostPort } from "@stewart/kernel";
 
 export const MAX_FIND_RESULTS = 500;
 export const MAX_SEARCH_RESULTS = 200;

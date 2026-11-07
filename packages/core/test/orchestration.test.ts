@@ -3,7 +3,7 @@ import type { ChannelAdapter, ChatEvent, ChatRequest } from "../src/channels/typ
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
-import { counterIds, systemClock, type Clock } from "../src/ports.js";
+import { counterIds, systemClock, type Clock } from "@stewart/kernel";
 import { RunManager } from "../src/runManager.js";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
 import { TaskGraph, LeaseManager } from "@stewart/scheduling";

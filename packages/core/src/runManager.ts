@@ -1,4 +1,4 @@
-import type { Clock, HostPort, IdGen } from "./ports.js";
+import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import { EventBus } from "./events.js";
 import type { AgentDef, RoleDef } from "./config/schema.js";
 import type { Config } from "./config/loader.js";

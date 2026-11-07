@@ -2,7 +2,7 @@ import type { ManagedChannel } from "../channels/registry.js";
 import { DEFAULT_LIMITS, type LoopLimits } from "@stewart/budget";
 import type { ToolsMode } from "@stewart/models";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
-import type { Clock } from "../ports.js";
+import type { Clock } from "@stewart/kernel";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "@stewart/compaction";
 import {

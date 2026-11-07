@@ -1,4 +1,4 @@
-import type { HostPort } from "./ports.js";
+import type { HostPort } from "@stewart/kernel";
 
 const MENTION = /@(file:[^\s@]+|selection|problems)\b/g;
 const FILE_CAP = 8_000;

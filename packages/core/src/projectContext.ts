@@ -1,4 +1,4 @@
-import type { HostPort } from "./ports.js";
+import type { HostPort } from "@stewart/kernel";
 
 const CONTEXT_LIMIT = 4000;
 

@@ -1,4 +1,4 @@
-import type { HostPort } from "../ports.js";
+import type { HostPort } from "@stewart/kernel";
 import type { Json } from "@stewart/kernel";
 import type { Tool, ToolPreview } from "../tools/types.js";
 import type { LeaseManager } from "@stewart/scheduling";

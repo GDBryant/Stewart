@@ -1,7 +1,7 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
 import { roleTurnBudget } from "./roles.js";
 import type { ChatMessage } from "@stewart/kernel";
-import type { Clock } from "./ports.js";
+import type { Clock } from "@stewart/kernel";
 import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "./channels/registry.js";
 import type { ToolRegistry } from "./tools/types.js";

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EventBus } from "../src/events.js";
 import { loadConfig } from "../src/config/loader.js";
 import { Core } from "../src/core.js";
-import type { HostPort } from "../src/ports.js";
+import type { HostPort } from "@stewart/kernel";
 import { fakeFetcher, streamOf } from "./helpers.js";
 import type { ConfigLayer } from "../src/config/loader.js";
 import type { ConfigStore } from "../src/config/store.js";

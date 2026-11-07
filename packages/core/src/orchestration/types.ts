@@ -1,4 +1,4 @@
-import type { Clock, HostPort, IdGen } from "../ports.js";
+import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { EventBus } from "../events.js";
 import type { Config } from "../config/loader.js";
 import type { ManagedChannel } from "../channels/registry.js";

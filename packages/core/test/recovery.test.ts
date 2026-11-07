@@ -4,7 +4,7 @@ import type { ChatMessage } from "@stewart/kernel";
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
-import { counterIds, systemClock } from "../src/ports.js";
+import { counterIds, systemClock } from "@stewart/kernel";
 import { RunManager } from "../src/runManager.js";
 import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "../src/orchestration/ledger.js";

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { HostPort } from "./ports.js";
+import type { HostPort } from "@stewart/kernel";
 import type { ChatMessage } from "@stewart/kernel";
 import { mediaTypeFor } from "./images.js";
 
