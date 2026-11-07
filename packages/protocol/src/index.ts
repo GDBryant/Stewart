@@ -39,7 +39,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reasoning_delta"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("terminal_output"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("task.created"), ...base, title: z.string(), dependsOn: z.array(z.string()).default([]) }),
-  z.object({ kind: z.literal("task.started"), ...base }),
+  z.object({ kind: z.literal("task.started"), ...base, agentId: z.string().optional() }),
   z.object({ kind: z.literal("task.blocked"), ...base, waitingOn: z.string() }),
   z.object({ kind: z.literal("task.done"), ...base, summary: z.string() }),
   z.object({ kind: z.literal("task.failed"), ...base, error: z.string() }),

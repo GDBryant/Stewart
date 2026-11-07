@@ -181,7 +181,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
       }
       rec.status = "running";
       await syncGraph();
-      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
+      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: overrides.get(role.id) ?? role.agent });
       const depSummaries = rec.dependsOn.map((d) => `${d}: ${results.get(d)?.summary ?? ""}`).filter(Boolean);
       let result = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, depth), depSummaries });
       if (result.cycleHolder) {
@@ -194,7 +194,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
         await pending.get(holder);
         rec.status = "running";
         await syncGraph();
-        rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
+        rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: overrides.get(role.id) ?? role.agent });
         result = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, depth), depSummaries });
       }
       results.set(rec.id, result);
@@ -236,7 +236,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
       if (idx >= 0) parked.splice(idx, 1);
       rec.status = "running";
       await syncGraph();
-      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id });
+      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: overrides.get(role.id) ?? role.agent });
       const res = await runRoleTask(rt, rec, { role, nestedTools: roleVerbs(role, rec.id, 1) });
       results.set(rec.id, res);
       rt.leases.release(rec.id);

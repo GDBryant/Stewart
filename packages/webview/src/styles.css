@@ -60,6 +60,9 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .task.done .task-status { color: #57a773; }
 .task.failed .task-status { color: #d9534f; }
 .task.waiting .task-status { color: #d1a44a; }
+.active-task { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+.task-agent { opacity: 0.8; min-width: 80px; }
+.task-timer { font-variant-numeric: tabular-nums; color: #4da3ff; }
 .task-summary { flex-basis: 100%; opacity: 0.75; font-size: 11px; }
 .card.cost .cost-row { display: flex; justify-content: space-between; font-size: 12px; }
 .cost-note { font-size: 11px; opacity: 0.8; }

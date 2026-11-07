@@ -671,6 +671,7 @@ describe("runOrchestrated", () => {
     const kinds = events.map((e) => e.kind);
     expect(kinds).toContain("task.created");
     expect(kinds).toContain("task.started");
+    expect(events.find((e) => e.kind === "task.started")).toMatchObject({ roleId: "code-writer", agentId: expect.any(String) });
     expect(kinds).toContain("task.done");
     expect(events.find((e) => e.kind === "task.done")).toMatchObject({ roleId: "code-writer" });
   });

@@ -102,6 +102,7 @@ function ChatView({ store }: { store: Store }) {
           </div>
         ))}
         {s.plan ? <PlanCard plan={s.plan} /> : null}
+        {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} /> : null}
         {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
@@ -227,6 +228,37 @@ function PlanCard({ plan }: { plan: { milestoneCount: number; verdict?: "approve
         {plan.approved ? <span class="badge ok">approved</span> : plan.verdict === "revise" ? <span class="badge warn">revise</span> : null}
       </div>
       {plan.reasons.length ? <ul class="reasons">{plan.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
+    </div>
+  );
+}
+
+export function fmtElapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(sec / 60);
+  const h = Math.floor(m / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m % 60)}:${pad(sec % 60)}` : `${m}:${pad(sec % 60)}`;
+}
+
+function ActiveTasks({ tasks }: { tasks: { taskId: string; roleId: string; agentId?: string; title: string; status: string; startedAt?: number }[] }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div class="card active-tasks">
+      <div class="card-title">Active</div>
+      {tasks
+        .filter((t) => t.status === "running")
+        .map((t) => (
+          <div key={t.taskId} class="active-task">
+            <span class="task-role">{t.roleId}</span>
+            <span class="task-agent">{t.agentId ?? ""}</span>
+            <span class="task-title">{t.title}</span>
+            <span class="task-timer">{fmtElapsed(now - (t.startedAt ?? now))}</span>
+          </div>
+        ))}
     </div>
   );
 }

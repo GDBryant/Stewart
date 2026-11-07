@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
@@ -74,7 +74,7 @@ describe("webview chat", () => {
       bridge.inbound(ev("task.created", { taskId: "t2", roleId: "tester", title: "run tests", dependsOn: ["t1"] }));
       bridge.inbound(ev("task.started", { taskId: "t1", roleId: "code-writer" }));
     });
-    expect(screen.getByText("write a.ts")).toBeTruthy();
+    expect(screen.getAllByText("write a.ts").length).toBeGreaterThan(0);
     expect(screen.getByText("running")).toBeTruthy();
     expect(screen.getByText("pending")).toBeTruthy();
     act(() => {
@@ -84,6 +84,31 @@ describe("webview chat", () => {
     });
     expect(screen.getByText("done")).toBeTruthy();
     expect(screen.getByText("tests failed")).toBeTruthy();
+  });
+
+  it("lists running tasks with role, agent and a ticking timer, and hides finished ones", () => {
+    vi.useFakeTimers();
+    try {
+      const { bridge } = mk();
+      act(() => {
+        bridge.inbound(ev("run.started", { title: "x" }));
+        bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts", dependsOn: [] }));
+        bridge.inbound(ev("task.started", { taskId: "t1", roleId: "code-writer", agentId: "qwen-local" }));
+      });
+      expect(screen.getByText("Active")).toBeTruthy();
+      expect(screen.getByText("qwen-local")).toBeTruthy();
+      expect(screen.getByText("0:00")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(65_000);
+      });
+      expect(screen.getByText("1:05")).toBeTruthy();
+      act(() => {
+        bridge.inbound(ev("task.done", { taskId: "t1", roleId: "code-writer", summary: "ok" }));
+      });
+      expect(screen.queryByText("Active")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the plan state and its validator verdict", () => {

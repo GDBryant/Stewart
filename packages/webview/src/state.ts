@@ -43,6 +43,9 @@ export interface TaskRow {
   status: "pending" | "running" | "waiting" | "done" | "failed";
   summary?: string;
   waitingOn?: string;
+  agentId?: string;
+  /** Epoch ms when the task last entered running; drives the active-task timer. */
+  startedAt?: number;
 }
 
 export interface CostState {
@@ -348,7 +351,7 @@ export class Store {
           tasks: [...this.state.tasks, { taskId: ev.taskId ?? "", roleId: ev.roleId ?? "", title: ev.title, status: "pending" }],
         });
       case "task.started":
-        return this.patch({ tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "running" } : t)) });
+        return this.patch({ tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "running", agentId: ev.agentId ?? t.agentId, startedAt: Date.now() } : t)) });
       case "task.blocked":
         return this.patch({
           tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "waiting", waitingOn: ev.waitingOn } : t)),
