@@ -128,7 +128,7 @@ export async function runRoleTask(
   let terminalCallId: string | undefined;
 
   const activeAgent = agent;
-  const summarize = rt.config.settings.compaction?.summarize ? compactorFor(rt, spec.id) : undefined;
+  const { summarize, prune } = compactionFor(rt, spec.id);
   const session = createAgentSession(
     {
       agent: activeAgent,
@@ -139,7 +139,7 @@ export async function runRoleTask(
       prompt,
       terminal,
       budget: { profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60 },
-      limitsOverride: rt.config.settings.compaction?.prune ? { prune: true } : undefined,
+      limitsOverride: prune ? { prune: true } : undefined,
       meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, taskId: spec.id, roleId: role.id },
       idem: rt.idem.hooks(spec.id, deps.idemOffset),
       summarize,
@@ -196,6 +196,12 @@ export async function runRoleTask(
     .join("\n")
     .trim();
   return { status: "done", summary: submitted || text || "(no text returned)", filesTouched, transcript: produced };
+}
+
+/** Session compaction options from `settings.compaction`; shared by worker and orchestrator loops. */
+export function compactionFor(rt: OrchestrationRuntime, taskId?: string): { prune: boolean; summarize?: (middle: ChatMessage[]) => Promise<string> } {
+  const c = rt.config.settings.compaction;
+  return { prune: !!c?.prune, summarize: c?.summarize ? compactorFor(rt, taskId) : undefined };
 }
 
 /**

@@ -52,7 +52,7 @@ Split comes first when stuck. A timeout (`continueQuestionTimeoutMinutes`, 0 = w
 | `maxActionsInRecoveryBrief` | 20 | actions listed in the recovery brief |
 | `maxContinuations` | 2 | per task |
 | `maxContinueQuestionsPerRun` | 4 | per run |
-| `compaction.prune` | false | stub stale tool results (roleRunner/direct only) |
+| `compaction.prune` | false | stub stale tool results (workers, direct runs, orchestrator) |
 | `compaction.summarize` | false | summarize middle via an enabled `compactor` role; metered under role `compactor` |
 
 ## Logs

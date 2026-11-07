@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactorFor } from "../src/orchestration/roleRunner.js";
+import { compactionFor, compactorFor } from "../src/orchestration/roleRunner.js";
 
 const recorded: Record<string, unknown>[] = [];
 let capped = false;
@@ -51,5 +51,22 @@ describe("compactorFor", () => {
   it("is undefined when the agent is unbound or the channel unhealthy", () => {
     expect(compactorFor(rt([{ id: "compactor", enabled: true }], [agent]))).toBeUndefined();
     expect(compactorFor(rt([{ id: "compactor", enabled: true, agent: "a" }], [agent], "n", true))).toBeUndefined();
+  });
+});
+
+describe("compactionFor", () => {
+  const withSettings = (compaction: unknown, roles: unknown[] = [{ id: "compactor", enabled: true, agent: "a" }]) => {
+    const r = rt(roles, [agent]) as unknown as { config: Record<string, unknown> };
+    r.config.settings = { compaction };
+    return r as never;
+  };
+  it("reflects the prune and summarize flags", () => {
+    const on = compactionFor(withSettings({ prune: true, summarize: true }));
+    expect(on.prune).toBe(true);
+    expect(on.summarize).toBeTypeOf("function");
+  });
+  it("is off by default and when no compactor role exists", () => {
+    expect(compactionFor(withSettings({ prune: false, summarize: false }))).toEqual({ prune: false, summarize: undefined });
+    expect(compactionFor(withSettings({ prune: false, summarize: true }, [])).summarize).toBeUndefined();
   });
 });

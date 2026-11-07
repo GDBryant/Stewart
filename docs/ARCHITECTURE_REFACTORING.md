@@ -133,7 +133,7 @@ function planCompaction(msgs: ChatMessage[], ctxTokens: number, policy: Compacti
 ### Deviations / not done (R3 as built)
 - No `CompactionPolicy`/`planCompaction`: thresholds are `pruneAt/summarizeAt` on `LoopLimits`, set by `resolveLimits` from the budget profile (quick 40/60%, normal 60/80%, deep 75/90%); `maxContextChars` is still the fixed 400k, not derived from `ModelProfile` context.
 - No batch compaction down to a ~40% target (provider-cache prefix stability not addressed); prune has no re-read dedupe and no ingest cap.
-- Prune and summarize are wired only for `roleRunner`/direct runs, not orchestrator, recovery or bench loops.
+- Prune and summarize are wired for `roleRunner`/direct runs and the orchestrator loop (`compactionFor`); not for recovery (4-turn `submit_recovery` call) or bench (3-turn probes), which are too short to compact.
 - Summarizer needs a user-defined `compactor` role (no default); skipped once the cost cap is reached and the agent is paid.
 - Both flags (`compaction.prune`, `compaction.summarize`) stay off until the bench comparison; not yet run.
 

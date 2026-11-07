@@ -10,7 +10,7 @@ import { ToolRegistry, type Tool } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
 import { LeaseCycleError } from "./writeGuard.js";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "./tasks.js";
-import { buildRolePrompt, type TaskResult } from "./roleRunner.js";
+import { buildRolePrompt, compactionFor, type TaskResult } from "./roleRunner.js";
 import { isWriteCapableRole } from "../roles.js";
 import { classifyFault } from "./faults.js";
 import { ensureRecovery, logRecovery, runTaskRecoverable, SIZE_HINT } from "./recovery.js";
@@ -101,6 +101,7 @@ class OrchestratedRun {
     const allowed = this.orchestrator.tools.length ? this.orchestrator.tools : ORCHESTRATOR_DEFAULT_TOOLS;
     const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
     const prompt = await buildRolePrompt(rt, this.orchestrator);
+    const { prune, summarize } = compactionFor(rt);
     const session = createAgentSession(
       {
         agent: this.agent,
@@ -111,7 +112,8 @@ class OrchestratedRun {
         prompt,
         terminal: new Set(["submit_replacements"]),
         budget: { profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60 },
-        limitsOverride: { maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT },
+        limitsOverride: { maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT, ...(prune ? { prune: true } : {}) },
+        summarize,
         meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, roleId: this.orchestrator.id },
         idem: rt.idem.hooks("orchestrator"),
         events: { bus: rt.bus, runId: rt.runId, roleId: this.orchestrator.id },
