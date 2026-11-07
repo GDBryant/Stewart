@@ -60,6 +60,12 @@ export function contextCharsFor(contextTokens: number | undefined): number {
   return clamp(Math.floor(contextTokens * CONTEXT_CHARS_PER_TOKEN), MIN_CONTEXT_CHARS, DEFAULT_LIMITS.maxContextChars);
 }
 
+/** Ingest cap per tool result: ~10% of the context cap (never above the default), halved for quick profiles. */
+export function toolOutputCap(maxContextChars: number, profile: BudgetProfile): number {
+  const base = Math.min(DEFAULT_LIMITS.maxToolOutputChars, Math.floor(maxContextChars / 10));
+  return Math.max(2_000, profile.turnMultiplier < 1 ? Math.floor(base / 2) : base);
+}
+
 /**
  * Model-aware limits: turn budget scaled by profile and by cost/reliability
  * factors, tool and per-model-call timeouts scaled by profile and measured
@@ -91,10 +97,12 @@ export function resolveLimits(opts: {
     baseTurns === Number.MAX_SAFE_INTEGER
       ? baseTurns
       : Math.min(Math.max(Math.round(baseTurns * profile.turnMultiplier * turnFactor), Math.min(3, baseTurns)), Math.ceil(opts.ceiling * profile.turnMultiplier));
+  const maxContextChars = contextCharsFor(opts.model?.contextTokens);
   return {
     ...DEFAULT_LIMITS,
     maxModelTurns,
-    maxContextChars: contextCharsFor(opts.model?.contextTokens),
+    maxContextChars,
+    maxToolOutputChars: toolOutputCap(maxContextChars, profile),
     ...compactionThresholds(profile),
     toolTimeoutMs: Math.round(DEFAULT_LIMITS.toolTimeoutMs * profile.timeoutMultiplier * timeoutFactor),
     modelCallTimeoutMs: Math.round(DEFAULT_MODEL_CALL_TIMEOUT_MS * profile.timeoutMultiplier * timeoutFactor),

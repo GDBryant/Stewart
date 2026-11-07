@@ -419,8 +419,9 @@ export class ToolLoop {
             }),
           ]);
       const raw = typeof out === "string" ? out : out.text;
-      const s = raw.length > this.limits.maxToolOutputChars
-        ? `${raw.slice(0, this.limits.maxToolOutputChars)}\n[output truncated]`
+      const cap = this.limits.maxToolOutputChars;
+      const s = raw.length > cap
+        ? `${raw.slice(0, Math.ceil(cap * 0.7))}\n[output truncated: ${raw.length - cap} chars omitted]\n${raw.slice(-Math.floor(cap * 0.3))}`
         : raw;
       if (key) await this.idempotency!.record(key, s);
       return this.finishOutcome(

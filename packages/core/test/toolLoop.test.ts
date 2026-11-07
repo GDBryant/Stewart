@@ -169,7 +169,38 @@ describe("ToolLoop", () => {
     ]);
     const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
     const r = await loop.run("m", hist, {}, sig());
-    expect(r.messages[1].content).toBe("xxxxxxxxxx\n[output truncated]");
+    expect(r.messages[1].content).toBe("xxxxxxx\n[output truncated: 90 chars omitted]\nxxx");
+  });
+
+  it("keeps the tail of oversized output so trailing errors survive", async () => {
+    const big = {
+      spec: { name: "Big", description: "", parameters: { type: "object", properties: {} } },
+      requiresApproval: false,
+      execute: async () => `${"x".repeat(100)}ERROR`,
+    };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "b", name: "Big", arguments: {} }] }, { kind: "done" }],
+      [{ kind: "text", text: "ok" }, { kind: "done" }],
+    ]);
+    const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
+    const r = await loop.run("m", hist, {}, sig());
+    expect(r.messages[1].content.endsWith("RR") || r.messages[1].content.endsWith("OR")).toBe(true);
+    expect(r.messages[1].content.length).toBeLessThan(80);
+  });
+
+  it("does not truncate output within the cap", async () => {
+    const small = {
+      spec: { name: "Small", description: "", parameters: { type: "object", properties: {} } },
+      requiresApproval: false,
+      execute: async () => "x".repeat(10),
+    };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "b", name: "Small", arguments: {} }] }, { kind: "done" }],
+      [{ kind: "text", text: "ok" }, { kind: "done" }],
+    ]);
+    const loop = new ToolLoop(ch, registryOf([small as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
+    const r = await loop.run("m", hist, {}, sig());
+    expect(r.messages[1].content).toBe("xxxxxxxxxx");
   });
 
   it("retries a truncated turn once and fails when retries are exhausted", async () => {

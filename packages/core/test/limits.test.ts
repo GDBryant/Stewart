@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits, compactionThresholds, contextCharsFor } from "../src/limits.js";
+import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits, compactionThresholds, contextCharsFor, toolOutputCap } from "../src/limits.js";
 import type { AgentDef, RoleDef } from "../src/config/schema.js";
 import { profileFromChannel } from "../src/modelProfile.js";
 
@@ -132,5 +132,19 @@ describe("context cap from the model profile", () => {
     expect(contextCharsFor(undefined)).toBe(400_000);
     expect(contextCharsFor(0)).toBe(400_000);
     expect(resolveLimits({ profile: normal, ceiling: 60 }).maxContextChars).toBe(400_000);
+  });
+});
+
+describe("toolOutputCap", () => {
+  it("keeps the default 20k for a full-size context and halves it for quick", () => {
+    expect(toolOutputCap(400_000, DEFAULT_BUDGET_PROFILES.normal)).toBe(20_000);
+    expect(toolOutputCap(400_000, DEFAULT_BUDGET_PROFILES.quick)).toBe(10_000);
+  });
+  it("shrinks with a small context window but never below 2k", () => {
+    expect(toolOutputCap(60_000, DEFAULT_BUDGET_PROFILES.normal)).toBe(6_000);
+    expect(toolOutputCap(8_000, DEFAULT_BUDGET_PROFILES.quick)).toBe(2_000);
+  });
+  it("never exceeds the default for deep", () => {
+    expect(toolOutputCap(400_000, DEFAULT_BUDGET_PROFILES.deep)).toBe(20_000);
   });
 });
