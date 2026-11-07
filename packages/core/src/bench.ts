@@ -4,7 +4,7 @@ import type { AgentDef } from "@stewart/config";
 import { createAgentSession } from "./agentSession.js";
 import type { Clock } from "@stewart/kernel";
 import { ToolLoop } from "./tools/toolLoop.js";
-import { ToolRegistry, type Tool } from "./tools/types.js";
+import { ToolRegistry, type Tool } from "@stewart/tools";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */
 export const BENCH_VERSION = 1;

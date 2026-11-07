@@ -4,13 +4,11 @@
   "import orchestration/recovery.ts -> orchestration",
   "import orchestration/types.ts -> app",
   "import orchestration/types.ts -> recovery",
-  "import orchestration/writeGuard.ts -> tools",
   "import recommend.ts -> app",
   "import runManager.ts -> app",
   "size core.ts",
   "size orchestration/orchestrator.ts",
   "size orchestration/recovery.ts",
   "size runManager.ts",
-  "size tools/builtins.ts",
   "size tools/toolLoop.ts"
 ]

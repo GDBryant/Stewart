@@ -8,7 +8,7 @@ import { createAgentSession, type SessionSpec } from "../src/agentSession.js";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
 import { type ApprovalDecision } from "../src/tools/toolLoop.js";
-import { ToolRegistry, type Tool } from "../src/tools/types.js";
+import { ToolRegistry, type Tool } from "@stewart/tools";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 

@@ -4,7 +4,7 @@ import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";
 import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "@stewart/channels";
-import type { ToolRegistry } from "./tools/types.js";
+import type { ToolRegistry } from "@stewart/tools";
 import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
 import { ToolLoop, type ApprovalGate, type IdempotencyHooks, type LoopListener } from "./tools/toolLoop.js";
 import { profileFromChannel, type ModelProfile } from "@stewart/models";

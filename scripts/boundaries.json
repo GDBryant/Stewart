@@ -3,14 +3,13 @@
   "map": [
     ["events.ts", "kernel"],
                                                 ["orchestration/writeGuard.ts", "run-state"], ["orchestration/idempotency.ts", "run-state"], ["history.ts", "run-state"],
-    ["tools/builtins.ts", "tools"], ["tools/roleRegistry.ts", "tools"], ["tools/types.ts", "tools"], ["tools/projectPaths.ts", "tools"],
-            ["tools/toolLoop.ts", "agent-loop"], ["agentSession.ts", "agent-loop"], ["orchestration/faults.ts", "agent-loop"],
+                ["tools/toolLoop.ts", "agent-loop"], ["agentSession.ts", "agent-loop"], ["orchestration/faults.ts", "agent-loop"],
     ["orchestration/recovery.ts", "recovery"],
     ["orchestration/orchestrator.ts", "orchestration"], ["orchestration/replacements.ts", "orchestration"], ["orchestration/roleRunner.ts", "orchestration"],
     ["orchestration/tools.ts", "orchestration"], ["orchestration/types.ts", "orchestration"],
     ["assign.ts", "setup"], ["recommend.ts", "setup"], ["bench.ts", "setup"], ["setupContext.ts", "setup"],
     ["runManager.ts", "runs"]
   ],
-  "appLayer": 8,
+  "appLayer": 9,
   "maxLines": 300
 }

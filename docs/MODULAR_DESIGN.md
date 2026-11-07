@@ -23,11 +23,12 @@ Every module and unit must meet these. They are enforced by tooling (§6), not b
 Dependencies point down only. A module may use any module in a strictly lower layer, never one in its own layer or above. Where two modules would need each other, the interface is declared in the lower one (dependency inversion).
 
 ```
-L6   app          composition root + RPC router + event batching (Core)
-L5   runs         run lifecycle (direct / orchestrated / resume strategies), slash-command parsing
-L4   agents       orchestration · recovery · setup
-L3b  loop         agent-loop (also declares the `Recovery` interface and fault types)
-L3a  engine       tools · compaction · context
+L9   app          composition root + RPC router + event batching (Core)
+L8   runs         run lifecycle (direct / orchestrated / resume strategies), slash-command parsing
+L7   agents       orchestration · recovery · setup
+L6   loop         agent-loop (also declares the `Recovery` interface and fault types)
+L5   tools        tools (uses `context` for image limits)
+L4   engine       compaction · context
 L2b  domain       roles-skills · channels · budget · ledger · permissions · scheduling · run-state
 L2a  domain base  models · interaction
 L1   platform     config · catalog · toolcall-format · diagnostics
@@ -65,7 +66,7 @@ Each row: what it owns, the surface others may use, what it depends on. Surfaces
 | 2b | `roles-skills` | role + skill definitions, validation, tool filter, `writePaths`, copy-on-write, prompt composition inputs | `RoleCatalog`, `SkillCatalog` | kernel, config, models |
 | 2b | `scheduling` | `TaskGraph`, `LeaseManager`, deadlock detection | `TaskGraph`, `Leases` (pure) | kernel |
 | 2b | `run-state` | journal, idempotency log, pre-image snapshots/revert, scratch dir, chat history | `RunStore`, `Snapshots`, `HistoryStore` | kernel (uses `HostPort`) |
-| 3a | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), `ToolProvider` seam, ingest cap | `ToolRegistry`, `ToolProvider` | kernel, permissions, roles-skills |
+| 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), `ToolProvider` seam, ingest cap | `ToolRegistry`, `ToolProvider` | kernel, permissions, roles-skills |
 | 3a | `compaction` | prune / summarize / clip as pure message transforms | `compact(messages, plan)` | kernel |
 | 3a | `context` | prompt composition, `@mentions`, images, `AGENTS.md`/`MEMORY.md` bounds, briefings | `ContextBuilder` | kernel, roles-skills, models |
 | 3b | `agent-loop` | `ToolLoop` stream→parse→execute and `createAgentSession` (the only loop builder); declares `Recovery` + fault types | `AgentSession`, `Recovery`, `Fault`, `createProbeLoop` | channels, tools, toolcall-format, compaction, budget, ledger, permissions, models, diagnostics |

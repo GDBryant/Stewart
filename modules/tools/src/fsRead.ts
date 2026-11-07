@@ -1,0 +1,167 @@
+import type { Json, ToolSpec } from "@stewart/kernel";
+import { MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS } from "./projectPaths.js";
+import { arg, optBool, optInt, schema, str, int, bool, ProjectTool } from "./toolBase.js";
+
+function isBinary(text: string): boolean {
+  return text.slice(0, 8192).includes("\0");
+}
+
+function globToRegex(glob: string): RegExp {
+  let re = "";
+  let i = 0;
+  while (i < glob.length) {
+    const c = glob[i];
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        if (glob[i + 2] === "/") {
+          re += "(?:[^/]+/)*";
+          i += 3;
+        } else {
+          re += ".*";
+          i += 2;
+        }
+      } else {
+        re += "[^/]*";
+        i++;
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+      i++;
+    } else if (c === "[") {
+      const j = glob.indexOf("]", i + 1);
+      if (j === -1) throw new Error("invalid glob: unterminated [");
+      re += glob.slice(i, j + 1);
+      i = j + 1;
+    } else if (c === "{") {
+      const j = glob.indexOf("}", i + 1);
+      if (j === -1) throw new Error("invalid glob: unterminated {");
+      const alts = glob.slice(i + 1, j).split(",").map((a) => a.replace(/[.+^$()|\\]/g, "\\$&"));
+      re += `(?:${alts.join("|")})`;
+      i = j + 1;
+    } else {
+      re += c.replace(/[.+^$()|\\]/g, "\\$&");
+      i++;
+    }
+  }
+  return new RegExp(`^${re}$`);
+}
+
+export class ReadFile extends ProjectTool {
+  spec: ToolSpec = {
+    name: "ReadFile",
+    description: "Read a project file",
+    parameters: schema({ path: str, start_line: int, end_line: int }, ["path"]),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const rel = this.paths.resolve(arg(args, "path"));
+    if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);
+    const st = await this.paths.stat(rel);
+    if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
+    const { content } = await this.paths.read(rel);
+    if (isBinary(content)) throw new Error(`binary file: ${rel}`);
+    const lines = content.split("\n");
+    const start = optInt(args, "start_line") ?? 1;
+    const end = optInt(args, "end_line") ?? lines.length;
+    if (start < 1 || end < start || start > lines.length) {
+      throw new Error(`invalid line range ${start}-${end} (file has ${lines.length} lines)`);
+    }
+    return lines.slice(start - 1, Math.min(end, lines.length)).map((l, i) => `${start + i}: ${l}`).join("\n");
+  }
+}
+
+export class FindFiles extends ProjectTool {
+  spec: ToolSpec = {
+    name: "FindFiles",
+    description: "Find project files matching a glob",
+    parameters: schema({ glob: str, path: str }, ["glob"]),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    let matcher: RegExp;
+    try {
+      matcher = globToRegex(arg(args, "glob"));
+    } catch (e) {
+      throw new Error(`invalid glob: ${e instanceof Error ? e.message : e}`);
+    }
+    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
+    const results: string[] = [];
+    let overflow = 0;
+    for (const p of await this.paths.list(dir)) {
+      if (matcher.test(p)) {
+        if (results.length < MAX_FIND_RESULTS) results.push(p);
+        else overflow++;
+      }
+    }
+    if (overflow > 0) results.push(`[${overflow} more]`);
+    return results.length === 0 ? "no files matched" : results.join("\n");
+  }
+}
+
+export class Search extends ProjectTool {
+  spec: ToolSpec = {
+    name: "Search",
+    description: "Search file contents in the project",
+    parameters: schema({ query: str, regex: bool, path: str, max_results: int }, ["query"]),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const query = arg(args, "query");
+    let regex: RegExp | null = null;
+    if (optBool(args, "regex")) {
+      try {
+        regex = new RegExp(query);
+      } catch (e) {
+        throw new Error(`invalid regex: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
+    const max = Math.min(Math.max(optInt(args, "max_results") ?? MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
+    const results: string[] = [];
+    let overflow = 0;
+    for (const rel of await this.paths.list(dir)) {
+      if (results.length >= max) {
+        overflow++;
+        continue;
+      }
+      try {
+        const st = await this.paths.stat(rel);
+        if (st.size > MAX_FILE_BYTES) continue;
+        const { content } = await this.paths.read(rel);
+        if (isBinary(content)) continue;
+        content.split("\n").forEach((line, i) => {
+          const hit = regex ? regex.test(line) : line.includes(query);
+          if (hit) {
+            if (results.length < max) results.push(`${rel}:${i + 1}: ${line}`);
+            else overflow++;
+          }
+        });
+      } catch {
+        continue;
+      }
+    }
+    if (overflow > 0) results.push(`[${overflow} more]`);
+    return results.length === 0 ? "no matches" : results.join("\n");
+  }
+}
+
+export class GetProblems extends ProjectTool {
+  spec: ToolSpec = {
+    name: "GetProblems",
+    description: "List IDE diagnostics for the workspace or a file",
+    parameters: schema({ path: str }, []),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const rel = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : undefined;
+    const problems = await this.host.diag.problems(rel);
+    if (problems.length === 0) return "no problems";
+    return problems.map((p) => `${p.path}:${p.line} [${p.severity}]: ${p.message}`).join("\n");
+  }
+}

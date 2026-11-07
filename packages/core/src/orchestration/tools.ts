@@ -1,5 +1,5 @@
 import type { Json } from "@stewart/kernel";
-import type { Tool } from "../tools/types.js";
+import type { Tool } from "@stewart/tools";
 
 /** Core-provided implementations of the orchestration verbs. */
 export interface OrchestrationHandlers {

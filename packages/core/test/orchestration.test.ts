@@ -16,10 +16,10 @@ import { runRoleTask } from "../src/orchestration/roleRunner.js";
 import { runOrchestrated } from "../src/orchestration/orchestrator.js";
 import { orchestrationTools, type OrchestrationHandlers } from "../src/orchestration/tools.js";
 import type { OrchestrationRuntime } from "../src/orchestration/types.js";
-import { projectTools } from "../src/tools/builtins.js";
-import { ProjectPaths } from "../src/tools/projectPaths.js";
+import { projectTools } from "@stewart/tools";
+import { ProjectPaths } from "@stewart/tools";
 import { ToolLoop } from "../src/tools/toolLoop.js";
-import { ToolRegistry } from "../src/tools/types.js";
+import { ToolRegistry } from "@stewart/tools";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 

@@ -1,7 +1,7 @@
 import type { HostPort } from "@stewart/kernel";
 import type { Json } from "@stewart/kernel";
 import type { ToolPreview } from "@stewart/permissions";
-import type { Tool } from "../tools/types.js";
+import type { Tool } from "@stewart/tools";
 import type { LeaseManager } from "@stewart/scheduling";
 
 const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);

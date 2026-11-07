@@ -376,6 +376,22 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/tools:
+    dependencies:
+      '@stewart/config':
+        specifier: workspace:*
+        version: link:../config
+      '@stewart/context':
+        specifier: workspace:*
+        version: link:../context
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/permissions':
+        specifier: workspace:*
+        version: link:../permissions
+      '@stewart/roles-skills':
+        specifier: workspace:*
+        version: link:../roles-skills
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -453,6 +469,9 @@ importers:
       '@stewart/toolcall-format':
         specifier: workspace:*
         version: link:../../modules/toolcall-format
+      '@stewart/tools':
+        specifier: workspace:*
+        version: link:../../modules/tools
       yaml:
         specifier: 2.8.1
         version: 2.8.1

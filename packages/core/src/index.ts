@@ -1,5 +1,5 @@
+export * from "@stewart/tools";
 export * from "@stewart/roles-skills";
-export * from "./tools/roleRegistry.js";
 export * from "@stewart/channels";
 export * from "@stewart/kernel";
 export * from "./events.js";
@@ -8,11 +8,8 @@ export * from "@stewart/config";
 export { loadConfig, type Config } from "./config/effective.js";
 export * from "./runManager.js";
 export * from "./core.js";
-export * from "./tools/types.js";
-export * from "./tools/projectPaths.js";
 export * from "@stewart/permissions";
 export * from "@stewart/toolcall-format";
-export * from "./tools/builtins.js";
 export * from "./tools/toolLoop.js";
 export * from "@stewart/ledger";
 export * from "./orchestration/tools.js";
