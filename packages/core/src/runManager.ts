@@ -4,7 +4,8 @@ import type { AgentDef, RoleDef } from "./config/schema.js";
 import type { Config } from "./config/loader.js";
 import { roleRegistry } from "./roles.js";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "./limits.js";
-import { createAgentSession } from "./agentSession.js";
+import { DEFAULT_LIMITS } from "./tools/toolLoop.js";
+import { runRoleTask } from "./orchestration/roleRunner.js";
 import { ManagedChannel } from "./channels/registry.js";
 import type { ChatMessage, ToolCall } from "./channels/types.js";
 import { projectTools } from "./tools/builtins.js";
@@ -15,7 +16,7 @@ import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
 import { RunLedger, CostLimit } from "./orchestration/ledger.js";
 import { LeaseManager } from "./orchestration/leases.js";
 import { IdempotencyLog } from "./orchestration/idempotency.js";
-import { TaskGraph, type TaskRecord } from "./orchestration/tasks.js";
+import { TaskGraph, type TaskRecord, type TaskSpec } from "./orchestration/tasks.js";
 import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
 import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
@@ -193,12 +194,12 @@ export class RunManager {
     channel: ManagedChannel,
     agent: AgentDef,
     text: string,
-    images?: string[],
-    role?: RoleDef,
-    rolePrompt?: string,
-    sessionId?: string,
-    history?: ChatMessage[],
-    budget?: { profile: BudgetProfile; name?: string; ceiling: number; maxRunHours: number; recovery?: RecoveryState },
+    images: string[] | undefined,
+    role: RoleDef | undefined,
+    rolePrompt: string | undefined,
+    sessionId: string | undefined,
+    history: ChatMessage[] | undefined,
+    budget: { config: Config; profile: BudgetProfile; name?: string; recovery?: RecoveryState },
   ): Promise<Run> {
     const run: Run = {
       id: this.deps.ids.next("run"),
@@ -212,8 +213,8 @@ export class RunManager {
     };
     this.runs.set(run.id, run);
     const bus = this.deps.bus;
-    bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80), ...(budget?.name ? { profile: budget.name } : {}) });
-    void this.drive(run, channel, agent, role, rolePrompt, budget).catch((e) => {
+    bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80), ...(budget.name ? { profile: budget.name } : {}) });
+    void this.driveDirect(run, channel, agent, role, rolePrompt, budget).catch((e) => {
       if (run.status === "running") run.status = "failed";
       bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });
     });
@@ -527,65 +528,46 @@ export class RunManager {
     this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: finalStatus, error: outcome.error });
   }
 
-  private async drive(
+  /** Direct run = a single-task run of the chat role through `runRoleTask` (same runtime as orchestrated runs). */
+  private async driveDirect(
     run: Run,
     channel: ManagedChannel,
     agent: AgentDef,
-    role?: RoleDef,
-    rolePrompt?: string,
-    budget?: { profile: BudgetProfile; ceiling: number; maxRunHours: number; recovery?: RecoveryState },
+    role: RoleDef | undefined,
+    rolePrompt: string | undefined,
+    budget: { config: Config; profile: BudgetProfile; recovery?: RecoveryState },
   ): Promise<void> {
     const bus = this.deps.bus;
-    const stateDir = await this.deps.host.workspace.stateDir();
-    const paths = await ProjectPaths.forProject(this.deps.host);
-    const baseRegistry = role ? roleRegistry(projectTools(this.deps.host, paths), role) : projectTools(this.deps.host, paths);
-    const leases = new LeaseManager();
-    const registry = new ToolRegistry(
-      leasedTools(baseRegistry.tools, {
-        host: this.deps.host,
-        leases,
-        taskId: "direct",
-        runId: run.id,
-        leaseWaitMs: 300_000,
-        stateDir,
-      }),
-    );
-    const runGrants = new Grants();
     const runId = run.id;
-    const gate = this.gate(runId, runGrants);
-    const profile = budget?.profile ?? DEFAULT_BUDGET_PROFILES.normal;
-    const capMs = effectiveRunCapMs(budget?.maxRunHours ?? 0, profile);
-    let timeCapped = false;
-    const capTimer =
-      capMs > 0
-        ? this.deps.clock.setTimeout(() => {
-            if (run.status === "running") {
-              timeCapped = true;
-              run.controller.abort();
-            }
-          }, capMs)
-        : undefined;
-    const projectContext = await loadProjectContext(this.deps.host);
-    const prompt = [rolePrompt, projectContext].filter(Boolean).join("") || undefined;
-    const session = createAgentSession(
-      { agent, role, channel, registry, approve: gate, prompt, budget: { profile, ceiling: budget?.ceiling ?? 60 }, events: { bus, runId } },
-      this.deps.clock,
-    );
-    const { loop, limits, listener } = session;
-    const recovery = budget?.recovery;
+    const ledger = await this.ledgerFor();
+    const stateDir = await this.deps.host.workspace.stateDir();
+    const idem = new IdempotencyLog(this.deps.host, `${stateDir}/scratch/${runId}/executed.jsonl`, runId);
+    await idem.load();
+    const rt = this.buildRuntime(run, { config: budget.config, channelFor: () => channel, ledger, stateDir, idem, profile: budget.profile });
+    const chatRole: RoleDef = role ?? { id: "chat", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: DEFAULT_LIMITS.maxModelTurns };
+    const prompt = [rolePrompt, await loadProjectContext(this.deps.host)].filter(Boolean).join("");
+    const desc = (run.messages.find((m) => m.role === "user")?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
+    const spec: TaskSpec = { id: "direct", roleId: chatRole.id, title: desc, task: desc, files: [], dependsOn: [] };
+    const recovery = budget.recovery;
     const askTimed = this.askTimed(runId, run.controller.signal);
-    let continuations = 0;
-    let questions = 0;
+    const finish = async (status: RunStatus, event: "done" | "failed" | "cancelled" | "stopped", error?: string) => {
+      run.status = status;
+      run.costUsd = rt.cost.accrued;
+      await this.saveHistory(run);
+      bus.emit({ kind: "run.finished", runId, status: event, ...(error ? { error } : {}) });
+    };
     try {
       let history = run.messages;
-      let result = await loop.run(agent.model, history, listener, run.controller.signal);
-      while (result.kind === "turn_limit" && recovery?.askOnTurnLimit && continuations < recovery.maxContinuations && questions < recovery.maxContinueQuestionsPerRun) {
+      let offset = 0;
+      let continuations = 0;
+      let questions = 0;
+      let res = await runRoleTask(rt, spec, { role: chatRole, agent, prompt: prompt || undefined, history });
+      while (res.status === "stopped" && res.fault === "turn_limit" && res.transcript && recovery?.askOnTurnLimit && continuations < recovery.maxContinuations && questions < recovery.maxContinueQuestionsPerRun) {
         questions++;
-        const transcript = [...result.base, ...result.messages];
-        const desc = (run.messages.find((m) => m.role === "user")?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
+        const transcript = res.transcript;
         const { question, options } = continueQuestion({
-          spec: { id: runId, roleId: role?.id ?? "chat", title: desc, task: desc, files: [], dependsOn: [] },
-          turns: limits.maxModelTurns,
+          spec: { ...spec, roleId: role?.id ?? "chat" },
+          turns: res.turnBudget ?? 0,
           transcript,
           maxActions: recovery.maxActionsInRecoveryBrief,
           canSplit: false,
@@ -595,49 +577,25 @@ export class RunManager {
         this.deps.host.log(`[run ${runId}] continue question: ${answer.kind === "text" ? "guidance" : answer.kind}`);
         if (answer.kind === "stop" || answer.kind === "timeout") break;
         continuations++;
+        offset = transcript.length;
         history = answer.kind === "text" ? [...transcript, { role: "user", content: answer.text }] : transcript;
-        result = await loop.run(agent.model, history, listener, run.controller.signal);
+        res = await runRoleTask(rt, spec, { role: chatRole, agent, prompt: prompt || undefined, history, idemOffset: offset });
       }
-      leases.releaseAll();
-      run.messages = [...result.base, ...result.messages];
-      if (result.kind === "failed") {
-        run.status = "failed";
-        await this.saveHistory(run);
-        bus.emit({ kind: "run.finished", runId, status: "failed", error: result.message });
-        return;
+      rt.leases.releaseAll();
+      if (res.transcript) run.messages = res.transcript;
+      if (res.status === "cancelled" || run.status === "cancelled") {
+        if (rt.timeCap?.hit) return await finish("interrupted", "stopped", timeCapMessage(rt.timeCap.ms));
+        return await finish("cancelled", "cancelled");
       }
-      if (result.kind === "turn_limit") {
-        if (run.status === "cancelled" || run.controller.signal.aborted) {
-          await this.saveHistory(run);
-          bus.emit({ kind: "run.finished", runId, status: "cancelled" });
-          return;
-        }
-        run.status = "interrupted";
-        await this.saveHistory(run);
-        bus.emit({ kind: "run.finished", runId, status: "stopped", error: "turn limit reached" });
-        return;
-      }
-      if (run.status === "running") run.status = "done";
-      await this.saveHistory(run);
-      bus.emit({ kind: "run.finished", runId, status: run.status === "cancelled" ? "cancelled" : "done" });
+      if (res.status === "failed") return await finish("failed", "failed", res.summary);
+      if (res.status === "stopped" || res.status === "parked") return await finish("interrupted", "stopped", res.summary);
+      await finish("done", "done");
     } catch (e) {
-      leases.releaseAll();
-      if (e instanceof RunCancelledError || run.controller.signal.aborted) {
-        run.status = timeCapped ? "interrupted" : "cancelled";
-        if (e instanceof RunCancelledError) run.messages = e.transcript;
-        await this.saveHistory(run);
-        bus.emit({
-          kind: "run.finished",
-          runId,
-          status: timeCapped ? "stopped" : "cancelled",
-          error: timeCapped ? `run time limit reached (${Math.round(capMs / 60_000)}min)` : undefined,
-        });
-        return;
-      }
+      rt.leases.releaseAll();
       await this.saveHistory(run);
       throw e;
     } finally {
-      capTimer?.cancel();
+      rt.timeCap?.cancel();
     }
   }
 }

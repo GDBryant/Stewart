@@ -443,9 +443,8 @@ describe("RunManager direct continue question", () => {
     const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+      config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
-      ceiling: 60,
-      maxRunHours: 0,
       recovery: recoveryState(cfg.settings),
     });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
@@ -462,13 +461,44 @@ describe("RunManager direct continue question", () => {
     const manager = new RunManager({ host: fake.host, clock: instantClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+      config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
-      ceiling: 60,
-      maxRunHours: 0,
       recovery: recoveryState(cfg.settings),
     });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).not.toBe("running"));
     expect(manager.get(run.id)!.status).toBe("interrupted");
     expect(events.find((e) => e.kind === "question.withdrawn")).toBeDefined();
+  });
+
+  it("direct run keeps the full transcript on done and returns to idle (single-task pipeline)", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    const { channel } = fakeChannel(() => [text("hello there"), done()]);
+    const fake = fakeHost({});
+    const events: RunEvent[] = [];
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.direct("p", channel, agentOf(cfg), "hi", undefined, undefined, undefined, undefined, undefined, {
+      config: cfg,
+      profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
+    });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    const msgs = manager.get(run.id)!.messages;
+    expect(msgs[0]).toMatchObject({ role: "user", content: "hi" });
+    expect(msgs.some((m) => m.role === "assistant" && m.content === "hello there")).toBe(true);
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "done" });
+  });
+
+  it("direct run cancelled mid-stream ends cancelled, not done", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
+    const fake = fakeHost({ "a.ts": "a" });
+    const events: RunEvent[] = [];
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, undefined, undefined, undefined, undefined, {
+      config: cfg,
+      profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
+    });
+    manager.cancel(run.id);
+    await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished")).toBe(true));
+    expect(manager.get(run.id)!.status).toBe("cancelled");
   });
 });

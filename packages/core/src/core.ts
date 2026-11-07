@@ -302,10 +302,9 @@ export class Core {
       p.sessionId,
       history,
       {
+        config: ctx.config,
         profile,
         name: profileName,
-        ceiling: ctx.config.settings.maxWorkerTurnsCeiling,
-        maxRunHours: ctx.config.settings.maxRunHours,
         recovery: recoveryState(ctx.config.settings),
       },
     );

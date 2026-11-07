@@ -1,4 +1,4 @@
-import type { RoleDef } from "../config/schema.js";
+import type { AgentDef, RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
@@ -62,11 +62,15 @@ export async function runRoleTask(
     extraBriefing?: string;
     /** Approval gate override (e.g. scratch-dir auto-approve); defaults to rt.approve. */
     approve?(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
+    /** Agent override (direct runs use the chat-selected agent); defaults to the role's bound agent. */
+    agent?: AgentDef;
+    /** System prompt override; defaults to `buildRolePrompt`. */
+    prompt?: string;
   },
 ): Promise<TaskResult> {
   const { role } = deps;
   const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;
-  let agent = rt.config.agents.find((a) => a.id === agentId);
+  let agent = deps.agent ?? rt.config.agents.find((a) => a.id === agentId);
   if (!agent) return { status: "failed", summary: `role ${role.id}: enabled but no agent bound`, filesTouched: [] };
   let channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) {
@@ -117,7 +121,7 @@ export async function runRoleTask(
     }),
   );
 
-  const prompt = await buildRolePrompt(rt, role);
+  const prompt = deps.prompt ?? (await buildRolePrompt(rt, role));
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
   const filesTouched: string[] = [];
   let terminalCallId: string | undefined;
@@ -160,7 +164,7 @@ export async function runRoleTask(
     if (e instanceof LeaseCycleError) {
       return { status: "cancelled", summary: e.message, filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
     }
-    if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched };
+    if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched, transcript: e.transcript };
     if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched };
     return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched };
   }
@@ -187,5 +191,5 @@ export async function runRoleTask(
     .map((m) => (m as { content: string }).content)
     .join("\n")
     .trim();
-  return { status: "done", summary: submitted || text || "(no text returned)", filesTouched };
+  return { status: "done", summary: submitted || text || "(no text returned)", filesTouched, transcript: produced };
 }
