@@ -9,7 +9,7 @@ export class IdempotencyLog {
   private outcomes = new Map<string, string>();
 
   constructor(
-    private host: HostPort,
+    private host: Pick<HostPort, "files">,
     private path: string,
     private runId: string,
   ) {}

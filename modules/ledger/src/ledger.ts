@@ -29,7 +29,7 @@ export class RunLedger {
   private entries: LedgerEntry[] = [];
 
   constructor(
-    private host: HostPort,
+    private host: Pick<HostPort, "files">,
     private path: string,
     private clock: Clock,
   ) {}

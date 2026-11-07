@@ -60,7 +60,7 @@ function bytesToB64(bytes: Uint8Array): string {
  */
 export class ChatHistoryStore {
   constructor(
-    private host: HostPort,
+    private host: Pick<HostPort, "files">,
     private dir: string,
     private retentionDays = 30,
   ) {}

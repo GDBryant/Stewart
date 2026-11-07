@@ -75,7 +75,7 @@ function globToRegex(glob: string): RegExp {
 }
 
 abstract class ProjectTool implements Tool {
-  constructor(protected host: HostPort, protected paths: ProjectPaths) {}
+  constructor(protected host: Pick<HostPort, "diag" | "files" | "proc">, protected paths: ProjectPaths) {}
   abstract spec: ToolSpec;
   abstract requiresApproval: boolean;
   readonly awaitsUser = false;
@@ -395,7 +395,7 @@ class ReadImage extends ProjectTool {
 export type ImageGenerator = (prompt: string) => Promise<{ base64: string } | undefined>;
 
 class GenerateImage extends ProjectTool {
-  constructor(host: HostPort, paths: ProjectPaths, private generate?: ImageGenerator) {
+  constructor(host: Pick<HostPort, "diag" | "files" | "proc">, paths: ProjectPaths, private generate?: ImageGenerator) {
     super(host, paths);
   }
   spec: ToolSpec = {
@@ -478,7 +478,7 @@ export interface ProjectToolsDeps {
   generateImage?: ImageGenerator;
 }
 
-export function projectTools(host: HostPort, paths: ProjectPaths, deps: ProjectToolsDeps = {}): ToolRegistry {
+export function projectTools(host: Pick<HostPort, "diag" | "files" | "proc">, paths: ProjectPaths, deps: ProjectToolsDeps = {}): ToolRegistry {
   return new ToolRegistry([
     new ReadFile(host, paths),
     new FindFiles(host, paths),

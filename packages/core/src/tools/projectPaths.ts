@@ -13,11 +13,11 @@ export const MAX_COMMAND_OUTPUT = 200_000;
  */
 export class ProjectPaths {
   private constructor(
-    private readonly host: HostPort,
+    private readonly host: Pick<HostPort, "files" | "workspace">,
     readonly base: string,
   ) {}
 
-  static async forProject(host: HostPort): Promise<ProjectPaths> {
+  static async forProject(host: Pick<HostPort, "files" | "workspace">): Promise<ProjectPaths> {
     const roots = await host.workspace.roots();
     return new ProjectPaths(host, roots[0] ?? ".");
   }

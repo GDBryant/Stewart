@@ -15,7 +15,7 @@ export interface MentionResult {
  * stay in the text; resolved content is appended as context blocks so the user
  * sees what they typed and the model sees what it referenced.
  */
-export async function expandMentions(host: HostPort, text: string): Promise<MentionResult> {
+export async function expandMentions(host: Pick<HostPort, "diag" | "editor" | "files">, text: string): Promise<MentionResult> {
   const matches = [...text.matchAll(MENTION)];
   if (!matches.length) return { text, expanded: [], dropped: [] };
   const expanded: string[] = [];

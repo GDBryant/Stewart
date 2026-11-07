@@ -38,7 +38,7 @@ export interface SnapshotManifestEntry {
  * Restore all files modified or created during `runId` back to their pre-run
  * state using `.stewart/scratch/<runId>/snapshots/`.
  */
-export async function revertRunSnapshots(host: HostPort, stateDir: string, runId: string): Promise<string[]> {
+export async function revertRunSnapshots(host: Pick<HostPort, "files">, stateDir: string, runId: string): Promise<string[]> {
   const dir = `${stateDir}/scratch/${runId}/snapshots`;
   const lines = await host.files.readLines(`${dir}/manifest.jsonl`);
   const firstByPath = new Map<string, SnapshotManifestEntry>();
@@ -75,7 +75,7 @@ export async function revertRunSnapshots(host: HostPort, stateDir: string, runId
 export function leasedTools(
   tools: Tool[],
   deps: {
-    host: HostPort;
+    host: Pick<HostPort, "files">;
     leases: LeaseManager;
     taskId: string;
     runId: string;

@@ -23,12 +23,16 @@ export interface ProcessHandle {
   readonly done: Promise<{ code: number }>;
 }
 
-export interface HostPort {
+/** Narrow ports: modules ask for the slice they use (`Pick<HostPort, "files">`), so tests stub one member. */
+export interface SecretsPort {
   secrets: {
     get(ref: string): Promise<string | undefined>;
     set(ref: string, value: string): Promise<void>;
     delete(ref: string): Promise<void>;
   };
+}
+
+export interface FilesPort {
   files: {
     read(path: string): Promise<{ content: string; version?: number }>;
     edit(edit: VersionedEdit): Promise<{ applied: true; version?: number }>;
@@ -50,26 +54,44 @@ export interface HostPort {
     /** Remove a file; absent is not an error. */
     delete(path: string): Promise<void>;
   };
+}
+
+export interface ProcessPort {
   proc: {
     run(argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle;
   };
+}
+
+export interface EditorPort {
   diff: {
     preview(path: string, next: string): Promise<void>;
-  };
-  diag: {
-    problems(path?: string): Promise<{ path: string; line: number; message: string; severity: string }[]>;
   };
   editor: {
     /** Active editor selection, or null when nothing is selected. */
     selection(): Promise<{ path: string; text: string; startLine: number; endLine: number } | null>;
   };
+}
+
+export interface ProblemsPort {
+  diag: {
+    problems(path?: string): Promise<{ path: string; line: number; message: string; severity: string }[]>;
+  };
+}
+
+export interface WorkspacePort {
   workspace: {
     roots(): Promise<string[]>;
     stateDir(): Promise<string>;
     trusted(): Promise<boolean>;
   };
+}
+
+export interface LogPort {
   log(line: string): void;
 }
+
+/** Everything a host implements. */
+export type HostPort = SecretsPort & FilesPort & ProcessPort & EditorPort & ProblemsPort & WorkspacePort & LogPort;
 
 export interface Clock {
   now(): number;

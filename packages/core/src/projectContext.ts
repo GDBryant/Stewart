@@ -3,7 +3,7 @@ import type { HostPort } from "@stewart/kernel";
 const CONTEXT_LIMIT = 4000;
 
 /** Bounded `AGENTS.md` + `MEMORY.md` blocks appended to role prompts, in deterministic prefix order. */
-export async function loadProjectContext(host: HostPort): Promise<string> {
+export async function loadProjectContext(host: Pick<HostPort, "files">): Promise<string> {
   let out = "";
   try {
     if (await host.files.exists("AGENTS.md")) {

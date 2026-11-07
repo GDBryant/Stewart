@@ -34,7 +34,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Area | Files | Role |
 |---|---|---|
 | Facade | `core.ts` (~600 lines) | `Core.dispatch` → `handleXxx` per JSON-RPC method; owns per-project ctx, probe cache, config apply, debug |
-| Ports | `@stewart/kernel` `ports.ts` | `HostPort`, `Clock`, `IdGen`, `Fetcher` (injected; deterministic tests) |
+| Ports | `@stewart/kernel` `ports.ts` | `HostPort` (= `SecretsPort & FilesPort & ProcessPort & EditorPort & ProblemsPort & WorkspacePort & LogPort`; leaf code takes `Pick<HostPort, …>`), `Clock`, `IdGen`, `Fetcher` (injected; deterministic tests) |
 | Events | `events.ts` | multi-subscriber `EventBus`, isolated async failures |
 | Config | `config/{schema,loader,files,store}.ts` | YAML + zod schema, shipped < user < project merge by id, `SelfWriteGuard` |
 | Channels | `channels/{registry,openai,ollama,stream,types}.ts`, `channels/claude/*` | `ChannelAdapter` per type; `ManagedChannel` adds `maxParallel`, breaker, stall timeout |

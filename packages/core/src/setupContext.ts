@@ -56,7 +56,7 @@ function countLines(text: string): number {
  * skip dot-dirs and node_modules). Reading is capped by file size and a wall
  * deadline; it never looks at contents beyond line counting.
  */
-export async function scanWorkspace(host: HostPort, now: () => number = () => Date.now()): Promise<WorkspaceInfo> {
+export async function scanWorkspace(host: Pick<HostPort, "files" | "proc">, now: () => number = () => Date.now()): Promise<WorkspaceInfo> {
   const all = await host.files.list(".");
   const files = all.slice(0, SCAN_FILE_CAP);
   const languages: Record<string, number> = {};
@@ -86,7 +86,7 @@ export async function scanWorkspace(host: HostPort, now: () => number = () => Da
   return { files: files.length, loc, languages, monorepo, sizeClass };
 }
 
-async function detectGpus(host: HostPort): Promise<{ name: string; vramGb: number }[] | undefined> {
+async function detectGpus(host: Pick<HostPort, "files" | "proc">): Promise<{ name: string; vramGb: number }[] | undefined> {
   try {
     let out = "";
     const h = host.proc.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], {
@@ -118,7 +118,7 @@ async function detectGpus(host: HostPort): Promise<{ name: string; vramGb: numbe
 }
 
 /** OS/RAM plus best-effort NVIDIA detection. Never fails — detection errors leave fields out. */
-export async function gatherHardware(host: HostPort): Promise<HardwareInfo> {
+export async function gatherHardware(host: Pick<HostPort, "files" | "proc">): Promise<HardwareInfo> {
   const gpus = await detectGpus(host);
   return {
     os: process.platform,
