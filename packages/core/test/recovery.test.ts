@@ -6,7 +6,7 @@ import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
 import { counterIds, systemClock } from "../src/ports.js";
 import { RunManager } from "../src/runManager.js";
-import { LeaseManager } from "../src/orchestration/leases.js";
+import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "../src/orchestration/ledger.js";
 import { IdempotencyLog } from "../src/orchestration/idempotency.js";
 import { actionsSoFar, classifyFault, countToolCalls, detectStuck } from "../src/orchestration/faults.js";

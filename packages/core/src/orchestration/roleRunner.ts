@@ -18,7 +18,7 @@ import { costOfCall, isCosting } from "./ledger.js";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
 import { loadProjectContext } from "../projectContext.js";
 import type { OrchestrationRuntime } from "./types.js";
-import type { TaskSpec } from "./tasks.js";
+import type { TaskSpec } from "@stewart/scheduling";
 
 export interface TaskResult {
   status: "done" | "failed" | "cancelled" | "parked" | "stopped";

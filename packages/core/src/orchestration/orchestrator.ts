@@ -9,7 +9,7 @@ import { RunCancelledError, type LoopResult } from "../tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
 import { LeaseCycleError } from "./writeGuard.js";
-import { TaskGraph, type TaskRecord, type TaskSpec } from "./tasks.js";
+import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import { buildRolePrompt, compactionFor, type TaskResult } from "./roleRunner.js";
 import { isWriteCapableRole } from "../roles.js";
 import { classifyFault } from "./faults.js";

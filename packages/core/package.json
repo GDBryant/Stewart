@@ -16,7 +16,8 @@
     "zod": "3.25.76",
     "@stewart/kernel": "workspace:*",
     "@stewart/toolcall-format": "workspace:*",
-    "@stewart/compaction": "workspace:*"
+    "@stewart/compaction": "workspace:*",
+    "@stewart/scheduling": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

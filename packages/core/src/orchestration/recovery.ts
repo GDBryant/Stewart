@@ -9,7 +9,7 @@ import { ToolRegistry, type Tool, type ToolPreview } from "../tools/types.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { actionsSoFar, countToolCalls, detectStuck, type FaultKind } from "./faults.js";
 import { runRoleTask, type TaskResult } from "./roleRunner.js";
-import type { TaskSpec } from "./tasks.js";
+import type { TaskSpec } from "@stewart/scheduling";
 import type { OrchestrationRuntime } from "./types.js";
 
 /** Per-run recovery limits (from settings) plus live counters. */

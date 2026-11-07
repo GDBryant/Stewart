@@ -6,9 +6,8 @@ import type { ToolPreview } from "../tools/types.js";
 import type { ToolCall } from "@stewart/kernel";
 import type { ApprovalDecision } from "../tools/toolLoop.js";
 import type { RunLedger, CostLimit } from "./ledger.js";
-import type { LeaseManager } from "./leases.js";
+import { LeaseManager, TaskGraph } from "@stewart/scheduling";
 import type { IdempotencyLog } from "./idempotency.js";
-import type { TaskGraph } from "./tasks.js";
 import type { BudgetProfile } from "../limits.js";
 import type { RecoveryState } from "./recovery.js";
 

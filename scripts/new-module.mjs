@@ -18,7 +18,7 @@ w("package.json", JSON.stringify({
     build: "tsc -p tsconfig.json", typecheck: "tsc -p tsconfig.json --noEmit",
     test: "vitest run --passWithNoTests",
   },
-  devDependencies: { typescript: "5.9.3", vitest: "3.2.4" },
+  devDependencies: { "@types/node": "22.19.0", typescript: "5.9.3", vitest: "3.2.4" },
 }, null, 2) + "\n");
 w("tsconfig.json", JSON.stringify({
   extends: "../../tsconfig.base.json",

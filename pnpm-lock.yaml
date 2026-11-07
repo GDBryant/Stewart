@@ -210,7 +210,14 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/scheduling:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -276,6 +283,9 @@ importers:
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@stewart/scheduling':
+        specifier: workspace:*
+        version: link:../../modules/scheduling
       '@stewart/toolcall-format':
         specifier: workspace:*
         version: link:../../modules/toolcall-format
