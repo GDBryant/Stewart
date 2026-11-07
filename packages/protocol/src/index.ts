@@ -33,7 +33,7 @@ export const projectIdSchema = z.string().min(1);
 const base = { runId: z.string(), taskId: z.string().optional(), roleId: z.string().optional() };
 
 export const runEventSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("run.started"), ...base, title: z.string() }),
+  z.object({ kind: z.literal("run.started"), ...base, title: z.string(), profile: z.string().optional() }),
   z.object({ kind: z.literal("run.finished"), ...base, status: z.enum(["done", "failed", "cancelled", "stopped", "no_dispatch"]), error: z.string().optional() }),
   z.object({ kind: z.literal("text_delta"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("reasoning_delta"), ...base, seq: z.number(), text: z.string() }),

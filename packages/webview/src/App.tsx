@@ -18,6 +18,7 @@ export function App({ store }: { store: Store }) {
         </button>
         <span class="spacer" />
         <span class="badge mode">{orchestrated ? "Orchestrated" : "Direct"}</span>
+        {s.runProfile && s.runProfile !== "normal" ? <span class="badge profile">{s.runProfile}</span> : null}
         {s.lastRunId && !s.busyRunId && !s.revertedRuns.includes(s.lastRunId) ? (
           <button class="small deny" onClick={() => store.revert(s.lastRunId)}>
             Revert run changes
@@ -102,7 +103,7 @@ function ChatView({ store }: { store: Store }) {
           </div>
         ))}
         {s.plan ? <PlanCard plan={s.plan} /> : null}
-        {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} /> : null}
+        {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
         {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
@@ -182,6 +183,18 @@ function ChatView({ store }: { store: Store }) {
         <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
           📎
         </button>
+        <select
+          class="profile-select"
+          aria-label="budget profile"
+          title="Budget profile"
+          value={s.profileChoice}
+          onChange={(e) => store.setProfileChoice((e.target as HTMLSelectElement).value as typeof s.profileChoice)}
+        >
+          <option value="auto">auto</option>
+          <option value="quick">quick</option>
+          <option value="normal">normal</option>
+          <option value="deep">deep</option>
+        </select>
         {s.busyRunId ? (
           <button class="stop" onClick={() => store.cancel()}>
             Stop
@@ -240,7 +253,7 @@ export function fmtElapsed(ms: number): string {
   return h ? `${h}:${pad(m % 60)}:${pad(sec % 60)}` : `${m}:${pad(sec % 60)}`;
 }
 
-function ActiveTasks({ tasks }: { tasks: { taskId: string; roleId: string; agentId?: string; title: string; status: string; startedAt?: number }[] }) {
+function ActiveTasks({ tasks, profile }: { tasks: { taskId: string; roleId: string; agentId?: string; title: string; status: string; startedAt?: number }[]; profile?: string }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -248,7 +261,9 @@ function ActiveTasks({ tasks }: { tasks: { taskId: string; roleId: string; agent
   }, []);
   return (
     <div class="card active-tasks">
-      <div class="card-title">Active</div>
+      <div class="card-title">
+        Active{profile ? <span class="badge profile"> {profile}</span> : null}
+      </div>
       {tasks
         .filter((t) => t.status === "running")
         .map((t) => (

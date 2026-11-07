@@ -23,6 +23,8 @@ import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
 import { budgetProfile, type BudgetProfileName } from "./limits.js";
+import { classifyTask } from "./taskSize.js";
+import type { WorkspaceInfo } from "./setupContext.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
@@ -59,6 +61,20 @@ export class Core {
   private probeCache = new Map<string, { caps: Partial<ModelCaps>; probedAt: number }>();
   /** Live price lists fetched once per channel (undefined = unsupported or failed). */
   private priceCache = new Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>();
+  /** Workspace scan cache, 24h TTL — shared by setup.recommend and the task classifier. */
+  private wsScan = new Map<string, { info: WorkspaceInfo; at: number }>();
+
+  private async workspaceInfoFor(ctx: ProjectCtx, projectId: string): Promise<WorkspaceInfo | undefined> {
+    const hit = this.wsScan.get(projectId);
+    if (hit && this.clock.now() - hit.at < 24 * 3_600_000) return hit.info;
+    try {
+      const info = await scanWorkspace(ctx.host);
+      this.wsScan.set(projectId, { info, at: this.clock.now() });
+      return info;
+    } catch {
+      return undefined;
+    }
+  }
   private userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
   private clock: Clock;
@@ -233,14 +249,27 @@ export class Core {
     const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
     const ctx = this.ctx(p.projectId);
     const direct = p.direct || p.text.startsWith("/direct ");
-    const raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
-    const profileName = (["quick", "normal", "deep"] as const).find((n) => n === p.profile);
-    const profile = budgetProfile(ctx.config.settings, profileName);
+    let raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+    let profileName = (["quick", "normal", "deep"] as const).find((n) => n === p.profile);
+    const pre = raw.match(/^\/(quick|deep)\s+/);
+    if (pre) {
+      profileName = pre[1] as BudgetProfileName;
+      raw = raw.slice(pre[0].length);
+    }
     const mention = await expandMentions(ctx.host, raw);
     for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
     const norm = normalizeImages(p.images ?? []);
     if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
     const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
+    if (!profileName) {
+      const ws = await this.workspaceInfoFor(ctx, p.projectId);
+      profileName = classifyTask(mention.text, {
+        workspaceSize: ws?.sizeClass,
+        hasAttachments: norm.images.length > 0,
+        orchestrated: !!orchestrator && !direct,
+      });
+    }
+    const profile = budgetProfile(ctx.config.settings, profileName);
     if (orchestrator && !direct) {
       const run = await ctx.runs.orchestrated(p.projectId, {
         config: ctx.config,
@@ -248,6 +277,7 @@ export class Core {
         text: mention.text,
         sessionId: p.sessionId,
         profile,
+        profileName,
       });
       return { runId: run.id };
     }
@@ -271,6 +301,7 @@ export class Core {
       history,
       {
         profile,
+        name: profileName,
         ceiling: ctx.config.settings.maxWorkerTurnsCeiling,
         maxRunHours: ctx.config.settings.maxRunHours,
       },
@@ -487,7 +518,7 @@ export class Core {
           ? { priorities: ctx.config.settings.setupPriorities }
           : {}),
       ...(p.context?.typicalWork ? { typicalWork: p.context.typicalWork as SetupContext["typicalWork"] } : ctx.config.settings.setupTypicalWork ? { typicalWork: ctx.config.settings.setupTypicalWork } : {}),
-      workspace: await scanWorkspace(ctx.host).catch(() => undefined),
+      workspace: await this.workspaceInfoFor(ctx, p.projectId),
       hardware: await gatherHardware(ctx.host).catch(() => undefined),
     };
     return recommendAssignments(ctx.config, this.managed, {

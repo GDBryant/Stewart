@@ -166,7 +166,7 @@ export class RunManager {
     rolePrompt?: string,
     sessionId?: string,
     history?: ChatMessage[],
-    budget?: { profile: BudgetProfile; ceiling: number; maxRunHours: number },
+    budget?: { profile: BudgetProfile; name?: string; ceiling: number; maxRunHours: number },
   ): Promise<Run> {
     const run: Run = {
       id: this.deps.ids.next("run"),
@@ -180,7 +180,7 @@ export class RunManager {
     };
     this.runs.set(run.id, run);
     const bus = this.deps.bus;
-    bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
+    bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80), ...(budget?.name ? { profile: budget.name } : {}) });
     void this.drive(run, channel, agent, role, rolePrompt, budget).catch((e) => {
       if (run.status === "running") run.status = "failed";
       bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });
@@ -194,7 +194,7 @@ export class RunManager {
    */
   async orchestrated(
     projectId: string,
-    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; runId?: string; sessionId?: string; profile?: BudgetProfile },
+    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; runId?: string; sessionId?: string; profile?: BudgetProfile; profileName?: string },
   ): Promise<Run> {
     const run: Run = {
       id: opts.runId ?? this.deps.ids.next("run"),
@@ -207,7 +207,7 @@ export class RunManager {
       sessionId: opts.sessionId,
     };
     this.runs.set(run.id, run);
-    this.deps.bus.emit({ kind: "run.started", runId: run.id, title: opts.text.slice(0, 80) });
+    this.deps.bus.emit({ kind: "run.started", runId: run.id, title: opts.text.slice(0, 80), ...(opts.profileName ? { profile: opts.profileName } : {}) });
     void this.driveOrchestrated(run, opts).catch((e) => {
       if (run.status === "running") run.status = "failed";
       this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });

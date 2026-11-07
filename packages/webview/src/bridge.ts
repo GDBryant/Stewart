@@ -1,7 +1,7 @@
 /** Host messaging seam. VS Code injects acquireVsCodeApi; JCEF injects
  * window.stewartHost { post(string) }; tests pass a MockBridge. */
 export type Outbound =
-  | { type: "chat.send"; text: string; images?: string[]; direct?: boolean; sessionId?: string }
+  | { type: "chat.send"; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: "quick" | "normal" | "deep" }
   | { type: "chat.cancel"; runId: string }
   | { type: "chat.resume"; runId: string }
   | { type: "chat.revert"; runId: string }

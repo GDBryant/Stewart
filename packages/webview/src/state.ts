@@ -91,6 +91,10 @@ export interface State {
   composerInsert?: { text: string; seq: number };
   /** Last {type:"error"} message; shown in Settings since it may carry no chat context. */
   lastError?: string;
+  /** User profile override for the next run; "auto" = server-side classifier. */
+  profileChoice: "auto" | "quick" | "normal" | "deep";
+  /** Profile the current/last run used, from run.started. */
+  runProfile?: string;
   recommendBusy?: boolean;
   recommendation?: {
     assignments: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
@@ -117,6 +121,7 @@ export class Store {
     sessions: [],
     historyOpen: false,
     pendingImages: [],
+    profileChoice: "auto",
   };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
@@ -157,7 +162,12 @@ export class Store {
       text,
       images: images.length ? images : undefined,
       sessionId,
+      ...(this.state.profileChoice !== "auto" ? { profile: this.state.profileChoice } : {}),
     });
+  }
+
+  setProfileChoice(profileChoice: State["profileChoice"]): void {
+    this.patch({ profileChoice });
   }
   rejectAttachment(reason: string): void {
     this.patch({ attachError: reason });
@@ -370,7 +380,7 @@ export class Store {
   private onEvent(ev: RunEvent): void {
     switch (ev.kind) {
       case "run.started":
-        return this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined });
+        return this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined, runProfile: ev.profile });
       case "task.created":
       case "task.started":
       case "task.blocked":
