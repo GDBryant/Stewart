@@ -1,0 +1,29 @@
+{
+  "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN §7). First match wins; unmapped = app.",
+  "map": [
+    ["events.ts", "kernel"], ["ports.ts", "kernel"],
+    ["config/", "config"], ["v1import.ts", "config"],
+    ["catalog.ts", "catalog"],
+    ["tools/shimParser.ts", "toolcall-format"], ["tools/streamFilter.ts", "toolcall-format"], ["tools/shimPrompt.ts", "toolcall-format"],
+    ["debug/", "diagnostics"],
+    ["modelProfile.ts", "models"],
+    ["channels/", "channels"],
+    ["limits.ts", "budget"], ["taskSize.ts", "budget"],
+    ["orchestration/ledger.ts", "ledger"], ["orchestration/replacements.ts", "ledger"],
+    ["tools/approvals.ts", "permissions"],
+    ["roles.ts", "roles-skills"], ["skills/", "roles-skills"], ["defaults/", "roles-skills"],
+    ["orchestration/tasks.ts", "scheduling"], ["orchestration/leases.ts", "scheduling"],
+    ["orchestration/writeGuard.ts", "run-state"], ["orchestration/idempotency.ts", "run-state"], ["history.ts", "run-state"],
+    ["tools/builtins.ts", "tools"], ["tools/types.ts", "tools"], ["tools/projectPaths.ts", "tools"],
+    ["tools/compaction.ts", "compaction"],
+    ["images.ts", "context"], ["mentions.ts", "context"], ["projectContext.ts", "context"],
+    ["tools/toolLoop.ts", "agent-loop"], ["agentSession.ts", "agent-loop"], ["orchestration/faults.ts", "agent-loop"],
+    ["orchestration/recovery.ts", "recovery"],
+    ["orchestration/orchestrator.ts", "orchestration"], ["orchestration/roleRunner.ts", "orchestration"],
+    ["orchestration/tools.ts", "orchestration"], ["orchestration/types.ts", "orchestration"],
+    ["assign.ts", "setup"], ["recommend.ts", "setup"], ["bench.ts", "setup"], ["setupContext.ts", "setup"],
+    ["runManager.ts", "runs"]
+  ],
+  "appLayer": 8,
+  "maxLines": 300
+}

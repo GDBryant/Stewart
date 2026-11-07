@@ -257,7 +257,7 @@ Direct, orchestrated and resume are three `RunStrategy` objects (`plan(req) → 
 
 Order (each step ships green, behavior-preserving, with tests; strangler style):
 0. (Done) Scaffold the workspace (§9; `scripts/new-module.mjs` creates a package): `modules/*` glob, shared `tsconfig.base.json`, `check-layers.mjs`, one empty package per module with its `api.ts`.
-1. Add boundary lint in warn mode, record current violations as the baseline.
+1. (Done) Boundary lint in warn mode: `pnpm check:boundaries` (`scripts/boundaries.json` maps today's files to modules; known violations in `boundaries.baseline.json`, only new ones fail; `--update` ratchets).
 2. Extract pure leaves first (each becomes its own package): `toolcall-format`, `compaction`, `scheduling`, `budget`, `models`, `catalog`. Zero behavior risk.
 3. Extract `permissions` and `ledger` (stateful but self-contained).
 4. Split `HostPort` into narrow ports; change callers to `Pick<>`.

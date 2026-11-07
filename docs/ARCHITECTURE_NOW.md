@@ -13,7 +13,7 @@ packages/
   sidecar/     Node stdio JSON-RPC server for JetBrains (rpc.ts, server.ts, host.ts reverse-RPC → HostPort, debugSink.ts)
   webview/     Preact chat + settings + setup wizard, one bundle for both hosts (state.ts store, bridge.ts)
   conformance/ golden v1 fixtures replayed through parsers
-modules/       22 empty `@stewart/<module>` packages (src/api.ts only; MODULAR_DESIGN §9). Code migrates in from core per §7; `pnpm check:layers` enforces layer table `scripts/layers.json`; `scripts/new-module.mjs` adds one
+modules/       22 empty `@stewart/<module>` packages (src/api.ts only; MODULAR_DESIGN §9). Code migrates in from core per §7; `pnpm check:layers` enforces layer table `scripts/layers.json`; `scripts/new-module.mjs` adds one; `pnpm check:boundaries` ratchets cross-layer imports/oversize files still inside core (baseline `scripts/boundaries.baseline.json`)
 hosts/
   vscode/      in-process core; host.ts implements HostPort via vscode API
   jetbrains/   Kotlin: SidecarSupervisor (bundled Node, restart/backoff), HostRequestHandler, JCEF WebviewRouter
