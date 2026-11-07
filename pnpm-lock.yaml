@@ -43,6 +43,204 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  modules/agent-loop:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/budget:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/catalog:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/channels:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/compaction:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/config:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/context:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/diagnostics:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/interaction:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/kernel:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/ledger:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/models:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/orchestration:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/permissions:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/recovery:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/roles-skills:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/run-state:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/runs:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/scheduling:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/setup:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/toolcall-format:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/tools:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   packages/conformance:
     dependencies:
       '@stewart/core':

@@ -6,7 +6,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "test:scripts": "node --test scripts/*.test.mjs"
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "check:layers": "node scripts/check-layers.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"
