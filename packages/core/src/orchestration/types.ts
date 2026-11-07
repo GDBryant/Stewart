@@ -9,6 +9,7 @@ import type { RunLedger, CostLimit } from "./ledger.js";
 import type { LeaseManager } from "./leases.js";
 import type { IdempotencyLog } from "./idempotency.js";
 import type { TaskGraph } from "./tasks.js";
+import type { BudgetProfile } from "../limits.js";
 
 /** Everything a task runner needs from the owning run. */
 export interface OrchestrationRuntime {
@@ -32,6 +33,10 @@ export interface OrchestrationRuntime {
   maxNestedDispatches: number;
   maxReplans: number;
   maxRunHours: number;
+  /** settings.maxWorkerTurnsCeiling; absent = 60. */
+  maxWorkerTurnsCeiling?: number;
+  /** Resolved budget profile for this run (quick/normal/deep multipliers + cap); absent = normal. */
+  budgetProfile?: BudgetProfile;
   planGate: boolean;
   roleAgentOverrides?: Map<string, string>;
   onGraphChange?(graph: TaskGraph): Promise<void> | void;

@@ -2,10 +2,11 @@ import type { RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
-import { agentServesRole, roleRegistry, roleTurnBudget } from "../roles.js";
+import { agentServesRole, roleRegistry } from "../roles.js";
+import { DEFAULT_BUDGET_PROFILES, resolveLimits } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
-import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
+import { RunCancelledError, ToolLoop, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
@@ -96,7 +97,14 @@ export async function runRoleTask(
 
   const prompt = await buildRolePrompt(rt, role);
   const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-  const limits = { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(role) };
+  const limits = resolveLimits({
+    role,
+    agent,
+    profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal,
+    ceiling: rt.maxWorkerTurnsCeiling ?? 60,
+    perf: channel.cfg.modelCaps?.[agent.model]?.perf,
+    channelType: channel.cfg.type,
+  });
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
   const filesTouched: string[] = [];
   let terminalCallId: string | undefined;

@@ -22,6 +22,7 @@ import { recommendAssignments } from "./recommend.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
+import { budgetProfile, type BudgetProfileName } from "./limits.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
@@ -229,10 +230,12 @@ export class Core {
   }
 
   private async handleChatSend(params: unknown): Promise<unknown> {
-    const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string };
+    const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
     const ctx = this.ctx(p.projectId);
     const direct = p.direct || p.text.startsWith("/direct ");
     const raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+    const profileName = (["quick", "normal", "deep"] as const).find((n) => n === p.profile);
+    const profile = budgetProfile(ctx.config.settings, profileName);
     const mention = await expandMentions(ctx.host, raw);
     for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
     const norm = normalizeImages(p.images ?? []);
@@ -244,6 +247,7 @@ export class Core {
         channelFor: (id) => this.channelById(id),
         text: mention.text,
         sessionId: p.sessionId,
+        profile,
       });
       return { runId: run.id };
     }
@@ -265,6 +269,11 @@ export class Core {
       prompt || undefined,
       p.sessionId,
       history,
+      {
+        profile,
+        ceiling: ctx.config.settings.maxWorkerTurnsCeiling,
+        maxRunHours: ctx.config.settings.maxRunHours,
+      },
     );
     return { runId: run.id };
   }

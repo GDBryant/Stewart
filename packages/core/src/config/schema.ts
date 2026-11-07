@@ -45,6 +45,7 @@ export const agentSchema = z.object({
   billing: z.enum(["free", "reported", "priced", "unmetered"]).optional(),
   price: z.object({ inPerMTok: z.number(), outPerMTok: z.number() }).optional(),
   costs: z.boolean().optional(), // known cost flag shown on assigned roles; default derived (claude-cli, reported/priced billing)
+  budget: z.object({ turnFactor: z.number().positive().optional(), timeoutFactor: z.number().positive().optional() }).optional(),
 });
 export type AgentDef = z.infer<typeof agentSchema>;
 
@@ -69,6 +70,35 @@ export const settingsSchema = z.object({
     })
     .default({}),
   maxRunHours: z.number().min(0).default(0),
+  maxWorkerTurnsCeiling: z.number().int().min(1).default(60),
+  budgets: z
+    .object({
+      quick: z
+        .object({
+          turnMultiplier: z.number().positive().default(0.4),
+          timeoutMultiplier: z.number().positive().default(0.5),
+          allowSplit: z.boolean().default(false),
+          maxRunMinutes: z.number().min(0).default(10),
+        })
+        .default({}),
+      normal: z
+        .object({
+          turnMultiplier: z.number().positive().default(1),
+          timeoutMultiplier: z.number().positive().default(1),
+          allowSplit: z.boolean().default(true),
+          maxRunMinutes: z.number().min(0).default(60),
+        })
+        .default({}),
+      deep: z
+        .object({
+          turnMultiplier: z.number().positive().default(2),
+          timeoutMultiplier: z.number().positive().default(3),
+          allowSplit: z.boolean().default(true),
+          maxRunMinutes: z.number().min(0).default(0),
+        })
+        .default({}),
+    })
+    .default({}),
   planGate: z.boolean().default(false),
   leaseWaitSeconds: z.number().min(1).default(300),
   maxNestedDispatches: z.number().int().min(0).default(3),

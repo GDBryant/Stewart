@@ -2,7 +2,7 @@ import type { AgentDef, RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import type { ManagedChannel } from "../channels/registry.js";
-import { roleTurnBudget } from "../roles.js";
+import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, resolveLimits } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type LoopListener, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
@@ -107,7 +107,10 @@ class OrchestratedRun {
     const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
     const prompt = await buildRolePrompt(rt, this.orchestrator);
     const mode: ToolsMode = (this.channel.cfg.modelCaps?.[this.agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-    const limits = { ...DEFAULT_LIMITS, maxModelTurns: roleTurnBudget(this.orchestrator), maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT };
+    const limits = {
+      ...resolveLimits({ role: this.orchestrator, agent: this.agent, profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60, perf: this.channel.cfg.modelCaps?.[this.agent.model]?.perf, channelType: this.channel.cfg.type }),
+      maxToolOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT,
+    };
     const loop = new ToolLoop(
       this.channel,
       registry,
@@ -256,8 +259,9 @@ class OrchestratedRun {
       rt.bus.emit({ kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: r.summary });
       return Promise.resolve(r);
     }
-    if (rt.maxRunHours > 0 && rt.clock.now() - rt.startedAt > rt.maxRunHours * 3_600_000) {
-      return Promise.resolve({ status: "stopped", summary: `run hour limit reached (${rt.maxRunHours}h)`, filesTouched: [] } as TaskResult);
+    const capMs = effectiveRunCapMs(rt.maxRunHours, rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal);
+    if (capMs > 0 && rt.clock.now() - rt.startedAt > capMs) {
+      return Promise.resolve({ status: "stopped", summary: `run time limit reached (${Math.round(capMs / 60_000)}min)`, filesTouched: [] } as TaskResult);
     }
     const rec = this.graph.add({ ...spec, roleId: role.id });
     rt.leases.register(rec.id);

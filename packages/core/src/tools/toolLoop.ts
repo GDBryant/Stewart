@@ -32,6 +32,8 @@ export interface IdempotencyHooks {
 export interface LoopLimits {
   maxModelTurns: number;
   toolTimeoutMs: number;
+  /** Per model call wall clock cap; 0/undefined = no cap (channels still stall-time-out per chunk). */
+  modelCallTimeoutMs?: number;
   maxToolOutputChars: number;
   maxContextChars: number;
   maxTruncationRetries: number;
@@ -230,12 +232,22 @@ export class ToolLoop {
       usage: undefined,
       costUsd: undefined,
     };
+    const callTimeoutMs = this.limits.modelCallTimeoutMs ?? 0;
+    const callCtl = callTimeoutMs > 0 ? new AbortController() : undefined;
+    const onAbort = callCtl ? () => callCtl.abort() : undefined;
+    const callTimer = callCtl
+      ? setTimeout(() => callCtl.abort(), callTimeoutMs)
+      : undefined;
+    if (callCtl && onAbort) {
+      if (signal.aborted) callCtl.abort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
     try {
       for await (const ev of this.channel.chat({
         model,
         messages: outbound,
         tools: this.toolsMode === "native" ? this.registry.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })) : undefined,
-        signal,
+        signal: callCtl?.signal ?? signal,
       })) {
         if (s.sawDone) s.postDone = true;
         else if (ev.kind === "text") {
@@ -254,7 +266,16 @@ export class ToolLoop {
       }
     } catch (e) {
       if (signal.aborted) throw e;
-      s.failed = e instanceof Error ? e : new Error(String(e));
+      if (callCtl?.signal.aborted) {
+        const err = new Error(`model call timed out after ${callTimeoutMs}ms`);
+        (err as { code?: string }).code = "call_timeout";
+        s.failed = err;
+      } else {
+        s.failed = e instanceof Error ? e : new Error(String(e));
+      }
+    } finally {
+      if (callTimer) clearTimeout(callTimer);
+      if (callCtl && onAbort) signal.removeEventListener("abort", onAbort);
     }
     return s;
   }
