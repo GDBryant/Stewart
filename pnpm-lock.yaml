@@ -231,6 +231,13 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/interaction:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -458,6 +465,9 @@ importers:
       '@stewart/context':
         specifier: workspace:*
         version: link:../context
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../kernel

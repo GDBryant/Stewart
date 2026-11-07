@@ -264,9 +264,9 @@ Order (each step ships green, behavior-preserving, with tests; strangler style):
 4. (Done) Split `HostPort` into narrow ports (`FilesPort`, `WorkspacePort`, `ProcessPort`, `EditorPort`, `ProblemsPort`, `SecretsPort`, `LogPort`; `HostPort` = their intersection, hosts unchanged); leaf callers take `Pick<HostPort, …>`.
 5. (Done, in dependency order: `diagnostics`, `context`, `config`, `channels`, `roles-skills`, `tools`, `run-state`, then `agent-loop`; `ToolLoop` is still 360 lines, to split.) Extract `agent-loop` surface (`AgentSession`), then `run-state`.
 6. (Done) Extract `orchestration` and `recovery`, injecting `Recovery` (`rt.recoveryService` = `createRecovery(runRoleTask)`; `OrchestrationRuntime`/`RecoveryState` in `agent-loop` `runtime.ts`).
-7. (Done) `RunManager` → `RunService` in `runs` with `direct`/`orchestrated`/`resume` strategy objects + `parseChatCommand`; `events.ts` → `kernel`; `setup` files → `setup` module; `core.ts` = router over `handlers/*`.
+7. (Done) `RunManager` → `RunService` in `runs` with `direct`/`orchestrated`/`resume` strategy objects + `parseChatCommand`; `events.ts` → `kernel`; `setup` files → `setup` module; `core.ts` = router over `handlers/*`; `interaction` extracted (`Interaction`: approval/ask/askTimed cards + resolve; `RunService` delegates; prompts reach modules via `rt.ask`/`rt.askTimed`/`rt.approve` rather than a direct `interaction` import — the FIFO queue / `Prompt<A>` generic from §4 is not built).
 Done so far outside the listed steps (needed for the dependency order): `diagnostics`, `context`, `config` (`roles-skills/effective.ts` adds skills + role validation to the merged config; `v1import.ts` stays in core because it needs `catalog`, same layer as `config`).
-8. Flip boundary lint to error; ratchet file/function limits down.
+8. (Deferred) Flip boundary lint to error; ratchet file/function limits down. Decision: use the full eslint rule set from §6 (`max-lines`, `max-lines-per-function`, `complexity`, `max-depth`, `max-params`) across all packages rather than a custom script; extend the size scan to `modules/*`. Not started.
 
 Done when: no cycles, no deep cross-module imports, every file within §1 limits, `Core` is a table of one-line handlers, and each module's tests run without constructing any other module above or beside it.
 

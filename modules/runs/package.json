@@ -33,6 +33,7 @@
     "@stewart/run-state": "workspace:*",
     "@stewart/orchestration": "workspace:*",
     "@stewart/recovery": "workspace:*",
-    "@stewart/context": "workspace:*"
+    "@stewart/context": "workspace:*",
+    "@stewart/interaction": "workspace:*"
   }
 }

@@ -11,6 +11,7 @@ import type { TaskRecord } from "@stewart/scheduling";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
 import { createRecovery } from "@stewart/recovery";
+import { Interaction } from "@stewart/interaction";
 import type { RunEvent } from "@stewart/protocol";
 import { directStrategy } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
@@ -43,9 +44,9 @@ export interface RunDeps {
 /** Owns runs for one project; direct, orchestrated and resume are RunStrategy objects on one shared pipeline. */
 export class RunService {
   private runs = new Map<string, Run>();
-  private approvals = new Map<string, (d: GrantDecision) => void>();
-  private answers = new Map<string, (a: string) => void>();
   private sessionGrants = new Grants();
+  /** The one prompt owner (approval + ask_user cards). */
+  readonly interaction: Interaction;
   private ledger?: RunLedger;
   private history?: ChatHistoryStore;
   /** Updated from settings on config (re)load. */
@@ -53,7 +54,9 @@ export class RunService {
 
   readonly recoveryService = createRecovery(runRoleTask);
 
-  constructor(readonly deps: RunDeps) {}
+  constructor(readonly deps: RunDeps) {
+    this.interaction = new Interaction({ ids: deps.ids, clock: deps.clock, bus: deps.bus });
+  }
 
   get(id: string): Run | undefined {
     return this.runs.get(id);
@@ -73,82 +76,34 @@ export class RunService {
   }
 
   approve(approvalId: string, decision: GrantDecision): boolean {
-    const resolve = this.approvals.get(approvalId);
-    if (!resolve) return false;
-    this.approvals.delete(approvalId);
-    resolve(decision);
-    return true;
+    return this.interaction.resolveApproval(approvalId, decision);
   }
 
   answer(questionId: string, answer: string): boolean {
-    const resolve = this.answers.get(questionId);
-    if (!resolve) return false;
-    this.answers.delete(questionId);
-    resolve(answer);
-    return true;
+    return this.interaction.resolveAnswer(questionId, answer);
   }
 
-  /** Approval gate shared by direct and orchestrated runs. */
+  /** Approval gate shared by direct and orchestrated runs: grants first, then an approval card. */
   gate(runId: string, runGrants: Grants) {
-    const bus = this.deps.bus;
     return async (call: ToolCall, preview: ToolPreview | null): Promise<ApprovalDecision> => {
       const cat = categoryOf(preview) ?? "OTHER";
       if (runGrants.isGranted(cat, preview) || this.sessionGrants.isGranted(cat, preview)) return { kind: "approved" };
-      const approvalId = this.deps.ids.next("appr");
-      return new Promise<ApprovalDecision>((resolve) => {
-        this.approvals.set(approvalId, (d) => {
-          if (d === "deny") resolve({ kind: "rejected", reason: "denied by user" });
-          else {
-            if (d === "chat") runGrants.record("chat", cat, preview);
-            if (d === "always") this.sessionGrants.record("always", cat, preview);
-            resolve({ kind: "approved" });
-          }
-        });
-        bus.emit({ kind: "approval.request", runId, approvalId, tool: call.name, args: call.arguments, category: cat });
-      });
+      const d = await this.interaction.approval(runId, call.name, call.arguments, cat);
+      if (d === "deny") return { kind: "rejected", reason: "denied by user" };
+      if (d === "chat") runGrants.record("chat", cat, preview);
+      if (d === "always") this.sessionGrants.record("always", cat, preview);
+      return { kind: "approved" };
     };
   }
 
   /** Ask the user (also used by the cost-limit card). */
   askUser(runId: string, roleId?: string): (question: string, options?: string[]) => Promise<string> {
-    const bus = this.deps.bus;
-    return (question, options) => {
-      const questionId = this.deps.ids.next("q");
-      return new Promise<string>((resolve) => {
-        this.answers.set(questionId, resolve);
-        bus.emit({ kind: "ask_user", runId, questionId, question, options, roleId });
-      });
-    };
+    return (question, options) => this.interaction.ask(runId, question, options, roleId);
   }
 
   /** askUser with a timeout and run-cancel escape; resolves undefined and withdraws the card. */
   askTimed(runId: string, signal: AbortSignal, roleId?: string): (question: string, options: string[] | undefined, timeoutMs: number) => Promise<string | undefined> {
-    const bus = this.deps.bus;
-    return (question, options, timeoutMs) => {
-      if (signal.aborted) return Promise.resolve(undefined);
-      const questionId = this.deps.ids.next("q");
-      return new Promise<string | undefined>((resolve) => {
-        let settled = false;
-        const settle = (v: string | undefined) => {
-          if (settled) return;
-          settled = true;
-          this.answers.delete(questionId);
-          timer?.cancel();
-          signal.removeEventListener("abort", onAbort);
-          resolve(v);
-        };
-        const withdraw = () => {
-          if (settled) return;
-          bus.emit({ kind: "question.withdrawn", runId, questionId, roleId });
-          settle(undefined);
-        };
-        const onAbort = () => withdraw();
-        const timer = timeoutMs > 0 ? this.deps.clock.setTimeout(withdraw, timeoutMs) : undefined;
-        this.answers.set(questionId, (a) => settle(a));
-        signal.addEventListener("abort", onAbort, { once: true });
-        bus.emit({ kind: "ask_user", runId, questionId, question, options, roleId });
-      });
-    };
+    return (question, options, timeoutMs) => this.interaction.askTimed(runId, question, options, timeoutMs, signal, roleId);
   }
 
   async ledgerFor(): Promise<RunLedger> {

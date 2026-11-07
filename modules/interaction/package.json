@@ -18,5 +18,9 @@
     "@types/node": "22.19.0",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@stewart/kernel": "workspace:*",
+    "@stewart/protocol": "workspace:*"
   }
 }
