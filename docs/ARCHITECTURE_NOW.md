@@ -37,7 +37,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Events | `events.ts` | multi-subscriber `EventBus`, isolated async failures |
 | Config | `config/{schema,loader,files,store}.ts` | YAML + zod schema, shipped < user < project merge by id, `SelfWriteGuard` |
 | Channels | `channels/{registry,openai,ollama,stream,types}.ts`, `channels/claude/*` | `ChannelAdapter` per type; `ManagedChannel` adds `maxParallel`, breaker, stall timeout |
-| Tools | `tools/{toolLoop,builtins,shimParser,shimPrompt,approvals,projectPaths,types}.ts` | `ToolLoop` stages (stream → parse → execute), execution contract, shim, grants |
+| Tools | `tools/{toolLoop,compaction,builtins,shimParser,shimPrompt,approvals,projectPaths,types}.ts` | `ToolLoop` stages (stream → parse → execute), execution contract, shim, grants; `compaction.ts` = emergency context compaction (clip to note, else `context_limit`) |
 | Roles/skills | `roles.ts`, `skills/skills.ts`, `defaults/*` | role tool filter + `writePaths`, `roleTurnBudget`, copy-on-write skills, prompt composition |
 | Runs | `runManager.ts` | run lifecycle, approvals/answers, ledger, history, journal, revert, resume |
 | Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `recovery`/`faults` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch), `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |

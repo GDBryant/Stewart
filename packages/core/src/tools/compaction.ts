@@ -1,0 +1,43 @@
+import type { ChatMessage } from "../channels/types.js";
+
+export function measureMessages(msgs: ChatMessage[]): number {
+  return msgs.reduce(
+    (n, m) =>
+      n +
+      ("content" in m ? m.content.length : 0) +
+      ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
+    0,
+  );
+}
+
+/**
+ * Emergency compaction of `produced` (mutated in place) when `base + produced` exceeds `maxChars`:
+ * keeps the last 2 messages, replaces the rest with a clipped snippet note.
+ * Returns true when still over the limit afterwards.
+ */
+export function compactIfOver(
+  base: ChatMessage[],
+  produced: ChatMessage[],
+  maxChars: number,
+  hooks: { onCompacted?(beforeTokens: number, afterTokens: number): void; onCompactionFailed?(message: string): void },
+): boolean {
+  let size = measureMessages([...base, ...produced]);
+  if (size > maxChars && produced.length > 2) {
+    const beforeTokens = Math.ceil(size / 4);
+    const kept = produced.slice(-2);
+    const summary = produced
+      .slice(0, -2)
+      .filter((m) => m.role === "tool" || m.role === "assistant")
+      .map((m) => `${m.role}: ${m.content.slice(0, 120)}`)
+      .join(" | ")
+      .slice(0, Math.max(64, Math.floor(maxChars / 4)));
+    produced.splice(0, produced.length, { role: "user", content: `[compacted: ${summary}]` }, ...kept);
+    size = measureMessages([...base, ...produced]);
+    if (size <= maxChars) hooks.onCompacted?.(beforeTokens, Math.ceil(size / 4));
+  }
+  if (size > maxChars) {
+    hooks.onCompactionFailed?.("context size limit exceeded");
+    return true;
+  }
+  return false;
+}

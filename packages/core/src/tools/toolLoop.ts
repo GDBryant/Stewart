@@ -3,6 +3,7 @@ import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
 import { buildToolsBlock } from "./shimPrompt.js";
+import { compactIfOver } from "./compaction.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
   type ToolOutcome, type ToolPreview,
@@ -87,16 +88,6 @@ function rejected(): ApprovalDecision {
   return { kind: "rejected", reason: "denied" };
 }
 
-function measureMessages(msgs: ChatMessage[]): number {
-  return msgs.reduce(
-    (n, m) =>
-      n +
-      ("content" in m ? m.content.length : 0) +
-      ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
-    0,
-  );
-}
-
 export class ToolLoop {
   constructor(
     private channel: ManagedChannel,
@@ -132,8 +123,9 @@ export class ToolLoop {
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        const overflow = this.compactIfNeeded(base, produced, listener);
-        if (overflow) return overflow;
+        if (compactIfOver(base, produced, this.limits.maxContextChars, listener)) {
+          return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
+        }
         turns++;
         turn.text = "";
         turn.open = true;
@@ -183,31 +175,6 @@ export class ToolLoop {
       if (signal.aborted) throw new RunCancelledError(base, produced, e);
       throw e;
     }
-  }
-
-  /** Compacts produced messages when over the context limit; returns the failure result when still over. */
-  private compactIfNeeded(base: ChatMessage[], produced: ChatMessage[], listener: LoopListener): LoopResult | null {
-    let size = measureMessages([...base, ...produced]);
-    if (size > this.limits.maxContextChars && produced.length > 2) {
-      const beforeTokens = Math.ceil(size / 4);
-      const kept = produced.slice(-2);
-      const summary = produced
-        .slice(0, -2)
-        .filter((m) => m.role === "tool" || m.role === "assistant")
-        .map((m) => `${m.role}: ${m.content.slice(0, 120)}`)
-        .join(" | ")
-        .slice(0, Math.max(64, Math.floor(this.limits.maxContextChars / 4)));
-      produced.splice(0, produced.length, { role: "user", content: `[compacted: ${summary}]` }, ...kept);
-      size = measureMessages([...base, ...produced]);
-      if (size <= this.limits.maxContextChars) {
-        listener.onCompacted?.(beforeTokens, Math.ceil(size / 4));
-      }
-    }
-    if (size > this.limits.maxContextChars) {
-      listener.onCompactionFailed?.("context size limit exceeded");
-      return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
-    }
-    return null;
   }
 
   private outbound(base: ChatMessage[], produced: ChatMessage[]): ChatMessage[] {
