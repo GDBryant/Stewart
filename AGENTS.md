@@ -16,7 +16,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 ## References
 - Architecture now: `docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
-- Architecture refactoring: `docs/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder, R2 one run pipeline (direct = single-task run); steps, tests, done-when (proposed).
+- Architecture refactoring: `docs/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder, R2 one run pipeline (direct = single-task run), R3 integrated context compaction; steps, tests, done-when (proposed).
 - Plan: `docs/archived_v1/PLAN.md` — architecture, agent levels, milestones, assumptions, open questions.
 - Progress: `docs/PROGRESS.md` — milestone status table; update on every milestone commit.
 - Compatibility: `docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
