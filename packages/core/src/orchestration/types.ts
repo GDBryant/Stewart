@@ -48,3 +48,6 @@ export interface OrchestrationRuntime {
   askTimed?(question: string, options: string[] | undefined, timeoutMs: number): Promise<string | undefined>;
   approve(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
 }
+
+/** Alias: the per-run runtime handed to task runners. */
+export type RunRuntime = OrchestrationRuntime;

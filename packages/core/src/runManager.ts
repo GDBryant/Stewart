@@ -19,7 +19,7 @@ import { TaskGraph, type TaskRecord } from "./orchestration/tasks.js";
 import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
 import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
-import type { OrchestrationRuntime } from "./orchestration/types.js";
+import type { RunRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
 import { loadProjectContext } from "./projectContext.js";
 
@@ -343,38 +343,15 @@ export class RunManager {
     this.deps.bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
     void (async () => {
       try {
-        const s = opts.config.settings;
-        const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, ledger.cost(run.id).costUsd);
-        const grants = new Grants();
-        const rt: OrchestrationRuntime = {
-          runId: run.id,
-          projectId: run.projectId,
-          host: this.deps.host,
-          clock: this.deps.clock,
-          ids: this.deps.ids,
-          bus: this.deps.bus,
+        const rt = this.buildRuntime(run, {
           config: opts.config,
-          stateDir,
           channelFor: opts.channelFor,
           ledger,
-          leases: new LeaseManager(),
+          stateDir,
           idem,
-          cost,
-          signal: run.controller.signal,
-          startedAt: run.startedAt,
-          leaseWaitMs: s.leaseWaitSeconds * 1000,
-          skillBudgetTokens: s.skillBudgetTokens,
-          maxNestedDispatches: s.maxNestedDispatches,
-          maxReplans: s.maxReplans,
-          maxRunHours: s.maxRunHours,
-          maxWorkerTurnsCeiling: s.maxWorkerTurnsCeiling,
-          budgetProfile: DEFAULT_BUDGET_PROFILES.normal,
-          planGate: s.planGate,
-          recovery: recoveryState(s),
           ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
-          askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
-          approve: (call, preview) => this.gate(run.id, grants)(call, preview),
-        };
+        });
+        const cost = rt.cost;
         for (const t of interrupted) {
           const role = resolveRole(rt, t.roleId);
           if (!role) {
@@ -414,19 +391,24 @@ export class RunManager {
     return { ok: true, run };
   }
 
-  private async driveOrchestrated(
+  /** Single construction point for the per-run orchestration runtime (resume and fresh runs). */
+  private buildRuntime(
     run: Run,
-    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; profile?: BudgetProfile },
-  ): Promise<void> {
-    const ledger = await this.ledgerFor();
-    const stateDir = await this.deps.host.workspace.stateDir();
-    await this.journal(run, stateDir);
-    const idem = new IdempotencyLog(this.deps.host, `${stateDir}/scratch/${run.id}/executed.jsonl`, run.id);
-    await idem.load();
+    opts: {
+      config: Config;
+      channelFor(channelId: string): ManagedChannel;
+      ledger: RunLedger;
+      stateDir: string;
+      idem: IdempotencyLog;
+      profile?: BudgetProfile;
+      ask?: (question: string, options?: string[]) => Promise<string>;
+      onGraphChange?: RunRuntime["onGraphChange"];
+    },
+  ): RunRuntime {
     const s = opts.config.settings;
-    const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, ledger.cost(run.id).costUsd);
+    const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, opts.ledger.cost(run.id).costUsd);
     const grants = new Grants();
-    const rt: OrchestrationRuntime = {
+    return {
       runId: run.id,
       projectId: run.projectId,
       host: this.deps.host,
@@ -434,11 +416,11 @@ export class RunManager {
       ids: this.deps.ids,
       bus: this.deps.bus,
       config: opts.config,
-      stateDir,
+      stateDir: opts.stateDir,
       channelFor: opts.channelFor,
-      ledger,
+      ledger: opts.ledger,
       leases: new LeaseManager(),
-      idem,
+      idem: opts.idem,
       cost,
       signal: run.controller.signal,
       startedAt: run.startedAt,
@@ -450,15 +432,37 @@ export class RunManager {
       maxWorkerTurnsCeiling: s.maxWorkerTurnsCeiling,
       budgetProfile: opts.profile ?? DEFAULT_BUDGET_PROFILES.normal,
       planGate: s.planGate,
+      onGraphChange: opts.onGraphChange,
+      recovery: recoveryState(s),
+      ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
+      askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
+      approve: (call, preview) => this.gate(run.id, grants)(call, preview),
+    };
+  }
+
+  private async driveOrchestrated(
+    run: Run,
+    opts: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; profile?: BudgetProfile },
+  ): Promise<void> {
+    const ledger = await this.ledgerFor();
+    const stateDir = await this.deps.host.workspace.stateDir();
+    await this.journal(run, stateDir);
+    const idem = new IdempotencyLog(this.deps.host, `${stateDir}/scratch/${run.id}/executed.jsonl`, run.id);
+    await idem.load();
+    const rt = this.buildRuntime(run, {
+      config: opts.config,
+      channelFor: opts.channelFor,
+      ledger,
+      stateDir,
+      idem,
+      profile: opts.profile,
       onGraphChange: async (g) => {
         run.tasks = g.toJSON();
         await this.journal(run, stateDir);
       },
-      recovery: recoveryState(s),
       ask: this.askUser(run.id, "orchestrator"),
-      askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
-      approve: (call, preview) => this.gate(run.id, grants)(call, preview),
-    };
+    });
+    const cost = rt.cost;
     const outcome = await runOrchestrated(rt, opts.text);
     run.costUsd = cost.accrued;
     if (run.status === "cancelled") {
