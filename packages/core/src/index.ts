@@ -15,6 +15,7 @@ export * from "./config/loader.js";
 export * from "./runManager.js";
 export * from "./core.js";
 export * from "./config/store.js";
+export * from "./config/userDir.js";
 export * from "./config/files.js";
 export * from "./tools/types.js";
 export * from "./tools/projectPaths.js";

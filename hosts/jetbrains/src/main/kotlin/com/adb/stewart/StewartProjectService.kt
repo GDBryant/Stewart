@@ -40,7 +40,11 @@ class StewartProjectService(private val project: Project) : Disposable {
     }
 
     private val stateRoot = File(PathManager.getConfigPath(), "stewart")
-    private val userConfigDir = File(stateRoot, "user-config/${project.locationHash}")
+    private val legacyUserConfigRoot = File(stateRoot, "user-config")
+    private val userConfigDir: File = UserConfigDir.ensure(
+        UserConfigDir.shared(),
+        UserConfigDir.legacyDirs(legacyUserConfigRoot, project.locationHash),
+    )
     private val runtimeDir = File(stateRoot, "runtime")
     private val panels = CopyOnWriteArrayList<StewartPanel>()
 

@@ -64,7 +64,7 @@ Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins
 
 ## 5. Config and state
 
-- Files: `~/.config/stewart/{channels,agents,roles,settings}.yaml`, `skills/`; project `.stewart/{roles.yaml,skills/,scratch/}` (trusted workspaces only).
+- Files: shared `~/.config/stewart/{channels,agents,roles,settings}.yaml`, `skills/` — one dir for every IDE and project (`config/userDir.ts` `sharedUserConfigDir`: `$STEWART_CONFIG_DIR` > `$XDG_CONFIG_HOME/stewart` > `%APPDATA%\stewart` > `~/.config/stewart`; Kotlin mirror `UserConfigDir.kt`). Created on host start (`ensureUserConfigDir`), which also copies missing files once from the legacy per-project JetBrains `user-config/<hash>` and VS Code `globalStorage/user-config` dirs (never overwrites). Files must be `.yaml` (not `.yml`); project `.stewart/{roles.yaml,skills/,scratch/}` (trusted workspaces only).
 - State dir (HostPort): `ledger.jsonl`, run journals, `scratch/<runId>/{executed.jsonl,snapshots/}`, history.
 - Secrets via HostPort only (`secretRef`).
 

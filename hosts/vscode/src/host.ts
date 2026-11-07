@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
-import type { HostPort, ProcessHandle, VersionedEdit } from "@stewart/core";
+import { ensureUserConfigDir, sharedUserConfigDir, type HostPort, type ProcessHandle, type VersionedEdit } from "@stewart/core";
 
 /** HostPort implemented on the vscode API: native undo, unsaved buffers, SecretStorage. */
 export class VsCodeHost implements HostPort {
@@ -182,10 +182,9 @@ export class VsCodeHost implements HostPort {
     (this.channel ??= vscode.window.createOutputChannel("Stewart")).appendLine(line);
   }
 
+  /** Shared `~/.config/stewart` (same for every IDE/project); legacy globalStorage copy is migrated once. */
   async userConfigDir(): Promise<string> {
-    const dir = path.join(this.context.globalStorageUri.fsPath, "user-config");
-    await fs.mkdir(dir, { recursive: true });
-    return dir;
+    return ensureUserConfigDir(sharedUserConfigDir(), [path.join(this.context.globalStorageUri.fsPath, "user-config")]);
   }
 
   async projectConfigDir(): Promise<string> {
