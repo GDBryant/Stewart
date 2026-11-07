@@ -18,5 +18,21 @@
     "@types/node": "22.19.0",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@stewart/kernel": "workspace:*",
+    "@stewart/protocol": "workspace:*",
+    "@stewart/config": "workspace:*",
+    "@stewart/roles-skills": "workspace:*",
+    "@stewart/budget": "workspace:*",
+    "@stewart/channels": "workspace:*",
+    "@stewart/permissions": "workspace:*",
+    "@stewart/agent-loop": "workspace:*",
+    "@stewart/ledger": "workspace:*",
+    "@stewart/scheduling": "workspace:*",
+    "@stewart/run-state": "workspace:*",
+    "@stewart/orchestration": "workspace:*",
+    "@stewart/recovery": "workspace:*",
+    "@stewart/context": "workspace:*"
   }
 }

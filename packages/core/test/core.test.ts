@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventBus } from "../src/events.js";
+import { EventBus } from "@stewart/kernel";
 import { loadConfig } from "@stewart/roles-skills";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";

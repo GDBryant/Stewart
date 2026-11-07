@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
-import { EventBus } from "../src/events.js";
+import { EventBus } from "@stewart/kernel";
 import { loadConfig, type Config } from "@stewart/roles-skills";
 import { counterIds, systemClock, type Clock } from "@stewart/kernel";
-import { RunManager } from "../src/runManager.js";
+import { RunService } from "@stewart/runs";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
 import { TaskGraph, LeaseManager } from "@stewart/scheduling";
 import { isCosting } from "@stewart/models";
@@ -1081,7 +1081,7 @@ describe("runOrchestrated", () => {
   });
 });
 
-describe("RunManager orchestrated status", () => {
+describe("RunService orchestrated status", () => {
   const mk = (roles?: Record<string, string>, settings?: string) => {
     const cfg = config({ roles, settings });
     const script = (role: string, n: number): ChatEvent[] =>
@@ -1093,7 +1093,7 @@ describe("RunManager orchestrated status", () => {
     const { channel } = fakeChannel(script);
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     return { manager, opts: { config: cfg, channelFor: () => channel }, events };
   };
 
@@ -1121,7 +1121,7 @@ describe("RunManager orchestrated status", () => {
     const { channel } = fakeChannel(() => [text("just prose"), done()]);
     const events: RunEvent[] = [];
     const fake = fakeHost({ "a.ts": "a" });
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const run = await manager.orchestrated("p", { config: cfg, channelFor: () => channel, text: "go" });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("no_dispatch"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({
@@ -1131,7 +1131,7 @@ describe("RunManager orchestrated status", () => {
   });
 });
 
-describe("RunManager run time cap", () => {
+describe("RunService run time cap", () => {
   /**
    * Manual clock. `timers` records every arm (tool-timeout timers excluded, they share the clock but are not the run cap);
    * `fire()` runs the pending, uncancelled cap timers.
@@ -1161,7 +1161,7 @@ describe("RunManager run time cap", () => {
     const { channel, calls: seen } = fakeChannel(script);
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
-    const manager = new RunManager({ host: fake.host, clock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     return { manager, opts: { config: cfg, channelFor: () => channel }, events, fake, seen };
   };
   const finished = (events: RunEvent[]) => events.find((e) => e.kind === "run.finished");
@@ -1241,14 +1241,14 @@ describe("RunManager run time cap", () => {
   });
 });
 
-describe("RunManager resume", () => {
+describe("RunService resume", () => {
   const mk = async () => {
     const cfg = config();
     const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? [text(n === 1 ? "first" : "second"), done()] : [text("ok"), done()]));
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
     const bus = new EventBus((e) => events.push(e), 0);
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const opts = { config: cfg, channelFor: () => channel };
     return { manager, opts, events, fake };
   };
@@ -1334,7 +1334,7 @@ describe("RunManager resume", () => {
     fake.files["/tmp/st/scratch/run-crash/executed.jsonl"] = `${JSON.stringify({ key: "run-crash:task-1:0", content: "wrote a.ts (1 lines)" })}\n`;
     const events: RunEvent[] = [];
     const bus = new EventBus((e) => events.push(e), 0);
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const res = await manager.resume("p", "run-crash", { config: cfg, channelFor: () => channel });
     expect(res.ok).toBe(true);
     await vi.waitFor(() => expect(manager.get("run-crash")?.status).toBe("done"));
@@ -1373,12 +1373,12 @@ describe("RunManager resume", () => {
     });
     const fake = fakeHost({ "a.ts": "original-a" });
     const events: RunEvent[] = [];
-    let manager!: RunManager;
+    let manager!: RunService;
     const bus = new EventBus((e) => {
       events.push(e);
       if (e.kind === "approval.request") manager.approve(e.approvalId, "always");
     }, 0);
-    manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const run = await manager.orchestrated("p", { config: cfg, channelFor: () => channel, text: "edit" });
     await vi.waitFor(() => expect(manager.get(run.id)?.status).toBe("done"));
     expect(fake.files["a.ts"]).toBe("v2");

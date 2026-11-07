@@ -243,6 +243,10 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/kernel:
+    dependencies:
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -438,6 +442,49 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/runs:
+    dependencies:
+      '@stewart/agent-loop':
+        specifier: workspace:*
+        version: link:../agent-loop
+      '@stewart/budget':
+        specifier: workspace:*
+        version: link:../budget
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@stewart/config':
+        specifier: workspace:*
+        version: link:../config
+      '@stewart/context':
+        specifier: workspace:*
+        version: link:../context
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@stewart/orchestration':
+        specifier: workspace:*
+        version: link:../orchestration
+      '@stewart/permissions':
+        specifier: workspace:*
+        version: link:../permissions
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@stewart/recovery':
+        specifier: workspace:*
+        version: link:../recovery
+      '@stewart/roles-skills':
+        specifier: workspace:*
+        version: link:../roles-skills
+      '@stewart/run-state':
+        specifier: workspace:*
+        version: link:../run-state
+      '@stewart/scheduling':
+        specifier: workspace:*
+        version: link:../scheduling
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -466,6 +513,31 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/setup:
+    dependencies:
+      '@stewart/agent-loop':
+        specifier: workspace:*
+        version: link:../agent-loop
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@stewart/config':
+        specifier: workspace:*
+        version: link:../config
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/models':
+        specifier: workspace:*
+        version: link:../models
+      '@stewart/roles-skills':
+        specifier: workspace:*
+        version: link:../roles-skills
+      '@stewart/tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -599,9 +671,15 @@ importers:
       '@stewart/run-state':
         specifier: workspace:*
         version: link:../../modules/run-state
+      '@stewart/runs':
+        specifier: workspace:*
+        version: link:../../modules/runs
       '@stewart/scheduling':
         specifier: workspace:*
         version: link:../../modules/scheduling
+      '@stewart/setup':
+        specifier: workspace:*
+        version: link:../../modules/setup
       '@stewart/toolcall-format':
         specifier: workspace:*
         version: link:../../modules/toolcall-format

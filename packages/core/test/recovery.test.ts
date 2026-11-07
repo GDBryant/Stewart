@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
-import { EventBus } from "../src/events.js";
+import { EventBus } from "@stewart/kernel";
 import { loadConfig, type Config } from "@stewart/roles-skills";
 import { counterIds, systemClock } from "@stewart/kernel";
-import { RunManager } from "../src/runManager.js";
+import { RunService } from "@stewart/runs";
 import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { IdempotencyLog } from "@stewart/run-state";
@@ -274,7 +274,7 @@ describe("runTaskRecoverable", () => {
   });
 });
 
-describe("RunManager direct continue question", () => {
+describe("RunService direct continue question", () => {
   const agentOf = (cfg: Config) => cfg.agents.find((a) => a.id === "a-free")!;
 
   it("asks on turn limit and continues when the user answers", async () => {
@@ -288,7 +288,7 @@ describe("RunManager direct continue question", () => {
     bus.subscribe(async (e) => {
       if (e.kind === "ask_user") manager.answer(e.questionId, e.options?.[0] ?? "Continue");
     });
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
       config: cfg,
@@ -306,7 +306,7 @@ describe("RunManager direct continue question", () => {
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
     const instantClock = { now: () => Date.now(), setTimeout: (fn: () => void) => (queueMicrotask(fn), { cancel: () => {} }) };
-    const manager = new RunManager({ host: fake.host, clock: instantClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock: instantClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
       config: cfg,
@@ -323,7 +323,7 @@ describe("RunManager direct continue question", () => {
     const { channel } = fakeChannel(() => [text("hello there"), done()]);
     const fake = fakeHost({});
     const events: RunEvent[] = [];
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const run = await manager.direct("p", channel, agentOf(cfg), "hi", undefined, undefined, undefined, undefined, undefined, {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
@@ -339,7 +339,7 @@ describe("RunManager direct continue question", () => {
     const cfg = config({ roles: { "general-worker": TURNS_1 } });
     const { channel } = fakeChannel(() => [text("hello"), done()]);
     const fake = fakeHost({});
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
     const run = await manager.direct("p", channel, agentOf(cfg), "hi there", undefined, undefined, undefined, undefined, undefined, {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
@@ -366,7 +366,7 @@ describe("RunManager direct continue question", () => {
       agentId: "a-free",
       tasks: [{ id: "direct", roleId: "chat", title: "t", task: "t", files: [], dependsOn: [], status: "failed", error: "x", filesTouched: [] }],
     });
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
     const res = await manager.resume("p", "run-d", { config: cfg, channelFor: () => channel });
     expect(res.ok).toBe(true);
     await vi.waitFor(() => expect(manager.get("run-d")?.status).toBe("done"));
@@ -383,7 +383,7 @@ describe("RunManager direct continue question", () => {
       id: "run-e", projectId: "p", text: "go", status: "done", startedAt: 1, agentId: "a-free",
       tasks: [{ id: "direct", roleId: "chat", title: "t", task: "t", files: [], dependsOn: [], status: "done", filesTouched: [] }],
     });
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
     const res = await manager.resume("p", "run-e", { config: cfg, channelFor: () => channel });
     expect(res.ok).toBe(true);
     await vi.waitFor(() => expect(manager.get("run-e")?.status).toBe("done"));
@@ -395,7 +395,7 @@ describe("RunManager direct continue question", () => {
     const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
-    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, undefined, undefined, undefined, undefined, {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },

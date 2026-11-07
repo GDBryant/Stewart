@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
-import { EventBus } from "../src/events.js";
+import { EventBus } from "@stewart/kernel";
 import { loadConfig, type Config } from "@stewart/roles-skills";
 import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "@stewart/agent-loop";

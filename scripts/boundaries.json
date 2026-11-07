@@ -1,10 +1,6 @@
 {
-  "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN §7). First match wins; unmapped = app.",
-  "map": [
-    ["events.ts", "kernel"],
-    ["assign.ts", "setup"], ["recommend.ts", "setup"], ["bench.ts", "setup"], ["setupContext.ts", "setup"],
-    ["runManager.ts", "runs"]
-  ],
+  "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN \u00a77). First match wins; unmapped = app.",
+  "map": [],
   "appLayer": 9,
   "maxLines": 300
 }

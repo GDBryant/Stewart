@@ -264,7 +264,7 @@ Order (each step ships green, behavior-preserving, with tests; strangler style):
 4. (Done) Split `HostPort` into narrow ports (`FilesPort`, `WorkspacePort`, `ProcessPort`, `EditorPort`, `ProblemsPort`, `SecretsPort`, `LogPort`; `HostPort` = their intersection, hosts unchanged); leaf callers take `Pick<HostPort, …>`.
 5. (Done, in dependency order: `diagnostics`, `context`, `config`, `channels`, `roles-skills`, `tools`, `run-state`, then `agent-loop`; `ToolLoop` is still 360 lines, to split.) Extract `agent-loop` surface (`AgentSession`), then `run-state`.
 6. (Done) Extract `orchestration` and `recovery`, injecting `Recovery` (`rt.recoveryService` = `createRecovery(runRoleTask)`; `OrchestrationRuntime`/`RecoveryState` in `agent-loop` `runtime.ts`).
-7. Turn `RunManager` into strategies; thin `core.ts` to the router.
+7. (Done) `RunManager` → `RunService` in `runs` with `direct`/`orchestrated`/`resume` strategy objects + `parseChatCommand`; `events.ts` → `kernel`; `setup` files → `setup` module; `core.ts` = router over `handlers/*`.
 Done so far outside the listed steps (needed for the dependency order): `diagnostics`, `context`, `config` (`roles-skills/effective.ts` adds skills + role validation to the merged config; `v1import.ts` stays in core because it needs `catalog`, same layer as `config`).
 8. Flip boundary lint to error; ratchet file/function limits down.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BENCH_VERSION, benchModel } from "../src/bench.js";
+import { BENCH_VERSION, benchModel } from "@stewart/setup";
 import { ManagedChannel } from "@stewart/channels";
 import type { ChannelAdapter, ChannelConfig, ChatEvent } from "@stewart/channels";
 import { loadConfig } from "@stewart/roles-skills";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meetsHardRequirements, modelSizeB, scoreAssignments, type Candidate } from "../src/assign.js";
+import { meetsHardRequirements, modelSizeB, scoreAssignments, type Candidate } from "@stewart/setup";
 import { Core } from "../src/core.js";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
