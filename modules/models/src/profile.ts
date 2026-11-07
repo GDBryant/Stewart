@@ -1,8 +1,12 @@
-import type { AgentDef } from "./config/schema.js";
-import type { Config } from "./config/loader.js";
-import { DEFAULT_CAPS, type ChannelConfig, type ModelCaps, type ModelPerf } from "./channels/types.js";
 import { blendedCost, costTier, lookupModelInfo, type CostTier } from "@stewart/catalog";
-import type { ToolsMode } from "./tools/toolLoop.js";
+import { DEFAULT_CAPS, type ModelCaps, type ModelPerf, type ToolsMode } from "./caps.js";
+
+type AgentPrice = { price?: { inPerMTok: number; outPerMTok: number } };
+export interface ChannelLike {
+  id?: string;
+  type: string;
+  modelCaps?: Record<string, Partial<ModelCaps>>;
+}
 
 export type PriceMap = Record<string, { inPerMTok: number; outPerMTok: number; contextTokens?: number }>;
 
@@ -30,8 +34,8 @@ export function mergeProbeCaps(user: Partial<ModelCaps> | undefined, probe: Part
 
 /** Single place that merges model facts. `live` is a channel price list keyed by model id. */
 export function resolveModelProfile(
-  config: Pick<Config, "channels">,
-  ref: { channel: string; model: string; agent?: Pick<AgentDef, "price"> },
+  config: { channels: (ChannelLike & { id: string })[] },
+  ref: { channel: string; model: string; agent?: AgentPrice },
   live?: PriceMap,
 ): ModelProfile {
   return profileFromChannel(config.channels.find((c) => c.id === ref.channel), ref, live);
@@ -39,8 +43,8 @@ export function resolveModelProfile(
 
 /** Same as `resolveModelProfile` when only the channel config is at hand (run paths). */
 export function profileFromChannel(
-  ch: Pick<ChannelConfig, "type" | "modelCaps"> | undefined,
-  ref: { channel: string; model: string; agent?: Pick<AgentDef, "price"> },
+  ch: ChannelLike | undefined,
+  ref: { channel: string; model: string; agent?: AgentPrice },
   live?: PriceMap,
 ): ModelProfile {
   const caps: Partial<ModelCaps> = ch?.modelCaps?.[ref.model] ?? {};

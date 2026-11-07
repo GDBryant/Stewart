@@ -52,7 +52,7 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     return Object.keys(out).length ? out : undefined;
   }
 
-  async probeCaps(cfg: ChannelConfig, secret: string | undefined, model: string): Promise<Partial<import("./types.js").ModelCaps>> {
+  async probeCaps(cfg: ChannelConfig, secret: string | undefined, model: string): Promise<Partial<import("@stewart/models").ModelCaps>> {
     const r = await this.deps.fetcher(url(cfg, "/chat/completions"), {
       method: "POST",
       headers: this.headers(cfg, secret),

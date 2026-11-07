@@ -3,7 +3,7 @@ import type { ChatEvent, ChatRequest } from "./channels/types.js";
 import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";
 import type { SetupContext } from "./setupContext.js";
-import { resolveModelProfile } from "./modelProfile.js";
+import { resolveModelProfile } from "@stewart/models";
 
 export interface RecommendChannelInfo {
   id: string;

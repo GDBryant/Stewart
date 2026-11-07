@@ -1,4 +1,4 @@
-import type { ModelCaps } from "./channels/types.js";
+import type { ModelCaps } from "@stewart/models";
 import type { SetupContext } from "./setupContext.js";
 
 /** One selectable model with whatever capabilities are known. */

@@ -17,5 +17,10 @@
   "devDependencies": {
     "typescript": "5.9.3",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@stewart/kernel": "workspace:*",
+    "@stewart/catalog": "workspace:*",
+    "@stewart/models": "workspace:*"
   }
 }

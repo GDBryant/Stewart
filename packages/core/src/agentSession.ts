@@ -1,12 +1,13 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
+import { roleTurnBudget } from "./roles.js";
 import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "./ports.js";
 import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "./channels/registry.js";
 import type { ToolRegistry } from "./tools/types.js";
-import { DEFAULT_LIMITS, ToolLoop, type ApprovalGate, type IdempotencyHooks, type LoopLimits, type LoopListener } from "./tools/toolLoop.js";
-import { resolveLimits, type BudgetProfile } from "./limits.js";
-import { profileFromChannel, type ModelProfile } from "./modelProfile.js";
+import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
+import { ToolLoop, type ApprovalGate, type IdempotencyHooks, type LoopListener } from "./tools/toolLoop.js";
+import { profileFromChannel, type ModelProfile } from "@stewart/models";
 import { costOfCall, type CostLimit, type RunLedger } from "./orchestration/ledger.js";
 
 export interface SessionSpec {
@@ -45,7 +46,7 @@ export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSessio
   const profile = profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent });
   let limits: LoopLimits;
   if (spec.budget) {
-    limits = resolveLimits({ role, agent, profile: spec.budget.profile, ceiling: spec.budget.ceiling, model: profile });
+    limits = resolveLimits({ baseTurns: role ? roleTurnBudget(role) : undefined, agent, profile: spec.budget.profile, ceiling: spec.budget.ceiling, model: profile });
     const resolvedTurns = limits.maxModelTurns;
     limits = { ...limits, ...spec.limitsOverride };
     if (spec.limitsOverride?.maxModelTurns !== undefined) limits.maxModelTurns = Math.min(spec.limitsOverride.maxModelTurns, resolvedTurns);

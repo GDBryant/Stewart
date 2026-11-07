@@ -33,7 +33,7 @@ export class OllamaAdapter implements ChannelAdapter {
     return [...new Set([...names, ...(cfg.extraModels ?? [])])];
   }
 
-  async probeCaps(cfg: ChannelConfig, _secret: string | undefined, model: string): Promise<Partial<import("./types.js").ModelCaps>> {
+  async probeCaps(cfg: ChannelConfig, _secret: string | undefined, model: string): Promise<Partial<import("@stewart/models").ModelCaps>> {
     const r = await this.deps.fetcher(url(cfg, "/api/show"), { method: "POST", body: JSON.stringify({ model }) });
     if (r.status !== 200) throw new ChannelError(`POST /api/show → ${r.status}`, r.status);
     const info = JSON.parse(await new Response(r.body).text());

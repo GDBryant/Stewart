@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
-import { ChannelError, DEFAULT_CAPS } from "./types.js";
+import { DEFAULT_CAPS } from "@stewart/models";
+import { ChannelError } from "./types.js";
 import { stripImages } from "../images.js";
 
 /**
@@ -129,7 +130,7 @@ export class ManagedChannel {
     }
   }
 
-  async probeCaps(model: string): Promise<Partial<import("./types.js").ModelCaps>> {
+  async probeCaps(model: string): Promise<Partial<import("@stewart/models").ModelCaps>> {
     try {
       const caps = await this.adapter.probeCaps(this.cfg, this.secret, model);
       this.onSuccess();

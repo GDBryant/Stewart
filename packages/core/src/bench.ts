@@ -1,9 +1,9 @@
 import type { ManagedChannel } from "./channels/registry.js";
-import { DEFAULT_CAPS, type ModelPerf } from "./channels/types.js";
+import { DEFAULT_CAPS, type ModelPerf, type ToolsMode } from "@stewart/models";
 import type { AgentDef } from "./config/schema.js";
 import { createAgentSession } from "./agentSession.js";
 import type { Clock } from "./ports.js";
-import { ToolLoop, type ToolsMode } from "./tools/toolLoop.js";
+import { ToolLoop } from "./tools/toolLoop.js";
 import { ToolRegistry, type Tool } from "./tools/types.js";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */

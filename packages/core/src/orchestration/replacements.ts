@@ -1,6 +1,6 @@
 import type { AgentDef, ChannelDef } from "../config/schema.js";
 import { agentServesRole, roleCapability } from "../roles.js";
-import { isCosting } from "./ledger.js";
+import { isCosting } from "@stewart/models";
 
 export interface ParkedRole {
   roleId: string;

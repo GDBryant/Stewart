@@ -2,7 +2,7 @@ import { type Json } from "@stewart/kernel";
 import { ToolRegistry, type Tool, type ToolPreview } from "./tools/types.js";
 import { splitShellPrograms } from "./tools/approvals.js";
 import type { AgentDef, ChannelDef, RoleDef } from "./config/schema.js";
-import { resolveModelProfile } from "./modelProfile.js";
+import { resolveModelProfile } from "@stewart/models";
 
 /** Glob match: `**` crosses directories, `*` and `?` stay within a segment. */
 export function matchGlob(pattern: string, path: string): boolean {

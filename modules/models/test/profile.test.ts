@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mergeProbeCaps, profileFromChannel, resolveModelProfile, type PriceMap } from "../src/modelProfile.js";
-import type { ModelPerf } from "../src/channels/types.js";
+import { mergeProbeCaps, profileFromChannel, resolveModelProfile, type PriceMap } from "../src/api.js";
+import type { ModelPerf } from "../src/api.js";
 
 const perf: ModelPerf = { benchedAt: 1, benchVersion: 1, tokPerSec: 50 };
 const cfg = (type: string, modelCaps?: Record<string, object>) => ({ type, modelCaps: modelCaps as never });

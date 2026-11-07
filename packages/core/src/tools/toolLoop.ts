@@ -1,4 +1,6 @@
 import type { ManagedChannel } from "../channels/registry.js";
+import { DEFAULT_LIMITS, type LoopLimits } from "@stewart/budget";
+import type { ToolsMode } from "@stewart/models";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
@@ -29,29 +31,6 @@ export interface IdempotencyHooks {
   record(key: string, content: string): Promise<void>;
 }
 
-export interface LoopLimits {
-  maxModelTurns: number;
-  toolTimeoutMs: number;
-  /** Per model call wall clock cap; 0/undefined = no cap (channels still stall-time-out per chunk). */
-  modelCallTimeoutMs?: number;
-  maxToolOutputChars: number;
-  maxContextChars: number;
-  maxTruncationRetries: number;
-  /** Stub stale bulky tool results once context passes 60% of `maxContextChars` (R3 prune stage). */
-  prune?: boolean;
-  /** Fractions of `maxContextChars` at which prune / summarize start (defaults 0.6 / 0.8; set per budget profile). */
-  pruneAt?: number;
-  summarizeAt?: number;
-}
-
-export const DEFAULT_LIMITS: LoopLimits = {
-  maxModelTurns: 10,
-  toolTimeoutMs: 60_000,
-  maxToolOutputChars: 20_000,
-  maxContextChars: 400_000,
-  maxTruncationRetries: 1,
-};
-
 export class RunCancelledError extends Error {
   constructor(
     readonly base: ChatMessage[],
@@ -70,8 +49,6 @@ export type LoopResult =
   | { kind: "completed"; messages: ChatMessage[]; base: ChatMessage[] }
   | { kind: "turn_limit"; messages: ChatMessage[]; base: ChatMessage[] }
   | { kind: "failed"; messages: ChatMessage[]; base: ChatMessage[]; message: string; code?: string };
-
-export type ToolsMode = "native" | "shim" | "none";
 
 interface TurnState {
   text: string;

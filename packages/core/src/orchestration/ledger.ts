@@ -90,11 +90,6 @@ export function costOfCall(
   return reportedUsd ?? 0;
 }
 
-/** Whether the cost limit can see this agent's spend at all. */
-export function isCosting(agent: Pick<AgentDef, "billing">): boolean {
-  return agent.billing === "reported" || agent.billing === "priced" || agent.billing === undefined;
-}
-
 /** Cap state for one run: reached, raised by perRunUsd per Continue. */
 export class CostLimit {
   private currentCap: number;

@@ -8,7 +8,7 @@ import type { ApprovalDecision } from "../tools/toolLoop.js";
 import type { RunLedger, CostLimit } from "./ledger.js";
 import { LeaseManager, TaskGraph } from "@stewart/scheduling";
 import type { IdempotencyLog } from "./idempotency.js";
-import type { BudgetProfile } from "../limits.js";
+import type { BudgetProfile } from "@stewart/budget";
 import type { RecoveryState } from "./recovery.js";
 
 /** Everything a task runner needs from the owning run. */

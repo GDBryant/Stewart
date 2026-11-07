@@ -53,6 +53,16 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/budget:
+    dependencies:
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/models':
+        specifier: workspace:*
+        version: link:../models
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -147,6 +157,13 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/models:
+    dependencies:
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -274,6 +291,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@stewart/budget':
+        specifier: workspace:*
+        version: link:../../modules/budget
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../../modules/catalog
@@ -283,6 +303,9 @@ importers:
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel
+      '@stewart/models':
+        specifier: workspace:*
+        version: link:../../modules/models
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../protocol

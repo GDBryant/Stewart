@@ -1,9 +1,35 @@
-import type { AgentDef, RoleDef } from "./config/schema.js";
-import { roleTurnBudget } from "./roles.js";
 import { blendedCost } from "@stewart/catalog";
-import { isCosting } from "./orchestration/ledger.js";
-import type { ModelProfile } from "./modelProfile.js";
-import { DEFAULT_LIMITS, type LoopLimits } from "./tools/toolLoop.js";
+import { isCosting, type ModelProfile } from "@stewart/models";
+
+export interface LoopLimits {
+  maxModelTurns: number;
+  toolTimeoutMs: number;
+  /** Per model call wall clock cap; 0/undefined = no cap (channels still stall-time-out per chunk). */
+  modelCallTimeoutMs?: number;
+  maxToolOutputChars: number;
+  maxContextChars: number;
+  maxTruncationRetries: number;
+  /** Stub stale bulky tool results once context passes 60% of `maxContextChars` (R3 prune stage). */
+  prune?: boolean;
+  /** Fractions of `maxContextChars` at which prune / summarize start (defaults 0.6 / 0.8; set per budget profile). */
+  pruneAt?: number;
+  summarizeAt?: number;
+}
+
+export const DEFAULT_LIMITS: LoopLimits = {
+  maxModelTurns: 10,
+  toolTimeoutMs: 60_000,
+  maxToolOutputChars: 20_000,
+  maxContextChars: 400_000,
+  maxTruncationRetries: 1,
+};
+
+/** The agent facts `resolveLimits` reads (structurally satisfied by config `AgentDef`). */
+export interface AgentBudgetInput {
+  billing?: string;
+  price?: { inPerMTok: number; outPerMTok: number };
+  budget?: { turnFactor?: number; timeoutFactor?: number };
+}
 
 export type BudgetProfileName = "quick" | "normal" | "deep";
 
@@ -73,15 +99,16 @@ export function toolOutputCap(maxContextChars: number, profile: BudgetProfile): 
  * mean factor 1, never 0. `turnBudget: "unlimited"` stays unlimited.
  */
 export function resolveLimits(opts: {
-  role?: RoleDef;
-  agent?: AgentDef;
+  /** Role turn budget (`roleTurnBudget(role)`); absent = DEFAULT_LIMITS.maxModelTurns. */
+  baseTurns?: number;
+  agent?: AgentBudgetInput;
   profile: BudgetProfile;
   /** settings.maxWorkerTurnsCeiling. */
   ceiling: number;
   /** Resolved model facts (perf, price); see `profileFromChannel`. */
   model?: ModelProfile;
 }): LoopLimits {
-  const { role, agent, profile } = opts;
+  const { agent, profile } = opts;
   const perf = opts.model?.perf;
   const timeoutFactor =
     agent?.budget?.timeoutFactor ?? clamp(REF_TOK_PER_SEC / (perf?.tokPerSec ?? REF_TOK_PER_SEC), 0.5, 4);
@@ -92,7 +119,7 @@ export function resolveLimits(opts: {
     if (blended !== undefined && blended > 0) costFactor = clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
   }
   const turnFactor = agent?.budget?.turnFactor ?? costFactor * reliabilityFactor;
-  const baseTurns = role ? roleTurnBudget(role) : DEFAULT_LIMITS.maxModelTurns;
+  const baseTurns = opts.baseTurns ?? DEFAULT_LIMITS.maxModelTurns;
   const maxModelTurns =
     baseTurns === Number.MAX_SAFE_INTEGER
       ? baseTurns

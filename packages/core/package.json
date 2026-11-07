@@ -18,7 +18,9 @@
     "@stewart/toolcall-format": "workspace:*",
     "@stewart/compaction": "workspace:*",
     "@stewart/scheduling": "workspace:*",
-    "@stewart/catalog": "workspace:*"
+    "@stewart/catalog": "workspace:*",
+    "@stewart/models": "workspace:*",
+    "@stewart/budget": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",
