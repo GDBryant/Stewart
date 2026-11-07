@@ -209,6 +209,7 @@ export function compactorFor(rt: OrchestrationRuntime, taskId?: string): ((middl
   const channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) return undefined;
   return async (middle) => {
+    if (rt.cost.reached() && isCosting(agent)) return "";
     let text = "";
     const messages: ChatMessage[] = [
       { role: "system", content: SUMMARY_INSTRUCTIONS },

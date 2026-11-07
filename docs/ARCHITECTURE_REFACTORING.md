@@ -130,6 +130,13 @@ function planCompaction(msgs: ChatMessage[], ctxTokens: number, policy: Compacti
 - Positive: prune stubs stale output and keeps tool_call/result pairs; pinned items survive summarize; compactor cost lands in ledger; compacted run continues to completion; `quick` compacts earlier than `deep`.
 - Negative: green zone never calls summarizer; never splits an in-flight tool call; summarizer failure falls back to prune-only then `context_limit`; no `meter` → no ledger entry; stub never elides the latest read of a path.
 
+### Deviations / not done (R3 as built)
+- No `CompactionPolicy`/`planCompaction`: thresholds fixed at 60% (prune) and 80% (summarize) of `maxContextChars`, not from `resolveLimits`/`ModelProfile`; `quick` vs `deep` do not differ.
+- No batch compaction down to a ~40% target (provider-cache prefix stability not addressed); prune has no re-read dedupe and no ingest cap.
+- Prune and summarize are wired only for `roleRunner`/direct runs, not orchestrator, recovery or bench loops.
+- Summarizer needs a user-defined `compactor` role (no default); skipped once the cost cap is reached and the agent is paid.
+- Both flags (`compaction.prune`, `compaction.summarize`) stay off until the bench comparison; not yet run.
+
 ## Risks
 - R2 changes direct-run UX (cost card, journal files). Mitigate with the flag in step 3 and an explicit note in release notes.
 - Parallel session work on budgets M5/M6 touches the same call sites. Land R1 steps 1–3 before M5's agent-switching, or rebase M5 onto `createAgentSession`.

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { compactorFor } from "../src/orchestration/roleRunner.js";
 
 const recorded: Record<string, unknown>[] = [];
-const accrued = { accrued: 0 };
+let capped = false;
+const accrued = { accrued: 0, reached: () => capped };
 function rt(roles: unknown[], agents: unknown[], text = "note", unhealthy = false) {
   return {
     runId: "r1",
@@ -34,6 +35,14 @@ describe("compactorFor", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toMatchObject({ roleId: "compactor", taskId: "t1", inTokens: 10, outTokens: 5 });
     expect(accrued.accrued).toBeCloseTo(0.5);
+  });
+  it("does not call a paid compactor once the cost cap is reached", async () => {
+    recorded.length = 0;
+    capped = true;
+    const f = compactorFor(rt([{ id: "compactor", enabled: true, agent: "a" }], [{ ...agent, billing: "reported" }]));
+    expect(await f!([{ role: "user", content: "hi" }])).toBe("");
+    expect(recorded).toHaveLength(0);
+    capped = false;
   });
   it("is undefined without an enabled compactor role", () => {
     expect(compactorFor(rt([], [agent]))).toBeUndefined();
