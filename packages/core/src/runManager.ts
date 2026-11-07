@@ -579,6 +579,10 @@ export class RunManager {
       if (error) rec.error = error;
       await this.journal(run, stateDir);
       await this.saveHistory(run);
+      if (rt.cost.accrued > 0) {
+        const c = ledger.cost(runId);
+        bus.emit({ kind: "cost.summary", runId, capUsd: rt.cost.cap, accruedUsd: rt.cost.accrued, overshootUsd: rt.cost.overshoot(), byRole: c.byRole, byAgent: c.byAgent, parked: [], freeFinished: [], suggestions: [] });
+      }
       bus.emit({ kind: "run.finished", runId, status: event, ...(error ? { error } : {}) });
     };
     try {

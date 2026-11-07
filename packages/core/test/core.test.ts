@@ -145,6 +145,27 @@ describe("Core", () => {
     expect(text).toBe("hi");
   });
 
+  it("emits cost.summary for a direct run on a priced agent", async () => {
+    const events: RunEvent[] = [];
+    const { fetcher } = fakeFetcher([{ body: ['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1000,"eval_count":1000}'] }]);
+    const priced = { ...defaults, "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n    billing: priced\n    price: { inPerMTok: 3, outPerMTok: 15 }\n" };
+    const core = new Core({ fetcher, defaults: priced, userConfig: memStore(), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
+    await core.attachProject("p", fakeHost());
+    await core.dispatch("chat.send", { projectId: "p", text: "yo" });
+    await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished")).toBe(true));
+    const sum = events.find((e) => e.kind === "cost.summary") as Extract<RunEvent, { kind: "cost.summary" }> | undefined;
+    expect(sum?.accruedUsd).toBeGreaterThan(0);
+    expect(events.findIndex((e) => e.kind === "cost.summary")).toBeLessThan(events.findIndex((e) => e.kind === "run.finished"));
+  });
+
+  it("emits no cost.summary for a free direct run", async () => {
+    const { core, events } = mkCore(['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1,"eval_count":1}']);
+    await core.attachProject("p", fakeHost());
+    await core.dispatch("chat.send", { projectId: "p", text: "yo" });
+    await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished")).toBe(true));
+    expect(events.some((e) => e.kind === "cost.summary")).toBe(false);
+  });
+
   it("cancels a running stream", async () => {
     const ctl = new AbortController();
     const events: RunEvent[] = [];

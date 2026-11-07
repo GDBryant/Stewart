@@ -54,6 +54,8 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 via `runTaskRecoverable` |
 | Resume | `RunManager.resume` → `runTaskRecoverable` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 |
 
+Webview: a lone `direct` task shows no Active/Tasks rows; `driveDirect` emits `cost.summary` before `run.finished` when the run accrued cost (free agents emit none), so the Cost card shows for direct runs.
+
 Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model speed/cost/reliability factors, `maxWorkerTurnsCeiling`), called only from `createAgentSession`.
 
 `ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. The orchestration runtime (`RunRuntime`, alias `OrchestrationRuntime`) is built once, in `RunManager.buildRuntime` (used by `resume`, `driveOrchestrated`, `driveDirect`) and owns the run time cap as one abort timer (`rt.timeCap`, cancelled in `finally`). Direct runs are a single-task run of the same pipeline (`runRoleTask` with `agent`/`prompt`/`history` overrides); cost is metered and capped, transcript kept on every outcome.
@@ -76,5 +78,4 @@ Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins
 ## 7. Known gaps vs v2 plan
 
 - No v1 layer-2 fault note on re-plans, no `num_ctx` auto-detect; budget escalation (M6) still unbuilt (`BUDGETS_AND_SETUP_INFO.md` B4).
-- Direct runs skip cost cap and ledger (§3).
 - Probe cache not persisted across restarts (bench `perf` persisted via `modelCaps`).

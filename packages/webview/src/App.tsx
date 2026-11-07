@@ -67,6 +67,7 @@ function ChatView({ store }: { store: Store }) {
       dataUriFromFile(f, (uri) => store.addImage(uri));
     }
   };
+  const singleDirect = s.tasks.length === 1 && s.tasks[0]!.taskId === "direct";
   return (
     <div class="chat">
       <div class="chat-bar">
@@ -103,8 +104,8 @@ function ChatView({ store }: { store: Store }) {
           </div>
         ))}
         {s.plan ? <PlanCard plan={s.plan} /> : null}
-        {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
-        {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
+        {!singleDirect && s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
+        {s.tasks.length && !singleDirect ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
           <div key={a.approvalId} class="card approval">

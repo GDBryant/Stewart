@@ -123,6 +123,19 @@ describe("webview chat", () => {
     }
   });
 
+  it("hides the task rows for a single direct task but keeps them for orchestrated runs", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("task.created", { taskId: "direct", roleId: "chat", title: "only-direct-title", dependsOn: [] }));
+    });
+    expect(screen.queryByText("only-direct-title")).toBeNull();
+    expect(screen.queryByText("Tasks")).toBeNull();
+    act(() => bridge.inbound(ev("task.created", { taskId: "t1", roleId: "general-worker", title: "second-task", dependsOn: [] })));
+    expect(screen.getByText("Tasks")).toBeTruthy();
+    expect(screen.getByText("second-task")).toBeTruthy();
+  });
+
   it("shows the plan state and its validator verdict", () => {
     const { bridge } = mk();
     act(() => {
