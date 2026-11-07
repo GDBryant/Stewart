@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ChatMessage } from "../src/channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import { compactIfOver, measureMessages, pruneStale, splitForSummary, summarizeMiddle } from "../src/tools/compaction.js";
 
 const msg = (role: "assistant" | "tool" | "user", n: number): ChatMessage => ({ role, content: "x".repeat(n) }) as ChatMessage;

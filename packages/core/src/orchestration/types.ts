@@ -3,7 +3,7 @@ import type { EventBus } from "../events.js";
 import type { Config } from "../config/loader.js";
 import type { ManagedChannel } from "../channels/registry.js";
 import type { ToolPreview } from "../tools/types.js";
-import type { ToolCall } from "../channels/types.js";
+import type { ToolCall } from "@stewart/kernel";
 import type { ApprovalDecision } from "../tools/toolLoop.js";
 import type { RunLedger, CostLimit } from "./ledger.js";
 import type { LeaseManager } from "./leases.js";

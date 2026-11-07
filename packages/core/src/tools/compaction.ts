@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 
 export function measureMessages(msgs: ChatMessage[]): number {
   return msgs.reduce(

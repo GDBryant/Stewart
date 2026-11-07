@@ -1,9 +1,7 @@
 import type { ManagedChannel } from "../channels/registry.js";
-import type { ChatMessage, ToolCall } from "../channels/types.js";
+import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { Clock } from "../ports.js";
-import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
-import { buildToolsBlock } from "./shimPrompt.js";
-import { ToolCallStreamFilter } from "./streamFilter.js";
+import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "./compaction.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,

@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import type { LoopResult } from "../tools/toolLoop.js";
 
 /** Recoverable fault kinds (v1 port; see docs/FAULT_RECOVERY.md). */

@@ -1,4 +1,4 @@
-import type { ToolSpec } from "./types.js";
+import type { ToolSpec } from "@stewart/kernel";
 
 function sampleValue(schema: unknown): unknown {
   const type = typeof schema === "object" && schema !== null ? (schema as { type?: unknown }).type : undefined;

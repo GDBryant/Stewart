@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolCalls, repairNativeCall, ToolCallParseException, type SchemaMap } from "../src/tools/shimParser.js";
+import { parseToolCalls, repairNativeCall, ToolCallParseException, type SchemaMap } from "../src/api.js";
 
 const schema: SchemaMap = {
   ReadFile: { type: "object", properties: { path: { type: "string" }, start_line: { type: "integer" } }, required: ["path"] },

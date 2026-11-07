@@ -1,4 +1,4 @@
-import type { ToolCall } from "../channels/types.js";
+import type { Json, ToolCall, ToolSpec } from "@stewart/kernel";
 
 /** What the approval UI shows before a gated tool runs. */
 export type ToolPreview =
@@ -15,15 +15,6 @@ export function categoryOf(preview: ToolPreview | null | undefined, tool?: { cat
   if (preview.kind === "command") return "COMMANDS";
   if (preview.kind === "other") return preview.category ?? "OTHER";
   return null;
-}
-
-export type Json = Record<string, unknown>;
-
-export interface ToolSpec {
-  name: string;
-  description: string;
-  /** JSON Schema for arguments. */
-  parameters: Json;
 }
 
 export interface Tool {

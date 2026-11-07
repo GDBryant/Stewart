@@ -7,7 +7,7 @@ import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "
 import { DEFAULT_LIMITS } from "./tools/toolLoop.js";
 import { runRoleTask } from "./orchestration/roleRunner.js";
 import { ManagedChannel } from "./channels/registry.js";
-import type { ChatMessage, ToolCall } from "./channels/types.js";
+import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { projectTools } from "./tools/builtins.js";
 import { ProjectPaths } from "./tools/projectPaths.js";
 import { Grants, type GrantDecision } from "./tools/approvals.js";

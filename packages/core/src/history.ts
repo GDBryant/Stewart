@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { HostPort } from "./ports.js";
-import type { ChatMessage } from "./channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import { mediaTypeFor } from "./images.js";
 
 export interface StoredImage {

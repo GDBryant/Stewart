@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatHistoryStore } from "../src/history.js";
-import type { ChatMessage } from "../src/channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import { fakeHost } from "./helpers.js";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";

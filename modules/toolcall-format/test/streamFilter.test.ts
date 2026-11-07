@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ToolCallStreamFilter } from "../src/tools/streamFilter.js";
+import { ToolCallStreamFilter } from "../src/api.js";
 
 function run(chunks: string[]): { shown: string; held: string } {
   const f = new ToolCallStreamFilter();

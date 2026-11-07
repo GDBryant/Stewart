@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ManagedChannel } from "../src/channels/registry.js";
-import type { ChannelAdapter, ChatEvent, ToolCall } from "../src/channels/types.js";
+import type { ToolCall } from "@stewart/kernel";
+import type { ChannelAdapter, ChatEvent } from "../src/channels/types.js";
 import { DEFAULT_LIMITS, RunCancelledError, ToolLoop, type ApprovalDecision } from "../src/tools/toolLoop.js";
-import type { ChatMessage } from "../src/channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;

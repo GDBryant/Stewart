@@ -1,4 +1,5 @@
-import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest, ModelCaps, ToolCall } from "../types.js";
+import type { ToolCall } from "@stewart/kernel";
+import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest, ModelCaps } from "../types.js";
 import { ChannelError } from "../types.js";
 import type { DebugSink } from "../../debug/debug.js";
 import { ClaudeStreamParser, classify } from "./parser.js";

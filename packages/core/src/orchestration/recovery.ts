@@ -1,10 +1,11 @@
 import type { AgentDef, RoleDef, Settings } from "../config/schema.js";
-import type { ChatMessage, ToolCall } from "../channels/types.js";
+import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { ManagedChannel } from "../channels/registry.js";
 import { isWriteCapableRole } from "../roles.js";
 import { RunCancelledError } from "../tools/toolLoop.js";
 import { createAgentSession } from "../agentSession.js";
-import { ToolRegistry, type Json, type Tool, type ToolPreview } from "../tools/types.js";
+import { type Json } from "@stewart/kernel";
+import { ToolRegistry, type Tool, type ToolPreview } from "../tools/types.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { actionsSoFar, countToolCalls, detectStuck, type FaultKind } from "./faults.js";
 import { runRoleTask, type TaskResult } from "./roleRunner.js";

@@ -1,4 +1,5 @@
-import { ToolRegistry, type Json, type Tool, type ToolPreview } from "./tools/types.js";
+import { type Json } from "@stewart/kernel";
+import { ToolRegistry, type Tool, type ToolPreview } from "./tools/types.js";
 import { splitShellPrograms } from "./tools/approvals.js";
 import type { AgentDef, ChannelDef, RoleDef } from "./config/schema.js";
 import { resolveModelProfile } from "./modelProfile.js";

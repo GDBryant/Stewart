@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { ClaudeCliAdapter, type ClaudeDeps } from "../src/channels/claude/adapter.js";
 import { ClaudeStreamParser } from "../src/channels/claude/parser.js";
 import { argv, normalizeModel, prepare } from "../src/channels/claude/transcript.js";
-import { ChannelError, type ChatMessage } from "../src/channels/types.js";
+import { type ChatMessage } from "@stewart/kernel";
+import { ChannelError } from "../src/channels/types.js";
 import type { SpawnedProc, SpawnFn } from "../src/channels/claude/nodeSpawn.js";
 import { collect } from "./helpers.js";
 

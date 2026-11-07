@@ -1,11 +1,7 @@
 import type { Fetcher } from "../ports.js";
 import type { DebugSink } from "../debug/debug.js";
 
-export type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
-export type ChatMessage =
-  | { role: "system" | "user"; content: string; images?: string[] }
-  | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; toolCallId: string; content: string };
+import type { ToolCall, ChatMessage } from "@stewart/kernel";
 
 /** Measured model behaviour from the opt-in bench suite (`bench.ts`). Absent field = unknown, never zero. */
 export interface ModelPerf {

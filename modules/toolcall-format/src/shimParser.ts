@@ -1,5 +1,5 @@
-import type { ToolCall } from "../channels/types.js";
-import type { Json } from "./types.js";
+import type { ToolCall } from "@stewart/kernel";
+import type { Json } from "@stewart/kernel";
 
 export const FAILURE_REASONS: Record<string, string> = {
   "TC-JSON-NO-OBJECT": "block contains no '{' so there is no JSON to read",

@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 
 /** v1 ImageLimits: 5 MB per image, 50 MB read cap, 5 per message. */
 export const IMAGE_LIMITS = {

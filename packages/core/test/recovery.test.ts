@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "../src/channels/types.js";
-import type { ChatMessage } from "../src/channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";

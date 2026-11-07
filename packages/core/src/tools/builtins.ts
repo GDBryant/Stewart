@@ -3,7 +3,8 @@ import { IMAGE_LIMITS, mediaTypeFor } from "../images.js";
 import {
   MAX_COMMAND_OUTPUT, MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, ProjectPaths,
 } from "./projectPaths.js";
-import { ToolRegistry, type Json, type Tool, type ToolPreview, type ToolSpec } from "./types.js";
+import { type Json, type ToolSpec } from "@stewart/kernel";
+import { ToolRegistry, type Tool, type ToolPreview } from "./types.js";
 
 function arg(args: Json, key: string): string {
   const v = args[key];

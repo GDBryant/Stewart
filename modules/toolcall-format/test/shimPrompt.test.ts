@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseToolCalls, type SchemaMap } from "../src/tools/shimParser.js";
-import { buildToolsBlock, shimExampleCall } from "../src/tools/shimPrompt.js";
-import type { ToolSpec } from "../src/tools/types.js";
+import { buildToolsBlock, shimExampleCall, parseToolCalls, type SchemaMap } from "../src/api.js";
+import type { ToolSpec } from "@stewart/kernel";
 
 const readFile: ToolSpec = {
   name: "ReadFile",

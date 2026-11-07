@@ -1,5 +1,5 @@
 import type { AgentDef, RoleDef } from "../config/schema.js";
-import type { ChatMessage } from "../channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
 import { agentServesRole, roleRegistry } from "../roles.js";
@@ -9,7 +9,7 @@ import { ProjectPaths } from "../tools/projectPaths.js";
 import { RunCancelledError, type ApprovalDecision, type LoopResult } from "../tools/toolLoop.js";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "../tools/compaction.js";
 import { createAgentSession } from "../agentSession.js";
-import type { ToolCall } from "../channels/types.js";
+import type { ToolCall } from "@stewart/kernel";
 import type { ToolPreview } from "../tools/types.js";
 import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";

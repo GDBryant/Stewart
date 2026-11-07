@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage } from "@stewart/kernel";
 
 /** v1 ClaudeModels.normalize. */
 export function normalizeModel(raw: string): string {

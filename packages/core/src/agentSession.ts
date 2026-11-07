@@ -1,5 +1,5 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
-import type { ChatMessage } from "./channels/types.js";
+import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "./ports.js";
 import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "./channels/registry.js";

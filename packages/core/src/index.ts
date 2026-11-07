@@ -20,7 +20,7 @@ export * from "./config/files.js";
 export * from "./tools/types.js";
 export * from "./tools/projectPaths.js";
 export * from "./tools/approvals.js";
-export * from "./tools/shimParser.js";
+export * from "@stewart/toolcall-format";
 export * from "./tools/builtins.js";
 export * from "./tools/toolLoop.js";
 export * from "./roles.js";

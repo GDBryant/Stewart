@@ -2,7 +2,6 @@
   "import catalog.ts -> app",
   "import channels/registry.ts -> context",
   "import config/loader.ts -> roles-skills",
-  "import history.ts -> channels",
   "import history.ts -> context",
   "import limits.ts -> agent-loop",
   "import limits.ts -> ledger",
@@ -20,15 +19,11 @@
   "import roles.ts -> tools",
   "import tools/approvals.ts -> tools",
   "import tools/builtins.ts -> context",
-  "import tools/shimParser.ts -> channels",
-  "import tools/shimParser.ts -> tools",
-  "import tools/shimPrompt.ts -> tools",
   "import v1import.ts -> channels",
   "size core.ts",
   "size orchestration/orchestrator.ts",
   "size orchestration/recovery.ts",
   "size runManager.ts",
   "size tools/builtins.ts",
-  "size tools/shimParser.ts",
   "size tools/toolLoop.ts"
 ]
