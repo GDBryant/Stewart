@@ -3,16 +3,15 @@ import { EventBus } from "./events.js";
 import type { AgentDef, RoleDef } from "./config/schema.js";
 import type { Config } from "./config/loader.js";
 import { roleRegistry } from "./roles.js";
-import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, resolveLimits, type BudgetProfile } from "./limits.js";
-import { profileFromChannel } from "./modelProfile.js";
+import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "./limits.js";
+import { createAgentSession } from "./agentSession.js";
 import { ManagedChannel } from "./channels/registry.js";
 import type { ChatMessage, ToolCall } from "./channels/types.js";
-import { DEFAULT_CAPS } from "./channels/types.js";
 import { projectTools } from "./tools/builtins.js";
 import { ProjectPaths } from "./tools/projectPaths.js";
 import { Grants, type GrantDecision } from "./tools/approvals.js";
 import { categoryOf, ToolRegistry } from "./tools/types.js";
-import { RunCancelledError, ToolLoop, type ApprovalDecision, type ToolsMode } from "./tools/toolLoop.js";
+import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
 import { RunLedger, CostLimit } from "./orchestration/ledger.js";
 import { LeaseManager } from "./orchestration/leases.js";
 import { IdempotencyLog } from "./orchestration/idempotency.js";
@@ -508,15 +507,7 @@ export class RunManager {
     const runGrants = new Grants();
     const runId = run.id;
     const gate = this.gate(runId, runGrants);
-    const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
     const profile = budget?.profile ?? DEFAULT_BUDGET_PROFILES.normal;
-    const limits = resolveLimits({
-      role,
-      agent,
-      profile,
-      ceiling: budget?.ceiling ?? 60,
-      model: profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent }),
-    });
     const capMs = effectiveRunCapMs(budget?.maxRunHours ?? 0, profile);
     let timeCapped = false;
     const capTimer =
@@ -530,21 +521,15 @@ export class RunManager {
         : undefined;
     const projectContext = await loadProjectContext(this.deps.host);
     const prompt = [rolePrompt, projectContext].filter(Boolean).join("") || undefined;
-    const loop = new ToolLoop(channel, registry, gate, limits, this.deps.clock, prompt, new Set(), mode);
+    const session = createAgentSession(
+      { agent, role, channel, registry, approve: gate, prompt, budget: { profile, ceiling: budget?.ceiling ?? 60 }, events: { bus, runId } },
+      this.deps.clock,
+    );
+    const { loop, limits, listener } = session;
     const recovery = budget?.recovery;
     const askTimed = this.askTimed(runId, run.controller.signal);
     let continuations = 0;
     let questions = 0;
-    const listener = {
-      onText: (t: string) => bus.emit({ kind: "text_delta", runId, seq: 0, text: t }),
-      onReasoning: (t: string) => bus.emit({ kind: "reasoning_delta", runId, seq: 0, text: t }),
-      onCompacted: (before: number, after: number) =>
-        bus.emit({ kind: "compaction", runId, droppedTokens: Math.max(0, before - after) }),
-      onToolRequested: (call: { id: string; name: string; arguments: Record<string, unknown> }) =>
-        bus.emit({ kind: "tool.request", runId, callId: call.id, tool: call.name, args: call.arguments, category: call.name }),
-      onToolOutcome: (call: { id: string }, outcome: { kind: string }) =>
-        bus.emit({ kind: "tool.outcome", runId, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind }),
-    };
     try {
       let history = run.messages;
       let result = await loop.run(agent.model, history, listener, run.controller.signal);

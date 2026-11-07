@@ -43,7 +43,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `recovery`/`faults` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch), `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |
 | Setup | `assign.ts`, `recommend.ts`, `bench.ts`, `catalog.ts`(+`.data.json`), `setupContext.ts` | rules + AI assignment, benchmarks (`ModelPerf`), price catalog, workspace/hardware context |
 | Model facts | `modelProfile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier; used by `limits.ts`, `roles.ts` |
-| Agent session | `agentSession.ts` | `createAgentSession`: the one `ToolLoop` builder (profile → limits → listener with events + ledger metering). Migrated: `roleRunner`; pending: orchestrator, recovery, bench, `drive` |
+| Agent session | `agentSession.ts` | `createAgentSession`: the one `ToolLoop` builder (profile → limits → listener with events + ledger metering). Used by `roleRunner`, orchestrator, recovery, bench and `RunManager.drive`; the only `new ToolLoop(` |
 | Misc | `history.ts`, `images.ts`, `mentions.ts`, `projectContext.ts`, `v1import.ts`, `debug/debug.ts` | |
 
 ## 3. Run paths (current reality)
@@ -56,7 +56,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 
 Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model speed/cost/reliability factors, `maxWorkerTurnsCeiling`), called with copy-pasted args from `drive`, `orchestrator.ts`, `roleRunner.ts`.
 
-`ToolLoop` is constructed in four places (`runManager.drive`, `orchestrator.ts`, `roleRunner.ts`, `bench.ts`), each resolving tools mode from `modelCaps`, limits, prompt and cost recording itself. `OrchestrationRuntime` is built twice in `runManager.ts` (resume, `driveOrchestrated`).
+`ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. `OrchestrationRuntime` is built twice in `runManager.ts` (resume, `driveOrchestrated`).
 
 ## 4. Model facts
 
