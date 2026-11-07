@@ -17,8 +17,8 @@ import { LeaseManager } from "./orchestration/leases.js";
 import { IdempotencyLog } from "./orchestration/idempotency.js";
 import { TaskGraph, type TaskRecord } from "./orchestration/tasks.js";
 import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
-import { runRoleTask } from "./orchestration/roleRunner.js";
 import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
+import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
 import type { OrchestrationRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
 import { loadProjectContext } from "./projectContext.js";
@@ -122,6 +122,36 @@ export class RunManager {
     };
   }
 
+  /** askUser with a timeout and run-cancel escape; resolves undefined and withdraws the card. */
+  private askTimed(runId: string, signal: AbortSignal, roleId?: string): (question: string, options: string[] | undefined, timeoutMs: number) => Promise<string | undefined> {
+    const bus = this.deps.bus;
+    return (question, options, timeoutMs) => {
+      if (signal.aborted) return Promise.resolve(undefined);
+      const questionId = this.deps.ids.next("q");
+      return new Promise<string | undefined>((resolve) => {
+        let settled = false;
+        const settle = (v: string | undefined) => {
+          if (settled) return;
+          settled = true;
+          this.answers.delete(questionId);
+          timer?.cancel();
+          signal.removeEventListener("abort", onAbort);
+          resolve(v);
+        };
+        const withdraw = () => {
+          if (settled) return;
+          bus.emit({ kind: "question.withdrawn", runId, questionId, roleId });
+          settle(undefined);
+        };
+        const onAbort = () => withdraw();
+        const timer = timeoutMs > 0 ? this.deps.clock.setTimeout(withdraw, timeoutMs) : undefined;
+        this.answers.set(questionId, (a) => settle(a));
+        signal.addEventListener("abort", onAbort, { once: true });
+        bus.emit({ kind: "ask_user", runId, questionId, question, options, roleId });
+      });
+    };
+  }
+
   private async ledgerFor(): Promise<RunLedger> {
     if (!this.ledger) {
       const stateDir = await this.deps.host.workspace.stateDir();
@@ -166,7 +196,7 @@ export class RunManager {
     rolePrompt?: string,
     sessionId?: string,
     history?: ChatMessage[],
-    budget?: { profile: BudgetProfile; name?: string; ceiling: number; maxRunHours: number },
+    budget?: { profile: BudgetProfile; name?: string; ceiling: number; maxRunHours: number; recovery?: RecoveryState },
   ): Promise<Run> {
     const run: Run = {
       id: this.deps.ids.next("run"),
@@ -340,7 +370,9 @@ export class RunManager {
           maxWorkerTurnsCeiling: s.maxWorkerTurnsCeiling,
           budgetProfile: DEFAULT_BUDGET_PROFILES.normal,
           planGate: s.planGate,
+          recovery: recoveryState(s),
           ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
+          askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
           approve: (call, preview) => this.gate(run.id, grants)(call, preview),
         };
         for (const t of interrupted) {
@@ -354,7 +386,7 @@ export class RunManager {
           run.tasks = graph.toJSON();
           await this.journal(run, stateDir);
           this.deps.bus.emit({ kind: "task.started", runId: run.id, taskId: t.id, roleId: role.id });
-          const res = await runRoleTask(rt, t, { role });
+          const res = await runTaskRecoverable(rt, t, { role }, { depth: 0, brain: recoveryBrain(rt) });
           rt.leases.release(t.id);
           t.filesTouched = res.filesTouched;
           t.status = res.status === "done" ? "done" : "failed";
@@ -422,7 +454,9 @@ export class RunManager {
         run.tasks = g.toJSON();
         await this.journal(run, stateDir);
       },
+      recovery: recoveryState(s),
       ask: this.askUser(run.id, "orchestrator"),
+      askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
       approve: (call, preview) => this.gate(run.id, grants)(call, preview),
     };
     const outcome = await runOrchestrated(rt, opts.text);
@@ -453,7 +487,7 @@ export class RunManager {
     agent: AgentDef,
     role?: RoleDef,
     rolePrompt?: string,
-    budget?: { profile: BudgetProfile; ceiling: number; maxRunHours: number },
+    budget?: { profile: BudgetProfile; ceiling: number; maxRunHours: number; recovery?: RecoveryState },
   ): Promise<void> {
     const bus = this.deps.bus;
     const stateDir = await this.deps.host.workspace.stateDir();
@@ -497,6 +531,10 @@ export class RunManager {
     const projectContext = await loadProjectContext(this.deps.host);
     const prompt = [rolePrompt, projectContext].filter(Boolean).join("") || undefined;
     const loop = new ToolLoop(channel, registry, gate, limits, this.deps.clock, prompt, new Set(), mode);
+    const recovery = budget?.recovery;
+    const askTimed = this.askTimed(runId, run.controller.signal);
+    let continuations = 0;
+    let questions = 0;
     const listener = {
       onText: (t: string) => bus.emit({ kind: "text_delta", runId, seq: 0, text: t }),
       onReasoning: (t: string) => bus.emit({ kind: "reasoning_delta", runId, seq: 0, text: t }),
@@ -508,7 +546,27 @@ export class RunManager {
         bus.emit({ kind: "tool.outcome", runId, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind }),
     };
     try {
-      const result = await loop.run(agent.model, run.messages, listener, run.controller.signal);
+      let history = run.messages;
+      let result = await loop.run(agent.model, history, listener, run.controller.signal);
+      while (result.kind === "turn_limit" && recovery?.askOnTurnLimit && continuations < recovery.maxContinuations && questions < recovery.maxContinueQuestionsPerRun) {
+        questions++;
+        const transcript = [...result.base, ...result.messages];
+        const desc = (run.messages.find((m) => m.role === "user")?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
+        const { question, options } = continueQuestion({
+          spec: { id: runId, roleId: role?.id ?? "chat", title: desc, task: desc, files: [], dependsOn: [] },
+          turns: limits.maxModelTurns,
+          transcript,
+          maxActions: recovery.maxActionsInRecoveryBrief,
+          canSplit: false,
+        });
+        const raw = await askTimed(question, options, recovery.continueQuestionTimeoutMs);
+        const answer = raw === undefined ? ({ kind: "timeout" } as const) : mapContinueAnswer(raw);
+        this.deps.host.log(`[run ${runId}] continue question: ${answer.kind === "text" ? "guidance" : answer.kind}`);
+        if (answer.kind === "stop" || answer.kind === "timeout") break;
+        continuations++;
+        history = answer.kind === "text" ? [...transcript, { role: "user", content: answer.text }] : transcript;
+        result = await loop.run(agent.model, history, listener, run.controller.signal);
+      }
       leases.releaseAll();
       run.messages = [...result.base, ...result.messages];
       if (result.kind === "failed") {
@@ -518,6 +576,11 @@ export class RunManager {
         return;
       }
       if (result.kind === "turn_limit") {
+        if (run.status === "cancelled" || run.controller.signal.aborted) {
+          await this.saveHistory(run);
+          bus.emit({ kind: "run.finished", runId, status: "cancelled" });
+          return;
+        }
         run.status = "interrupted";
         await this.saveHistory(run);
         bus.emit({ kind: "run.finished", runId, status: "stopped", error: "turn limit reached" });

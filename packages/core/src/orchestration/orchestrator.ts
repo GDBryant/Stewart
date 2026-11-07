@@ -10,7 +10,10 @@ import { ToolRegistry, type Tool } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
 import { LeaseCycleError } from "./writeGuard.js";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "./tasks.js";
-import { runRoleTask, buildRolePrompt, type TaskResult } from "./roleRunner.js";
+import { buildRolePrompt, type TaskResult } from "./roleRunner.js";
+import { isWriteCapableRole } from "../roles.js";
+import { classifyFault } from "./faults.js";
+import { ensureRecovery, logRecovery, runTaskRecoverable, SIZE_HINT } from "./recovery.js";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
 import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements, type Replacement } from "./replacements.js";
 import type { OrchestrationRuntime } from "./types.js";
@@ -25,14 +28,6 @@ const ORCHESTRATION_ROLES = new Set(["orchestrator"]);
 /** Used when the orchestrator role lists no tools: routing only, never project tools. */
 export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements"];
 const ORCHESTRATOR_MAX_TOOL_OUTPUT = 4_000;
-const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
-const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "image-reader"]);
-
-function isWriteCapableRole(role: RoleDef): boolean {
-  if (READONLY_ROLES.has(role.id)) return false;
-  if (role.tools.length === 0) return true;
-  return role.tools.some((t) => WRITE_ROLE_TOOLS.has(t));
-}
 
 /** Resolve an enabled role by id. Unknown or disabled ids return undefined; there is no silent fallback. */
 export function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef | undefined {
@@ -125,7 +120,21 @@ class OrchestratedRun {
 
     let result: LoopResult;
     try {
-      result = await loop.run(this.agent.model, [{ role: "user", content: this.userText }], this.loopListener(), rt.signal);
+      const R = ensureRecovery(rt);
+      let retried = false;
+      let input: ChatMessage[] = [{ role: "user", content: this.userText }];
+      while (true) {
+        result = await loop.run(this.agent.model, input, this.loopListener(), rt.signal);
+        const fault = classifyFault(result);
+        if (fault && !retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
+          retried = true;
+          R.recoveriesUsed++;
+          logRecovery(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
+          input = fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${SIZE_HINT}` }];
+          continue;
+        }
+        break;
+      }
     } catch (e) {
       rt.leases.releaseAll();
       if (e instanceof RunCancelledError || rt.signal.aborted) return { status: "cancelled", suggestions: this.suggestions };
@@ -297,7 +306,8 @@ class OrchestratedRun {
     await this.syncGraph();
     rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
     const depSummaries = rec.dependsOn.map((d) => `${d}: ${this.results.get(d)?.summary ?? ""}`).filter(Boolean);
-    let result = await runRoleTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries });
+    const brain = { channel: this.channel, agent: this.agent };
+    let result = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
     if (result.cycleHolder) {
       const holder = result.cycleHolder;
       rt.leases.release(rec.id);
@@ -309,7 +319,7 @@ class OrchestratedRun {
       rec.status = "running";
       await this.syncGraph();
       rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
-      result = await runRoleTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries });
+      result = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
     }
     await this.applyTaskResult(rec, role, result, { requeueParked: true, announceLimit: true });
     return result;
@@ -359,7 +369,7 @@ class OrchestratedRun {
       rec.status = "running";
       await this.syncGraph();
       rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
-      const res = await runRoleTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) });
+      const res = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) }, { depth: 0, brain: { channel: this.channel, agent: this.agent } });
       await this.applyTaskResult(rec, role, res, { requeueParked: false, announceLimit: false });
     }
   }

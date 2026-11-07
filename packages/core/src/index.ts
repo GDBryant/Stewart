@@ -36,6 +36,8 @@ export * from "./orchestration/writeGuard.js";
 export * from "./orchestration/types.js";
 export * from "./orchestration/roleRunner.js";
 export * from "./orchestration/orchestrator.js";
+export * from "./orchestration/faults.js";
+export * from "./orchestration/recovery.js";
 export * from "./history.js";
 export * from "./images.js";
 export * from "./mentions.js";

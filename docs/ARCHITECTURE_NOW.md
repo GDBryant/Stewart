@@ -40,17 +40,17 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Tools | `tools/{toolLoop,builtins,shimParser,shimPrompt,approvals,projectPaths,types}.ts` | `ToolLoop` stages (stream → parse → execute), execution contract, shim, grants |
 | Roles/skills | `roles.ts`, `skills/skills.ts`, `defaults/*` | role tool filter + `writePaths`, `roleTurnBudget`, copy-on-write skills, prompt composition |
 | Runs | `runManager.ts` | run lifecycle, approvals/answers, ledger, history, journal, revert, resume |
-| Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |
+| Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `recovery`/`faults` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch), `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |
 | Setup | `assign.ts`, `recommend.ts`, `bench.ts`, `catalog.ts`(+`.data.json`), `setupContext.ts` | rules + AI assignment, benchmarks (`ModelPerf`), price catalog, workspace/hardware context |
 | Misc | `history.ts`, `images.ts`, `mentions.ts`, `projectContext.ts`, `v1import.ts`, `debug/debug.ts` | |
 
 ## 3. Run paths (current reality)
 
-| Path | Entry | Ledger/cost cap | Leases | Idempotency | Journal/resume | `maxRunHours` | Turn budget |
-|---|---|---|---|---|---|---|---|
-| Direct | `RunManager.direct` → `drive` | no | yes (`taskId "direct"`) | no | no | own `capTimer` (`effectiveRunCapMs`) | `resolveLimits` |
-| Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | orchestrator check | `resolveLimits` |
-| Resume | `RunManager.resume` → `runRoleTask` | yes | yes | yes | yes | orchestrator check | `resolveLimits` |
+| Path | Entry | Ledger/cost cap | Leases | Idempotency | Journal/resume | `maxRunHours` | Turn budget | Recovery |
+|---|---|---|---|---|---|---|---|---|
+| Direct | `RunManager.direct` → `drive` | no | yes (`taskId "direct"`) | no | no | own `capTimer` (`effectiveRunCapMs`) | `resolveLimits` | continue question only |
+| Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | orchestrator check | `resolveLimits` | layer 0/1 via `runTaskRecoverable` |
+| Resume | `RunManager.resume` → `runTaskRecoverable` | yes | yes | yes | yes | orchestrator check | `resolveLimits` | layer 0/1 |
 
 Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model speed/cost/reliability factors, `maxWorkerTurnsCeiling`), called with copy-pasted args from `drive`, `orchestrator.ts`, `roleRunner.ts`.
 
@@ -68,11 +68,11 @@ Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins
 
 ## 6. In progress
 
-- Budgets M5 done (`6d4ea05`: `taskSize.ts` classifier, `/quick` `/deep`); M6 escalation pending the fault-recovery port.
+- Budgets M5 done (`6d4ea05`: `taskSize.ts` classifier, `/quick` `/deep`); fault-recovery machinery ported (unblocks M6 escalation).
 - Code-health skill + `code-health-reviewer` role — planned (`docs/2026-11-07-code-health.md`).
 
 ## 7. Known gaps vs v2 plan
 
-- No v1 continue question / split recovery / `maxRecoveryDepth` (see `BUDGETS_AND_SETUP_INFO.md` B4).
+- No v1 layer-2 fault note on re-plans, no `num_ctx` auto-detect; budget escalation (M6) still unbuilt (`BUDGETS_AND_SETUP_INFO.md` B4).
 - Direct runs skip cost cap and ledger (§3).
 - Probe cache not persisted across restarts (bench `perf` persisted via `modelCaps`).

@@ -10,6 +10,7 @@ import type { LeaseManager } from "./leases.js";
 import type { IdempotencyLog } from "./idempotency.js";
 import type { TaskGraph } from "./tasks.js";
 import type { BudgetProfile } from "../limits.js";
+import type { RecoveryState } from "./recovery.js";
 
 /** Everything a task runner needs from the owning run. */
 export interface OrchestrationRuntime {
@@ -39,7 +40,11 @@ export interface OrchestrationRuntime {
   budgetProfile?: BudgetProfile;
   planGate: boolean;
   roleAgentOverrides?: Map<string, string>;
+  /** Per-run recovery limits and counters; created from settings by the run owner. */
+  recovery?: RecoveryState;
   onGraphChange?(graph: TaskGraph): Promise<void> | void;
   ask(question: string, options?: string[]): Promise<string>;
+  /** ask with a timeout; resolves undefined when the question is withdrawn. */
+  askTimed?(question: string, options: string[] | undefined, timeoutMs: number): Promise<string | undefined>;
   approve(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
 }

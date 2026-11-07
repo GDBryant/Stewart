@@ -1,6 +1,6 @@
 # Model-aware budgets and richer setup information (spec)
 
-Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background-tasks`). M6 (profile escalation) descoped — requires the v1 continue-question/split machinery that does not exist in the TS core; see `docs/FAULT_RECOVERY.md`.
+Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background-tasks`). The v1 continue-question/split machinery is now ported (`orchestration/recovery.ts`, `docs/FAULT_RECOVERY.md`) — M6 escalation is unblocked but not yet built.
 
 ## Problem
 

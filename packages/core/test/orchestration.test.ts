@@ -1068,8 +1068,8 @@ describe("runOrchestrated", () => {
 });
 
 describe("RunManager orchestrated status", () => {
-  const mk = (roles?: Record<string, string>) => {
-    const cfg = config({ roles });
+  const mk = (roles?: Record<string, string>, settings?: string) => {
+    const cfg = config({ roles, settings });
     const script = (role: string, n: number): ChatEvent[] =>
       role === "orchestrator"
         ? n === 1
@@ -1084,9 +1084,12 @@ describe("RunManager orchestrated status", () => {
   };
 
   it("persists stopped (not done) when the Orchestrator hits its turn budget", async () => {
-    const { manager, opts, events } = mk({
-      orchestrator: "enabled: true\n    agent: a-paid\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n    turnBudget: 1",
-    });
+    const { manager, opts, events } = mk(
+      {
+        orchestrator: "enabled: true\n    agent: a-paid\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n    turnBudget: 1",
+      },
+      "maxRecoveriesPerRun: 0",
+    );
     const run = await manager.orchestrated("p", { ...opts, text: "go" });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("stopped"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped", error: "turn limit reached" });

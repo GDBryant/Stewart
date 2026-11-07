@@ -411,6 +411,8 @@ export class Store {
         return this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary);
       case "ask_user":
         return this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] });
+      case "question.withdrawn":
+        return this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) });
       case "approval.request":
         return this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] });
       case "run.reverted":

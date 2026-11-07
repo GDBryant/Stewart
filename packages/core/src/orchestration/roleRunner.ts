@@ -6,7 +6,10 @@ import { agentServesRole, roleRegistry } from "../roles.js";
 import { DEFAULT_BUDGET_PROFILES, resolveLimits } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
-import { RunCancelledError, ToolLoop, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
+import { RunCancelledError, ToolLoop, type ApprovalDecision, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
+import type { ToolCall } from "../channels/types.js";
+import type { ToolPreview } from "../tools/types.js";
+import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
 import { costOfCall, isCosting } from "./ledger.js";
@@ -22,6 +25,12 @@ export interface TaskResult {
   evidence?: string;
   cycleVictim?: string;
   cycleHolder?: string;
+  /** Recoverable fault when the run ended on one; absent otherwise. */
+  fault?: FaultKind;
+  /** Full transcript (input + produced) for continuations and recovery briefs. */
+  transcript?: ChatMessage[];
+  /** Resolved model-turn budget, set on turn_limit results. */
+  turnBudget?: number;
 }
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
@@ -40,7 +49,19 @@ export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): 
 export async function runRoleTask(
   rt: OrchestrationRuntime,
   spec: TaskSpec,
-  deps: { role: RoleDef; nestedTools?: Tool[]; depSummaries?: string[] },
+  deps: {
+    role: RoleDef;
+    nestedTools?: Tool[];
+    depSummaries?: string[];
+    /** Continuation transcript; replaces the freshly built briefing. */
+    history?: ChatMessage[];
+    /** Idempotency index offset for continuations (calls already in `history`). */
+    idemOffset?: number;
+    /** Extra briefing lines appended to the task brief (size hints, sub-task instructions). */
+    extraBriefing?: string;
+    /** Approval gate override (e.g. scratch-dir auto-approve); defaults to rt.approve. */
+    approve?(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
+  },
 ): Promise<TaskResult> {
   const { role } = deps;
   const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;
@@ -113,20 +134,21 @@ export async function runRoleTask(
   const loop = new ToolLoop(
     channel,
     registry,
-    (call, preview) => rt.approve(call, preview, { roleId: role.id, taskId: spec.id }),
+    (call, preview) => (deps.approve ?? rt.approve)(call, preview, { roleId: role.id, taskId: spec.id }),
     limits,
     rt.clock,
     prompt,
     terminal,
     mode,
-    rt.idem.hooks(spec.id),
+    rt.idem.hooks(spec.id, deps.idemOffset),
   );
 
   const briefingParts = [spec.task];
   if (spec.files.length) briefingParts.push(`Files: ${spec.files.join(", ")}`);
   if (spec.expect) briefingParts.push(`Expect: ${spec.expect}`);
+  if (deps.extraBriefing) briefingParts.push(deps.extraBriefing);
   if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
-  const messages: ChatMessage[] = [{ role: "user", content: briefingParts.join("\n\n") }];
+  const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: briefingParts.join("\n\n") }];
   const listener = {
     onText: (t: string) => rt.bus.emit({ kind: "text_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
     onReasoning: (t: string) => rt.bus.emit({ kind: "reasoning_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
@@ -169,8 +191,19 @@ export async function runRoleTask(
     return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched };
   }
 
-  if (result.kind === "failed") return { status: "failed", summary: result.message, filesTouched };
-  if (result.kind === "turn_limit") return { status: "stopped", summary: "turn limit reached", filesTouched };
+  if (result.kind === "failed") {
+    return { status: "failed", summary: result.message, filesTouched, fault: classifyFault(result), transcript: [...result.base, ...result.messages] };
+  }
+  if (result.kind === "turn_limit") {
+    return {
+      status: "stopped",
+      summary: "turn limit reached",
+      filesTouched,
+      fault: "turn_limit",
+      transcript: [...result.base, ...result.messages],
+      turnBudget: limits.maxModelTurns,
+    };
+  }
   const produced = [...result.base, ...result.messages];
   const submitted = terminalCallId
     ? produced.find((m) => m.role === "tool" && m.toolCallId === terminalCallId)?.content ?? ""

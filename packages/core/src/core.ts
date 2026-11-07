@@ -23,6 +23,7 @@ import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
 import { budgetProfile, type BudgetProfileName } from "./limits.js";
+import { recoveryState } from "./orchestration/recovery.js";
 import { classifyTask } from "./taskSize.js";
 import type { WorkspaceInfo } from "./setupContext.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
@@ -304,6 +305,7 @@ export class Core {
         name: profileName,
         ceiling: ctx.config.settings.maxWorkerTurnsCeiling,
         maxRunHours: ctx.config.settings.maxRunHours,
+        recovery: recoveryState(ctx.config.settings),
       },
     );
     return { runId: run.id };

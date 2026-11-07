@@ -96,6 +96,16 @@ export function roleRegistry(registry: ToolRegistry, role: RoleDef): ToolRegistr
   return new ToolRegistry(allowed.map((t) => guardInvestigatorTerminal(guardWritePaths(t, role.writePaths), role.id)));
 }
 
+export const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
+export const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "image-reader"]);
+
+/** Write-capable roles run as workers: eligible for the continue question and splits. */
+export function isWriteCapableRole(role: RoleDef): boolean {
+  if (READONLY_ROLES.has(role.id)) return false;
+  if (role.tools.length === 0) return true;
+  return role.tools.some((t) => WRITE_ROLE_TOOLS.has(t));
+}
+
 /** Loop turn cap from the role ("unlimited" → effectively unbounded). */
 export function roleTurnBudget(role: RoleDef): number {
   return role.turnBudget === "unlimited" ? Number.MAX_SAFE_INTEGER : role.turnBudget;

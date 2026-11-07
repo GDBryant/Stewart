@@ -45,10 +45,10 @@ export class IdempotencyLog {
     }
   }
 
-  /** Hooks bound to one task so keys are `runId:taskId:callIndex`. */
-  hooks(taskId: string): IdempotencyHooks {
+  /** Hooks bound to one task so keys are `runId:taskId:callIndex`; `offset` shifts indices for continuations. */
+  hooks(taskId: string, offset = 0): IdempotencyHooks {
     return {
-      key: (_call, index) => `${this.runId}:${taskId}:${index}`,
+      key: (_call, index) => `${this.runId}:${taskId}:${offset + index}`,
       lookup: (k) => this.get(k),
       record: (k, content) => this.record(k, content),
     };
