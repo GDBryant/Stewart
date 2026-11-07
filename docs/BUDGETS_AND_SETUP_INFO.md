@@ -19,7 +19,7 @@ Non-goals: new providers, UI redesign beyond the fields listed, changing fault-r
 
 ### A1. Measured benchmarks (`ModelPerf`)
 
-Extend Discover (`channel.probe`, `core.ts` ~L346, cache `probeCache`) with an optional `bench: true` flag that runs a short suite per model, with a hard 30 s cap each:
+Extend Discover (`channel.probe`, `core.ts` ~L388, cache `probeCache`) with an optional `bench: true` flag that runs a short suite per model, with a hard 30 s cap each. The bench drives `ToolLoop` (or an extracted shim prompter/parser), not raw `channel.chat` — shim-mode tool calls only exist after shim parsing, so a channel-level call cannot measure real reliability. `claude-cli` pays a process spawn per probe.
 
 | Probe | Measures | Method |
 |---|---|---|
@@ -36,9 +36,9 @@ interface ModelPerf { ttftMs?: number; tokPerSec?: number; toolReliability?: num
   jsonOk?: boolean; editOk?: boolean; benchedAt: number; benchVersion: number }
 ```
 
-- Add `perf?: ModelPerf` to the probe result and cache it (key `channel/model`, invalidate on `benchVersion` change or model digest change for Ollama).
-- Persist to config as `modelCaps[model].perf` (schema `modelCaps` in `config/schema.ts`; all fields optional so old YAML stays valid).
-- Cost: bench is opt-in (checkbox "Measure speed (about 1 min per model)"), skipped for `billing: priced` models unless ticked, and never run on image-gen models.
+- Add `perf?: ModelPerf` to the probe result and cache it (key `channel/model`, invalidate on `benchVersion` change or model digest change for Ollama). `probeCache` is in-memory only today.
+- Persist to config as `modelCaps[model].perf` (schema `modelCaps` in `config/schema.ts`; all fields optional so old YAML stays valid). Follow `applyProbes` precedence: probed/benched values never override user-set `modelCaps` fields.
+- Cost: bench is opt-in (checkbox "Measure speed (up to ~2.5 min per model)"), skipped for `billing: priced` models unless ticked, and never run on image-gen models.
 - Failure: a failed or timed-out probe leaves the field undefined; the evaluator treats undefined as "unknown", never as zero.
 
 ### A2. Pricing and limits catalog
@@ -46,8 +46,9 @@ interface ModelPerf { ttftMs?: number; tokPerSec?: number; toolReliability?: num
 - New file `packages/core/src/catalog.ts` exporting `lookupModelInfo(channelType, model): { inPerMTok?, outPerMTok?, contextTokens?, rpm?, tpm?, family?, tier? } | undefined`. Data lives in `packages/core/src/catalog.data.json` (versioned, `updated` date field), matched by normalised model-name regex. Seed with the models in `docs/COMPATIBILITY.md` plus the Claude 5 family and the common OpenAI/OpenRouter ones.
 - Local channels (Ollama, LM Studio): price 0, `billing: "free"`; speed comes from A1 or an unknown value, plus the hardware profile (A4).
 - Wizard prefills `agent.price` and `agent.billing` from the catalog (user-editable, source shown as "catalog 2026-11"). Existing `agent.price` always wins over the catalog.
-- OpenRouter: prefer live `/models` pricing when the channel returns it; fall back to catalog.
+- Live provider pricing: `listModels` returns `string[]` only, so add an optional `ChannelAdapter.priceList?(cfg, secret): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>` (OpenRouter `/models` on `openai-compatible`, undefined elsewhere); fall back to catalog.
 - Evaluator input gains `costPerMTokBlended` (e.g. 3:1 in:out) and `costTier: free | low | mid | high` (thresholds as constants in `catalog.ts`, tested).
+- When the catalog supplies `family`/`tier` for a hosted model, drop the hosted=70B guess in `effectiveSize` (`assign.ts`).
 
 ### A3. Role requirement profiles (richer `ROLE_PROFILES`)
 
@@ -99,7 +100,7 @@ budgets:
   deep:   { turnMultiplier: 2.0, timeoutMultiplier: 3.0, allowSplit: true,  maxRunMinutes: 0 }   # 0 = unlimited
 ```
 
-`maxRunMinutes` feeds the existing `maxRunHours` mechanism (`runManager.ts` ~L337/L413) at finer granularity; keep `maxRunHours` as the global ceiling (effective = the smaller non-zero value).
+`maxRunMinutes` feeds the existing `maxRunHours` mechanism (`runManager.ts` ~L337/L413) at finer granularity; keep `maxRunHours` as the global ceiling (effective = the smaller non-zero value). The elapsed-time check lives only in orchestrated dispatch (`orchestrator.ts` ~L259); add the same check in `runManager.drive()` so the cap applies to direct runs too.
 
 ### B2. Model factors
 
@@ -109,11 +110,11 @@ Derived at agent-load time, overridable per agent (`agent.budget?: { turnFactor?
 - `costFactor` for `costs: true` agents: `clamp(refBlendedCost / blendedCost, 0.5, 1.5)`, with `refBlendedCost` constant in code. Expensive models get a lower `turnFactor`; cheap or free models get a higher one.
 - `reliabilityFactor = toolReliability < 0.67 ? 0.75 : 1` (an unreliable tool user wastes turns).
 - Effective values:
-  - `maxModelTurns = round(role.turnBudget x profile.turnMultiplier x turnFactor)`, clamped to `[3, maxWorkerTurnsCeiling x profile.turnMultiplier]`.
+  - `maxModelTurns = round(role.turnBudget x profile.turnMultiplier x turnFactor)`, clamped to `[3, maxWorkerTurnsCeiling x profile.turnMultiplier]` (`maxWorkerTurnsCeiling` is a v1 setting absent from v2 — add it to `settingsSchema`, default 60, when landing this).
   - Per-model-call and tool timeout = `base x profile.timeoutMultiplier x timeoutFactor`.
 - `role.turnBudget: "unlimited"` stays unlimited; the profile only changes timeouts and `maxRunMinutes`.
 
-Implementation seam: replace `roleTurnBudget(role)` call sites (`roleRunner.ts:99`, `orchestrator.ts:337`, `runManager.ts:464`) with `resolveLimits({ role, agent, profile })` returning `LoopLimits`. Keep `roleTurnBudget` as a thin wrapper for compatibility. Add `modelCallTimeoutMs` to `LoopLimits` if it is not already enforced per call (check `channels/*` for current per-request timeouts first).
+Implementation seam: replace `roleTurnBudget(role)` call sites (`roleRunner.ts:99`, `orchestrator.ts:110`, `runManager.ts:464`) with `resolveLimits({ role, agent, profile })` returning `LoopLimits`. Keep `roleTurnBudget` as a thin wrapper for compatibility. Add `modelCallTimeoutMs` to `LoopLimits`: it does not exist today — channels enforce only `stallTimeoutMs` (per-chunk stall, a `ChannelDeps` constant), so a slow-but-progressing call can run forever. Enforce it per call via `AbortSignal.timeout` composed onto `req.signal` in `ToolLoop`.
 
 ### B3. Task-size classifier
 
@@ -127,9 +128,11 @@ Precedence: user override (`/quick`, `/deep`, or a UI toggle in the chat bar) > 
 
 ### B4. Escalation
 
-- `quick` that hits `TURN_LIMIT` escalates to `normal` automatically, once, with a log line `[run <id>] profile quick -> normal` (category `recovery`), before the existing continue question appears. `normal` -> `deep` is offered through the continue question ("Continue as deep run").
+Prerequisite: the v2 TS core has no continue question, no layer-1 split, and no `maxRecoveryDepth`/`maxContinuations` — `docs/FAULT_RECOVERY.md` describes the removed v1 Kotlin. `TURN_LIMIT` currently just stops the run (`orchestrator.ts`, `runManager.ts`, `roleRunner.ts`). Land the v1 recovery port first, or descope this section to auto-escalation only.
+
+- `quick` that hits `TURN_LIMIT` escalates to `normal` automatically, once, with a log line `[run <id>] profile quick -> normal` (category `recovery`), before the continue question appears. `normal` -> `deep` is offered through the continue question ("Continue as deep run"). Without the port, a `normal` run at `TURN_LIMIT` stops as today.
 - Never de-escalate mid-run.
-- Fault-recovery layers and limits (`maxRecoveryDepth`, `maxContinuations`, scratch) are unchanged; `allowSplit: false` in quick simply skips layer 1.
+- `allowSplit: false` in quick skips layer 1 once split exists; other fault-recovery layers and limits are unchanged.
 
 ## Data and compatibility
 
@@ -146,9 +149,9 @@ Precedence: user override (`/quick`, `/deep`, or a UI toggle in the chat bar) > 
 | 3 | Extended `ROLE_PROFILES`, scoring terms, `SetupContext` and protocol field, AI-evaluator prompt table, reasons text | filters on measured reliability; unknown not penalised as zero; priorities reorder results; AI pick failing hard rules dropped |
 | 4 | `resolveLimits`, `budgets` settings, model factors, call-site swap | clamp bounds; unlimited preserved; unknown speed = 1; `maxRunHours` ceiling wins |
 | 5 | `classifyTask`, workspace sizing, `/quick` `/deep` overrides, badges | the three example prompts; override precedence; scan caps respected |
-| 6 | Escalation quick -> normal -> deep, log lines, docs | auto-escalate once only; no de-escalation; split skipped in quick |
+| 6 | Escalation quick -> normal -> deep, log lines, docs (needs the v1 continue-question/split port, see B4) | auto-escalate once only; no de-escalation; split skipped in quick |
 
-Order: 1, 2 and 4 are independent and can go in parallel; 3 needs 1-2; 5 needs 4; 6 needs 4-5.
+Order: 1, 2 and 4 are independent and can go in parallel; 3 needs 1-2; 5 needs 4; 6 needs 4-5 plus the fault-recovery port.
 
 ## Docs to update when building
 

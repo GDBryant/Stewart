@@ -1,5 +1,7 @@
 # Fault recovery
 
+Status: **v1 reference — not yet ported to the v2 TS core.** The `.kt` paths and the settings/limits below describe the removed v1 Kotlin implementation. In v2 (`packages/core`), `TURN_LIMIT` stops the run (`orchestrator.ts`, `runManager.ts`, `roleRunner.ts`); there is no continue question, no layer-1 split, and no `maxRecoveryDepth`/`maxContinuations`/`askOnTurnLimit`/`maxWorkerTurnsCeiling`. v2 recovery covers replacements, re-plan, cost parking and resume (`orchestration/`). Port prerequisite noted in `docs/BUDGETS_AND_SETUP_INFO.md` B4.
+
 Recovers worker and level faults before the run fails. Spec: `docs/archived_v2/2026-11-04-fault-recovery-design.md`.
 
 ## Fault kinds
