@@ -42,7 +42,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Runs | `runManager.ts` | run lifecycle, approvals/answers, ledger, history, journal, revert, resume |
 | Orchestration | `orchestration/*` | `OrchestratedRun`, `roleRunner`, `recovery`/`faults` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch), `TaskGraph`, `LeaseManager`, `RunLedger`/`CostLimit`, `IdempotencyLog`, `writeGuard` snapshots, replacements |
 | Setup | `assign.ts`, `recommend.ts`, `bench.ts`, `catalog.ts`(+`.data.json`), `setupContext.ts` | rules + AI assignment, benchmarks (`ModelPerf`), price catalog, workspace/hardware context |
-| Model facts | `modelProfile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier; used by `limits.ts`, `roles.ts` |
+| Model facts | `modelProfile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier; `mergeProbeCaps` (user > probe); used by `limits.ts`, `roles.ts`, `recommend.ts` (caps), `core.ts` |
 | Agent session | `agentSession.ts` | `createAgentSession`: the one `ToolLoop` builder (profile → limits → listener with events + ledger metering). Used by `roleRunner`, orchestrator, recovery, bench and `RunManager.drive`; the only `new ToolLoop(` |
 | Misc | `history.ts`, `images.ts`, `mentions.ts`, `projectContext.ts`, `v1import.ts`, `debug/debug.ts` | |
 
@@ -56,11 +56,11 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 
 Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model speed/cost/reliability factors, `maxWorkerTurnsCeiling`), called with copy-pasted args from `drive`, `orchestrator.ts`, `roleRunner.ts`.
 
-`ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. `OrchestrationRuntime` is built twice in `runManager.ts` (resume, `driveOrchestrated`).
+`ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. The orchestration runtime (`RunRuntime`, alias `OrchestrationRuntime`) is built once, in `RunManager.buildRuntime` (used by `resume`, `driveOrchestrated`); `drive` still has its own ad hoc locals.
 
 ## 4. Model facts
 
-Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. `modelProfile.ts` is the single merge for `roles.ts` and `limits.ts`; `core.ts` (`applyProbes`, probe handler), `recommend.ts` (price) and `ollama.ts` (`numCtx`) still merge on their own (R1 step 2).
+Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. `modelProfile.ts` is the single merge for `roles.ts` and `limits.ts`; Remaining direct `modelCaps` reads: `channels/registry.ts` (vision), `channels/ollama.ts` (`numCtx`), `orchestration/replacements.ts` (contextTokens), `roleRunner` (imageGen), `bench.ts` (tools mode); `recommend.ts` price (agent > `priceFor`, no catalog) is separate.
 
 ## 5. Config and state
 
