@@ -34,6 +34,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - v2 rebuild architecture: `docs/archived_v2/ARCHITECTURE.md` — shared TS core + JetBrains sidecar, channels/agents/roles/skills, kept vs dropped v1 items.
 - Setup wizard: `docs/SETUP.md` — steps, assignment engine, protocol, gaps.
 - Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
+- Refactoring: `docs/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
 - Budgets + setup info: `docs/BUDGETS_AND_SETUP_INFO.md` — model-aware turn/time profiles (quick/normal/deep), task-size classifier, richer setup-agent inputs (proposed).
 
 ## Conventions
