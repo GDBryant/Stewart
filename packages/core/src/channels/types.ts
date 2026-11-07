@@ -65,6 +65,8 @@ export interface ChannelAdapter {
   probeCaps(cfg: ChannelConfig, secret: string | undefined, model: string): Promise<Partial<ModelCaps>>;
   /** Stream a chat request; yields ChatEvents until done. */
   chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent>;
+  /** Optional: live per-model pricing in USD per million tokens (e.g. OpenRouter /models). Undefined when the channel reports none. */
+  priceList?(cfg: ChannelConfig, secret: string | undefined): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>;
   /** Optional: generate an image; channels without it fall back to diagram-as-code. */
   generateImage?(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }>;
 }

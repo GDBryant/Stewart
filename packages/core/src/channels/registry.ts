@@ -116,6 +116,19 @@ export class ManagedChannel {
     }
   }
 
+  /** Live pricing when the adapter supports it; undefined when it doesn't or reports none. */
+  async priceList(): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined> {
+    if (!this.adapter.priceList) return undefined;
+    try {
+      const p = await this.adapter.priceList(this.cfg, this.secret);
+      this.onSuccess();
+      return p;
+    } catch (e) {
+      this.onFailure(e);
+      throw e;
+    }
+  }
+
   async probeCaps(model: string): Promise<Partial<import("./types.js").ModelCaps>> {
     try {
       const caps = await this.adapter.probeCaps(this.cfg, this.secret, model);

@@ -69,6 +69,18 @@ export interface ConfigReply {
   secrets?: Record<string, boolean>;
 }
 
+/** Pricing/limits info attached to probe results; `source` is "live" or "catalog <date>". */
+export interface CatalogInfo {
+  inPerMTok?: number;
+  outPerMTok?: number;
+  contextTokens?: number;
+  rpm?: number;
+  tpm?: number;
+  family?: string;
+  tier?: string;
+  source: string;
+}
+
 export interface SessionSummary {
   sessionId: string;
   title: string;
@@ -88,7 +100,7 @@ export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
   | ({ type: "config" } & ConfigReply)
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
-  | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }
+  | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: CatalogInfo; error?: string }
   | { type: "history.sessions"; sessions: SessionSummary[] }
   | { type: "history.messages"; sessionId: string; messages: StoredMessage[] }
   | { type: "v1.draft"; files: Record<string, string>; warnings: string[]; xml?: string; applied?: boolean }

@@ -78,7 +78,7 @@ export interface State {
   questions: PendingQuestion[];
   config?: ConfigReply;
   channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;
-  probeResults: Record<string, { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; error?: string }>;
+  probeResults: Record<string, { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: import("./bridge.js").CatalogInfo; error?: string }>;
   wizardOpen?: boolean;
   view: "chat" | "settings";
   sessionId?: string;
@@ -313,7 +313,7 @@ export class Store {
       return this.patch({
         probeResults: {
           ...this.state.probeResults,
-          [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, error: m.error },
+          [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, catalog: m.catalog, error: m.error },
         },
       });
     if (m.type === "history.sessions") return this.patch({ sessions: m.sessions });

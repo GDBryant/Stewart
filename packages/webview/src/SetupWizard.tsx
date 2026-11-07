@@ -138,7 +138,19 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
       let id = base;
       for (let n = 2; nextAgents.has(id); n++) id = `${base}-${n}`;
       const type = channels.find((c) => c.id === ch)?.type;
-      nextAgents.set(id, { id, channel: ch, model, effort: "medium", billing: type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered", ...(type === "claude-cli" ? { costs: true } : {}) });
+      const info = store.state.probeResults[ref]?.catalog;
+      const pin = info?.inPerMTok;
+      const priced = pin !== undefined && pin > 0;
+      const billing = priced ? "priced" : pin === 0 ? "free" : type === "ollama" ? "free" : type === "claude-cli" ? "reported" : "unmetered";
+      nextAgents.set(id, {
+        id,
+        channel: ch,
+        model,
+        effort: "medium",
+        billing,
+        ...(priced ? { price: { inPerMTok: pin, outPerMTok: info?.outPerMTok ?? pin } } : {}),
+        ...(type === "claude-cli" ? { costs: true } : {}),
+      });
       pairToAgent.set(ref, id);
     }
     const nextRoles = roles.map((r) => {
@@ -277,14 +289,21 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
               {roles.map((r) => {
                 const a = rec.assignments.find((x) => x.role === r.id);
                 const un = rec.unfilled?.find((x) => x.role === r.id);
+                const chosen = row(r.id);
+                const info = chosen ? store.state.probeResults[chosen]?.catalog : undefined;
                 return (
                   <div key={r.id} class="summary" title={a?.reason}>
                     <b>{r.id}</b>{" "}
-                    <select aria-label={`role ${r.id}`} value={row(r.id)} onChange={(e) => setEdits({ ...edits, [r.id]: (e.target as HTMLSelectElement).value })}>
+                    <select aria-label={`role ${r.id}`} value={chosen} onChange={(e) => setEdits({ ...edits, [r.id]: (e.target as HTMLSelectElement).value })}>
                       <option value="">(disabled)</option>
                       {pairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
                     </select>
                     {a?.reason ? <span class="hint"> — {a.reason}</span> : null}
+                    {info ? (
+                      <span class="hint">
+                        {" "}· {info.inPerMTok !== undefined ? `$${info.inPerMTok.toFixed(2)}/MTok in, ` : ""}{info.source}
+                      </span>
+                    ) : null}
                     {un && !edits[r.id] ? <span class="hint"> — disabled: {un.reason}</span> : null}
                     {a?.warnings?.map((w) => <div key={w} class="fail">⚠ {w}</div>)}
                   </div>

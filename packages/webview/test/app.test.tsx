@@ -719,6 +719,29 @@ describe("webview settings", () => {
     expect(screen.getByText(/Setup complete/)).toBeTruthy();
   });
 
+  it("prefills priced billing and price from probe catalog info on Apply", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    toStep(bridge, 3);
+    act(() =>
+      bridge.inbound({
+        type: "channel.probe.result",
+        channelId: "c1",
+        model: "big:32b",
+        ok: true,
+        caps: {},
+        catalog: { inPerMTok: 1.25, outPerMTok: 10, source: "catalog 2026-11" },
+      }),
+    );
+    fireEvent.click(screen.getByText("Build proposal"));
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "general-worker", channel: "c1", model: "big:32b" }] }));
+    fireEvent.click(screen.getByText("Apply"));
+    const agents = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
+    expect(agents.yaml).toContain("billing: priced");
+    expect(agents.yaml).toContain("inPerMTok: 1.25");
+    expect(agents.yaml).toContain("outPerMTok: 10");
+  });
+
   it("reuses an existing agent for an edited row and can disable a role", () => {
     const { bridge } = mk();
     openWizard(bridge);

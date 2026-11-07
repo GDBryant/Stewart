@@ -35,6 +35,22 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     return [...new Set([...names, ...(cfg.extraModels ?? [])])];
   }
 
+  /** OpenRouter-style /models entries carry pricing.{prompt,completion} as USD-per-token strings. */
+  async priceList(cfg: ChannelConfig, secret: string | undefined): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined> {
+    const r = await this.deps.fetcher(url(cfg, "/models"), { headers: this.headers(cfg, secret) });
+    if (r.status !== 200) throw new ChannelError(`GET /models → ${r.status}`, r.status);
+    const j = JSON.parse(await new Response(r.body).text());
+    const out: Record<string, { inPerMTok: number; outPerMTok: number }> = {};
+    for (const m of (j.data ?? []) as { id?: string; pricing?: { prompt?: string; completion?: string } }[]) {
+      const pin = Number(m.pricing?.prompt);
+      const pout = Number(m.pricing?.completion);
+      if (m.id && Number.isFinite(pin) && Number.isFinite(pout) && (pin > 0 || pout > 0)) {
+        out[m.id] = { inPerMTok: pin * 1e6, outPerMTok: pout * 1e6 };
+      }
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+
   async probeCaps(cfg: ChannelConfig, secret: string | undefined, model: string): Promise<Partial<import("./types.js").ModelCaps>> {
     const r = await this.deps.fetcher(url(cfg, "/chat/completions"), {
       method: "POST",

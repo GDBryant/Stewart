@@ -20,6 +20,7 @@ import { normalizeImages } from "./images.js";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
+import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
@@ -54,6 +55,8 @@ export class Core {
   private projects = new Map<string, ProjectCtx>();
   private managed = new Map<string, ManagedChannel>();
   private probeCache = new Map<string, { caps: Partial<ModelCaps>; probedAt: number }>();
+  /** Live price lists fetched once per channel (undefined = unsupported or failed). */
+  private priceCache = new Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>();
   private userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
   private clock: Clock;
@@ -386,6 +389,17 @@ export class Core {
     }
   }
 
+  /** Live provider pricing wins over the bundled catalog; either may be absent. */
+  private async catalogFor(ch: ManagedChannel, model: string): Promise<(ModelInfo & { source: string }) | undefined> {
+    if (!this.priceCache.has(ch.cfg.id)) {
+      this.priceCache.set(ch.cfg.id, await ch.priceList().catch(() => undefined));
+    }
+    const live = this.priceCache.get(ch.cfg.id)?.[model];
+    if (live) return { ...live, source: "live" };
+    const info = lookupModelInfo(ch.cfg.type, model);
+    return info ? { ...info, source: `catalog ${CATALOG_UPDATED}` } : undefined;
+  }
+
   private async handleChannelProbe(params: unknown): Promise<unknown> {
     const p = params as { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean };
     const ctx = this.ctx(p.projectId);
@@ -394,7 +408,7 @@ export class Core {
     const cacheKey = `${p.channelId}:${p.model}`;
     const hit = this.probeCache.get(cacheKey);
     if (!p.force && hit && (!p.bench || hit.caps.perf?.benchVersion === BENCH_VERSION)) {
-      return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
+      return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true, catalog: await this.catalogFor(ch, p.model) };
     }
     try {
       const caps = await ch.probeCaps(p.model);
@@ -406,7 +420,7 @@ export class Core {
       const probedAt = this.clock.now();
       this.probeCache.set(cacheKey, { caps: merged, probedAt });
       this.applyProbes(ctx.config);
-      return { ok: true, caps: merged, probedAt, cached: false };
+      return { ok: true, caps: merged, probedAt, cached: false, catalog: await this.catalogFor(ch, p.model) };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
