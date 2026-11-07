@@ -285,7 +285,27 @@ export class Store {
     return it;
   }
 
+  private patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void {
+    this.patch({ tasks: this.state.tasks.map((t) => (t.taskId === taskId ? { ...t, ...update(t) } : t)) });
+  }
+
+  private mutateAssistant(runId: string, fn: (it: ChatItem) => void): void {
+    fn(this.assistantFor(runId));
+    this.changed();
+  }
+
+  private addActivity(runId: string, kind: string, text: string): void {
+    this.mutateAssistant(runId, (it) => {
+      it.activity = [...it.activity, { kind, text }];
+    });
+  }
+
   private onInbound(m: Inbound): void {
+    if (m.type === "event") return this.onEvent(m.ev);
+    this.onReply(m);
+  }
+
+  private onReply(m: Exclude<Inbound, { type: "event" }>): void {
     if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors, secrets: m.secrets }, lastError: undefined });
     if (m.type === "channel.test.result")
       return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
@@ -297,35 +317,8 @@ export class Store {
         },
       });
     if (m.type === "history.sessions") return this.patch({ sessions: m.sessions });
-    if (m.type === "history.messages") {
-      const items = m.messages.map((msg: StoredMessage): ChatItem => ({
-        id: `h${++this.itemSeq}`,
-        role: msg.role === "tool" ? "system" : msg.role,
-        text: msg.role === "tool" ? `⚙ ${msg.content}` : msg.content,
-        images: msg.images,
-        activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
-      }));
-      return this.patch({
-        items,
-        sessionId: m.sessionId,
-        historyOpen: false,
-        view: "chat",
-        tasks: [],
-        cost: undefined,
-        plan: undefined,
-        busyRunId: undefined,
-      });
-    }
-    if (m.type === "v1.draft") {
-      if (m.applied) {
-        this.requestConfig();
-        return this.patch({
-          v1Draft: undefined,
-          items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: "v1 settings imported.", activity: [] }],
-        });
-      }
-      return this.patch({ v1Draft: { files: m.files, warnings: m.warnings, xml: m.xml } });
-    }
+    if (m.type === "history.messages") return this.onHistoryMessages(m);
+    if (m.type === "v1.draft") return this.onV1Draft(m);
     if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
     if (m.type === "setup.recommend.result") {
       if (m.ok)
@@ -341,29 +334,109 @@ export class Store {
         lastError: m.message,
         items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
       });
-    if (m.type !== "event") return;
-    const ev = m.ev;
+  }
+
+  private onHistoryMessages(m: { sessionId: string; messages: StoredMessage[] }): void {
+    const items = m.messages.map((msg: StoredMessage): ChatItem => ({
+      id: `h${++this.itemSeq}`,
+      role: msg.role === "tool" ? "system" : msg.role,
+      text: msg.role === "tool" ? `⚙ ${msg.content}` : msg.content,
+      images: msg.images,
+      activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
+    }));
+    this.patch({
+      items,
+      sessionId: m.sessionId,
+      historyOpen: false,
+      view: "chat",
+      tasks: [],
+      cost: undefined,
+      plan: undefined,
+      busyRunId: undefined,
+    });
+  }
+
+  private onV1Draft(m: { files: Record<string, string>; warnings: string[]; xml?: string; applied?: boolean }): void {
+    if (m.applied) {
+      this.requestConfig();
+      return this.patch({
+        v1Draft: undefined,
+        items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: "v1 settings imported.", activity: [] }],
+      });
+    }
+    this.patch({ v1Draft: { files: m.files, warnings: m.warnings, xml: m.xml } });
+  }
+
+  private onEvent(ev: RunEvent): void {
     switch (ev.kind) {
       case "run.started":
         return this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined });
+      case "task.created":
+      case "task.started":
+      case "task.blocked":
+      case "task.done":
+      case "task.failed":
+        return this.onTaskEvent(ev);
+      case "plan.created":
+      case "plan.validated":
+      case "plan.approved":
+        return this.onPlanEvent(ev);
+      case "cost.limit_reached":
+      case "cost.limit_raised":
+      case "cost.summary":
+        return this.onCostEvent(ev);
+      case "cost.replaced":
+        return this.addActivity(ev.runId, "tool-ok", `replaced ${ev.roleId} → ${ev.agentId}`);
+      case "text_delta":
+        return this.mutateAssistant(ev.runId, (it) => {
+          it.text += ev.text;
+        });
+      case "reasoning_delta":
+        return this.mutateAssistant(ev.runId, (it) => {
+          it.reasoning = (it.reasoning ?? "") + ev.text;
+        });
+      case "tool.request":
+        return this.addActivity(ev.runId, "tool", ev.tool);
+      case "tool.outcome":
+        return this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary);
+      case "ask_user":
+        return this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] });
+      case "approval.request":
+        return this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] });
+      case "run.reverted":
+        return this.patch({
+          revertedRuns: [...this.state.revertedRuns, ev.runId],
+          items: [
+            ...this.state.items,
+            { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
+          ],
+        });
+      case "run.finished":
+        return this.onRunFinished(ev);
+      default:
+        return;
+    }
+  }
+
+  private onTaskEvent(ev: Extract<RunEvent, { kind: `task.${string}` }>): void {
+    switch (ev.kind) {
       case "task.created":
         return this.patch({
           tasks: [...this.state.tasks, { taskId: ev.taskId ?? "", roleId: ev.roleId ?? "", title: ev.title, status: "pending" }],
         });
       case "task.started":
-        return this.patch({ tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "running", agentId: ev.agentId ?? t.agentId, startedAt: Date.now() } : t)) });
+        return this.patchTask(ev.taskId, (t) => ({ status: "running", agentId: ev.agentId ?? t.agentId, startedAt: Date.now() }));
       case "task.blocked":
-        return this.patch({
-          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "waiting", waitingOn: ev.waitingOn } : t)),
-        });
+        return this.patchTask(ev.taskId, () => ({ status: "waiting", waitingOn: ev.waitingOn }));
       case "task.done":
-        return this.patch({
-          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "done", summary: ev.summary } : t)),
-        });
+        return this.patchTask(ev.taskId, () => ({ status: "done", summary: ev.summary }));
       case "task.failed":
-        return this.patch({
-          tasks: this.state.tasks.map((t) => (t.taskId === ev.taskId ? { ...t, status: "failed", summary: ev.error } : t)),
-        });
+        return this.patchTask(ev.taskId, () => ({ status: "failed", summary: ev.error }));
+    }
+  }
+
+  private onPlanEvent(ev: Extract<RunEvent, { kind: `plan.${string}` }>): void {
+    switch (ev.kind) {
       case "plan.created":
         return this.patch({ plan: { milestoneCount: ev.milestoneCount, reasons: [], approved: false } });
       case "plan.validated":
@@ -379,6 +452,11 @@ export class Store {
             approved: true,
           },
         });
+    }
+  }
+
+  private onCostEvent(ev: Extract<RunEvent, { kind: "cost.limit_reached" | "cost.limit_raised" | "cost.summary" }>): void {
+    switch (ev.kind) {
       case "cost.limit_reached":
         return this.patch({
           cost: {
@@ -409,56 +487,18 @@ export class Store {
             suggestions: ev.suggestions,
           },
         });
-      case "cost.replaced": {
-        const it = this.assistantFor(ev.runId);
-        it.activity = [...it.activity, { kind: "tool-ok", text: `replaced ${ev.roleId} → ${ev.agentId}` }];
-        return this.changed();
-      }
-      case "text_delta": {
-        const it = this.assistantFor(ev.runId);
-        it.text += ev.text;
-        return this.changed();
-      }
-      case "reasoning_delta": {
-        const it = this.assistantFor(ev.runId);
-        it.reasoning = (it.reasoning ?? "") + ev.text;
-        return this.changed();
-      }
-      case "tool.request": {
-        const it = this.assistantFor(ev.runId);
-        it.activity = [...it.activity, { kind: "tool", text: ev.tool }];
-        return this.changed();
-      }
-      case "tool.outcome": {
-        const it = this.assistantFor(ev.runId);
-        it.activity = [...it.activity, { kind: ev.ok ? "tool-ok" : "tool-fail", text: ev.summary }];
-        return this.changed();
-      }
-      case "ask_user":
-        return this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] });
-      case "approval.request":
-        return this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] });
-      case "run.reverted":
-        return this.patch({
-          revertedRuns: [...this.state.revertedRuns, ev.runId],
-          items: [
-            ...this.state.items,
-            { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
-          ],
-        });
-      case "run.finished": {
-        const items = this.state.items.map((i) => (i.id === ev.runId ? { ...i, streaming: false } : i));
-        const last = items[items.length - 1];
-        const extra: ChatItem[] =
-          ev.status !== "done" && (!last || last.id !== ev.runId)
-            ? [...items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: ev.error ?? ev.status, activity: [] }]
-            : ev.status !== "done" && ev.error && last
-              ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || `(${ev.error})` } : i))
-              : items;
-        return this.patch({ items: extra, busyRunId: undefined, lastRunId: ev.runId });
-      }
-      default:
-        return;
     }
+  }
+
+  private onRunFinished(ev: Extract<RunEvent, { kind: "run.finished" }>): void {
+    const items = this.state.items.map((i) => (i.id === ev.runId ? { ...i, streaming: false } : i));
+    const last = items[items.length - 1];
+    const extra: ChatItem[] =
+      ev.status !== "done" && (!last || last.id !== ev.runId)
+        ? [...items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: ev.error ?? ev.status, activity: [] }]
+        : ev.status !== "done" && ev.error && last
+          ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || `(${ev.error})` } : i))
+          : items;
+    this.patch({ items: extra, busyRunId: undefined, lastRunId: ev.runId });
   }
 }
