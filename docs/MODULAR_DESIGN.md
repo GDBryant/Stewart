@@ -265,7 +265,7 @@ Order (each step ships green, behavior-preserving, with tests; strangler style):
 5. (Done, in dependency order: `diagnostics`, `context`, `config`, `channels`, `roles-skills`, `tools`, `run-state`, then `agent-loop`; `ToolLoop` is still 360 lines, to split.) Extract `agent-loop` surface (`AgentSession`), then `run-state`.
 6. Extract `orchestration` and `recovery`, injecting `Recovery`.
 7. Turn `RunManager` into strategies; thin `core.ts` to the router.
-Done so far outside the listed steps (needed for the dependency order): `diagnostics`, `context`, `config` (core keeps `config/effective.ts` for skills + role validation; `v1import.ts` stays in core because it needs `catalog`, same layer as `config`).
+Done so far outside the listed steps (needed for the dependency order): `diagnostics`, `context`, `config` (`roles-skills/effective.ts` adds skills + role validation to the merged config; `v1import.ts` stays in core because it needs `catalog`, same layer as `config`).
 8. Flip boundary lint to error; ratchet file/function limits down.
 
 Done when: no cycles, no deep cross-module imports, every file within §1 limits, `Core` is a table of one-line handlers, and each module's tests run without constructing any other module above or beside it.

@@ -11,3 +11,5 @@ export type { SkillMeta, ResolvedSkill } from "./skills.js";
 export { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
 export { DEFAULT_SKILLS, EXECUTION_CONTRACT, SIDE_EFFECT_TOOLS } from "./defaults/skills.js";
 export type { ShippedSkill } from "./defaults/skills.js";
+export { loadConfig } from "./effective.js";
+export type { Config } from "./effective.js";

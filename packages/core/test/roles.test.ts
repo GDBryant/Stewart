@@ -13,7 +13,7 @@ import type { ConfigLayer } from "@stewart/config";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { DEFAULT_SKILLS } from "@stewart/roles-skills";
-import { loadConfig } from "../src/config/effective.js";
+import { loadConfig } from "@stewart/roles-skills";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import type { RunEvent } from "@stewart/protocol";
 

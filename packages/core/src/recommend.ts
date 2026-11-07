@@ -1,4 +1,4 @@
-import type { Config } from "./config/effective.js";
+import type { Config } from "@stewart/roles-skills";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
 import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";

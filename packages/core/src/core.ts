@@ -6,7 +6,7 @@ import { ChannelRegistry, ManagedChannel } from "@stewart/channels";
 import { OllamaAdapter } from "@stewart/channels";
 import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
-import { loadConfig, type Config } from "./config/effective.js";
+import { loadConfig, type Config } from "@stewart/roles-skills";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { baseHashFor, composeRolePrompt, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";

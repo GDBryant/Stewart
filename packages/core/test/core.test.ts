@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus } from "../src/events.js";
-import { loadConfig } from "../src/config/effective.js";
+import { loadConfig } from "@stewart/roles-skills";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";
 import { fakeFetcher, streamOf } from "@stewart/kernel";

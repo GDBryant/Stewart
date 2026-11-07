@@ -1,6 +1,6 @@
 import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { EventBus } from "../events.js";
-import type { Config } from "../config/effective.js";
+import type { Config } from "@stewart/roles-skills";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ToolPreview } from "@stewart/permissions";
 import type { ToolCall } from "@stewart/kernel";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
 import { EventBus } from "../src/events.js";
-import { loadConfig, type Config } from "../src/config/effective.js";
+import { loadConfig, type Config } from "@stewart/roles-skills";
 import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "@stewart/agent-loop";
 import { RunLedger, CostLimit } from "@stewart/ledger";
