@@ -35,6 +35,14 @@ export function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef |
 }
 
 /** Warning text for an Orchestrator run that never dispatched; includes the last reply so the user sees it. */
+const UNPARSED_CALL_RE = /<\|?tool_call|<function=|<call>/;
+const CALL_NUDGE = "Your previous reply contained a tool call that could not be parsed. Reply again using exactly <tool_call>{\"name\":\"...\",\"arguments\":{...}}</tool_call>.";
+
+function lastReplyHasUnparsedCall(messages: ChatMessage[]): boolean {
+  const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim() !== "");
+  return !!last && UNPARSED_CALL_RE.test(last.content);
+}
+
 function noDispatchMessage(messages: ChatMessage[]): string {
   const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim() !== "");
   const reply = last ? last.content.trim().replace(/\s+/g, " ").slice(0, 300) : "";
@@ -125,6 +133,7 @@ class OrchestratedRun {
     try {
       const R = ensureRecovery(rt);
       let retried = false;
+      let nudged = false;
       let input: ChatMessage[] = [{ role: "user", content: this.userText }];
       while (true) {
         result = await session.loop.run(this.agent.model, input, session.listener, rt.signal);
@@ -134,6 +143,12 @@ class OrchestratedRun {
           R.recoveriesUsed++;
           logRecovery(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
           input = fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${SIZE_HINT}` }];
+          continue;
+        }
+        if (result.kind !== "failed" && !nudged && this.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
+          nudged = true;
+          logRecovery(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
+          input = [{ role: "user", content: `${this.userText}\n\n${CALL_NUDGE}` }];
           continue;
         }
         break;

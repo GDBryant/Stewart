@@ -774,6 +774,25 @@ describe("runOrchestrated", () => {
     expect(events.some((e) => e.kind === "task.created")).toBe(false);
   });
 
+  it("retries once with a format nudge when the reply holds an unparsed tool call", async () => {
+    const cfg = config();
+    let n = 0;
+    const { channel } = fakeChannel((role) => (role === "orchestrator" && ++n === 1 ? [text("x <tool_call name=\"dispatch\" bad"), done()] : [text("Here is the answer"), done()]));
+    const { rt } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "go");
+    expect(n).toBe(2);
+    expect(out.status).toBe("no_dispatch");
+  });
+
+  it("does not retry a plain direct answer", async () => {
+    const cfg = config();
+    let n = 0;
+    const { channel } = fakeChannel((role) => (role === "orchestrator" && ++n ? [text("Here is the answer"), done()] : [text("ok"), done()]));
+    const { rt } = await runtime(cfg, channel);
+    await runOrchestrated(rt, "go");
+    expect(n).toBe(1);
+  });
+
   it("fails a dispatch when no role and no fallback is enabled", async () => {
     const cfg = config({ roles: { "code-writer": "enabled: false\n    agent: a-paid", "general-worker": "enabled: false\n    agent: a-free" } });
     const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? (n === 1 ? [calls(plan("code-writer", "x")), done()] : [text("done"), done()]) : [text("ok"), done()]));

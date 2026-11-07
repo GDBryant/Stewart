@@ -103,8 +103,18 @@ interface Scan {
   removed: [number, number][];
 }
 
+const CHANNEL_MARKER_RE = /<\|?channel\|?>(?:thought\n?)?/g;
+const ATTR_CALL_RE = /<tool_call\s+name=(["'])([^"']+)\1\s+arguments='([\s\S]*?)'\s*>(?:\s*<\/tool_call>)?/g;
+
+/** Drop Gemma channel markers and rewrite `<tool_call name="X" arguments='{..}'>` to the JSON body form. */
+function normalizeShapes(text: string): string {
+  return text
+    .replace(CHANNEL_MARKER_RE, "")
+    .replace(ATTR_CALL_RE, (_m, _q, name: string, args: string) => `<tool_call>{"name":${JSON.stringify(name)},"arguments":${args}}</tool_call>`);
+}
+
 export function parseToolCalls(text: string, schema: SchemaMap, startInFence = false): ParseResult {
-  const [stripped, reasoning] = stripThink(text);
+  const [stripped, reasoning] = stripThink(normalizeShapes(text));
   const ctx: Scan = { text: stripped, schema, calls: [], errors: [], removed: [] };
   let from = 0;
   if (startInFence) {
