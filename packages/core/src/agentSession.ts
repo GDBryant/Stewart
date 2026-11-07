@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef } from "./config/schema.js";
+import type { AgentDef, RoleDef } from "@stewart/config";
 import { roleTurnBudget } from "./roles.js";
 import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";

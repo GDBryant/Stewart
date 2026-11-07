@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ClaudeCliAdapter, type ClaudeDeps } from "../src/channels/claude/adapter.js";
 import { ClaudeStreamParser } from "../src/channels/claude/parser.js";
-import { argv, normalizeModel, prepare } from "../src/channels/claude/transcript.js";
+import { argv, prepare } from "../src/channels/claude/transcript.js";
 import { type ChatMessage } from "@stewart/kernel";
 import { ChannelError } from "../src/channels/types.js";
 import type { SpawnedProc, SpawnFn } from "../src/channels/claude/nodeSpawn.js";
@@ -82,15 +82,6 @@ const req = (messages: ChatMessage[], extra: Record<string, unknown> = {}) => ({
   messages,
   signal: new AbortController().signal,
   ...extra,
-});
-
-describe("normalizeModel", () => {
-  it("maps display names to families", () => {
-    expect(normalizeModel("Claude Sonnet 4.5")).toBe("sonnet");
-    expect(normalizeModel("Opus 4.1")).toBe("opus");
-    expect(normalizeModel("haiku")).toBe("haiku");
-    expect(normalizeModel("My Custom Model")).toBe("my-custom-model");
-  });
 });
 
 describe("transcript", () => {

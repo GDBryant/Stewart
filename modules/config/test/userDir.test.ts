@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { sharedUserConfigDir, ensureUserConfigDir } from "../src/config/userDir.js";
+import { sharedUserConfigDir, ensureUserConfigDir } from "../src/api.js";
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "stewart-ud-"));
 const exists = (p: string) => fs.access(p).then(() => true, () => false);

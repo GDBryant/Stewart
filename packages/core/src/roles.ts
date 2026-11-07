@@ -2,7 +2,7 @@ import { type Json } from "@stewart/kernel";
 import { type ToolPreview } from "@stewart/permissions";
 import { ToolRegistry, type Tool } from "./tools/types.js";
 import { splitShellPrograms } from "@stewart/permissions";
-import type { AgentDef, ChannelDef, RoleDef } from "./config/schema.js";
+import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
 import { resolveModelProfile } from "@stewart/models";
 
 /** Glob match: `**` crosses directories, `*` and `?` stay within a segment. */

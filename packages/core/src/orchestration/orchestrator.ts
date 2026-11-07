@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef } from "../config/schema.js";
+import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage } from "@stewart/kernel";
 import type { ManagedChannel } from "../channels/registry.js";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";

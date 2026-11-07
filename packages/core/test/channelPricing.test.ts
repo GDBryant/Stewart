@@ -4,7 +4,7 @@ import { OllamaAdapter } from "../src/channels/ollama.js";
 import { OpenAICompatAdapter } from "../src/channels/openai.js";
 import type { ChannelAdapter, ChatEvent } from "../src/channels/types.js";
 import { Core } from "../src/core.js";
-import type { ConfigStore } from "../src/config/store.js";
+import type { ConfigStore } from "@stewart/config";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
 describe("priceList", () => {

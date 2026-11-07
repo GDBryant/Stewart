@@ -3,7 +3,7 @@ import {
   baseHashFor, composeRolePrompt, hashBody, parseSkillMd, resolveSkills, serializeSkillMd, shippedSkill, TRUNCATED_MARKER,
 } from "../src/skills/skills.js";
 import { DEFAULT_SKILLS } from "../src/defaults/skills.js";
-import type { RoleDef } from "../src/config/schema.js";
+import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
   id: "r", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: 25, ...over,

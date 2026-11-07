@@ -2,8 +2,7 @@
   "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN §7). First match wins; unmapped = app.",
   "map": [
     ["events.ts", "kernel"],
-    ["config/", "config"], ["v1import.ts", "config"],
-                    ["channels/", "channels"],
+                        ["channels/", "channels"],
         ["orchestration/replacements.ts", "ledger"],
         ["roles.ts", "roles-skills"], ["skills/", "roles-skills"], ["defaults/", "roles-skills"],
         ["orchestration/writeGuard.ts", "run-state"], ["orchestration/idempotency.ts", "run-state"], ["history.ts", "run-state"],

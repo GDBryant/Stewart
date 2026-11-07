@@ -4,7 +4,8 @@ import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "../t
 import { ChannelError } from "../types.js";
 import type { DebugSink } from "@stewart/diagnostics";
 import { ClaudeStreamParser, classify } from "./parser.js";
-import { argv as claudeArgv, normalizeModel, prepare } from "./transcript.js";
+import { normalizeModel } from "@stewart/catalog";
+import { argv as claudeArgv, prepare } from "./transcript.js";
 import { nodeSpawn, makeTempDir, rmDir, writeTempFile, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
 
 export interface ClaudeDeps {

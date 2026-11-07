@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { BENCH_VERSION, benchModel } from "../src/bench.js";
 import { ManagedChannel } from "../src/channels/registry.js";
 import type { ChannelAdapter, ChannelConfig, ChatEvent } from "../src/channels/types.js";
-import { loadConfig } from "../src/config/loader.js";
+import { loadConfig } from "../src/config/effective.js";
 import { Core } from "../src/core.js";
-import type { ConfigStore } from "../src/config/store.js";
+import type { ConfigStore } from "@stewart/config";
 import type { Clock, HostPort } from "@stewart/kernel";
 import { systemClock } from "@stewart/kernel";
 

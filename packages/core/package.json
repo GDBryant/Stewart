@@ -24,7 +24,8 @@
     "@stewart/permissions": "workspace:*",
     "@stewart/ledger": "workspace:*",
     "@stewart/diagnostics": "workspace:*",
-    "@stewart/context": "workspace:*"
+    "@stewart/context": "workspace:*",
+    "@stewart/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

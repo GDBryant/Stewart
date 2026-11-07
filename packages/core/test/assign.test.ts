@@ -121,7 +121,7 @@ describe("setup.recommend modes", () => {
   });
 });
 
-import { agentSchema } from "../src/config/schema.js";
+import { agentSchema } from "@stewart/config";
 describe("agent costs flag", () => {
   it("accepts optional boolean", () => {
     expect(agentSchema.parse({ id: "a", channel: "c", model: "m", costs: true }).costs).toBe(true);

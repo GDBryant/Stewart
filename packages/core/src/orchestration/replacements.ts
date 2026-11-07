@@ -1,4 +1,4 @@
-import type { AgentDef, ChannelDef } from "../config/schema.js";
+import type { AgentDef, ChannelDef } from "@stewart/config";
 import { agentServesRole, roleCapability } from "../roles.js";
 import { isCosting } from "@stewart/models";
 

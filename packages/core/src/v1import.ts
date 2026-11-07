@@ -1,5 +1,5 @@
 import { stringify as stringifyYaml } from "yaml";
-import { normalizeModel } from "./channels/claude/transcript.js";
+import { normalizeModel } from "@stewart/catalog";
 
 /** v1 `stewart.xml` fields mapped onto v2 config. One-shot, no ongoing compat. */
 export interface V1ImportResult {

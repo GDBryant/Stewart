@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef, Settings } from "../config/schema.js";
+import type { AgentDef, RoleDef, Settings } from "@stewart/config";
 import { type Json, type ChatMessage, type ToolCall } from "@stewart/kernel";
 import type { ManagedChannel } from "../channels/registry.js";
 import { isWriteCapableRole } from "../roles.js";

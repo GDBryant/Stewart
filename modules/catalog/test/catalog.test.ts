@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blendedCost, costTier, lookupModelInfo } from "../src/api.js";
+import { blendedCost, costTier, lookupModelInfo, normalizeModel } from "../src/api.js";
 
 describe("lookupModelInfo", () => {
   it("matches known models with and without a provider prefix", () => {
@@ -27,5 +27,15 @@ describe("blendedCost and costTier", () => {
     expect(costTier(4.99)).toBe("mid");
     expect(costTier(5)).toBe("high");
     expect(costTier(undefined)).toBeUndefined();
+  });
+});
+
+describe("normalizeModel", () => {
+  it("maps spaced Claude names to the CLI alias and kebab-cases others; leaves ids alone", () => {
+    expect(normalizeModel("Claude Sonnet 4.5")).toBe("sonnet");
+    expect(normalizeModel("Opus 4")).toBe("opus");
+    expect(normalizeModel("haiku")).toBe("haiku");
+    expect(normalizeModel("My Local Model")).toBe("my-local-model");
+    expect(normalizeModel("claude-sonnet-4-5")).toBe("claude-sonnet-4-5");
   });
 });

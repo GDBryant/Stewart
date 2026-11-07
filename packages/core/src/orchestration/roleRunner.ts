@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef } from "../config/schema.js";
+import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { DEFAULT_CAPS, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "../skills/skills.js";

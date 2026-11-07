@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "../src/channels/types.js";
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
-import { loadConfig, type Config } from "../src/config/loader.js";
+import { loadConfig, type Config } from "../src/config/effective.js";
 import { counterIds, systemClock, type Clock } from "@stewart/kernel";
 import { RunManager } from "../src/runManager.js";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";

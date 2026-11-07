@@ -6,8 +6,8 @@ import { OpenAICompatAdapter } from "../src/channels/openai.js";
 import { ClaudeCliAdapter } from "../src/channels/claude/adapter.js";
 import type { SpawnFn } from "../src/channels/claude/nodeSpawn.js";
 import type { ChatRequest, ChannelConfig } from "../src/channels/types.js";
-import type { ConfigLayer } from "../src/config/loader.js";
-import type { ConfigStore } from "../src/config/store.js";
+import type { ConfigLayer } from "@stewart/config";
+import type { ConfigStore } from "@stewart/config";
 import { collect, fakeFetcher, fakeHost } from "@stewart/kernel";
 
 class Capture implements DebugSink {

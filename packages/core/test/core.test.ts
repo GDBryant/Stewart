@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus } from "../src/events.js";
-import { loadConfig } from "../src/config/loader.js";
+import { loadConfig } from "../src/config/effective.js";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";
 import { fakeFetcher, streamOf } from "@stewart/kernel";
-import type { ConfigLayer } from "../src/config/loader.js";
-import type { ConfigStore } from "../src/config/store.js";
+import type { ConfigLayer } from "@stewart/config";
+import type { ConfigStore } from "@stewart/config";
 
 function memStore(layer: ConfigLayer = {}): ConfigStore {
   return {
