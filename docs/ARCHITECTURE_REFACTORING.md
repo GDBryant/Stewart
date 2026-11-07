@@ -121,8 +121,8 @@ function planCompaction(msgs: ChatMessage[], ctxTokens: number, policy: Compacti
 
 ### Steps (one commit each)
 1. Extract current `compactIfNeeded` into `compaction.ts` (`planCompaction` + apply). Behavior identical, existing tests pass.
-2. Add prune stage (stale-result stubs, dedupe, ingest cap) behind `settings.compaction.prune` (default true).
-3. Add pinned/tail split and structured summarizer via `compactor` agent; fallback to prune-only on summarizer failure.
+2. Add prune stage (stale-result stubs, dedupe, ingest cap) behind `settings.compaction.prune` (default false until bench-compared; summarize step 3 likewise via `settings.compaction.summarize`).
+3. Add pinned/tail split and structured summarizer via `compactor` agent (no default role: user-defined `compactor` role, absent = inert); fallback to the emergency clip on summarizer failure.
 4. Meter compactor cost; extend `compaction` event; webview shows savings.
 5. Update `ARCHITECTURE_NOW.md` (§2 Tools, §3), `docs/FAULT_RECOVERY.md` (`context_limit`), `docs/PROGRESS.md`.
 

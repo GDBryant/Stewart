@@ -1,4 +1,5 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
+import type { ChatMessage } from "./channels/types.js";
 import type { Clock } from "./ports.js";
 import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "./channels/registry.js";
@@ -23,6 +24,8 @@ export interface SessionSpec {
   /** Records each model call to the ledger and accrues `cost`; absent = no metering. */
   meter?: { ledger: RunLedger; cost: Pick<CostLimit, "accrued">; runId: string; taskId?: string; roleId?: string };
   idem?: IdempotencyHooks;
+  /** Summarize-stage hook (R3.3); absent = prune/clip only. */
+  summarize?: (middle: ChatMessage[]) => Promise<string>;
   /** Standard stream events; absent = silent. */
   events?: { bus: EventBus; runId: string; taskId?: string; roleId?: string };
   /** Run before the standard emit; for call-site extras (files touched, terminal call id). */
@@ -82,6 +85,6 @@ export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSessio
       meter.cost.accrued += costUsd;
     };
   }
-  const loop = new ToolLoop(channel, spec.registry, spec.approve, limits, clock, spec.prompt, spec.terminal ?? new Set(), profile.toolsMode, spec.idem);
+  const loop = new ToolLoop(channel, spec.registry, spec.approve, limits, clock, spec.prompt, spec.terminal ?? new Set(), profile.toolsMode, spec.idem, spec.summarize);
   return { loop, listener, profile, limits };
 }

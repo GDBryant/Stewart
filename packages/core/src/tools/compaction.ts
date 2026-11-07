@@ -75,3 +75,74 @@ export function pruneStale(produced: ChatMessage[]): number {
   });
   return n;
 }
+
+const SUMMARY_TAIL = 6;
+const NOTE_PREFIXES = ["[compacted", "[summary"];
+
+export interface SummarySplit {
+  /** Messages kept verbatim ahead of the note (the last user message). */
+  pinned: ChatMessage[];
+  /** Messages to be replaced by a structured note. */
+  middle: ChatMessage[];
+  /** Last messages kept verbatim; never starts on a tool result. */
+  tail: ChatMessage[];
+}
+
+/**
+ * Pure pinned | middle | tail split of `produced` for the summarize stage. The tail keeps the last
+ * `keep` messages, extended backwards so a tool result never loses its assistant tool call.
+ * Returns null when there is nothing worth summarizing.
+ */
+export function splitForSummary(produced: ChatMessage[], keep = SUMMARY_TAIL): SummarySplit | null {
+  let start = produced.length - keep;
+  while (start > 0 && produced[start]?.role === "tool") start--;
+  if (start <= 1) return null;
+  const head = produced.slice(0, start);
+  const isNote = (m: ChatMessage) => typeof m.content === "string" && NOTE_PREFIXES.some((x) => m.content.startsWith(x));
+  let pinIdx = -1;
+  for (let i = head.length - 1; i >= 0; i--) {
+    if (head[i]!.role === "user" && !isNote(head[i]!)) {
+      pinIdx = i;
+      break;
+    }
+  }
+  const pinned = pinIdx >= 0 ? [head[pinIdx]!] : [];
+  const middle = head.filter((_, i) => i !== pinIdx);
+  if (middle.length === 0) return null;
+  return { pinned, middle, tail: produced.slice(start) };
+}
+
+/** Render the middle as plain text for the compactor prompt (tool results clipped). */
+export function renderForSummary(middle: ChatMessage[]): string {
+  return middle
+    .map((m) => {
+      const calls = m.role === "assistant" && m.toolCalls ? ` calls=${m.toolCalls.map((c) => `${c.name}(${JSON.stringify(c.arguments).slice(0, 200)})`).join(", ")}` : "";
+      return `${m.role}${calls}: ${m.content.slice(0, 1500)}`;
+    })
+    .join("\n");
+}
+
+export const SUMMARY_INSTRUCTIONS =
+  "Summarize this agent transcript as a compact note with these headings: Goal, Done, Decisions, Files touched, Open errors, Next step. Keep exact file paths and error text. No preamble.";
+
+/**
+ * Summarize stage: replaces the middle of `produced` with one structured note from `summarize`.
+ * Returns true when applied; false when no split exists or the summarizer failed/returned nothing
+ * (caller falls back to the emergency clip).
+ */
+export async function summarizeMiddle(
+  produced: ChatMessage[],
+  summarize: (middle: ChatMessage[]) => Promise<string>,
+): Promise<boolean> {
+  const split = splitForSummary(produced);
+  if (!split) return false;
+  let note: string;
+  try {
+    note = (await summarize(split.middle)).trim();
+  } catch {
+    return false;
+  }
+  if (!note) return false;
+  produced.splice(0, produced.length, ...split.pinned, { role: "user", content: `[summary of earlier steps]\n${note}` }, ...split.tail);
+  return true;
+}

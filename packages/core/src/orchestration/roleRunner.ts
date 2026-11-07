@@ -7,6 +7,7 @@ import { DEFAULT_BUDGET_PROFILES } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { RunCancelledError, type ApprovalDecision, type LoopResult } from "../tools/toolLoop.js";
+import { renderForSummary, SUMMARY_INSTRUCTIONS } from "../tools/compaction.js";
 import { createAgentSession } from "../agentSession.js";
 import type { ToolCall } from "../channels/types.js";
 import type { ToolPreview } from "../tools/types.js";
@@ -127,6 +128,7 @@ export async function runRoleTask(
   let terminalCallId: string | undefined;
 
   const activeAgent = agent;
+  const summarize = rt.config.settings.compaction?.summarize ? compactorFor(rt) : undefined;
   const session = createAgentSession(
     {
       agent: activeAgent,
@@ -140,6 +142,7 @@ export async function runRoleTask(
       limitsOverride: rt.config.settings.compaction?.prune ? { prune: true } : undefined,
       meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, taskId: spec.id, roleId: role.id },
       idem: rt.idem.hooks(spec.id, deps.idemOffset),
+      summarize,
       events: { bus: rt.bus, runId: rt.runId, taskId: spec.id, roleId: role.id },
       hooks: {
         onToolRequested: (call) => {
@@ -193,4 +196,27 @@ export async function runRoleTask(
     .join("\n")
     .trim();
   return { status: "done", summary: submitted || text || "(no text returned)", filesTouched, transcript: produced };
+}
+
+/**
+ * Summarizer bound to the enabled `compactor` role's agent; undefined (prune/clip only) when no such
+ * role or agent exists. Cost is not metered yet (R3.4), hence the settings flag defaults off.
+ */
+export function compactorFor(rt: OrchestrationRuntime): ((middle: ChatMessage[]) => Promise<string>) | undefined {
+  const role = rt.config.roles.find((r) => r.id === "compactor" && r.enabled);
+  const agent = role && rt.config.agents.find((a) => a.id === role.agent);
+  if (!agent) return undefined;
+  const channel = rt.channelFor(agent.channel);
+  if (channel.unhealthy) return undefined;
+  return async (middle) => {
+    let text = "";
+    const messages: ChatMessage[] = [
+      { role: "system", content: SUMMARY_INSTRUCTIONS },
+      { role: "user", content: renderForSummary(middle) },
+    ];
+    for await (const ev of channel.chat({ model: agent.model, messages, signal: rt.signal })) {
+      if (ev.kind === "text") text += ev.text;
+    }
+    return text;
+  };
 }

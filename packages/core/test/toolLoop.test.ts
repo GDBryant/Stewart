@@ -357,3 +357,62 @@ describe("ToolLoop tool injection", () => {
   });
 });
 
+
+describe("ToolLoop summarize stage", () => {
+  const turns = (n: number): ChatEvent[][] => [
+    ...Array.from({ length: n }, (_, i): ChatEvent[] => [
+      { kind: "tool_calls", calls: [{ id: `e${i}`, name: "Echo", arguments: { text: "x".repeat(200) } }] },
+      { kind: "done" },
+    ]),
+    [{ kind: "text", text: "final" }, { kind: "done" }],
+  ];
+  const run = (max: number, n: number, summarize?: (m: ChatMessage[]) => Promise<string>) => {
+    const compacted: [number, number][] = [];
+    const seen: ChatMessage[][] = [];
+    const loop = new ToolLoop(
+      fakeChannel(turns(n), (req) => seen.push((req as { messages: ChatMessage[] }).messages)),
+      registryOf([echoTool]) as never,
+      approve,
+      { ...DEFAULT_LIMITS, maxContextChars: max },
+      undefined,
+      undefined,
+      undefined,
+      "native",
+      undefined,
+      summarize,
+    );
+    return { loop, compacted, seen, go: () => loop.run("m", [{ role: "user", content: "task" }], { onCompacted: (b, a) => compacted.push([b, a]) }, sig()) };
+  };
+
+  it("replaces the middle with the summarizer's note and completes", async () => {
+    const calls: ChatMessage[][] = [];
+    const t = run(1500, 8, async (m) => (calls.push(m), "Goal: x"));
+    const r = await t.go();
+    expect(r.kind).toBe("completed");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(t.compacted.length).toBeGreaterThan(0);
+    expect(t.seen.some((msgs) => msgs.some((m) => typeof m.content === "string" && m.content.startsWith("[summary of earlier steps]")))).toBe(true);
+  });
+
+  it("falls back to the emergency clip when the summarizer throws", async () => {
+    const t = run(1500, 8, async () => {
+      throw new Error("boom");
+    });
+    const r = await t.go();
+    expect(r.kind).toBe("completed");
+    expect(t.seen.some((msgs) => msgs.some((m) => typeof m.content === "string" && m.content.startsWith("[compacted")))).toBe(true);
+  });
+
+  it("never calls the summarizer below the threshold", async () => {
+    let n = 0;
+    const t = run(400_000, 8, async () => (n++, "note"));
+    expect((await t.go()).kind).toBe("completed");
+    expect(n).toBe(0);
+  });
+
+  it("without a summarizer only the clip runs", async () => {
+    const t = run(1500, 8);
+    expect((await t.go()).kind).toBe("completed");
+    expect(t.seen.some((msgs) => msgs.some((m) => typeof m.content === "string" && m.content.startsWith("[summary")))).toBe(false);
+  });
+});

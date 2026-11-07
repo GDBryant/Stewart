@@ -3,7 +3,7 @@ import type { ChatMessage, ToolCall } from "../channels/types.js";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, type ParseError, type SchemaMap } from "./shimParser.js";
 import { buildToolsBlock } from "./shimPrompt.js";
-import { compactIfOver, measureMessages, pruneStale } from "./compaction.js";
+import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "./compaction.js";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
   type ToolOutcome, type ToolPreview,
@@ -101,6 +101,8 @@ export class ToolLoop {
     private terminalTools: Set<string> = new Set(),
     private toolsMode: ToolsMode = "shim",
     private idempotency?: IdempotencyHooks,
+    /** Summarize stage (R3.3): turns the middle of the transcript into a note; absent = off. */
+    private summarize?: (middle: ChatMessage[]) => Promise<string>,
   ) {}
 
   private get schemaMap(): SchemaMap {
@@ -126,6 +128,12 @@ export class ToolLoop {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
         if (this.limits.prune && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.6) pruneStale(produced);
+        if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.8) {
+          const before = measureMessages([...base, ...produced]);
+          if (await summarizeMiddle(produced, this.summarize)) {
+            listener.onCompacted?.(Math.ceil(before / 4), Math.ceil(measureMessages([...base, ...produced]) / 4));
+          }
+        }
         if (compactIfOver(base, produced, this.limits.maxContextChars, listener)) {
           return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
         }
