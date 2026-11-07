@@ -24,6 +24,8 @@ import type { RunRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
 import { loadProjectContext } from "./projectContext.js";
 
+const DIRECT_TASK_ID = "direct";
+const chatRoleDef = (): RoleDef => ({ id: "chat", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: DEFAULT_LIMITS.maxModelTurns });
 const timeCapMessage = (ms: number): string => `run time limit reached (${Math.round(ms / 60_000)}min)`;
 
 export type RunStatus ="running" | "done" | "failed" | "cancelled" | "interrupted" | "stopped" | "no_dispatch";
@@ -37,6 +39,8 @@ export interface Run {
   messages: ChatMessage[];
   costUsd: number;
   tasks?: TaskRecord[];
+  /** Direct-run agent id, journaled so `/resume` can rebind it. */
+  agentId?: string;
   sessionId?: string;
   externalRefs?: { tracker?: string; branch?: string; pr?: string };
 }
@@ -210,6 +214,7 @@ export class RunManager {
       messages: [...(history ?? []), { role: "user", content: text, images }],
       costUsd: 0,
       sessionId,
+      agentId: agent.id,
     };
     this.runs.set(run.id, run);
     const bus = this.deps.bus;
@@ -262,6 +267,7 @@ export class RunManager {
         startedAt: run.startedAt,
         costUsd: run.costUsd,
         tasks: run.tasks,
+        agentId: run.agentId,
         externalRefs: run.externalRefs,
       };
       await this.deps.host.files.writeAtomic(this.journalPath(run.id, stateDir), JSON.stringify(body));
@@ -303,7 +309,7 @@ export class RunManager {
     if (!live && !hasJournal) {
       return { ok: false, reason: "run not found" };
     }
-    let persisted: { id?: string; projectId?: string; text?: string; status?: string; startedAt?: number; costUsd?: number; tasks?: TaskRecord[] } | undefined;
+    let persisted: { id?: string; projectId?: string; text?: string; status?: string; startedAt?: number; costUsd?: number; tasks?: TaskRecord[]; agentId?: string } | undefined;
     if (hasJournal) {
       try {
         persisted = JSON.parse((await this.deps.host.files.read(jPath)).content);
@@ -341,6 +347,7 @@ export class RunManager {
       messages: [{ role: "user", content: text }],
       costUsd: ledger.cost(runId).costUsd,
       tasks: graph.toJSON(),
+      agentId: live?.agentId ?? persisted?.agentId,
     };
     this.runs.set(run.id, run);
     this.deps.bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
@@ -359,7 +366,8 @@ export class RunManager {
         const cost = rt.cost;
         for (const t of interrupted) {
           if (timeCap?.hit) break;
-          const role = resolveRole(rt, t.roleId);
+          const isDirect = t.id === DIRECT_TASK_ID;
+          const role = resolveRole(rt, t.roleId) ?? (isDirect ? chatRoleDef() : undefined);
           if (!role) {
             t.status = "failed";
             t.summary = `no enabled role for '${t.roleId}'`;
@@ -369,7 +377,18 @@ export class RunManager {
           run.tasks = graph.toJSON();
           await this.journal(run, stateDir);
           this.deps.bus.emit({ kind: "task.started", runId: run.id, taskId: t.id, roleId: role.id });
-          const res = await runTaskRecoverable(rt, t, { role }, { depth: 0, brain: recoveryBrain(rt) });
+          // Direct run: lean replay (original request only; executed tool calls are skipped via the idempotency log).
+          const res = isDirect
+            ? await runRoleTask(
+                rt,
+                { ...t, task: `${text}\n\n(Resumed after interruption: continue; already-executed tool calls are skipped.)` },
+                {
+                  role,
+                  agent: run.agentId ? opts.config.agents.find((a) => a.id === run.agentId) : undefined,
+                  prompt: [await loadProjectContext(this.deps.host)].filter(Boolean).join("") || undefined,
+                },
+              )
+            : await runTaskRecoverable(rt, t, { role }, { depth: 0, brain: recoveryBrain(rt) });
           rt.leases.release(t.id);
           t.filesTouched = res.filesTouched;
           t.status = res.status === "done" ? "done" : "failed";
@@ -544,15 +563,21 @@ export class RunManager {
     const idem = new IdempotencyLog(this.deps.host, `${stateDir}/scratch/${runId}/executed.jsonl`, runId);
     await idem.load();
     const rt = this.buildRuntime(run, { config: budget.config, channelFor: () => channel, ledger, stateDir, idem, profile: budget.profile });
-    const chatRole: RoleDef = role ?? { id: "chat", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: DEFAULT_LIMITS.maxModelTurns };
+    const chatRole: RoleDef = role ?? chatRoleDef();
     const prompt = [rolePrompt, await loadProjectContext(this.deps.host)].filter(Boolean).join("");
     const desc = (run.messages.find((m) => m.role === "user")?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
-    const spec: TaskSpec = { id: "direct", roleId: chatRole.id, title: desc, task: desc, files: [], dependsOn: [] };
+    const spec: TaskSpec = { id: DIRECT_TASK_ID, roleId: chatRole.id, title: desc, task: desc, files: [], dependsOn: [] };
     const recovery = budget.recovery;
     const askTimed = this.askTimed(runId, run.controller.signal);
+    const rec: TaskRecord = { ...spec, status: "running", filesTouched: [] };
+    run.tasks = [rec];
+    await this.journal(run, stateDir);
     const finish = async (status: RunStatus, event: "done" | "failed" | "cancelled" | "stopped", error?: string) => {
       run.status = status;
       run.costUsd = rt.cost.accrued;
+      rec.status = status === "done" ? "done" : "failed";
+      if (error) rec.error = error;
+      await this.journal(run, stateDir);
       await this.saveHistory(run);
       bus.emit({ kind: "run.finished", runId, status: event, ...(error ? { error } : {}) });
     };
@@ -592,6 +617,8 @@ export class RunManager {
       await finish("done", "done");
     } catch (e) {
       rt.leases.releaseAll();
+      rec.status = "failed";
+      await this.journal(run, stateDir);
       await this.saveHistory(run);
       throw e;
     } finally {

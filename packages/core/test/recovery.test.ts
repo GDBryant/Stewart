@@ -487,6 +487,61 @@ describe("RunManager direct continue question", () => {
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "done" });
   });
 
+  it("direct run is journaled with a single direct task and its agent id", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    const { channel } = fakeChannel(() => [text("hello"), done()]);
+    const fake = fakeHost({});
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const run = await manager.direct("p", channel, agentOf(cfg), "hi there", undefined, undefined, undefined, undefined, undefined, {
+      config: cfg,
+      profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
+    });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    const j = JSON.parse(fake.files[`/tmp/st/scratch/${run.id}/run.json`]!);
+    expect(j.agentId).toBe("a-free");
+    expect(j.text).toBe("hi there");
+    expect(j.tasks).toHaveLength(1);
+    expect(j.tasks[0]).toMatchObject({ id: "direct", status: "done" });
+  });
+
+  it("resume of an interrupted direct run replays the original request on the journaled agent", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    let sent = 0;
+    const { channel } = fakeChannel(() => (sent++, [text("resumed ok"), done()]));
+    const fake = fakeHost({ "a.ts": "x" });
+    fake.files["/tmp/st/scratch/run-d/run.json"] = JSON.stringify({
+      id: "run-d",
+      projectId: "p",
+      text: "full original request",
+      status: "interrupted",
+      startedAt: 1,
+      agentId: "a-free",
+      tasks: [{ id: "direct", roleId: "chat", title: "t", task: "t", files: [], dependsOn: [], status: "failed", error: "x", filesTouched: [] }],
+    });
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const res = await manager.resume("p", "run-d", { config: cfg, channelFor: () => channel });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-d")?.status).toBe("done"));
+    expect(sent).toBe(1);
+    expect(manager.get("run-d")!.agentId).toBe("a-free");
+  });
+
+  it("resume of a completed direct run re-executes nothing", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    let sent = 0;
+    const { channel } = fakeChannel(() => (sent++, [text("x"), done()]));
+    const fake = fakeHost({});
+    fake.files["/tmp/st/scratch/run-e/run.json"] = JSON.stringify({
+      id: "run-e", projectId: "p", text: "go", status: "done", startedAt: 1, agentId: "a-free",
+      tasks: [{ id: "direct", roleId: "chat", title: "t", task: "t", files: [], dependsOn: [], status: "done", filesTouched: [] }],
+    });
+    const manager = new RunManager({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const res = await manager.resume("p", "run-e", { config: cfg, channelFor: () => channel });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-e")?.status).toBe("done"));
+    expect(sent).toBe(0);
+  });
+
   it("direct run cancelled mid-stream ends cancelled, not done", async () => {
     const cfg = config({ roles: { "general-worker": TURNS_1 } });
     const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);

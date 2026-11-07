@@ -50,7 +50,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 
 | Path | Entry | Ledger/cost cap | Leases | Idempotency | Journal/resume | `maxRunHours` | Turn budget | Recovery |
 |---|---|---|---|---|---|---|---|---|
-| Direct | `RunManager.direct` → `driveDirect` → `runRoleTask` (single task `direct`, chat role or synthetic `chat`) | no | yes (`taskId "direct"`) | yes | no (not journaled) | `rt.timeCap` | `resolveLimits` | continue question (in `driveDirect`) |
+| Direct | `RunManager.direct` → `driveDirect` → `runRoleTask` (single task `direct`, chat role or synthetic `chat`) | yes | yes (`taskId "direct"`) | yes | yes (`run.json` with one `direct` task + `agentId`; `/resume` replays the original request only — no chat history — on the journaled agent, executed calls skipped via the idempotency log) | `rt.timeCap` | `resolveLimits` | continue question (in `driveDirect`) |
 | Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 via `runTaskRecoverable` |
 | Resume | `RunManager.resume` → `runTaskRecoverable` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 |
 
