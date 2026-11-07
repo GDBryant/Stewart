@@ -7,7 +7,7 @@ import { argv, normalizeModel, prepare } from "../src/channels/claude/transcript
 import { type ChatMessage } from "@stewart/kernel";
 import { ChannelError } from "../src/channels/types.js";
 import type { SpawnedProc, SpawnFn } from "../src/channels/claude/nodeSpawn.js";
-import { collect } from "./helpers.js";
+import { collect } from "@stewart/kernel";
 
 const FIXTURES = join(__dirname, "../../conformance/fixtures/claude");
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), "utf8").split("\n").filter((l) => l.trim());

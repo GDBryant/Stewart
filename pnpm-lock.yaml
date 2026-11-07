@@ -112,6 +112,10 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/context:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -121,6 +125,13 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/diagnostics:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -307,6 +318,12 @@ importers:
       '@stewart/compaction':
         specifier: workspace:*
         version: link:../../modules/compaction
+      '@stewart/context':
+        specifier: workspace:*
+        version: link:../../modules/context
+      '@stewart/diagnostics':
+        specifier: workspace:*
+        version: link:../../modules/diagnostics
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel
@@ -366,6 +383,9 @@ importers:
       '@stewart/core':
         specifier: workspace:*
         version: link:../core
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../../modules/kernel
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../protocol

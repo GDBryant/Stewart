@@ -15,7 +15,7 @@ import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
 import { costOfCall } from "@stewart/ledger";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
-import { loadProjectContext } from "../projectContext.js";
+import { loadProjectContext } from "@stewart/context";
 import type { OrchestrationRuntime } from "./types.js";
 import type { TaskSpec } from "@stewart/scheduling";
 

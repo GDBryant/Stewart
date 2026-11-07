@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { gatherHardware, scanWorkspace, SCAN_FILE_CAP } from "../src/setupContext.js";
-import { fakeHost } from "./helpers.js";
+import { fakeHost } from "@stewart/kernel";
 
 describe("scanWorkspace", () => {
   it("counts files, lines and languages and classifies a small workspace", async () => {

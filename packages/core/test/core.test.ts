@@ -3,7 +3,7 @@ import { EventBus } from "../src/events.js";
 import { loadConfig } from "../src/config/loader.js";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";
-import { fakeFetcher, streamOf } from "./helpers.js";
+import { fakeFetcher, streamOf } from "@stewart/kernel";
 import type { ConfigLayer } from "../src/config/loader.js";
 import type { ConfigStore } from "../src/config/store.js";
 

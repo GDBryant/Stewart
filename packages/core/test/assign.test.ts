@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meetsHardRequirements, modelSizeB, scoreAssignments, type Candidate } from "../src/assign.js";
 import { Core } from "../src/core.js";
-import { fakeFetcher, fakeHost } from "./helpers.js";
+import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
 const c = (model: string, caps: Candidate["caps"] = {}, channelType = "ollama", channel = "c1"): Candidate => ({ channel, channelType, model, caps });
 const pick = (role: string, cs: Candidate[]) => scoreAssignments([role], cs).assignments[0];

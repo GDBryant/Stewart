@@ -20,7 +20,7 @@ import { projectTools } from "../src/tools/builtins.js";
 import { ProjectPaths } from "../src/tools/projectPaths.js";
 import { ToolLoop } from "../src/tools/toolLoop.js";
 import { ToolRegistry } from "../src/tools/types.js";
-import { fakeHost } from "./helpers.js";
+import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 
 const done = (usage?: { in: number; out: number }, costUsd?: number): ChatEvent => ({ kind: "done", usage, costUsd });

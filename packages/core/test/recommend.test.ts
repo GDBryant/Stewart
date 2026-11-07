@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Core } from "../src/core.js";
-import { fakeFetcher, fakeHost } from "./helpers.js";
+import { fakeFetcher, fakeHost } from "@stewart/kernel";
 import type { ConfigLayer } from "../src/config/loader.js";
 import type { ConfigStore } from "../src/config/store.js";
 

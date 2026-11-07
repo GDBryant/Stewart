@@ -1,7 +1,7 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
 import { DEFAULT_CAPS } from "@stewart/models";
 import { ChannelError } from "./types.js";
-import { stripImages } from "../images.js";
+import { stripImages } from "@stewart/context";
 
 /**
  * Wraps an adapter + config with per-channel concurrency (maxParallel queue),

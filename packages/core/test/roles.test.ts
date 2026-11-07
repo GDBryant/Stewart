@@ -3,10 +3,10 @@ import { agentServesRole, matchGlob, roleRegistry, roleTurnBudget, validateRoles
 import { projectTools } from "../src/tools/builtins.js";
 import { ProjectPaths } from "../src/tools/projectPaths.js";
 import { ToolRegistry, type Tool } from "../src/tools/types.js";
-import { fakeHost } from "./helpers.js";
+import { fakeHost } from "@stewart/kernel";
 import type { RoleDef } from "../src/config/schema.js";
 import { Core } from "../src/core.js";
-import { fakeFetcher } from "./helpers.js";
+import { fakeFetcher } from "@stewart/kernel";
 import type { ConfigStore } from "../src/config/store.js";
 import type { ConfigLayer } from "../src/config/loader.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";

@@ -24,7 +24,7 @@ import {
 import type { OrchestrationRuntime } from "../src/orchestration/types.js";
 import { matchGlob } from "../src/roles.js";
 import type { RoleDef } from "../src/config/schema.js";
-import { fakeHost } from "./helpers.js";
+import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 
 const done = (usage?: { in: number; out: number }, costUsd?: number): ChatEvent => ({ kind: "done", usage, costUsd });

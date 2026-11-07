@@ -1,7 +1,5 @@
 [
-  "import channels/registry.ts -> context",
   "import config/loader.ts -> roles-skills",
-  "import history.ts -> context",
   "import orchestration/idempotency.ts -> agent-loop",
   "import orchestration/orchestrator.ts -> recovery",
   "import orchestration/recovery.ts -> orchestration",
@@ -9,7 +7,6 @@
   "import orchestration/types.ts -> recovery",
   "import orchestration/writeGuard.ts -> tools",
   "import roles.ts -> tools",
-  "import tools/builtins.ts -> context",
   "import v1import.ts -> channels",
   "size core.ts",
   "size orchestration/orchestrator.ts",

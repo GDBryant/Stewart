@@ -1,5 +1,5 @@
 import type { Fetcher } from "@stewart/kernel";
-import type { DebugSink } from "../debug/debug.js";
+import type { DebugSink } from "@stewart/diagnostics";
 
 import type { ToolCall, ChatMessage } from "@stewart/kernel";
 

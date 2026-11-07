@@ -1,6 +1,6 @@
 export * from "@stewart/kernel";
 export * from "./events.js";
-export * from "./debug/debug.js";
+export * from "@stewart/diagnostics";
 export * from "./channels/types.js";
 export * from "./channels/stream.js";
 export * from "./channels/ollama.js";
@@ -38,8 +38,6 @@ export * from "./orchestration/orchestrator.js";
 export * from "./orchestration/faults.js";
 export * from "./orchestration/recovery.js";
 export * from "./history.js";
-export * from "./images.js";
-export * from "./mentions.js";
-export * from "./projectContext.js";
+export * from "@stewart/context";
 export * from "./v1import.js";
 export * from "./recommend.js";

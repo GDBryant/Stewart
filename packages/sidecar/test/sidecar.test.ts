@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { RpcLink } from "../src/rpc.js";
 import { serve, type CoreLike } from "../src/server.js";
 import { remoteConfigStore, remoteHost } from "../src/host.js";
-import { fakeHost } from "../../core/test/helpers.js";
+import { fakeHost } from "@stewart/kernel";
 
 function pair() {
   const out: string[] = [];

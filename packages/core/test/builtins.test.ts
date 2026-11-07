@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectTools } from "../src/tools/builtins.js";
 import { ProjectPaths } from "../src/tools/projectPaths.js";
-import { fakeHost } from "./helpers.js";
+import { fakeHost } from "@stewart/kernel";
 
 async function setup(files: Record<string, string>) {
   const h = fakeHost(files);

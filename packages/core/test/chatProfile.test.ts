@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Core } from "../src/core.js";
-import { fakeFetcher, fakeHost } from "./helpers.js";
+import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
 describe("chat.send profile", () => {
   it("sends the resolved profile on run.started; /quick and /deep prefixes override the classifier", async () => {

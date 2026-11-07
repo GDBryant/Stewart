@@ -21,7 +21,7 @@ import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
 import type { RunRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
-import { loadProjectContext } from "./projectContext.js";
+import { loadProjectContext } from "@stewart/context";
 
 const DIRECT_TASK_ID = "direct";
 const chatRoleDef = (): RoleDef => ({ id: "chat", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: DEFAULT_LIMITS.maxModelTurns });

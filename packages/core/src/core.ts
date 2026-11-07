@@ -16,8 +16,8 @@ import { parse as parseYaml } from "yaml";
 import { RunManager } from "./runManager.js";
 import { mergeProbeCaps, type ModelCaps } from "@stewart/models";
 import type { ChannelDeps } from "./channels/types.js";
-import { expandMentions } from "./mentions.js";
-import { normalizeImages } from "./images.js";
+import { expandMentions } from "@stewart/context";
+import { normalizeImages } from "@stewart/context";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
@@ -26,7 +26,7 @@ import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext
 import { budgetProfile, classifyTask, type BudgetProfileName } from "@stewart/budget";
 import { recoveryState } from "./orchestration/recovery.js";
 import type { WorkspaceInfo } from "./setupContext.js";
-import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
+import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "@stewart/diagnostics";
 
 export interface CoreDeps {
   fetcher?: Fetcher;

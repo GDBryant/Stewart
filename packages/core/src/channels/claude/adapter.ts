@@ -2,7 +2,7 @@ import type { ToolCall } from "@stewart/kernel";
 import type { ModelCaps } from "@stewart/models";
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "../types.js";
 import { ChannelError } from "../types.js";
-import type { DebugSink } from "../../debug/debug.js";
+import type { DebugSink } from "@stewart/diagnostics";
 import { ClaudeStreamParser, classify } from "./parser.js";
 import { argv as claudeArgv, normalizeModel, prepare } from "./transcript.js";
 import { nodeSpawn, makeTempDir, rmDir, writeTempFile, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
