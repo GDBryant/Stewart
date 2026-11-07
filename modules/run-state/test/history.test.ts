@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ChatHistoryStore } from "../src/history.js";
+import { ChatHistoryStore } from "../src/api.js";
 import type { ChatMessage } from "@stewart/kernel";
 import { fakeHost } from "@stewart/kernel";
 

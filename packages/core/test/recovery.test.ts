@@ -8,7 +8,7 @@ import { counterIds, systemClock } from "@stewart/kernel";
 import { RunManager } from "../src/runManager.js";
 import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "@stewart/ledger";
-import { IdempotencyLog } from "../src/orchestration/idempotency.js";
+import { IdempotencyLog } from "@stewart/run-state";
 import { actionsSoFar, classifyFault, countToolCalls, detectStuck } from "../src/orchestration/faults.js";
 import {
   continueQuestion,

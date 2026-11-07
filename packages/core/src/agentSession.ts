@@ -6,7 +6,8 @@ import type { EventBus } from "./events.js";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ToolRegistry } from "@stewart/tools";
 import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
-import { ToolLoop, type ApprovalGate, type IdempotencyHooks, type LoopListener } from "./tools/toolLoop.js";
+import type { IdempotencyHooks } from "@stewart/kernel";
+import { ToolLoop, type ApprovalGate, type LoopListener } from "./tools/toolLoop.js";
 import { profileFromChannel, type ModelProfile } from "@stewart/models";
 import { costOfCall, type CostLimit, type RunLedger } from "@stewart/ledger";
 

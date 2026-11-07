@@ -1,5 +1,5 @@
-import type { HostPort, Json, ToolSpec } from "@stewart/kernel";
-import { IMAGE_LIMITS, mediaTypeFor } from "@stewart/context";
+import { mediaTypeFor, type HostPort, type Json, type ToolSpec } from "@stewart/kernel";
+import { IMAGE_LIMITS } from "@stewart/context";
 import type { ToolPreview } from "@stewart/permissions";
 import { ProjectPaths } from "./projectPaths.js";
 import { arg, schema, str, ProjectTool } from "./toolBase.js";

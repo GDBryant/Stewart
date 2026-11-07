@@ -308,6 +308,10 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/run-state:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -392,6 +396,12 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
+      '@stewart/run-state':
+        specifier: workspace:*
+        version: link:../run-state
+      '@stewart/scheduling':
+        specifier: workspace:*
+        version: link:../scheduling
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -463,6 +473,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../../modules/roles-skills
+      '@stewart/run-state':
+        specifier: workspace:*
+        version: link:../../modules/run-state
       '@stewart/scheduling':
         specifier: workspace:*
         version: link:../../modules/scheduling

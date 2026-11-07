@@ -15,12 +15,13 @@ import { ToolRegistry } from "@stewart/tools";
 import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
-import { IdempotencyLog } from "./orchestration/idempotency.js";
-import { leasedTools, revertRunSnapshots } from "./orchestration/writeGuard.js";
+import { IdempotencyLog } from "@stewart/run-state";
+import { revertRunSnapshots } from "@stewart/run-state";
+import { leasedTools } from "@stewart/tools";
 import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
 import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
 import type { RunRuntime } from "./orchestration/types.js";
-import { ChatHistoryStore } from "./history.js";
+import { ChatHistoryStore } from "@stewart/run-state";
 import { loadProjectContext } from "@stewart/context";
 
 const DIRECT_TASK_ID = "direct";

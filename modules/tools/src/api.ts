@@ -9,3 +9,4 @@ export { applyUnifiedPatch } from "./fsWrite.js";
 export type { ImageGenerator } from "./media.js";
 export { ProjectPaths, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, MAX_FILE_BYTES, MAX_COMMAND_OUTPUT } from "./projectPaths.js";
 export { roleRegistry, checkInvestigatorCommand } from "./roleRegistry.js";
+export { leasedTools } from "./leaseGuard.js";

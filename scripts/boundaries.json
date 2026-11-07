@@ -2,8 +2,7 @@
   "comment": "Maps today's packages/core/src files to target modules (MODULAR_DESIGN §7). First match wins; unmapped = app.",
   "map": [
     ["events.ts", "kernel"],
-                                                ["orchestration/writeGuard.ts", "run-state"], ["orchestration/idempotency.ts", "run-state"], ["history.ts", "run-state"],
-                ["tools/toolLoop.ts", "agent-loop"], ["agentSession.ts", "agent-loop"], ["orchestration/faults.ts", "agent-loop"],
+                                                                ["tools/toolLoop.ts", "agent-loop"], ["agentSession.ts", "agent-loop"], ["orchestration/faults.ts", "agent-loop"],
     ["orchestration/recovery.ts", "recovery"],
     ["orchestration/orchestrator.ts", "orchestration"], ["orchestration/replacements.ts", "orchestration"], ["orchestration/roleRunner.ts", "orchestration"],
     ["orchestration/tools.ts", "orchestration"], ["orchestration/types.ts", "orchestration"],

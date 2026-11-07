@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { HostPort } from "@stewart/kernel";
 import type { ChatMessage } from "@stewart/kernel";
-import { mediaTypeFor } from "@stewart/context";
+import { mediaTypeFor } from "@stewart/kernel";
 
 export interface StoredImage {
   file: string;

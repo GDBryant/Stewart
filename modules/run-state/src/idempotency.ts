@@ -1,5 +1,4 @@
-import type { HostPort } from "@stewart/kernel";
-import type { IdempotencyHooks } from "../tools/toolLoop.js";
+import type { HostPort, IdempotencyHooks } from "@stewart/kernel";
 
 /**
  * Persisted tool-outcome log for one run. `/resume` skips calls whose outcome is

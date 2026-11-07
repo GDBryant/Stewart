@@ -7,7 +7,7 @@ import type { ToolCall } from "@stewart/kernel";
 import type { ApprovalDecision } from "../tools/toolLoop.js";
 import type { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph } from "@stewart/scheduling";
-import type { IdempotencyLog } from "./idempotency.js";
+import type { IdempotencyLog } from "@stewart/run-state";
 import type { BudgetProfile } from "@stewart/budget";
 import type { RecoveryState } from "./recovery.js";
 

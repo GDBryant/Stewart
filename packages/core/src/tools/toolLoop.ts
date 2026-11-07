@@ -1,7 +1,7 @@
 import type { ManagedChannel } from "@stewart/channels";
 import { DEFAULT_LIMITS, type LoopLimits } from "@stewart/budget";
 import type { ToolsMode } from "@stewart/models";
-import type { ChatMessage, ToolCall } from "@stewart/kernel";
+import type { ChatMessage, IdempotencyHooks, ToolCall } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "@stewart/compaction";
@@ -20,13 +20,6 @@ export interface LoopListener {
   onCompactionFailed?(message: string): void;
   /** One model call finished: usage + provider-reported cost (ledger input). */
   onUsage?(usage: { in: number; out: number } | undefined, costUsd: number | undefined): void | Promise<void>;
-}
-
-/** Replay guard: a tool call whose outcome is already recorded is not re-executed. */
-export interface IdempotencyHooks {
-  key(call: ToolCall, index: number): string;
-  lookup(key: string): string | undefined;
-  record(key: string, content: string): Promise<void>;
 }
 
 export class RunCancelledError extends Error {

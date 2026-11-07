@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@stewart/kernel";
+import { mediaTypeFor, type ChatMessage } from "@stewart/kernel";
 
 /** v1 ImageLimits: 5 MB per image, 50 MB read cap, 5 per message. */
 export const IMAGE_LIMITS = {
@@ -6,19 +6,6 @@ export const IMAGE_LIMITS = {
   maxReadBytes: 50 * 1024 * 1024,
   maxPerMessage: 5,
 };
-
-const MEDIA_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-};
-
-export function mediaTypeFor(name: string): string | undefined {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  return MEDIA_TYPES[ext];
-}
 
 /** Base64 string or `data:` URI → { mediaType, base64 }. */
 export function parseImageData(raw: string): { mediaType: string; base64: string } {

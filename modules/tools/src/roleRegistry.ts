@@ -5,7 +5,7 @@ import { splitShellPrograms, type ToolPreview } from "@stewart/permissions";
 import { ToolRegistry, type Tool } from "./types.js";
 
 /** File-writing tools whose `path` arg is checked against role writePaths. */
-const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
+export const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 
 const INVESTIGATOR_READONLY_PROGRAMS = new Set([
   "ls", "cat", "head", "tail", "wc", "stat", "file", "find", "grep", "rg", "git",

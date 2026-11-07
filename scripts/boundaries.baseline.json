@@ -1,5 +1,4 @@
 [
-  "import orchestration/idempotency.ts -> agent-loop",
   "import orchestration/orchestrator.ts -> recovery",
   "import orchestration/recovery.ts -> orchestration",
   "import orchestration/types.ts -> app",
