@@ -15,7 +15,8 @@
     "yaml": "2.8.1",
     "zod": "3.25.76",
     "@stewart/kernel": "workspace:*",
-    "@stewart/toolcall-format": "workspace:*"
+    "@stewart/toolcall-format": "workspace:*",
+    "@stewart/compaction": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

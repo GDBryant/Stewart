@@ -80,6 +80,10 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/compaction:
+    dependencies:
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -263,6 +267,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@stewart/compaction':
+        specifier: workspace:*
+        version: link:../../modules/compaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel

@@ -2,7 +2,7 @@ import type { ManagedChannel } from "../channels/registry.js";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { Clock } from "../ports.js";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
-import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "./compaction.js";
+import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "@stewart/compaction";
 import {
   NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
   type ToolOutcome, type ToolPreview,

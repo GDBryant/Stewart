@@ -7,7 +7,7 @@ import { DEFAULT_BUDGET_PROFILES } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
 import { RunCancelledError, type ApprovalDecision, type LoopResult } from "../tools/toolLoop.js";
-import { renderForSummary, SUMMARY_INSTRUCTIONS } from "../tools/compaction.js";
+import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "../agentSession.js";
 import type { ToolCall } from "@stewart/kernel";
 import type { ToolPreview } from "../tools/types.js";
