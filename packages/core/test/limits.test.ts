@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits } from "../src/limits.js";
+import { budgetProfile, DEFAULT_BUDGET_PROFILES, DEFAULT_MODEL_CALL_TIMEOUT_MS, effectiveRunCapMs, resolveLimits, compactionThresholds } from "../src/limits.js";
 import type { AgentDef, RoleDef } from "../src/config/schema.js";
 import { profileFromChannel } from "../src/modelProfile.js";
 
@@ -94,5 +94,21 @@ describe("budgetProfile", () => {
     expect(budgetProfile(settings, "quick").maxRunMinutes).toBe(5);
     expect(budgetProfile(settings, undefined)).toEqual(DEFAULT_BUDGET_PROFILES.normal);
     expect(budgetProfile({}, "deep")).toEqual(DEFAULT_BUDGET_PROFILES.deep);
+  });
+});
+
+describe("compactionThresholds", () => {
+  it("quick compacts earlier than normal, deep later", () => {
+    const q = compactionThresholds(DEFAULT_BUDGET_PROFILES.quick);
+    const n = compactionThresholds(DEFAULT_BUDGET_PROFILES.normal);
+    const d = compactionThresholds(DEFAULT_BUDGET_PROFILES.deep);
+    expect(q.pruneAt).toBeLessThan(n.pruneAt);
+    expect(n.pruneAt).toBeLessThan(d.pruneAt);
+    expect(q.summarizeAt).toBeLessThan(n.summarizeAt);
+    expect(n.summarizeAt).toBeLessThan(d.summarizeAt);
+    expect(n).toEqual({ pruneAt: 0.6, summarizeAt: 0.8 });
+  });
+  it("is carried by resolveLimits", () => {
+    expect(resolveLimits({ profile: DEFAULT_BUDGET_PROFILES.quick, ceiling: 60 })).toMatchObject({ pruneAt: 0.4, summarizeAt: 0.6 });
   });
 });

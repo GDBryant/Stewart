@@ -366,14 +366,14 @@ describe("ToolLoop summarize stage", () => {
     ]),
     [{ kind: "text", text: "final" }, { kind: "done" }],
   ];
-  const run = (max: number, n: number, summarize?: (m: ChatMessage[]) => Promise<string>) => {
+  const run = (max: number, n: number, summarize?: (m: ChatMessage[]) => Promise<string>, extra: Record<string, number> = {}) => {
     const compacted: [number, number][] = [];
     const seen: ChatMessage[][] = [];
     const loop = new ToolLoop(
       fakeChannel(turns(n), (req) => seen.push((req as { messages: ChatMessage[] }).messages)),
       registryOf([echoTool]) as never,
       approve,
-      { ...DEFAULT_LIMITS, maxContextChars: max },
+      { ...DEFAULT_LIMITS, maxContextChars: max, ...extra },
       undefined,
       undefined,
       undefined,
@@ -408,6 +408,15 @@ describe("ToolLoop summarize stage", () => {
     const t = run(400_000, 8, async () => (n++, "note"));
     expect((await t.go()).kind).toBe("completed");
     expect(n).toBe(0);
+  });
+
+  it("summarizeAt moves the trigger: early threshold summarizes where the default does not", async () => {
+    let early = 0;
+    let late = 0;
+    await run(6000, 8, async () => (early++, "n"), { summarizeAt: 0.25 }).go();
+    await run(6000, 8, async () => (late++, "n"), { summarizeAt: 0.99 }).go();
+    expect(early).toBeGreaterThan(0);
+    expect(late).toBe(0);
   });
 
   it("without a summarizer only the clip runs", async () => {

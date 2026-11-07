@@ -40,6 +40,9 @@ export interface LoopLimits {
   maxTruncationRetries: number;
   /** Stub stale bulky tool results once context passes 60% of `maxContextChars` (R3 prune stage). */
   prune?: boolean;
+  /** Fractions of `maxContextChars` at which prune / summarize start (defaults 0.6 / 0.8; set per budget profile). */
+  pruneAt?: number;
+  summarizeAt?: number;
 }
 
 export const DEFAULT_LIMITS: LoopLimits = {
@@ -130,8 +133,8 @@ export class ToolLoop {
         const before = measureMessages([...base, ...produced]);
         let pruned = 0;
         let summarized = false;
-        if (this.limits.prune && before > this.limits.maxContextChars * 0.6) pruned = pruneStale(produced);
-        if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.8) {
+        if (this.limits.prune && before > this.limits.maxContextChars * (this.limits.pruneAt ?? 0.6)) pruned = pruneStale(produced);
+        if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * (this.limits.summarizeAt ?? 0.8)) {
           summarized = await summarizeMiddle(produced, this.summarize);
         }
         if (pruned > 0 || summarized) {

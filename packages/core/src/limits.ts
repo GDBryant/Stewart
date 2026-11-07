@@ -43,6 +43,13 @@ export function effectiveRunCapMs(maxRunHours: number, profile: BudgetProfile): 
   return Math.min(h, m);
 }
 
+/** Compaction thresholds by profile: shorter-turn (quick) profiles compact earlier, longer (deep) later. */
+export function compactionThresholds(profile: BudgetProfile): { pruneAt: number; summarizeAt: number } {
+  if (profile.turnMultiplier < 1) return { pruneAt: 0.4, summarizeAt: 0.6 };
+  if (profile.turnMultiplier > 1) return { pruneAt: 0.75, summarizeAt: 0.9 };
+  return { pruneAt: 0.6, summarizeAt: 0.8 };
+}
+
 /**
  * Model-aware limits: turn budget scaled by profile and by cost/reliability
  * factors, tool and per-model-call timeouts scaled by profile and measured
@@ -77,6 +84,7 @@ export function resolveLimits(opts: {
   return {
     ...DEFAULT_LIMITS,
     maxModelTurns,
+    ...compactionThresholds(profile),
     toolTimeoutMs: Math.round(DEFAULT_LIMITS.toolTimeoutMs * profile.timeoutMultiplier * timeoutFactor),
     modelCallTimeoutMs: Math.round(DEFAULT_MODEL_CALL_TIMEOUT_MS * profile.timeoutMultiplier * timeoutFactor),
   };
