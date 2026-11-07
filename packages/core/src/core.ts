@@ -188,273 +188,318 @@ export class Core {
   /** Single entry point for host→core JSON-RPC. */
   async dispatch(method: string, params: unknown): Promise<unknown> {
     switch (method) {
-      case "hello": {
-        const hello = helloSchema.parse(params);
-        const r = negotiate({ protocol: PROTOCOL_VERSION, capabilities: [...KNOWN_CAPABILITIES] }, hello);
-        if (!r.ok) throw new Error(r.error);
-        return { protocol: PROTOCOL_VERSION, capabilities: r.capabilities };
-      }
-      case "chat.send": {
-        const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string };
-        const ctx = this.ctx(p.projectId);
-        const direct = p.direct || p.text.startsWith("/direct ");
-        const raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
-        const mention = await expandMentions(ctx.host, raw);
-        for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
-        const norm = normalizeImages(p.images ?? []);
-        if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
-        const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
-        if (orchestrator && !direct) {
-          const run = await ctx.runs.orchestrated(p.projectId, {
-            config: ctx.config,
-            channelFor: (id) => this.channelById(id),
-            text: mention.text,
-            sessionId: p.sessionId,
-          });
-          return { runId: run.id };
-        }
-        const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
-        const agent = this.pickChatAgent(ctx.config, role);
-        const channel = this.channelForAgent(agent);
-        const { prompt, truncated } = role
-          ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
-          : { prompt: undefined, truncated: false };
-        if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
-        const history = p.sessionId ? ((await (await ctx.runs.historyStore()).load(p.sessionId)) ?? []) : [];
-        const run = await ctx.runs.direct(
-          p.projectId,
-          channel,
-          agent,
-          mention.text,
-          norm.images.length ? norm.images : undefined,
-          role,
-          prompt || undefined,
-          p.sessionId,
-          history,
-        );
-        return { runId: run.id };
-      }
-      case "chat.cancel": {
-        const p = params as { projectId: string; runId: string };
-        return { ok: this.ctx(p.projectId).runs.cancel(p.runId) };
-      }
-      case "chat.resume": {
-        const p = params as { projectId: string; runId: string };
-        const ctx = this.ctx(p.projectId);
-        const res = await ctx.runs.resume(p.projectId, p.runId, {
-          config: ctx.config,
-          channelFor: (id) => this.channelById(id),
-        });
-        return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
-      }
-      case "chat.revert": {
-        const p = params as { projectId: string; runId: string };
-        return this.ctx(p.projectId).runs.revert(p.runId);
-      }
-      case "history.list": {
-        const p = params as { projectId: string };
-        const store = await this.ctx(p.projectId).runs.historyStore();
-        return { sessions: await store.list() };
-      }
-      case "history.load": {
-        const p = params as { projectId: string; sessionId: string };
-        const store = await this.ctx(p.projectId).runs.historyStore();
-        return { messages: (await store.load(p.sessionId)) ?? [] };
-      }
-      case "history.delete": {
-        const p = params as { projectId: string; sessionId: string };
-        const store = await this.ctx(p.projectId).runs.historyStore();
-        await store.delete(p.sessionId);
-        return { ok: true };
-      }
-      case "config.importV1": {
-        const p = params as { projectId: string; xml: string; apply?: boolean };
-        const ctx = this.ctx(p.projectId);
-        const res = importV1Xml(p.xml, parseMiniXml);
-        if (p.apply && Object.keys(res.files).length) {
-          for (const [file, yaml] of Object.entries(res.files)) {
-            this.userGuard.recordWrite(file, yaml);
-            await this.deps.userConfig.write(file, yaml);
-          }
-          await this.reload(p.projectId);
-        }
-        return res;
-      }
-      case "chat.answer": {
-        const p = params as { projectId: string; questionId: string; answer: string };
-        return { ok: this.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
-      }
-      case "chat.approve": {
-        const p = params as { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" };
-        return { ok: this.ctx(p.projectId).runs.approve(p.approvalId, p.grant) };
-      }
-      case "config.get": {
-        const p = params as { projectId: string };
-        const ctx = this.ctx(p.projectId);
-        const userFiles = await this.deps.userConfig.read();
-        const projectFiles = ctx.trusted ? await ctx.projectStore.read() : {};
-        const files = { ...this.deps.defaults, ...userFiles, ...projectFiles };
-        const { errors, ...summary } = ctx.config;
-        const secrets: Record<string, boolean> = {};
-        for (const c of ctx.config.channels) {
-          if (c.secretRef && !(c.secretRef in secrets)) secrets[c.secretRef] = (await ctx.host.secrets.get(c.secretRef)) !== undefined;
-        }
-        return { files, summary, errors, secrets };
-      }
-      case "config.reload": {
-        const p = params as { projectId: string; fromWatcher?: boolean };
-        const { suppressed } = await this.reload(p.projectId, p.fromWatcher ?? false);
-        return { ok: true, suppressed };
-      }
-      case "config.set": {
-        const p = params as { projectId: string; file: string; yaml: string; layer?: "user" | "project" };
-        const ctx = this.ctx(p.projectId);
-        const schema = CONFIG_FILE_SCHEMAS[p.file];
-        if (!schema) throw new Error(`unknown config file: ${p.file}`);
-        let doc: unknown;
-        try {
-          doc = parseYaml(p.yaml);
-        } catch (e) {
-          throw new Error(`invalid YAML: ${e instanceof Error ? e.message : e}`);
-        }
-        const parsed = schema.safeParse(doc ?? {});
-        if (!parsed.success) throw new Error(`invalid ${p.file}: ${parsed.error.issues[0]?.message ?? "schema error"}`);
-        const layer = p.layer ?? "user";
-        if (layer === "project") {
-          if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
-          if (!isProjectFile(p.file)) throw new Error(`${p.file} is not allowed at project level`);
-          ctx.projectGuard.recordWrite(p.file, p.yaml);
-          await ctx.projectStore.write(p.file, p.yaml);
-        } else {
-          this.userGuard.recordWrite(p.file, p.yaml);
-          await this.deps.userConfig.write(p.file, p.yaml);
-        }
-        await this.reload(p.projectId);
-        return { ok: true };
-      }
-      case "channel.test": {
-        const p = params as { projectId: string; channelId: string };
-        const ch = this.managed.get(p.channelId);
-        if (!ch) return { ok: false, error: "channel not configured or disabled" };
-        try {
-          const models = await ch.listModels();
-          return { ok: true, models };
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) };
-        }
-      }
-      case "channel.probe": {
-        const p = params as { projectId: string; channelId: string; model: string; force?: boolean };
-        const ctx = this.ctx(p.projectId);
-        const ch = this.managed.get(p.channelId);
-        if (!ch) return { ok: false, error: "channel not configured or disabled" };
-        const cacheKey = `${p.channelId}:${p.model}`;
-        if (!p.force) {
-          const hit = this.probeCache.get(cacheKey);
-          if (hit) return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
-        }
-        try {
-          const caps = await ch.probeCaps(p.model);
-          const probedAt = this.clock.now();
-          this.probeCache.set(cacheKey, { caps, probedAt });
-          this.applyProbes(ctx.config);
-          return { ok: true, caps, probedAt, cached: false };
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : String(e) };
-        }
-      }
-      case "setup.recommend": {
-        const p = params as { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } };
-        return recommendAssignments(this.ctx(p.projectId).config, this.managed, { mode: p.mode, evaluator: p.evaluator });
-      }
-      case "skills.save": {
-        const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };
-        const ctx = this.ctx(p.projectId);
-        const shipped = shippedSkill(p.id);
-        const meta = {
-          id: p.id,
-          description: p.description ?? shipped?.description ?? "",
-          defaultRoles: shippedDefaultRoles(p.id),
-          version: shipped?.version ?? 1,
-          baseHash: p.layer === "project" ? undefined : baseHashFor(p.id),
-        };
-        const text = serializeSkillMd(meta, p.body);
-        if (p.layer === "project") {
-          if (!ctx.trusted) throw new Error("project skills require a trusted workspace");
-          ctx.projectGuard.recordWrite(`skills/${p.id}.md`, text);
-          await ctx.projectStore.write(`skills/${p.id}.md`, text);
-        } else {
-          this.userGuard.recordWrite(`skills/${p.id}.md`, text);
-          await this.deps.userConfig.write(`skills/${p.id}.md`, text);
-        }
-        await this.reload(p.projectId);
-        return { ok: true };
-      }
-      case "skills.reset": {
-        const p = params as { projectId: string; id: string };
-        const file = `skills/${p.id}.md`;
-        const ctx = this.ctx(p.projectId);
-        this.userGuard.recordDelete(file);
-        ctx.projectGuard.recordDelete(file);
-        if (this.deps.userConfig.delete) await this.deps.userConfig.delete(file);
-        await ctx.projectStore.delete?.(file);
-        await this.reload(p.projectId);
-        return { ok: true };
-      }
-      case "roles.reset": {
-        const p = params as { projectId: string; roleId?: string };
-        const ctx = this.ctx(p.projectId);
-        const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
-        const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
-        const next = p.roleId ? items.filter((i) => i.id !== p.roleId) : [];
-        const yaml = stringifyYaml({ version: 1, items: next });
-        this.userGuard.recordWrite("roles.yaml", yaml);
-        await this.deps.userConfig.write("roles.yaml", yaml);
-        await this.reload(p.projectId);
-        return { ok: true };
-      }
-      case "roles.assignAgent": {
-        const p = params as { projectId: string; agentId: string; wizard?: boolean };
-        const ctx = this.ctx(p.projectId);
-        if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
-        const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
-        const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
-        const byId = new Map(items.map((i) => [String(i.id), i]));
-        for (const r of ctx.config.roles) {
-          const item = byId.get(r.id) ?? { id: r.id };
-          item.agent = p.agentId;
-          if (p.wizard) item.enabled = r.id === "orchestrator" || r.id === "general-worker";
-          byId.set(r.id, item);
-        }
-        const yaml = stringifyYaml({ version: 1, items: [...byId.values()] });
-        this.userGuard.recordWrite("roles.yaml", yaml);
-        await this.deps.userConfig.write("roles.yaml", yaml);
-        await this.reload(p.projectId);
-        return { ok: true };
-      }
-      case "secret.set": {
-        const p = params as { projectId: string; ref: string; value: string };
-        const ctx = this.ctx(p.projectId);
-        await ctx.host.secrets.set(p.ref, p.value);
-        this.secretValues.set(p.ref, p.value);
-        for (const c of ctx.config.channels) {
-          if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(p.value);
-        }
-        return { ok: true };
-      }
-      case "secret.delete": {
-        const p = params as { projectId: string; ref: string };
-        const ctx = this.ctx(p.projectId);
-        await ctx.host.secrets.delete(p.ref);
-        this.secretValues.delete(p.ref);
-        for (const c of ctx.config.channels) {
-          if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(undefined);
-        }
-        return { ok: true };
-      }
+      case "hello": return this.handleHello(params);
+      case "chat.send": return this.handleChatSend(params);
+      case "chat.cancel": return this.handleChatCancel(params);
+      case "chat.resume": return this.handleChatResume(params);
+      case "chat.revert": return this.handleChatRevert(params);
+      case "history.list": return this.handleHistoryList(params);
+      case "history.load": return this.handleHistoryLoad(params);
+      case "history.delete": return this.handleHistoryDelete(params);
+      case "config.importV1": return this.handleConfigImportV1(params);
+      case "chat.answer": return this.handleChatAnswer(params);
+      case "chat.approve": return this.handleChatApprove(params);
+      case "config.get": return this.handleConfigGet(params);
+      case "config.reload": return this.handleConfigReload(params);
+      case "config.set": return this.handleConfigSet(params);
+      case "channel.test": return this.handleChannelTest(params);
+      case "channel.probe": return this.handleChannelProbe(params);
+      case "setup.recommend": return this.handleSetupRecommend(params);
+      case "skills.save": return this.handleSkillsSave(params);
+      case "skills.reset": return this.handleSkillsReset(params);
+      case "roles.reset": return this.handleRolesReset(params);
+      case "roles.assignAgent": return this.handleRolesAssignAgent(params);
+      case "secret.set": return this.handleSecretSet(params);
+      case "secret.delete": return this.handleSecretDelete(params);
       default:
         throw new Error(`unknown method: ${method}`);
     }
+  }
+
+  private handleHello(params: unknown): unknown {
+    const hello = helloSchema.parse(params);
+    const r = negotiate({ protocol: PROTOCOL_VERSION, capabilities: [...KNOWN_CAPABILITIES] }, hello);
+    if (!r.ok) throw new Error(r.error);
+    return { protocol: PROTOCOL_VERSION, capabilities: r.capabilities };
+  }
+
+  private async handleChatSend(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string };
+    const ctx = this.ctx(p.projectId);
+    const direct = p.direct || p.text.startsWith("/direct ");
+    const raw = p.text.startsWith("/direct ") ? p.text.slice(8) : p.text;
+    const mention = await expandMentions(ctx.host, raw);
+    for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
+    const norm = normalizeImages(p.images ?? []);
+    if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
+    const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
+    if (orchestrator && !direct) {
+      const run = await ctx.runs.orchestrated(p.projectId, {
+        config: ctx.config,
+        channelFor: (id) => this.channelById(id),
+        text: mention.text,
+        sessionId: p.sessionId,
+      });
+      return { runId: run.id };
+    }
+    const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
+    const agent = this.pickChatAgent(ctx.config, role);
+    const channel = this.channelForAgent(agent);
+    const { prompt, truncated } = role
+      ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
+      : { prompt: undefined, truncated: false };
+    if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
+    const history = p.sessionId ? ((await (await ctx.runs.historyStore()).load(p.sessionId)) ?? []) : [];
+    const run = await ctx.runs.direct(
+      p.projectId,
+      channel,
+      agent,
+      mention.text,
+      norm.images.length ? norm.images : undefined,
+      role,
+      prompt || undefined,
+      p.sessionId,
+      history,
+    );
+    return { runId: run.id };
+  }
+
+  private handleChatCancel(params: unknown): unknown {
+    const p = params as { projectId: string; runId: string };
+    return { ok: this.ctx(p.projectId).runs.cancel(p.runId) };
+  }
+
+  private async handleChatResume(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; runId: string };
+    const ctx = this.ctx(p.projectId);
+    const res = await ctx.runs.resume(p.projectId, p.runId, {
+      config: ctx.config,
+      channelFor: (id) => this.channelById(id),
+    });
+    return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
+  }
+
+  private handleChatRevert(params: unknown): unknown {
+    const p = params as { projectId: string; runId: string };
+    return this.ctx(p.projectId).runs.revert(p.runId);
+  }
+
+  private async handleHistoryList(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string };
+    const store = await this.ctx(p.projectId).runs.historyStore();
+    return { sessions: await store.list() };
+  }
+
+  private async handleHistoryLoad(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; sessionId: string };
+    const store = await this.ctx(p.projectId).runs.historyStore();
+    return { messages: (await store.load(p.sessionId)) ?? [] };
+  }
+
+  private async handleHistoryDelete(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; sessionId: string };
+    const store = await this.ctx(p.projectId).runs.historyStore();
+    await store.delete(p.sessionId);
+    return { ok: true };
+  }
+
+  private async handleConfigImportV1(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; xml: string; apply?: boolean };
+    const res = importV1Xml(p.xml, parseMiniXml);
+    if (p.apply && Object.keys(res.files).length) {
+      for (const [file, yaml] of Object.entries(res.files)) {
+        this.userGuard.recordWrite(file, yaml);
+        await this.deps.userConfig.write(file, yaml);
+      }
+      await this.reload(p.projectId);
+    }
+    return res;
+  }
+
+  private handleChatAnswer(params: unknown): unknown {
+    const p = params as { projectId: string; questionId: string; answer: string };
+    return { ok: this.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
+  }
+
+  private handleChatApprove(params: unknown): unknown {
+    const p = params as { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" };
+    return { ok: this.ctx(p.projectId).runs.approve(p.approvalId, p.grant) };
+  }
+
+  private async handleConfigGet(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string };
+    const ctx = this.ctx(p.projectId);
+    const userFiles = await this.deps.userConfig.read();
+    const projectFiles = ctx.trusted ? await ctx.projectStore.read() : {};
+    const files = { ...this.deps.defaults, ...userFiles, ...projectFiles };
+    const { errors, ...summary } = ctx.config;
+    const secrets: Record<string, boolean> = {};
+    for (const c of ctx.config.channels) {
+      if (c.secretRef && !(c.secretRef in secrets)) secrets[c.secretRef] = (await ctx.host.secrets.get(c.secretRef)) !== undefined;
+    }
+    return { files, summary, errors, secrets };
+  }
+
+  private async handleConfigReload(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; fromWatcher?: boolean };
+    const { suppressed } = await this.reload(p.projectId, p.fromWatcher ?? false);
+    return { ok: true, suppressed };
+  }
+
+  private async handleConfigSet(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; file: string; yaml: string; layer?: "user" | "project" };
+    const ctx = this.ctx(p.projectId);
+    const schema = CONFIG_FILE_SCHEMAS[p.file];
+    if (!schema) throw new Error(`unknown config file: ${p.file}`);
+    let doc: unknown;
+    try {
+      doc = parseYaml(p.yaml);
+    } catch (e) {
+      throw new Error(`invalid YAML: ${e instanceof Error ? e.message : e}`);
+    }
+    const parsed = schema.safeParse(doc ?? {});
+    if (!parsed.success) throw new Error(`invalid ${p.file}: ${parsed.error.issues[0]?.message ?? "schema error"}`);
+    const layer = p.layer ?? "user";
+    if (layer === "project") {
+      if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
+      if (!isProjectFile(p.file)) throw new Error(`${p.file} is not allowed at project level`);
+      ctx.projectGuard.recordWrite(p.file, p.yaml);
+      await ctx.projectStore.write(p.file, p.yaml);
+    } else {
+      this.userGuard.recordWrite(p.file, p.yaml);
+      await this.deps.userConfig.write(p.file, p.yaml);
+    }
+    await this.reload(p.projectId);
+    return { ok: true };
+  }
+
+  private async handleChannelTest(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; channelId: string };
+    const ch = this.managed.get(p.channelId);
+    if (!ch) return { ok: false, error: "channel not configured or disabled" };
+    try {
+      const models = await ch.listModels();
+      return { ok: true, models };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private async handleChannelProbe(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; channelId: string; model: string; force?: boolean };
+    const ctx = this.ctx(p.projectId);
+    const ch = this.managed.get(p.channelId);
+    if (!ch) return { ok: false, error: "channel not configured or disabled" };
+    const cacheKey = `${p.channelId}:${p.model}`;
+    if (!p.force) {
+      const hit = this.probeCache.get(cacheKey);
+      if (hit) return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
+    }
+    try {
+      const caps = await ch.probeCaps(p.model);
+      const probedAt = this.clock.now();
+      this.probeCache.set(cacheKey, { caps, probedAt });
+      this.applyProbes(ctx.config);
+      return { ok: true, caps, probedAt, cached: false };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  private handleSetupRecommend(params: unknown): unknown {
+    const p = params as { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string } };
+    return recommendAssignments(this.ctx(p.projectId).config, this.managed, { mode: p.mode, evaluator: p.evaluator });
+  }
+
+  private async handleSkillsSave(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };
+    const ctx = this.ctx(p.projectId);
+    const shipped = shippedSkill(p.id);
+    const meta = {
+      id: p.id,
+      description: p.description ?? shipped?.description ?? "",
+      defaultRoles: shippedDefaultRoles(p.id),
+      version: shipped?.version ?? 1,
+      baseHash: p.layer === "project" ? undefined : baseHashFor(p.id),
+    };
+    const text = serializeSkillMd(meta, p.body);
+    if (p.layer === "project") {
+      if (!ctx.trusted) throw new Error("project skills require a trusted workspace");
+      ctx.projectGuard.recordWrite(`skills/${p.id}.md`, text);
+      await ctx.projectStore.write(`skills/${p.id}.md`, text);
+    } else {
+      this.userGuard.recordWrite(`skills/${p.id}.md`, text);
+      await this.deps.userConfig.write(`skills/${p.id}.md`, text);
+    }
+    await this.reload(p.projectId);
+    return { ok: true };
+  }
+
+  private async handleSkillsReset(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; id: string };
+    const file = `skills/${p.id}.md`;
+    const ctx = this.ctx(p.projectId);
+    this.userGuard.recordDelete(file);
+    ctx.projectGuard.recordDelete(file);
+    if (this.deps.userConfig.delete) await this.deps.userConfig.delete(file);
+    await ctx.projectStore.delete?.(file);
+    await this.reload(p.projectId);
+    return { ok: true };
+  }
+
+  private async handleRolesReset(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; roleId?: string };
+    const ctx = this.ctx(p.projectId);
+    const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
+    const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
+    const next = p.roleId ? items.filter((i) => i.id !== p.roleId) : [];
+    const yaml = stringifyYaml({ version: 1, items: next });
+    this.userGuard.recordWrite("roles.yaml", yaml);
+    await this.deps.userConfig.write("roles.yaml", yaml);
+    await this.reload(p.projectId);
+    return { ok: true };
+  }
+
+  private async handleRolesAssignAgent(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; agentId: string; wizard?: boolean };
+    const ctx = this.ctx(p.projectId);
+    if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
+    const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
+    const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
+    const byId = new Map(items.map((i) => [String(i.id), i]));
+    for (const r of ctx.config.roles) {
+      const item = byId.get(r.id) ?? { id: r.id };
+      item.agent = p.agentId;
+      if (p.wizard) item.enabled = r.id === "orchestrator" || r.id === "general-worker";
+      byId.set(r.id, item);
+    }
+    const yaml = stringifyYaml({ version: 1, items: [...byId.values()] });
+    this.userGuard.recordWrite("roles.yaml", yaml);
+    await this.deps.userConfig.write("roles.yaml", yaml);
+    await this.reload(p.projectId);
+    return { ok: true };
+  }
+
+  private async handleSecretSet(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; ref: string; value: string };
+    const ctx = this.ctx(p.projectId);
+    await ctx.host.secrets.set(p.ref, p.value);
+    this.secretValues.set(p.ref, p.value);
+    for (const c of ctx.config.channels) {
+      if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(p.value);
+    }
+    return { ok: true };
+  }
+
+  private async handleSecretDelete(params: unknown): Promise<unknown> {
+    const p = params as { projectId: string; ref: string };
+    const ctx = this.ctx(p.projectId);
+    await ctx.host.secrets.delete(p.ref);
+    this.secretValues.delete(p.ref);
+    for (const c of ctx.config.channels) {
+      if (c.secretRef === p.ref) this.managed.get(c.id)?.setSecret(undefined);
+    }
+    return { ok: true };
   }
 
   private pickChatAgent(config: Config, role?: Config["roles"][number]): Config["agents"][number] {
