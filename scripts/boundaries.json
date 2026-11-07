@@ -3,8 +3,7 @@
   "map": [
     ["events.ts", "kernel"], ["ports.ts", "kernel"],
     ["config/", "config"], ["v1import.ts", "config"],
-    ["catalog.ts", "catalog"],
-        ["debug/", "diagnostics"],
+            ["debug/", "diagnostics"],
     ["modelProfile.ts", "models"],
     ["channels/", "channels"],
     ["limits.ts", "budget"], ["taskSize.ts", "budget"],

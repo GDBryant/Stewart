@@ -21,7 +21,7 @@ import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
 import { mergeProbeCaps } from "./modelProfile.js";
 import { BENCH_VERSION, benchModel } from "./bench.js";
-import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "./catalog.js";
+import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "@stewart/catalog";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
 import { budgetProfile, type BudgetProfileName } from "./limits.js";
 import { recoveryState } from "./orchestration/recovery.js";

@@ -1,6 +1,6 @@
 import type { AgentDef, RoleDef } from "./config/schema.js";
 import { roleTurnBudget } from "./roles.js";
-import { blendedCost } from "./catalog.js";
+import { blendedCost } from "@stewart/catalog";
 import { isCosting } from "./orchestration/ledger.js";
 import type { ModelProfile } from "./modelProfile.js";
 import { DEFAULT_LIMITS, type LoopLimits } from "./tools/toolLoop.js";

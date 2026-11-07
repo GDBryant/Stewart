@@ -1,7 +1,7 @@
 import type { AgentDef } from "./config/schema.js";
 import type { Config } from "./config/loader.js";
 import { DEFAULT_CAPS, type ChannelConfig, type ModelCaps, type ModelPerf } from "./channels/types.js";
-import { blendedCost, costTier, lookupModelInfo, type CostTier } from "./catalog.js";
+import { blendedCost, costTier, lookupModelInfo, type CostTier } from "@stewart/catalog";
 import type { ToolsMode } from "./tools/toolLoop.js";
 
 export type PriceMap = Record<string, { inPerMTok: number; outPerMTok: number; contextTokens?: number }>;

@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').copyFileSync('src/catalog.data.json','dist/catalog.data.json')\"",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -17,7 +17,8 @@
     "@stewart/kernel": "workspace:*",
     "@stewart/toolcall-format": "workspace:*",
     "@stewart/compaction": "workspace:*",
-    "@stewart/scheduling": "workspace:*"
+    "@stewart/scheduling": "workspace:*",
+    "@stewart/catalog": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

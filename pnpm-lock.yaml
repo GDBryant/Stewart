@@ -274,6 +274,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../../modules/catalog
       '@stewart/compaction':
         specifier: workspace:*
         version: link:../../modules/compaction

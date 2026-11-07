@@ -1,5 +1,4 @@
 [
-  "import catalog.ts -> app",
   "import channels/registry.ts -> context",
   "import config/loader.ts -> roles-skills",
   "import history.ts -> context",
