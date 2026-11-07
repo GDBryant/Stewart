@@ -66,8 +66,33 @@ export type LoopResult =
 
 export type ToolsMode = "native" | "shim" | "none";
 
+interface TurnState {
+  text: string;
+  open: boolean;
+}
+
+interface StreamOutcome {
+  calls: ToolCall[];
+  sawDone: boolean;
+  sawTruncated: boolean;
+  postDone: boolean;
+  failed: Error | null;
+  usage: { in: number; out: number } | undefined;
+  costUsd: number | undefined;
+}
+
 function rejected(): ApprovalDecision {
   return { kind: "rejected", reason: "denied" };
+}
+
+function measureMessages(msgs: ChatMessage[]): number {
+  return msgs.reduce(
+    (n, m) =>
+      n +
+      ("content" in m ? m.content.length : 0) +
+      ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
+    0,
+  );
 }
 
 export class ToolLoop {
@@ -97,170 +122,201 @@ export class ToolLoop {
   async run(model: string, history: ChatMessage[], listener: LoopListener, signal: AbortSignal): Promise<LoopResult> {
     const produced: ChatMessage[] = [];
     const base = history;
+    const turn: TurnState = { text: "", open: false };
+    const inFlight = { id: null as string | null, awaitsUser: false };
     let turns = 0;
     let truncRetries = 0;
-    let text = "";
-    let turnOpen = false;
     let executed = 0;
-    const inFlight = { id: null as string | null, awaitsUser: false };
-    const measureSize = (msgs: ChatMessage[]) =>
-      msgs.reduce(
-        (n, m) =>
-          n +
-          ("content" in m ? m.content.length : 0) +
-          ("toolCalls" in m && m.toolCalls ? m.toolCalls.reduce((k, c) => k + JSON.stringify(c.arguments).length, 0) : 0),
-        0,
-      );
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        let size = measureSize([...base, ...produced]);
-        if (size > this.limits.maxContextChars && produced.length > 2) {
-          const beforeTokens = Math.ceil(size / 4);
-          const kept = produced.slice(-2);
-          const summary = produced
-            .slice(0, -2)
-            .filter((m) => m.role === "tool" || m.role === "assistant")
-            .map((m) => `${m.role}: ${m.content.slice(0, 120)}`)
-            .join(" | ")
-            .slice(0, Math.max(64, Math.floor(this.limits.maxContextChars / 4)));
-          produced.splice(0, produced.length, { role: "user", content: `[compacted: ${summary}]` }, ...kept);
-          size = measureSize([...base, ...produced]);
-          if (size <= this.limits.maxContextChars) {
-            listener.onCompacted?.(beforeTokens, Math.ceil(size / 4));
-          }
-        }
-        if (size > this.limits.maxContextChars) {
-          listener.onCompactionFailed?.("context size limit exceeded");
-          return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
-        }
+        const overflow = this.compactIfNeeded(base, produced, listener);
+        if (overflow) return overflow;
         turns++;
-        text = "";
-        turnOpen = true;
-        let calls: ToolCall[] = [];
-        const system = this.systemPrompt();
-        const outbound: ChatMessage[] = system
-          ? [{ role: "system", content: system }, ...base, ...produced]
-          : [...base, ...produced];
-        let sawDone = false;
-        let sawTruncated = false;
-        let postDone = false;
-        let failed: Error | null = null;
-        let usage: { in: number; out: number } | undefined;
-        let costUsd: number | undefined;
-        try {
-          for await (const ev of this.channel.chat({
-            model,
-            messages: outbound,
-            tools: this.toolsMode === "native" ? this.registry.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })) : undefined,
-            signal,
-          })) {
-            if (sawDone) postDone = true;
-            else if (ev.kind === "text") {
-              text += ev.text;
-              listener.onText?.(ev.text);
-            } else if (ev.kind === "reasoning") {
-              listener.onReasoning?.(ev.text);
-            } else if (ev.kind === "tool_calls") {
-              calls = ev.calls;
-            } else if (ev.kind === "done") {
-              sawDone = true;
-              sawTruncated = ev.truncated === true;
-              usage = ev.usage;
-              costUsd = ev.costUsd;
-            }
-          }
-        } catch (e) {
-          if (signal.aborted) throw e;
-          failed = e instanceof Error ? e : new Error(String(e));
-        }
-        if (sawDone) await listener.onUsage?.(usage, costUsd);
-        if (postDone) {
+        turn.text = "";
+        turn.open = true;
+        const s = await this.streamTurn(model, this.outbound(base, produced), listener, signal, turn);
+        if (s.sawDone) await listener.onUsage?.(s.usage, s.costUsd);
+        if (s.postDone) {
           return { kind: "failed", messages: produced, base, message: "provider emitted events after completion", code: "protocol_error" };
         }
-        const isStallTruncated = failed !== null && (/TRUNCATED|stream stalled/i.test(failed.message) || (failed as { code?: string }).code === "truncated");
-        if (sawTruncated || isStallTruncated) {
+        const isStallTruncated = s.failed !== null && (/TRUNCATED|stream stalled/i.test(s.failed.message) || (s.failed as { code?: string }).code === "truncated");
+        if (s.sawTruncated || isStallTruncated) {
           if (truncRetries < this.limits.maxTruncationRetries) {
             truncRetries++;
             turns--;
-            turnOpen = false;
+            turn.open = false;
             continue;
           }
           return {
             kind: "failed",
             messages: produced,
             base,
-            message: failed?.message ?? "response truncated",
+            message: s.failed?.message ?? "response truncated",
             code: "truncated",
           };
         }
-        if (failed) return { kind: "failed", messages: produced, base, message: failed.message, code: (failed as { code?: string }).code };
-        if (!sawDone) {
+        if (s.failed) return { kind: "failed", messages: produced, base, message: s.failed.message, code: (s.failed as { code?: string }).code };
+        if (!s.sawDone) {
           return { kind: "failed", messages: produced, base, message: "stream ended before completion", code: "incomplete_stream" };
         }
-        turnOpen = false;
-        // Shim mode always parses text. Native mode parses only when the provider sent no native calls.
-        let errors: ParseError[] = [];
-        if (this.toolsMode === "shim" || calls.length === 0) {
-          const parsed = parseToolCalls(text, this.schemaMap);
-          if (this.toolsMode === "shim" && parsed.reasoning) listener.onReasoning?.(parsed.reasoning);
-          if (parsed.calls.length > 0) {
-            // only strip the call blocks when calls parsed; leftover text is kept
-            if (parsed.clean !== text) text = parsed.clean || text;
-            calls = parsed.calls;
-          }
-          errors = parsed.errors;
-        }
-        produced.push({ role: "assistant", content: text, toolCalls: calls.length > 0 ? calls : undefined });
-        if (calls.length === 0) {
-          if (errors.length === 0) return { kind: "completed", messages: produced, base };
+        turn.open = false;
+        const parsed = this.parseCalls(turn.text, s.calls, listener);
+        turn.text = parsed.text;
+        produced.push({ role: "assistant", content: turn.text, toolCalls: parsed.calls.length > 0 ? parsed.calls : undefined });
+        if (parsed.calls.length === 0) {
+          if (parsed.errors.length === 0) return { kind: "completed", messages: produced, base };
           // Call-like text that failed: tell the model and retry, bounded by maxModelTurns.
-          produced.push({ role: "user", content: this.parseFeedback(errors) });
+          produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
           continue;
         }
-        const seen = new Set<string>();
-        let i = 0;
-        while (i < calls.length) {
-          const call = calls[i];
-          listener.onToolRequested?.(call);
-          const batch = [call];
-          if (this.registry.find(call.name)?.parallel) {
-            while (i + batch.length < calls.length && this.registry.find(calls[i + batch.length].name)?.parallel) {
-              const next = calls[i + batch.length];
-              listener.onToolRequested?.(next);
-              batch.push(next);
-            }
-          }
-          const seq = executed;
-          executed += batch.length;
-          const outcomes =
-            batch.length === 1
-              ? [await this.executeCall(call, seen, listener, inFlight, signal, seq)]
-              : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
-          for (let k = 0; k < batch.length; k++) {
-            const outcome = outcomes[k];
-            produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcome) });
-            if (outcome.kind === "success" && outcome.images?.length) {
-              produced.push({ role: "user", content: `[image from ${batch[k].name}]`, images: outcome.images });
-            }
-          }
-          const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
-          if (terminal >= 0) {
-            for (const rest of calls.slice(i + batch.length)) {
-              produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
-            }
-            return { kind: "completed", messages: produced, base };
-          }
-          i += batch.length;
-        }
-        if (errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(errors) });
+        const batch = await this.executeCalls(parsed.calls, produced, listener, inFlight, signal, executed);
+        executed = batch.executed;
+        if (batch.terminal) return { kind: "completed", messages: produced, base };
+        if (parsed.errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
       }
     } catch (e) {
       this.closeOpenToolCalls(produced, inFlight);
-      if (turnOpen && text.trim() !== "") produced.push({ role: "assistant", content: text });
+      if (turn.open && turn.text.trim() !== "") produced.push({ role: "assistant", content: turn.text });
       if (signal.aborted) throw new RunCancelledError(base, produced, e);
       throw e;
     }
+  }
+
+  /** Compacts produced messages when over the context limit; returns the failure result when still over. */
+  private compactIfNeeded(base: ChatMessage[], produced: ChatMessage[], listener: LoopListener): LoopResult | null {
+    let size = measureMessages([...base, ...produced]);
+    if (size > this.limits.maxContextChars && produced.length > 2) {
+      const beforeTokens = Math.ceil(size / 4);
+      const kept = produced.slice(-2);
+      const summary = produced
+        .slice(0, -2)
+        .filter((m) => m.role === "tool" || m.role === "assistant")
+        .map((m) => `${m.role}: ${m.content.slice(0, 120)}`)
+        .join(" | ")
+        .slice(0, Math.max(64, Math.floor(this.limits.maxContextChars / 4)));
+      produced.splice(0, produced.length, { role: "user", content: `[compacted: ${summary}]` }, ...kept);
+      size = measureMessages([...base, ...produced]);
+      if (size <= this.limits.maxContextChars) {
+        listener.onCompacted?.(beforeTokens, Math.ceil(size / 4));
+      }
+    }
+    if (size > this.limits.maxContextChars) {
+      listener.onCompactionFailed?.("context size limit exceeded");
+      return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
+    }
+    return null;
+  }
+
+  private outbound(base: ChatMessage[], produced: ChatMessage[]): ChatMessage[] {
+    const system = this.systemPrompt();
+    return system ? [{ role: "system", content: system }, ...base, ...produced] : [...base, ...produced];
+  }
+
+  /** Streams one model call; accumulates text into `turn.text` so a cancel can recover the partial reply. */
+  private async streamTurn(
+    model: string,
+    outbound: ChatMessage[],
+    listener: LoopListener,
+    signal: AbortSignal,
+    turn: TurnState,
+  ): Promise<StreamOutcome> {
+    const s: StreamOutcome = {
+      calls: [],
+      sawDone: false,
+      sawTruncated: false,
+      postDone: false,
+      failed: null,
+      usage: undefined,
+      costUsd: undefined,
+    };
+    try {
+      for await (const ev of this.channel.chat({
+        model,
+        messages: outbound,
+        tools: this.toolsMode === "native" ? this.registry.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })) : undefined,
+        signal,
+      })) {
+        if (s.sawDone) s.postDone = true;
+        else if (ev.kind === "text") {
+          turn.text += ev.text;
+          listener.onText?.(ev.text);
+        } else if (ev.kind === "reasoning") {
+          listener.onReasoning?.(ev.text);
+        } else if (ev.kind === "tool_calls") {
+          s.calls = ev.calls;
+        } else if (ev.kind === "done") {
+          s.sawDone = true;
+          s.sawTruncated = ev.truncated === true;
+          s.usage = ev.usage;
+          s.costUsd = ev.costUsd;
+        }
+      }
+    } catch (e) {
+      if (signal.aborted) throw e;
+      s.failed = e instanceof Error ? e : new Error(String(e));
+    }
+    return s;
+  }
+
+  /** Shim mode always parses text. Native mode parses only when the provider sent no native calls. */
+  private parseCalls(text: string, calls: ToolCall[], listener: LoopListener): { text: string; calls: ToolCall[]; errors: ParseError[] } {
+    if (this.toolsMode !== "shim" && calls.length > 0) return { text, calls, errors: [] };
+    const parsed = parseToolCalls(text, this.schemaMap);
+    if (this.toolsMode === "shim" && parsed.reasoning) listener.onReasoning?.(parsed.reasoning);
+    if (parsed.calls.length > 0) {
+      // only strip the call blocks when calls parsed; leftover text is kept
+      if (parsed.clean !== text) text = parsed.clean || text;
+      calls = parsed.calls;
+    }
+    return { text, calls, errors: parsed.errors };
+  }
+
+  /** Executes calls in parallel-capable batches; `terminal` means a terminal tool ended the turn. */
+  private async executeCalls(
+    calls: ToolCall[],
+    produced: ChatMessage[],
+    listener: LoopListener,
+    inFlight: { id: string | null; awaitsUser: boolean },
+    signal: AbortSignal,
+    executed: number,
+  ): Promise<{ executed: number; terminal: boolean }> {
+    const seen = new Set<string>();
+    let i = 0;
+    while (i < calls.length) {
+      const call = calls[i];
+      listener.onToolRequested?.(call);
+      const batch = [call];
+      if (this.registry.find(call.name)?.parallel) {
+        while (i + batch.length < calls.length && this.registry.find(calls[i + batch.length].name)?.parallel) {
+          const next = calls[i + batch.length];
+          listener.onToolRequested?.(next);
+          batch.push(next);
+        }
+      }
+      const seq = executed;
+      executed += batch.length;
+      const outcomes =
+        batch.length === 1
+          ? [await this.executeCall(call, seen, listener, inFlight, signal, seq)]
+          : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
+      for (let k = 0; k < batch.length; k++) {
+        const outcome = outcomes[k];
+        produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcome) });
+        if (outcome.kind === "success" && outcome.images?.length) {
+          produced.push({ role: "user", content: `[image from ${batch[k].name}]`, images: outcome.images });
+        }
+      }
+      const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
+      if (terminal >= 0) {
+        for (const rest of calls.slice(i + batch.length)) {
+          produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
+        }
+        return { executed, terminal: true };
+      }
+      i += batch.length;
+    }
+    return { executed, terminal: false };
   }
 
   private parseFeedback(errors: ParseError[]): string {
