@@ -1,5 +1,5 @@
 import type { AgentDef, ChannelDef } from "@stewart/config";
-import { agentServesRole, roleCapability } from "../roles.js";
+import { agentServesRole, roleCapability } from "@stewart/roles-skills";
 import { isCosting } from "@stewart/models";
 
 export interface ParkedRole {

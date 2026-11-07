@@ -1,8 +1,9 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { DEFAULT_CAPS, isCosting } from "@stewart/models";
-import { composeRolePrompt } from "../skills/skills.js";
-import { agentServesRole, roleRegistry } from "../roles.js";
+import { composeRolePrompt } from "@stewart/roles-skills";
+import { agentServesRole } from "@stewart/roles-skills";
+import { roleRegistry } from "../tools/roleRegistry.js";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";

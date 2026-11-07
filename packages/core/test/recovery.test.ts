@@ -22,7 +22,7 @@ import {
   taskScratchDir,
 } from "../src/orchestration/recovery.js";
 import type { OrchestrationRuntime } from "../src/orchestration/types.js";
-import { matchGlob } from "../src/roles.js";
+import { matchGlob } from "@stewart/roles-skills";
 import type { RoleDef } from "@stewart/config";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";

@@ -2,7 +2,7 @@ import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import { EventBus } from "./events.js";
 import type { AgentDef, RoleDef } from "@stewart/config";
 import type { Config } from "./config/effective.js";
-import { roleRegistry } from "./roles.js";
+import { roleRegistry } from "./tools/roleRegistry.js";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile, DEFAULT_LIMITS } from "@stewart/budget";
 import { runRoleTask } from "./orchestration/roleRunner.js";
 import { ManagedChannel } from "@stewart/channels";

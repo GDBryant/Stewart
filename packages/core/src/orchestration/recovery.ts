@@ -1,7 +1,7 @@
 import type { AgentDef, RoleDef, Settings } from "@stewart/config";
 import { type Json, type ChatMessage, type ToolCall } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
-import { isWriteCapableRole } from "../roles.js";
+import { isWriteCapableRole } from "@stewart/roles-skills";
 import { RunCancelledError } from "../tools/toolLoop.js";
 import { createAgentSession } from "../agentSession.js";
 import { type ToolPreview } from "@stewart/permissions";

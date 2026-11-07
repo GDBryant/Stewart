@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { DEFAULT_SKILLS, EXECUTION_CONTRACT, SIDE_EFFECT_TOOLS, type ShippedSkill } from "../defaults/skills.js";
-import { DEFAULT_ROLES_YAML } from "../defaults/roles.js";
+import { DEFAULT_SKILLS, EXECUTION_CONTRACT, SIDE_EFFECT_TOOLS, type ShippedSkill } from "./defaults/skills.js";
+import { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
 import type { ConfigLayer } from "@stewart/config";
 import type { RoleDef } from "@stewart/config";
 

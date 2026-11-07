@@ -1,6 +1,6 @@
 import { loadConfig as loadBase, type Config as BaseConfig, type ConfigLayer } from "@stewart/config";
-import { resolveSkills, type ResolvedSkill } from "../skills/skills.js";
-import { validateRoles } from "../roles.js";
+import { resolveSkills, type ResolvedSkill } from "@stewart/roles-skills";
+import { validateRoles } from "@stewart/roles-skills";
 
 /** Base config plus the skills resolved from the same layers. */
 export type Config = BaseConfig & { skills: ResolvedSkill[] };

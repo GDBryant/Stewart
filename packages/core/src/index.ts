@@ -1,3 +1,5 @@
+export * from "@stewart/roles-skills";
+export * from "./tools/roleRegistry.js";
 export * from "@stewart/channels";
 export * from "@stewart/kernel";
 export * from "./events.js";
@@ -12,10 +14,6 @@ export * from "@stewart/permissions";
 export * from "@stewart/toolcall-format";
 export * from "./tools/builtins.js";
 export * from "./tools/toolLoop.js";
-export * from "./roles.js";
-export * from "./skills/skills.js";
-export * from "./defaults/roles.js";
-export * from "./defaults/skills.js";
 export * from "@stewart/ledger";
 export * from "./orchestration/tools.js";
 export * from "./orchestration/replacements.js";

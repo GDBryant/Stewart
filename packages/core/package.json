@@ -26,7 +26,8 @@
     "@stewart/diagnostics": "workspace:*",
     "@stewart/context": "workspace:*",
     "@stewart/config": "workspace:*",
-    "@stewart/channels": "workspace:*"
+    "@stewart/channels": "workspace:*",
+    "@stewart/roles-skills": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

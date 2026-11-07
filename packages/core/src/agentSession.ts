@@ -1,5 +1,5 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
-import { roleTurnBudget } from "./roles.js";
+import { roleTurnBudget } from "@stewart/roles-skills";
 import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";
 import type { EventBus } from "./events.js";

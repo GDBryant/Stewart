@@ -12,7 +12,7 @@ import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "./writeGuard.js";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import { buildRolePrompt, compactionFor, type TaskResult } from "./roleRunner.js";
-import { isWriteCapableRole } from "../roles.js";
+import { isWriteCapableRole } from "@stewart/roles-skills";
 import { classifyFault } from "./faults.js";
 import { ensureRecovery, logRecovery, runTaskRecoverable, SIZE_HINT } from "./recovery.js";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   baseHashFor, composeRolePrompt, hashBody, parseSkillMd, resolveSkills, serializeSkillMd, shippedSkill, TRUNCATED_MARKER,
-} from "../src/skills/skills.js";
-import { DEFAULT_SKILLS } from "../src/defaults/skills.js";
+} from "../src/api.js";
+import { DEFAULT_SKILLS } from "../src/api.js";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
