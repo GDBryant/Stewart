@@ -29,7 +29,8 @@
     "@stewart/channels": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
     "@stewart/tools": "workspace:*",
-    "@stewart/run-state": "workspace:*"
+    "@stewart/run-state": "workspace:*",
+    "@stewart/agent-loop": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

@@ -262,7 +262,7 @@ Order (each step ships green, behavior-preserving, with tests; strangler style):
 2. (Done: kernel wire types, toolcall-format, compaction, scheduling, catalog, models, budget.) Extract pure leaves first (each becomes its own package): `toolcall-format`, `compaction`, `scheduling`, `budget`, `models`, `catalog`. Zero behavior risk.
 3. (Done; ports moved into `kernel` first. `replacements.ts` stays in core: it needs roles-skills, same layer as ledger.) Extract `permissions` and `ledger` (stateful but self-contained).
 4. (Done) Split `HostPort` into narrow ports (`FilesPort`, `WorkspacePort`, `ProcessPort`, `EditorPort`, `ProblemsPort`, `SecretsPort`, `LogPort`; `HostPort` = their intersection, hosts unchanged); leaf callers take `Pick<HostPort, …>`.
-5. Extract `agent-loop` surface (`AgentSession`), then `run-state`.
+5. (Done, in dependency order: `diagnostics`, `context`, `config`, `channels`, `roles-skills`, `tools`, `run-state`, then `agent-loop`; `ToolLoop` is still 360 lines, to split.) Extract `agent-loop` surface (`AgentSession`), then `run-state`.
 6. Extract `orchestration` and `recovery`, injecting `Recovery`.
 7. Turn `RunManager` into strategies; thin `core.ts` to the router.
 Done so far outside the listed steps (needed for the dependency order): `diagnostics`, `context`, `config` (core keeps `config/effective.ts` for skills + role validation; `v1import.ts` stays in core because it needs `catalog`, same layer as `config`).

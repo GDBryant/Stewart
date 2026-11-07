@@ -1,9 +1,9 @@
 import type { ManagedChannel } from "@stewart/channels";
 import { DEFAULT_CAPS, type ModelPerf, type ToolsMode } from "@stewart/models";
 import type { AgentDef } from "@stewart/config";
-import { createAgentSession } from "./agentSession.js";
+import { createAgentSession } from "@stewart/agent-loop";
 import type { Clock } from "@stewart/kernel";
-import { ToolLoop } from "./tools/toolLoop.js";
+import { ToolLoop } from "@stewart/agent-loop";
 import { ToolRegistry, type Tool } from "@stewart/tools";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */

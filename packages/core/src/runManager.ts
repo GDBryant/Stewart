@@ -12,7 +12,7 @@ import { ProjectPaths } from "@stewart/tools";
 import { Grants, type GrantDecision } from "@stewart/permissions";
 import { categoryOf } from "@stewart/permissions";
 import { ToolRegistry } from "@stewart/tools";
-import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
+import { RunCancelledError, type ApprovalDecision } from "@stewart/agent-loop";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import { IdempotencyLog } from "@stewart/run-state";

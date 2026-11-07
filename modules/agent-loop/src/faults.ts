@@ -1,5 +1,5 @@
 import type { ChatMessage } from "@stewart/kernel";
-import type { LoopResult } from "../tools/toolLoop.js";
+import type { LoopResult } from "./loopTypes.js";
 
 /** Recoverable fault kinds (v1 port; see docs/FAULT_RECOVERY.md). */
 export type FaultKind = "truncated" | "incomplete_stream" | "turn_limit";

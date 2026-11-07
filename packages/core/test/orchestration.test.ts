@@ -19,7 +19,7 @@ import { orchestrationTools, type OrchestrationHandlers } from "../src/orchestra
 import type { OrchestrationRuntime } from "../src/orchestration/types.js";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
-import { ToolLoop } from "../src/tools/toolLoop.js";
+import { ToolLoop } from "@stewart/agent-loop";
 import { ToolRegistry } from "@stewart/tools";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";

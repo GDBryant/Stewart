@@ -4,7 +4,7 @@ import type { Config } from "../config/effective.js";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ToolPreview } from "@stewart/permissions";
 import type { ToolCall } from "@stewart/kernel";
-import type { ApprovalDecision } from "../tools/toolLoop.js";
+import type { ApprovalDecision } from "@stewart/agent-loop";
 import type { RunLedger, CostLimit } from "@stewart/ledger";
 import { LeaseManager, TaskGraph } from "@stewart/scheduling";
 import type { IdempotencyLog } from "@stewart/run-state";

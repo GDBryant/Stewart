@@ -2,12 +2,13 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import { roleTurnBudget } from "@stewart/roles-skills";
 import type { ChatMessage } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";
-import type { EventBus } from "./events.js";
+import type { RunEvent } from "@stewart/protocol";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ToolRegistry } from "@stewart/tools";
 import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
 import type { IdempotencyHooks } from "@stewart/kernel";
-import { ToolLoop, type ApprovalGate, type LoopListener } from "./tools/toolLoop.js";
+import { ToolLoop } from "./toolLoop.js";
+import type { ApprovalGate, LoopListener } from "./loopTypes.js";
 import { profileFromChannel, type ModelProfile } from "@stewart/models";
 import { costOfCall, type CostLimit, type RunLedger } from "@stewart/ledger";
 
@@ -29,7 +30,7 @@ export interface SessionSpec {
   /** Summarize-stage hook (R3.3); absent = prune/clip only. */
   summarize?: (middle: ChatMessage[]) => Promise<string>;
   /** Standard stream events; absent = silent. */
-  events?: { bus: EventBus; runId: string; taskId?: string; roleId?: string };
+  events?: { bus: { emit(ev: RunEvent): void }; runId: string; taskId?: string; roleId?: string };
   /** Run before the standard emit; for call-site extras (files touched, terminal call id). */
   hooks?: Pick<LoopListener, "onToolRequested" | "onToolOutcome">;
 }

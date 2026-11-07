@@ -8,6 +8,5 @@
   "size core.ts",
   "size orchestration/orchestrator.ts",
   "size orchestration/recovery.ts",
-  "size runManager.ts",
-  "size tools/toolLoop.ts"
+  "size runManager.ts"
 ]
