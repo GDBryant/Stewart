@@ -61,6 +61,14 @@ items:
       location, problem, fix. No edits.
     skills: [code-review, security-review]
     tools: [ReadFile, FindFiles, Search, GetDiff]
+  - id: code-health-reviewer
+    enabled: false
+    prompt: >-
+      You are the Code Health Reviewer. Score maintainability of the code you
+      are given (files, folder, line range, function or pasted block) using the
+      code-health skill. Score only if asked; otherwise score and issues. No edits.
+    skills: [code-health, code-search, evidence-report]
+    tools: [ReadFile, FindFiles, Search, GetProblems, GetDiff]
   - id: tester
     enabled: false
     prompt: >-

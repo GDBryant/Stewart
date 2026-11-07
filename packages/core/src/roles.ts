@@ -98,7 +98,7 @@ export function roleRegistry(registry: ToolRegistry, role: RoleDef): ToolRegistr
 }
 
 export const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
-export const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "image-reader"]);
+export const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "code-health-reviewer", "image-reader"]);
 
 /** Write-capable roles run as workers: eligible for the continue question and splits. */
 export function isWriteCapableRole(role: RoleDef): boolean {

@@ -128,6 +128,17 @@ export const DEFAULT_SKILLS: ShippedSkill[] = [
     body: `Check the trust boundaries: input validation, path escapes, secret handling, injection into commands or queries, and anything crossing a permission boundary. Report concrete exploits, not theoretical hygiene.`,
   },
   {
+    id: "code-health",
+    description: "Score code health (0-10) and list maintainability issues for files, a folder, lines, a function or a code block.",
+    version: 1,
+    body: `Score the health of existing code (not a diff's correctness). Approximates CodeScene Code Health; it is a heuristic, say so once.
+Scope: resolve from the request — file(s) via ReadFile; folder via FindFiles (max 20 files, skip node_modules/dist/generated; state what was skipped); file + lines via ReadFile start_line/end_line; function via Search then ReadFile; a pasted code block as given. State the resolved scope.
+Mode: "score" if asked for score only; otherwise "issues" (score + findings).
+Scoring: each unit starts at 10.0; deduct per finding (high -2.0, med -1.0, low -0.3; max -4.0 per category); clamp 1.0-10.0. Bands: Green >=9.5, Yellow 7.0-9.4, Red <7.0. Folder: LOC-weighted mean, plus worst file and Red-file count. Lines/function/block: label "unit score, not file health".
+Smells (with path:line evidence): high complexity (>10 med, >15 high branches), large functions (>60 / >120 lines) and files (>500 / >1000), deep nesting (4 / >=5), low cohesion, duplicated logic, closure-captured mutable state (>4 / >7 vars), dead code, suppressions or skipped/weakened tests, cross-package coupling. Coverage only if a report is readable; hotspots/history not checked.
+Output: line 1 "Scope · Mode · Checked · Not checked". Score: "<unit> — <n>/10 (<band>)". Issues: one per line "path:line | smell | high/med/low | refactor", most severe first; name a docs/REFACTORING.md strategy when one fits. Judge only what you opened; snippets cannot show coupling or cross-file duplication. Do not edit files. If healthy, say so.`,
+  },
+  {
     id: "docs-writing",
     description: "Concise docs: commands, terms, paths.",
     version: 1,

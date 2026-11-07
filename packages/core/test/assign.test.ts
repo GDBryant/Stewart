@@ -178,3 +178,13 @@ describe("perf and cost scoring", () => {
     expect(r.assignments[0].warnings.join(" ")).toContain("GB available");
   });
 });
+
+describe("code-health-reviewer assignment", () => {
+  it("assigns to a tool-capable model", () => {
+    expect(scoreAssignments(["code-health-reviewer"], [c("m:30b", { tools: "native" })]).unfilled).toEqual([]);
+  });
+  it("is unfilled with no models or no tool support", () => {
+    expect(scoreAssignments(["code-health-reviewer"], []).unfilled[0].reason).toBe("no models available");
+    expect(scoreAssignments(["code-health-reviewer"], [c("m:30b", { tools: "none" })]).unfilled[0].role).toBe("code-health-reviewer");
+  });
+});

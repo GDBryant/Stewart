@@ -9,6 +9,11 @@ import { Core } from "../src/core.js";
 import { fakeFetcher } from "./helpers.js";
 import type { ConfigStore } from "../src/config/store.js";
 import type { ConfigLayer } from "../src/config/loader.js";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { DEFAULT_ROLES_YAML } from "../src/defaults/roles.js";
+import { DEFAULT_SKILLS } from "../src/defaults/skills.js";
+import { loadConfig } from "../src/config/loader.js";
+import { isWriteCapableRole } from "../src/roles.js";
 import type { RunEvent } from "@stewart/protocol";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -286,5 +291,32 @@ describe("Core roles + skills dispatch", () => {
     expect(sent.messages[0].role).toBe("system");
     expect(sent.messages[0].content.startsWith("<tools>")).toBe(true);
     expect(sent.messages[1]).toMatchObject({ role: "user", content: "hi" });
+  });
+});
+
+describe("code-health-reviewer role", () => {
+  const shipped = () => (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items;
+  const r = () => shipped().find((x) => x.id === "code-health-reviewer")!;
+  it("ships disabled and read-only", () => {
+    expect(r()).toBeDefined();
+    expect(r().enabled).toBe(false);
+    expect(r().skills).toContain("code-health");
+    for (const t of ["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]) expect(r().tools).not.toContain(t);
+  });
+  it("has the read tools its input scopes need", () => {
+    for (const t of ["ReadFile", "FindFiles", "Search"]) expect(r().tools).toContain(t);
+  });
+  it("every shipped role references only shipped skills", () => {
+    const ids = new Set(DEFAULT_SKILLS.map((s) => s.id));
+    for (const x of shipped()) for (const s of x.skills) expect(ids.has(s), `${x.id}:${s}`).toBe(true);
+  });
+  it("existing user roles.yaml still receives the shipped role", () => {
+    const user = stringifyYaml({ version: 1, items: [{ id: "tester", enabled: true }] });
+    const cfg = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, true);
+    expect(cfg.roles.some((x) => x.id === "code-health-reviewer")).toBe(true);
+  });
+  it("is not write-capable; tester still is", () => {
+    expect(isWriteCapableRole(r())).toBe(false);
+    expect(isWriteCapableRole(shipped().find((x) => x.id === "tester")!)).toBe(true);
   });
 });

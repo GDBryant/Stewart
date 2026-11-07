@@ -61,6 +61,7 @@ export const ROLE_PROFILES: Record<string, Profile> = {
   "general-worker": { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
   "code-writer": { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
   "code-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true, latency: "batch", typicalTurns: [5, 15], costSensitivity: "medium" },
+  "code-health-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true, latency: "batch", typicalTurns: [5, 15], costSensitivity: "medium" },
   tester: { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
   "document-writer": { cheap: true, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "high" },
   "image-reader": { needs: { vision: true }, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "medium" },
