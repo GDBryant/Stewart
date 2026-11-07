@@ -3,17 +3,17 @@ import type { ChatMessage } from "../channels/types.js";
 import { DEFAULT_CAPS } from "../channels/types.js";
 import { composeRolePrompt } from "../skills/skills.js";
 import { agentServesRole, roleRegistry } from "../roles.js";
-import { DEFAULT_BUDGET_PROFILES, resolveLimits } from "../limits.js";
-import { profileFromChannel } from "../modelProfile.js";
+import { DEFAULT_BUDGET_PROFILES } from "../limits.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
-import { RunCancelledError, ToolLoop, type ApprovalDecision, type LoopResult, type ToolsMode } from "../tools/toolLoop.js";
+import { RunCancelledError, type ApprovalDecision, type LoopResult } from "../tools/toolLoop.js";
+import { createAgentSession } from "../agentSession.js";
 import type { ToolCall } from "../channels/types.js";
 import type { ToolPreview } from "../tools/types.js";
 import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
-import { costOfCall, isCosting } from "./ledger.js";
+import { isCosting } from "./ledger.js";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
 import { loadProjectContext } from "../projectContext.js";
 import type { OrchestrationRuntime } from "./types.js";
@@ -118,29 +118,32 @@ export async function runRoleTask(
   );
 
   const prompt = await buildRolePrompt(rt, role);
-  const mode: ToolsMode = (channel.cfg.modelCaps?.[agent.model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
-  const limits = resolveLimits({
-    role,
-    agent,
-    profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal,
-    ceiling: rt.maxWorkerTurnsCeiling ?? 60,
-    model: profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent }),
-  });
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
   const filesTouched: string[] = [];
   let terminalCallId: string | undefined;
 
   const activeAgent = agent;
-  const loop = new ToolLoop(
-    channel,
-    registry,
-    (call, preview) => (deps.approve ?? rt.approve)(call, preview, { roleId: role.id, taskId: spec.id }),
-    limits,
+  const session = createAgentSession(
+    {
+      agent: activeAgent,
+      role,
+      channel,
+      registry,
+      approve: (call, preview) => (deps.approve ?? rt.approve)(call, preview, { roleId: role.id, taskId: spec.id }),
+      prompt,
+      terminal,
+      budget: { profile: rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal, ceiling: rt.maxWorkerTurnsCeiling ?? 60 },
+      meter: { ledger: rt.ledger, cost: rt.cost, runId: rt.runId, taskId: spec.id, roleId: role.id },
+      idem: rt.idem.hooks(spec.id, deps.idemOffset),
+      events: { bus: rt.bus, runId: rt.runId, taskId: spec.id, roleId: role.id },
+      hooks: {
+        onToolRequested: (call) => {
+          if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") filesTouched.push(call.arguments.path);
+          if (TERMINAL.has(call.name)) terminalCallId = call.id;
+        },
+      },
+    },
     rt.clock,
-    prompt,
-    terminal,
-    mode,
-    rt.idem.hooks(spec.id, deps.idemOffset),
   );
 
   const briefingParts = [spec.task];
@@ -149,39 +152,10 @@ export async function runRoleTask(
   if (deps.extraBriefing) briefingParts.push(deps.extraBriefing);
   if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
   const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: briefingParts.join("\n\n") }];
-  const listener = {
-    onText: (t: string) => rt.bus.emit({ kind: "text_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
-    onReasoning: (t: string) => rt.bus.emit({ kind: "reasoning_delta", runId: rt.runId, taskId: spec.id, roleId: role.id, seq: 0, text: t }),
-    onCompacted: (before: number, after: number) =>
-      rt.bus.emit({ kind: "compaction", runId: rt.runId, taskId: spec.id, roleId: role.id, droppedTokens: Math.max(0, before - after) }),
-    onToolRequested: (call: { id: string; name: string; arguments: Record<string, unknown> }) => {
-      if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") filesTouched.push(call.arguments.path);
-      if (TERMINAL.has(call.name)) terminalCallId = call.id;
-      rt.bus.emit({ kind: "tool.request", runId: rt.runId, taskId: spec.id, roleId: role.id, callId: call.id, tool: call.name, args: call.arguments, category: call.name });
-    },
-    onToolOutcome: (call: { id: string; name: string }, outcome: { kind: string }) => {
-      rt.bus.emit({ kind: "tool.outcome", runId: rt.runId, taskId: spec.id, roleId: role.id, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind });
-    },
-    onUsage: async (usage: { in: number; out: number } | undefined, reported: number | undefined) => {
-      const costUsd = costOfCall(activeAgent, usage, reported);
-      await rt.ledger.record({
-        runId: rt.runId,
-        taskId: spec.id,
-        roleId: role.id,
-        agentId: activeAgent.id,
-        model: activeAgent.model,
-        billing: activeAgent.billing ?? "reported",
-        inTokens: usage?.in ?? 0,
-        outTokens: usage?.out ?? 0,
-        costUsd,
-      });
-      rt.cost.accrued += costUsd;
-    },
-  };
 
   let result: LoopResult;
   try {
-    result = await loop.run(activeAgent.model, messages, listener, rt.signal);
+    result = await session.loop.run(activeAgent.model, messages, session.listener, rt.signal);
   } catch (e) {
     if (e instanceof LeaseCycleError) {
       return { status: "cancelled", summary: e.message, filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
@@ -201,7 +175,7 @@ export async function runRoleTask(
       filesTouched,
       fault: "turn_limit",
       transcript: [...result.base, ...result.messages],
-      turnBudget: limits.maxModelTurns,
+      turnBudget: session.limits.maxModelTurns,
     };
   }
   const produced = [...result.base, ...result.messages];
