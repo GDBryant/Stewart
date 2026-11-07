@@ -10,13 +10,14 @@ import { TaskGraph, LeaseManager } from "@stewart/scheduling";
 import { isCosting } from "@stewart/models";
 import { RunLedger, CostLimit, costOfCall } from "@stewart/ledger";
 import { IdempotencyLog } from "@stewart/run-state";
-import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements } from "../src/orchestration/replacements.js";
+import { createRecovery } from "@stewart/recovery";
+import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements } from "@stewart/orchestration";
 import { LeaseCycleError, LeaseTimeoutError } from "@stewart/run-state";
 import { leasedTools } from "@stewart/tools";
-import { runRoleTask } from "../src/orchestration/roleRunner.js";
-import { runOrchestrated } from "../src/orchestration/orchestrator.js";
-import { orchestrationTools, type OrchestrationHandlers } from "../src/orchestration/tools.js";
-import type { OrchestrationRuntime } from "../src/orchestration/types.js";
+import { runRoleTask } from "@stewart/orchestration";
+import { runOrchestrated } from "@stewart/orchestration";
+import { orchestrationTools, type OrchestrationHandlers } from "@stewart/orchestration";
+import type { OrchestrationRuntime } from "@stewart/agent-loop";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { ToolLoop } from "@stewart/agent-loop";
@@ -106,6 +107,7 @@ async function runtime(
   const idem = new IdempotencyLog(fake.host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
   await idem.load();
   const rt: OrchestrationRuntime = {
+    recoveryService: createRecovery(runRoleTask),
     runId: "run-1",
     projectId: "p",
     host: fake.host,

@@ -31,6 +31,8 @@
     "@stewart/models": "workspace:*",
     "@stewart/config": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
-    "@stewart/protocol": "workspace:*"
+    "@stewart/protocol": "workspace:*",
+    "@stewart/scheduling": "workspace:*",
+    "@stewart/run-state": "workspace:*"
   }
 }

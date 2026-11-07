@@ -1,12 +1,4 @@
 [
-  "import orchestration/orchestrator.ts -> recovery",
-  "import orchestration/recovery.ts -> orchestration",
-  "import orchestration/types.ts -> app",
-  "import orchestration/types.ts -> recovery",
-  "import recommend.ts -> app",
-  "import runManager.ts -> app",
   "size core.ts",
-  "size orchestration/orchestrator.ts",
-  "size orchestration/recovery.ts",
   "size runManager.ts"
 ]

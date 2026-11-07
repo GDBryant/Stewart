@@ -11,30 +11,14 @@ import { RunCancelledError, type ApprovalDecision, type LoopResult } from "@stew
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "@stewart/agent-loop";
 import type { ToolPreview } from "@stewart/permissions";
-import { classifyFault, type FaultKind } from "@stewart/agent-loop";
+import { classifyFault, type FaultKind, type OrchestrationRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
 import type { Tool } from "@stewart/tools";
 import { ToolRegistry } from "@stewart/tools";
 import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
 import { leasedTools } from "@stewart/tools";
 import { loadProjectContext } from "@stewart/context";
-import type { OrchestrationRuntime } from "./types.js";
 import type { TaskSpec } from "@stewart/scheduling";
-
-export interface TaskResult {
-  status: "done" | "failed" | "cancelled" | "parked" | "stopped";
-  summary: string;
-  filesTouched: string[];
-  evidence?: string;
-  cycleVictim?: string;
-  cycleHolder?: string;
-  /** Recoverable fault when the run ended on one; absent otherwise. */
-  fault?: FaultKind;
-  /** Full transcript (input + produced) for continuations and recovery briefs. */
-  transcript?: ChatMessage[];
-  /** Resolved model-turn budget, set on turn_limit results. */
-  turnBudget?: number;
-}
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements"]);
@@ -52,23 +36,7 @@ export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): 
 export async function runRoleTask(
   rt: OrchestrationRuntime,
   spec: TaskSpec,
-  deps: {
-    role: RoleDef;
-    nestedTools?: Tool[];
-    depSummaries?: string[];
-    /** Continuation transcript; replaces the freshly built briefing. */
-    history?: ChatMessage[];
-    /** Idempotency index offset for continuations (calls already in `history`). */
-    idemOffset?: number;
-    /** Extra briefing lines appended to the task brief (size hints, sub-task instructions). */
-    extraBriefing?: string;
-    /** Approval gate override (e.g. scratch-dir auto-approve); defaults to rt.approve. */
-    approve?(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
-    /** Agent override (direct runs use the chat-selected agent); defaults to the role's bound agent. */
-    agent?: AgentDef;
-    /** System prompt override; defaults to `buildRolePrompt`. */
-    prompt?: string;
-  },
+  deps: RoleTaskDeps,
 ): Promise<TaskResult> {
   const { role } = deps;
   const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;

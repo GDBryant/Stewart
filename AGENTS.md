@@ -38,6 +38,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Setup wizard: `docs/SETUP.md` — steps, assignment engine, protocol, gaps.
 - Fault recovery: `docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 - Modular design: `docs/MODULAR_DESIGN.md` — feature-derived layered modules, surfaces/interfaces, health rules, enforcement, migration order (proposal).
+- Migration status: `docs/MODULAR_MIGRATION_STATUS.md` — verified state + outstanding steps for the §7 migration (step 6 uncommitted).
 - Refactoring: `docs/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
 - Code health: `docs/2026-11-07-code-health.md` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).
 - Budgets + setup info: `docs/BUDGETS_AND_SETUP_INFO.md` — model-aware turn/time profiles (quick/normal/deep), task-size classifier, richer setup-agent inputs (proposed).

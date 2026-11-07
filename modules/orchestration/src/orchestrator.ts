@@ -11,13 +11,12 @@ import { isCosting } from "@stewart/models";
 import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
-import { buildRolePrompt, compactionFor, type TaskResult } from "./roleRunner.js";
+import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { classifyFault } from "@stewart/agent-loop";
-import { ensureRecovery, logRecovery, runTaskRecoverable, SIZE_HINT } from "./recovery.js";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
 import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements, type Replacement } from "./replacements.js";
-import type { OrchestrationRuntime } from "./types.js";
 
 export interface OrchestrationOutcome {
   status: "done" | "failed" | "cancelled" | "stopped" | "no_dispatch";
@@ -132,7 +131,7 @@ class OrchestratedRun {
 
     let result: LoopResult;
     try {
-      const R = ensureRecovery(rt);
+      const R = rt.recoveryService.state(rt);
       let retried = false;
       let nudged = false;
       let input: ChatMessage[] = [{ role: "user", content: this.userText }];
@@ -142,13 +141,13 @@ class OrchestratedRun {
         if (fault && !retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
           retried = true;
           R.recoveriesUsed++;
-          logRecovery(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
-          input = fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${SIZE_HINT}` }];
+          rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
+          input = fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${rt.recoveryService.sizeHint}` }];
           continue;
         }
         if (result.kind !== "failed" && !nudged && this.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
           nudged = true;
-          logRecovery(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
+          rt.recoveryService.log(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
           input = [{ role: "user", content: `${this.userText}\n\n${CALL_NUDGE}` }];
           continue;
         }
@@ -291,7 +290,7 @@ class OrchestratedRun {
     rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
     const depSummaries = rec.dependsOn.map((d) => `${d}: ${this.results.get(d)?.summary ?? ""}`).filter(Boolean);
     const brain = { channel: this.channel, agent: this.agent };
-    let result = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
+    let result = await rt.recoveryService.runTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
     if (result.cycleHolder) {
       const holder = result.cycleHolder;
       rt.leases.release(rec.id);
@@ -303,7 +302,7 @@ class OrchestratedRun {
       rec.status = "running";
       await this.syncGraph();
       rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
-      result = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
+      result = await rt.recoveryService.runTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, depth), depSummaries }, { depth: 0, brain });
     }
     await this.applyTaskResult(rec, role, result, { requeueParked: true, announceLimit: true });
     return result;
@@ -353,7 +352,7 @@ class OrchestratedRun {
       rec.status = "running";
       await this.syncGraph();
       rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
-      const res = await runTaskRecoverable(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) }, { depth: 0, brain: { channel: this.channel, agent: this.agent } });
+      const res = await rt.recoveryService.runTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) }, { depth: 0, brain: { channel: this.channel, agent: this.agent } });
       await this.applyTaskResult(rec, role, res, { requeueParked: false, announceLimit: false });
     }
   }

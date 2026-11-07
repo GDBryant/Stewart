@@ -24,7 +24,7 @@ import { BENCH_VERSION, benchModel } from "./bench.js";
 import { CATALOG_UPDATED, lookupModelInfo, type ModelInfo } from "@stewart/catalog";
 import { gatherHardware, scanWorkspace, type SetupContext } from "./setupContext.js";
 import { budgetProfile, classifyTask, type BudgetProfileName } from "@stewart/budget";
-import { recoveryState } from "./orchestration/recovery.js";
+import { recoveryState } from "@stewart/agent-loop";
 import type { WorkspaceInfo } from "./setupContext.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "@stewart/diagnostics";
 

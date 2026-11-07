@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactionFor, compactorFor } from "../src/orchestration/roleRunner.js";
+import { compactionFor, compactorFor } from "@stewart/orchestration";
 
 const recorded: Record<string, unknown>[] = [];
 let capped = false;

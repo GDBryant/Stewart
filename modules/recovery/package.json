@@ -18,5 +18,15 @@
     "@types/node": "22.19.0",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@stewart/kernel": "workspace:*",
+    "@stewart/channels": "workspace:*",
+    "@stewart/tools": "workspace:*",
+    "@stewart/permissions": "workspace:*",
+    "@stewart/config": "workspace:*",
+    "@stewart/roles-skills": "workspace:*",
+    "@stewart/agent-loop": "workspace:*",
+    "@stewart/scheduling": "workspace:*"
   }
 }

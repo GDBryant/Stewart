@@ -4,7 +4,7 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import type { Config } from "@stewart/roles-skills";
 import { roleRegistry } from "@stewart/tools";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile, DEFAULT_LIMITS } from "@stewart/budget";
-import { runRoleTask } from "./orchestration/roleRunner.js";
+import { runRoleTask } from "@stewart/orchestration";
 import { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { projectTools } from "@stewart/tools";
@@ -18,9 +18,9 @@ import { LeaseManager, TaskGraph, type TaskRecord, type TaskSpec } from "@stewar
 import { IdempotencyLog } from "@stewart/run-state";
 import { revertRunSnapshots } from "@stewart/run-state";
 import { leasedTools } from "@stewart/tools";
-import { resolveRole, runOrchestrated } from "./orchestration/orchestrator.js";
-import { continueQuestion, mapContinueAnswer, recoveryBrain, recoveryState, runTaskRecoverable, type RecoveryState } from "./orchestration/recovery.js";
-import type { RunRuntime } from "./orchestration/types.js";
+import { resolveRole, runOrchestrated } from "@stewart/orchestration";
+import { continueQuestion, mapContinueAnswer, createRecovery } from "@stewart/recovery";
+import { recoveryState, type RunRuntime, type RecoveryState } from "@stewart/agent-loop";
 import { ChatHistoryStore } from "@stewart/run-state";
 import { loadProjectContext } from "@stewart/context";
 
@@ -65,6 +65,8 @@ export class RunManager {
   private history?: ChatHistoryStore;
   /** Updated from settings on config (re)load. */
   historyRetentionDays = 30;
+
+  private readonly recoveryService = createRecovery(runRoleTask);
 
   constructor(private deps: RunDeps) {}
 
@@ -388,7 +390,7 @@ export class RunManager {
                   prompt: [await loadProjectContext(this.deps.host)].filter(Boolean).join("") || undefined,
                 },
               )
-            : await runTaskRecoverable(rt, t, { role }, { depth: 0, brain: recoveryBrain(rt) });
+            : await rt.recoveryService.runTask(rt, t, { role }, { depth: 0, brain: rt.recoveryService.brain(rt) });
           rt.leases.release(t.id);
           t.filesTouched = res.filesTouched;
           t.status = res.status === "done" ? "done" : "failed";
@@ -464,6 +466,7 @@ export class RunManager {
       clock: this.deps.clock,
       ids: this.deps.ids,
       bus: this.deps.bus,
+      recoveryService: this.recoveryService,
       config: opts.config,
       stateDir: opts.stateDir,
       channelFor: opts.channelFor,

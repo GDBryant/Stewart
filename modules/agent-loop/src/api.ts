@@ -6,3 +6,7 @@ export { createAgentSession } from "./session.js";
 export type { SessionSpec, AgentSession } from "./session.js";
 export { classifyFault, successfulOutcome, detectStuck, actionsSoFar, countToolCalls } from "./faults.js";
 export type { FaultKind } from "./faults.js";
+export { recoveryState } from "./runtime.js";
+export type {
+  RecoveryState, TaskResult, RoleTaskDeps, OrchestrationRuntime, RunRuntime, RecoveryBrain, RecoveryContext, RunTaskOnce, Recovery,
+} from "./runtime.js";
