@@ -29,3 +29,26 @@ Rank candidates by risk-adjusted value, not line count:
 - Existing tests must pass unmodified; they bracket the refactor.
 - Verify: typecheck the package, run its tests, review the diff.
 - One refactor per commit. Check `git status` for pre-staged files before committing — stage explicitly by path.
+
+## Code Health (CodeScene AI Playbook 2026)
+
+Score is the goal; every refactor must not lower it. Used by the `code-health` skill (`docs/2026-11-07-code-health.md`). Thresholds below are Stewart heuristics unless marked *playbook*.
+
+- **Scale:** 10-point; Green ≥9.5 *(playbook)*; Yellow 7.0–9.4, Red <7.0 *(Stewart; 7 = playbook study floor)*.
+- **Playbook smells:** high complexity, deep nesting, low cohesion, unstable hotspots (needs git history), too-large functions.
+
+| Smell | Typical signal (med / high) | Strategy above |
+|---|---|---|
+| High complexity | >10 / >15 branches | Giant switch → thin dispatch; multi-stage loop → stage methods |
+| Large function | >60 / >120 lines | Multi-stage loop → stage methods |
+| Deep nesting | 4 / ≥5 levels | Extract named stage/handler; early returns |
+| Low cohesion | file/class mixing jobs | Split by family |
+| Duplication | 2 / ≥3 copies | Shared finalization; patch helpers |
+| Closure-captured state | >4 / >7 mutable vars | Closure-heavy function → class |
+
+### AI-refactoring guardrails *(playbook)*
+- Loop: **Review → Plan → Refactor → Re-measure.** Plan from concrete findings, not guesses.
+- Check health while generating, on staged files before commit, and branch-vs-base before a PR.
+- Agents tend to "reshuffle complexity" or make superficial fixes: re-measure and reject changes that only move the problem.
+- Healthy code ≠ relaxed control: small issues compound across iterations; keep the safeguards on.
+- Split very large/complex functions first, then refactor the pieces.
