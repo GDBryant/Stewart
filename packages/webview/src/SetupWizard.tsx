@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import type { AgentSummary, ChannelSummary, RoleSummary } from "./bridge.js";
@@ -31,6 +31,14 @@ function capBadges(caps?: Record<string, unknown>): string {
   if (caps.reasoning) out.push("reasoning");
   if (caps.imageGen) out.push("image-gen");
   if (typeof caps.contextTokens === "number") out.push(`${Math.round(caps.contextTokens / 1000)}k ctx`);
+  const perf = caps.perf as { ttftMs?: number; tokPerSec?: number; toolReliability?: number; jsonOk?: boolean; editOk?: boolean } | undefined;
+  if (perf) {
+    if (perf.tokPerSec !== undefined) out.push(`${Math.round(perf.tokPerSec)} tok/s`);
+    if (perf.ttftMs !== undefined) out.push(`ttft ${(perf.ttftMs / 1000).toFixed(1)}s`);
+    if (perf.toolReliability !== undefined) out.push(`tool ${Math.round(perf.toolReliability * 3)}/3`);
+    if (perf.editOk !== undefined) out.push(perf.editOk ? "edit ok" : "edit fail");
+    if (perf.jsonOk !== undefined) out.push(perf.jsonOk ? "json ok" : "json fail");
+  }
   return out.join(" · ");
 }
 
@@ -51,6 +59,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   const [apiKey, setApiKey] = useState("");
   const [evalMode, setEvalMode] = useState<"rules" | "ai">("rules");
   const [evaluator, setEvaluator] = useState("");
+  const [bench, setBench] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
 
   const tests = store.state.channelTest;
@@ -64,11 +73,19 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
     for (const c of enabled) if (!tests[c.id]) store.testChannel(c.id);
   }, [step, enabled.map((c) => c.id).join()]);
 
-  // Discover: probe each model once.
+  const benched = useRef(new Set<string>());
+
+  // Discover: probe each model once; re-probe with bench when the box is ticked (one retry per model).
   useEffect(() => {
     if (step !== 2) return;
-    for (const p of pairs) if (!store.state.probeResults[key(p.channel, p.model)]) store.probeModel(p.channel, p.model);
-  }, [step, pairs.map((p) => key(p.channel, p.model)).join()]);
+    for (const p of pairs) {
+      const k = key(p.channel, p.model);
+      const r = store.state.probeResults[k];
+      const needsBench = bench && !benched.current.has(k);
+      if (needsBench) benched.current.add(k);
+      if (!r || needsBench) store.probeModel(p.channel, p.model, needsBench, bench);
+    }
+  }, [step, bench, pairs.map((p) => key(p.channel, p.model)).join(), Object.keys(store.state.probeResults).length]);
 
   const pickPreset = (label: string) => {
     const p = PRESETS.find((x) => x.label === label) ?? PRESETS[0];
@@ -202,6 +219,12 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
       {step === 2 ? (
         <div class="form">
           <p><b>What to do:</b> wait while Stewart checks what each model can do (tools, vision, reasoning, context size). Failed checks are fine — those models just get safe defaults.</p>
+          <label class="field">
+            <span>
+              <input type="checkbox" checked={bench} onChange={(e) => setBench((e.target as HTMLInputElement).checked)} /> Measure speed (up to ~2.5 min per model)
+            </span>
+            <span class="hint">Sends a few test requests to each model to measure reply speed, tool-call and edit reliability.</span>
+          </label>
           {pairs.length === 0 ? <div class="fail">No models found. Go back and check your channels (for Ollama: run <code>ollama pull &lt;model&gt;</code>).</div> : null}
           {pairs.map((p) => {
             const r = store.state.probeResults[key(p.channel, p.model)];

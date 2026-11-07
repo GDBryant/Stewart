@@ -7,6 +7,18 @@ export type ChatMessage =
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
   | { role: "tool"; toolCallId: string; content: string };
 
+/** Measured model behaviour from the opt-in bench suite (`bench.ts`). Absent field = unknown, never zero. */
+export interface ModelPerf {
+  ttftMs?: number;
+  tokPerSec?: number;
+  /** 0..1: share of 3 trials that produced a valid tool call on the configured tools path. */
+  toolReliability?: number;
+  jsonOk?: boolean;
+  editOk?: boolean;
+  benchedAt: number;
+  benchVersion: number;
+}
+
 export type ModelCaps = {
   tools: "native" | "shim" | "none";
   vision: boolean;
@@ -14,6 +26,7 @@ export type ModelCaps = {
   imageGen: boolean;
   contextTokens: number;
   numCtx?: number;
+  perf?: ModelPerf;
 };
 
 export const DEFAULT_CAPS: ModelCaps = { tools: "shim", vision: false, reasoning: false, imageGen: false, contextTokens: 32768 };

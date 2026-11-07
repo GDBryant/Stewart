@@ -137,7 +137,7 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         return;
       }
       case "channel.probe": {
-        const r = await core.dispatch("channel.probe", { projectId: PROJECT_ID, channelId: m.channelId, model: m.model, force: m.force });
+        const r = await core.dispatch("channel.probe", { projectId: PROJECT_ID, channelId: m.channelId, model: m.model, force: m.force, bench: m.bench });
         await panel.webview.postMessage({ type: "channel.probe.result", channelId: m.channelId, model: m.model, ...(r as object) });
         return;
       }

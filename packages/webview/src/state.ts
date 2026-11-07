@@ -230,8 +230,8 @@ export class Store {
   testChannel(channelId: string): void {
     this.bridge.post({ type: "channel.test", channelId });
   }
-  probeModel(channelId: string, model: string, force = false): void {
-    this.bridge.post({ type: "channel.probe", channelId, model, force });
+  probeModel(channelId: string, model: string, force = false, bench = false): void {
+    this.bridge.post({ type: "channel.probe", channelId, model, force, ...(bench ? { bench: true } : {}) });
   }
   setSecret(ref: string, value: string): void {
     this.bridge.post({ type: "secret.set", ref, value });

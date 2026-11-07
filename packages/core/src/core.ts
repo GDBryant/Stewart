@@ -19,6 +19,7 @@ import { expandMentions } from "./mentions.js";
 import { normalizeImages } from "./images.js";
 import { importV1Xml, parseMiniXml } from "./v1import.js";
 import { recommendAssignments } from "./recommend.js";
+import { BENCH_VERSION, benchModel } from "./bench.js";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "./debug/debug.js";
 
 export interface CoreDeps {
@@ -386,21 +387,26 @@ export class Core {
   }
 
   private async handleChannelProbe(params: unknown): Promise<unknown> {
-    const p = params as { projectId: string; channelId: string; model: string; force?: boolean };
+    const p = params as { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean };
     const ctx = this.ctx(p.projectId);
     const ch = this.managed.get(p.channelId);
     if (!ch) return { ok: false, error: "channel not configured or disabled" };
     const cacheKey = `${p.channelId}:${p.model}`;
-    if (!p.force) {
-      const hit = this.probeCache.get(cacheKey);
-      if (hit) return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
+    const hit = this.probeCache.get(cacheKey);
+    if (!p.force && hit && (!p.bench || hit.caps.perf?.benchVersion === BENCH_VERSION)) {
+      return { ok: true, caps: hit.caps, probedAt: hit.probedAt, cached: true };
     }
     try {
       const caps = await ch.probeCaps(p.model);
+      let perf = hit?.caps.perf;
+      if (p.bench && caps.imageGen !== true) {
+        perf = await benchModel(ch, p.model, this.clock).catch(() => perf);
+      }
+      const merged = perf ? { ...caps, perf } : caps;
       const probedAt = this.clock.now();
-      this.probeCache.set(cacheKey, { caps, probedAt });
+      this.probeCache.set(cacheKey, { caps: merged, probedAt });
       this.applyProbes(ctx.config);
-      return { ok: true, caps, probedAt, cached: false };
+      return { ok: true, caps: merged, probedAt, cached: false };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

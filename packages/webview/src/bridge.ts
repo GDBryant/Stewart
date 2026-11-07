@@ -16,7 +16,7 @@ export type Outbound =
   | { type: "history.load"; sessionId: string }
   | { type: "history.delete"; sessionId: string }
   | { type: "channel.test"; channelId: string }
-  | { type: "channel.probe"; channelId: string; model: string; force?: boolean }
+  | { type: "channel.probe"; channelId: string; model: string; force?: boolean; bench?: boolean }
   | { type: "secret.set"; ref: string; value: string }
   | { type: "secret.delete"; ref: string }
   | { type: "skills.save"; id: string; body: string; description?: string }

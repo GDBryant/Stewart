@@ -2,6 +2,16 @@ import { z } from "zod";
 
 export const CONFIG_VERSION = 1;
 
+const modelPerf = z.object({
+  ttftMs: z.number().optional(),
+  tokPerSec: z.number().optional(),
+  toolReliability: z.number().min(0).max(1).optional(),
+  jsonOk: z.boolean().optional(),
+  editOk: z.boolean().optional(),
+  benchedAt: z.number(),
+  benchVersion: z.number().int(),
+});
+
 const modelCaps = z.object({
   tools: z.enum(["native", "shim", "none"]).optional(),
   vision: z.boolean().optional(),
@@ -9,6 +19,7 @@ const modelCaps = z.object({
   imageGen: z.boolean().optional(),
   contextTokens: z.number().int().positive().optional(),
   numCtx: z.number().int().positive().optional(),
+  perf: modelPerf.optional(),
 });
 
 export const channelSchema = z.object({
