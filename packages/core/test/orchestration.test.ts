@@ -3,8 +3,9 @@ import type { ChannelAdapter, ChatEvent, ChatRequest } from "../src/channels/typ
 import { ManagedChannel } from "../src/channels/registry.js";
 import { EventBus } from "../src/events.js";
 import { loadConfig, type Config } from "../src/config/loader.js";
-import { counterIds, systemClock } from "../src/ports.js";
+import { counterIds, systemClock, type Clock } from "../src/ports.js";
 import { RunManager } from "../src/runManager.js";
+import { DEFAULT_BUDGET_PROFILES } from "../src/limits.js";
 import { TaskGraph } from "../src/orchestration/tasks.js";
 import { LeaseManager } from "../src/orchestration/leases.js";
 import { RunLedger, CostLimit, costOfCall, isCosting } from "../src/orchestration/ledger.js";
@@ -17,7 +18,7 @@ import { orchestrationTools, type OrchestrationHandlers } from "../src/orchestra
 import type { OrchestrationRuntime } from "../src/orchestration/types.js";
 import { projectTools } from "../src/tools/builtins.js";
 import { ProjectPaths } from "../src/tools/projectPaths.js";
-import { ToolLoop } from "../src/tools/toolLoop.js";
+import { DEFAULT_LIMITS, ToolLoop } from "../src/tools/toolLoop.js";
 import { ToolRegistry } from "../src/tools/types.js";
 import { fakeHost } from "./helpers.js";
 import type { RunEvent } from "@stewart/protocol";
@@ -782,15 +783,6 @@ describe("runOrchestrated", () => {
     expect(events.some((e) => e.kind === "task.created")).toBe(false);
   });
 
-  it("stops dispatching after maxRunHours", async () => {
-    const cfg = config({ settings: "version: 1\nmaxRunHours: 1\n" });
-    const { channel } = fakeChannel((role, n) => (role === "orchestrator" ? (n === 1 ? [calls(plan("investigator", "x")), done()] : [text("done"), done()]) : [text("ok"), done()]));
-    const { rt, events } = await runtime(cfg, channel, { startedAt: systemClock.now() - 2 * 3_600_000 });
-    const out = await runOrchestrated(rt, "go");
-    expect(out.status).toBe("done");
-    expect(events.some((e) => e.kind === "task.created")).toBe(false);
-  });
-
   it("runs the plan/validate/approve flow", async () => {
     const cfg = config();
     const { channel } = fakeChannel((role, n) => {
@@ -1114,6 +1106,116 @@ describe("RunManager orchestrated status", () => {
       status: "no_dispatch",
       error: expect.stringContaining("Last reply: just prose"),
     });
+  });
+});
+
+describe("RunManager run time cap", () => {
+  /**
+   * Manual clock. `timers` records every arm (tool-timeout timers excluded, they share the clock but are not the run cap);
+   * `fire()` runs the pending, uncancelled cap timers.
+   */
+  const manualClock = (start = 1_000_000) => {
+    let t = start;
+    const timers: { ms: number; fn: () => void; cancelled: boolean }[] = [];
+    const clock: Clock = {
+      now: () => t,
+      setTimeout: (fn, ms) => {
+        const rec = { ms, fn, cancelled: false };
+        if (ms !== DEFAULT_LIMITS.toolTimeoutMs) timers.push(rec);
+        return { cancel: () => (rec.cancelled = true) };
+      },
+    };
+    const fire = () => {
+      for (const r of timers) {
+        if (r.cancelled) continue;
+        r.cancelled = true;
+        r.fn();
+      }
+    };
+    return { clock, timers, fire };
+  };
+  const mk = (clock: Clock, script: Script, settings?: string) => {
+    const cfg = config({ settings });
+    const { channel, calls: seen } = fakeChannel(script);
+    const fake = fakeHost({ "a.ts": "a" });
+    const events: RunEvent[] = [];
+    const manager = new RunManager({ host: fake.host, clock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    return { manager, opts: { config: cfg, channelFor: () => channel }, events, fake, seen };
+  };
+  const finished = (events: RunEvent[]) => events.find((e) => e.kind === "run.finished");
+
+  it("stops an orchestrated run when the cap timer fires mid-run (stopped, not cancelled)", async () => {
+    const mc = manualClock();
+    const script: Script = (role, n) =>
+      role === "orchestrator" && n === 1
+        ? (mc.fire(), [calls({ id: "c-d", name: "dispatch", arguments: { role: "investigator", task: "look" } }), done()])
+        : [text("ok"), done()];
+    const { manager, opts, events } = mk(mc.clock, script, "version: 1\nmaxRunHours: 1\n");
+    const run = await manager.orchestrated("p", { ...opts, text: "go" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
+    expect(finished(events)).toMatchObject({ status: "stopped", error: "run time limit reached (60min)" });
+  });
+
+  it("stops a resumed run whose startedAt is already past the cap, before re-dispatching", async () => {
+    const instant: Clock = { now: () => 2 * 3_600_000, setTimeout: (fn) => (fn(), { cancel: () => {} }) };
+    const { manager, opts, events, fake, seen } = mk(instant, () => [text("never"), done()], "version: 1\nmaxRunHours: 1\n");
+    fake.files["/tmp/st/scratch/run-late/run.json"] = JSON.stringify({
+      id: "run-late",
+      projectId: "p",
+      text: "update a.ts",
+      status: "running",
+      startedAt: 0,
+      costUsd: 0,
+      tasks: [{ id: "task-1", roleId: "code-writer", title: "write a.ts", task: "write a.ts", files: ["a.ts"], dependsOn: [], status: "running" }],
+    });
+    const res = await manager.resume("p", "run-late", { config: opts.config, channelFor: opts.channelFor });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-late")!.status).toBe("interrupted"));
+    expect(finished(events)).toMatchObject({ status: "stopped", error: "run time limit reached (60min)" });
+    expect(seen.some((s) => s.startsWith("code-writer"))).toBe(false);
+    expect(fake.files["a.ts"]).toBe("a");
+  });
+
+  it("cancels the cap timer after normal completion so a later fire changes nothing", async () => {
+    const mc = manualClock();
+    const { manager, opts, events } = mk(mc.clock, (role, n) => (role === "orchestrator" && n === 1 ? [text("nothing to do"), done()] : [text("ok"), done()]), "version: 1\nmaxRunHours: 1\n");
+    const run = await manager.orchestrated("p", { ...opts, text: "go" });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("no_dispatch"));
+    expect(mc.timers).toHaveLength(1);
+    expect(mc.timers[0]!.cancelled).toBe(true);
+    mc.fire();
+    expect(manager.get(run.id)!.status).toBe("no_dispatch");
+    expect(events.some((e) => e.kind === "run.finished" && e.status === "stopped")).toBe(false);
+  });
+
+  it("never arms a timer when maxRunHours and the profile maxRunMinutes are both 0", async () => {
+    const mc = manualClock();
+    const { manager, opts, events } = mk(mc.clock, (role, n) =>
+      role === "orchestrator" && n === 1
+        ? [calls({ id: "c-d", name: "dispatch", arguments: { role: "investigator", task: "look" } }), done()]
+        : [text("ok"), done()],
+    );
+    const run = await manager.orchestrated("p", { ...opts, text: "go", profile: { ...DEFAULT_BUDGET_PROFILES.normal, maxRunMinutes: 0 } });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    expect(mc.timers).toHaveLength(0);
+    expect(finished(events)).toMatchObject({ status: "done" });
+  });
+
+  it("reports a user cancel as cancelled, not stopped, even with the cap armed", async () => {
+    const mc = manualClock();
+    const { manager, opts, events } = mk(mc.clock, (role, n) => {
+      if (role === "orchestrator" && n === 1) {
+        manager.cancel(runIdRef.id);
+        return [text("cancelled"), done()];
+      }
+      return [text("ok"), done()];
+    }, "version: 1\nmaxRunHours: 1\n");
+    const runIdRef = { id: "" };
+    const run = await manager.orchestrated("p", { ...opts, text: "go" });
+    runIdRef.id = run.id;
+    await vi.waitFor(() => expect(finished(events)).toBeDefined());
+    expect(manager.get(run.id)!.status).toBe("cancelled");
+    expect(finished(events)).toMatchObject({ status: "cancelled" });
   });
 });
 

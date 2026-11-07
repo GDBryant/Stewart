@@ -51,12 +51,12 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Path | Entry | Ledger/cost cap | Leases | Idempotency | Journal/resume | `maxRunHours` | Turn budget | Recovery |
 |---|---|---|---|---|---|---|---|---|
 | Direct | `RunManager.direct` → `drive` | no | yes (`taskId "direct"`) | no | no | own `capTimer` (`effectiveRunCapMs`) | `resolveLimits` | continue question only |
-| Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | orchestrator check | `resolveLimits` | layer 0/1 via `runTaskRecoverable` |
-| Resume | `RunManager.resume` → `runTaskRecoverable` | yes | yes | yes | yes | orchestrator check | `resolveLimits` | layer 0/1 |
+| Orchestrated | `RunManager.orchestrated` → `runOrchestrated` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 via `runTaskRecoverable` |
+| Resume | `RunManager.resume` → `runTaskRecoverable` | yes | yes | yes | yes | runtime `timeCap` timer (`buildRuntime`) → `interrupted`/`stopped` | `resolveLimits` | layer 0/1 |
 
 Limits: `limits.ts` `resolveLimits` (budget profile quick/normal/deep × model speed/cost/reliability factors, `maxWorkerTurnsCeiling`), called with copy-pasted args from `drive`, `orchestrator.ts`, `roleRunner.ts`.
 
-`ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. The orchestration runtime (`RunRuntime`, alias `OrchestrationRuntime`) is built once, in `RunManager.buildRuntime` (used by `resume`, `driveOrchestrated`); `drive` still has its own ad hoc locals.
+`ToolLoop` is built only in `createAgentSession` (R1 done); call sites supply registry/approve/prompt and opt into `meter`/`events`. The orchestration runtime (`RunRuntime`, alias `OrchestrationRuntime`) is built once, in `RunManager.buildRuntime` (used by `resume`, `driveOrchestrated`) and owns the run time cap as one abort timer (`rt.timeCap`, cancelled in `finally`); `drive` still has its own ad hoc locals and `capTimer`.
 
 ## 4. Model facts
 

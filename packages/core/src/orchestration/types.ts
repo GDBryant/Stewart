@@ -29,6 +29,8 @@ export interface OrchestrationRuntime {
   cost: CostLimit;
   signal: AbortSignal;
   startedAt: number;
+  /** Run-level time cap: one abort timer owned by the run. `hit` is set when it fired; `ms` 0 = no cap. */
+  timeCap?: { ms: number; hit: boolean; cancel(): void };
   leaseWaitMs: number;
   skillBudgetTokens: number;
   maxNestedDispatches: number;

@@ -23,7 +23,9 @@ import type { RunRuntime } from "./orchestration/types.js";
 import { ChatHistoryStore } from "./history.js";
 import { loadProjectContext } from "./projectContext.js";
 
-export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted" | "stopped" | "no_dispatch";
+const timeCapMessage = (ms: number): string => `run time limit reached (${Math.round(ms / 60_000)}min)`;
+
+export type RunStatus ="running" | "done" | "failed" | "cancelled" | "interrupted" | "stopped" | "no_dispatch";
 
 export interface Run {
   id: string;
@@ -342,6 +344,7 @@ export class RunManager {
     this.runs.set(run.id, run);
     this.deps.bus.emit({ kind: "run.started", runId: run.id, title: text.slice(0, 80) });
     void (async () => {
+      let timeCap: RunRuntime["timeCap"];
       try {
         const rt = this.buildRuntime(run, {
           config: opts.config,
@@ -351,8 +354,10 @@ export class RunManager {
           idem,
           ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
         });
+        timeCap = rt.timeCap;
         const cost = rt.cost;
         for (const t of interrupted) {
+          if (timeCap?.hit) break;
           const role = resolveRole(rt, t.roleId);
           if (!role) {
             t.status = "failed";
@@ -377,6 +382,13 @@ export class RunManager {
           );
         }
         run.costUsd = cost.accrued;
+        if (timeCap?.hit) {
+          run.status = "interrupted";
+          run.tasks = graph.toJSON();
+          await this.journal(run, stateDir);
+          this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "stopped", error: timeCapMessage(timeCap.ms) });
+          return;
+        }
         const anyFailed = graph.all().some((t) => t.status !== "done");
         run.status = anyFailed ? "failed" : "done";
         run.tasks = graph.toJSON();
@@ -386,6 +398,8 @@ export class RunManager {
         run.status = "failed";
         await this.journal(run, stateDir);
         this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "failed", error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        timeCap?.cancel();
       }
     })();
     return { ok: true, run };
@@ -408,6 +422,21 @@ export class RunManager {
     const s = opts.config.settings;
     const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, opts.ledger.cost(run.id).costUsd);
     const grants = new Grants();
+    const profile = opts.profile ?? DEFAULT_BUDGET_PROFILES.normal;
+    const ms = effectiveRunCapMs(s.maxRunHours, profile);
+    const timeCap: NonNullable<RunRuntime["timeCap"]> = { ms, hit: false, cancel: () => {} };
+    if (ms > 0) {
+      const timer = this.deps.clock.setTimeout(
+        () => {
+          if (run.status === "running") {
+            timeCap.hit = true;
+            run.controller.abort();
+          }
+        },
+        Math.max(0, ms - (this.deps.clock.now() - run.startedAt)),
+      );
+      timeCap.cancel = () => timer.cancel();
+    }
     return {
       runId: run.id,
       projectId: run.projectId,
@@ -430,13 +459,14 @@ export class RunManager {
       maxReplans: s.maxReplans,
       maxRunHours: s.maxRunHours,
       maxWorkerTurnsCeiling: s.maxWorkerTurnsCeiling,
-      budgetProfile: opts.profile ?? DEFAULT_BUDGET_PROFILES.normal,
+      budgetProfile: profile,
       planGate: s.planGate,
       onGraphChange: opts.onGraphChange,
       recovery: recoveryState(s),
       ask: opts.ask ?? this.askUser(run.id, "orchestrator"),
       askTimed: this.askTimed(run.id, run.controller.signal, "orchestrator"),
       approve: (call, preview) => this.gate(run.id, grants)(call, preview),
+      timeCap,
     };
   }
 
@@ -463,12 +493,24 @@ export class RunManager {
       ask: this.askUser(run.id, "orchestrator"),
     });
     const cost = rt.cost;
-    const outcome = await runOrchestrated(rt, opts.text);
+    let outcome: Awaited<ReturnType<typeof runOrchestrated>>;
+    try {
+      outcome = await runOrchestrated(rt, opts.text);
+    } finally {
+      rt.timeCap?.cancel();
+    }
     run.costUsd = cost.accrued;
     if (run.status === "cancelled") {
       await this.journal(run, stateDir);
       await this.saveHistory(run);
       this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "cancelled" });
+      return;
+    }
+    if (rt.timeCap?.hit) {
+      run.status = "interrupted";
+      await this.journal(run, stateDir);
+      await this.saveHistory(run);
+      this.deps.bus.emit({ kind: "run.finished", runId: run.id, status: "stopped", error: timeCapMessage(rt.timeCap.ms) });
       return;
     }
     if (outcome.status === "failed") {

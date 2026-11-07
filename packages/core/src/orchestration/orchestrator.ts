@@ -1,7 +1,7 @@
 import type { AgentDef, RoleDef } from "../config/schema.js";
 import type { ChatMessage } from "../channels/types.js";
 import type { ManagedChannel } from "../channels/registry.js";
-import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs } from "../limits.js";
+import { DEFAULT_BUDGET_PROFILES } from "../limits.js";
 import { createAgentSession } from "../agentSession.js";
 import { projectTools } from "../tools/builtins.js";
 import { ProjectPaths } from "../tools/projectPaths.js";
@@ -237,10 +237,6 @@ class OrchestratedRun {
       rt.bus.emit({ kind: "task.created", runId: rt.runId, taskId: rec.id, roleId: role.id, title: rec.title, dependsOn: rec.dependsOn });
       rt.bus.emit({ kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: r.summary });
       return Promise.resolve(r);
-    }
-    const capMs = effectiveRunCapMs(rt.maxRunHours, rt.budgetProfile ?? DEFAULT_BUDGET_PROFILES.normal);
-    if (capMs > 0 && rt.clock.now() - rt.startedAt > capMs) {
-      return Promise.resolve({ status: "stopped", summary: `run time limit reached (${Math.round(capMs / 60_000)}min)`, filesTouched: [] } as TaskResult);
     }
     const rec = this.graph.add({ ...spec, roleId: role.id });
     rt.leases.register(rec.id);
