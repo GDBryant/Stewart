@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BENCH_VERSION, benchModel } from "../src/bench.js";
-import { ManagedChannel } from "../src/channels/registry.js";
-import type { ChannelAdapter, ChannelConfig, ChatEvent } from "../src/channels/types.js";
+import { ManagedChannel } from "@stewart/channels";
+import type { ChannelAdapter, ChannelConfig, ChatEvent } from "@stewart/channels";
 import { loadConfig } from "../src/config/effective.js";
 import { Core } from "../src/core.js";
 import type { ConfigStore } from "@stewart/config";

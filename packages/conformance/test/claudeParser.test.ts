@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ClaudeStreamParser } from "@stewart/core";
+import { ClaudeStreamParser } from "@stewart/channels";
 
 const DIR = join(__dirname, "..", "fixtures", "claude");
 const fixture = (name: string) => readFileSync(join(DIR, name), "utf8").split("\n").filter((l) => l.trim());

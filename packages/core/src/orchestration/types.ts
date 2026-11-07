@@ -1,7 +1,7 @@
 import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { EventBus } from "../events.js";
 import type { Config } from "../config/effective.js";
-import type { ManagedChannel } from "../channels/registry.js";
+import type { ManagedChannel } from "@stewart/channels";
 import type { ToolPreview } from "@stewart/permissions";
 import type { ToolCall } from "@stewart/kernel";
 import type { ApprovalDecision } from "../tools/toolLoop.js";

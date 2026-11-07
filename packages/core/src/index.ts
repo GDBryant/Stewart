@@ -1,15 +1,7 @@
+export * from "@stewart/channels";
 export * from "@stewart/kernel";
 export * from "./events.js";
 export * from "@stewart/diagnostics";
-export * from "./channels/types.js";
-export * from "./channels/stream.js";
-export * from "./channels/ollama.js";
-export * from "./channels/openai.js";
-export * from "./channels/registry.js";
-export * from "./channels/claude/adapter.js";
-export * from "./channels/claude/parser.js";
-export * from "./channels/claude/transcript.js";
-export * from "./channels/claude/nodeSpawn.js";
 export * from "@stewart/config";
 export { loadConfig, type Config } from "./config/effective.js";
 export * from "./runManager.js";

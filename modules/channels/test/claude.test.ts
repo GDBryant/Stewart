@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ClaudeCliAdapter, type ClaudeDeps } from "../src/channels/claude/adapter.js";
-import { ClaudeStreamParser } from "../src/channels/claude/parser.js";
-import { argv, prepare } from "../src/channels/claude/transcript.js";
+import { ClaudeCliAdapter, type ClaudeDeps } from "../src/claude/adapter.js";
+import { ClaudeStreamParser } from "../src/claude/parser.js";
+import { argv, prepare } from "../src/claude/transcript.js";
 import { type ChatMessage } from "@stewart/kernel";
-import { ChannelError } from "../src/channels/types.js";
-import type { SpawnedProc, SpawnFn } from "../src/channels/claude/nodeSpawn.js";
+import { ChannelError } from "../src/types.js";
+import type { SpawnedProc, SpawnFn } from "../src/claude/nodeSpawn.js";
 import { collect } from "@stewart/kernel";
 
-const FIXTURES = join(__dirname, "../../conformance/fixtures/claude");
+const FIXTURES = join(__dirname, "../../../packages/conformance/fixtures/claude");
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), "utf8").split("\n").filter((l) => l.trim());
 
 interface FakeProc {

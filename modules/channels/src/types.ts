@@ -1,8 +1,5 @@
-import type { Fetcher } from "@stewart/kernel";
+import type { ChatMessage, Fetcher, ToolCall } from "@stewart/kernel";
 import type { DebugSink } from "@stewart/diagnostics";
-
-import type { ToolCall, ChatMessage } from "@stewart/kernel";
-
 import type { ModelCaps } from "@stewart/models";
 
 export type ChatEvent =

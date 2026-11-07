@@ -90,6 +90,19 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/channels:
+    dependencies:
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@stewart/diagnostics':
+        specifier: workspace:*
+        version: link:../diagnostics
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/models':
+        specifier: workspace:*
+        version: link:../models
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -363,6 +376,9 @@ importers:
 
   packages/conformance:
     dependencies:
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../../modules/channels
       '@stewart/core':
         specifier: workspace:*
         version: link:../core
@@ -385,6 +401,9 @@ importers:
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../../modules/catalog
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../../modules/channels
       '@stewart/compaction':
         specifier: workspace:*
         version: link:../../modules/compaction

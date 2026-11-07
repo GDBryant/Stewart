@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { OllamaAdapter } from "../src/channels/ollama.js";
-import { OpenAICompatAdapter } from "../src/channels/openai.js";
-import { ManagedChannel } from "../src/channels/registry.js";
+import { OllamaAdapter } from "../src/ollama.js";
+import { OpenAICompatAdapter } from "../src/openai.js";
+import { ManagedChannel } from "../src/registry.js";
 import { fakeFetcher, collect } from "@stewart/kernel";
-import type { ChatRequest } from "../src/channels/types.js";
+import type { ChatRequest } from "../src/types.js";
 
 const req = (signal = new AbortController().signal): ChatRequest => ({ model: "m", messages: [{ role: "user", content: "hi" }], signal });
 

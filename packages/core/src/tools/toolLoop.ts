@@ -1,4 +1,4 @@
-import type { ManagedChannel } from "../channels/registry.js";
+import type { ManagedChannel } from "@stewart/channels";
 import { DEFAULT_LIMITS, type LoopLimits } from "@stewart/budget";
 import type { ToolsMode } from "@stewart/models";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";

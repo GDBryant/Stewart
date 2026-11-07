@@ -1,4 +1,4 @@
-import type { ManagedChannel } from "./channels/registry.js";
+import type { ManagedChannel } from "@stewart/channels";
 import { DEFAULT_CAPS, type ModelPerf, type ToolsMode } from "@stewart/models";
 import type { AgentDef } from "@stewart/config";
 import { createAgentSession } from "./agentSession.js";

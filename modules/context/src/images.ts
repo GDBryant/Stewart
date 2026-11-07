@@ -43,19 +43,3 @@ export function normalizeImages(images: string[]): { images: string[]; dropped: 
   dropped += Math.max(0, images.length - IMAGE_LIMITS.maxPerMessage);
   return { images: out, dropped };
 }
-
-/**
- * v1 ImageStripping: non-vision models get `[image: name]` placeholders at
- * request time; the stored transcript keeps the real attachments.
- */
-export function stripImages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map((m) => {
-    if (m.role !== "user" || !m.images?.length) return m;
-    const placeholders = m.images.map((_, i) => `[image: image-${i + 1}]`);
-    return {
-      ...m,
-      content: [m.content, ...placeholders].filter(Boolean).join("\n"),
-      images: undefined,
-    };
-  });
-}

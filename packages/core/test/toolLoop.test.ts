@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ManagedChannel } from "../src/channels/registry.js";
+import { ManagedChannel } from "@stewart/channels";
 import { type ToolCall, type ChatMessage } from "@stewart/kernel";
-import type { ChannelAdapter, ChatEvent } from "../src/channels/types.js";
+import type { ChannelAdapter, ChatEvent } from "@stewart/channels";
 import { DEFAULT_LIMITS } from "@stewart/budget";
 import { RunCancelledError, ToolLoop, type ApprovalDecision } from "../src/tools/toolLoop.js";
 
