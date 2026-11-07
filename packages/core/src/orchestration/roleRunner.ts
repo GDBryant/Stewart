@@ -14,7 +14,7 @@ import type { ToolPreview } from "../tools/types.js";
 import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";
-import { isCosting } from "./ledger.js";
+import { costOfCall, isCosting } from "./ledger.js";
 import { leasedTools, LeaseCycleError } from "./writeGuard.js";
 import { loadProjectContext } from "../projectContext.js";
 import type { OrchestrationRuntime } from "./types.js";
@@ -128,7 +128,7 @@ export async function runRoleTask(
   let terminalCallId: string | undefined;
 
   const activeAgent = agent;
-  const summarize = rt.config.settings.compaction?.summarize ? compactorFor(rt) : undefined;
+  const summarize = rt.config.settings.compaction?.summarize ? compactorFor(rt, spec.id) : undefined;
   const session = createAgentSession(
     {
       agent: activeAgent,
@@ -200,9 +200,9 @@ export async function runRoleTask(
 
 /**
  * Summarizer bound to the enabled `compactor` role's agent; undefined (prune/clip only) when no such
- * role or agent exists. Cost is not metered yet (R3.4), hence the settings flag defaults off.
+ * role or agent exists. Calls are metered to the ledger under role `compactor`.
  */
-export function compactorFor(rt: OrchestrationRuntime): ((middle: ChatMessage[]) => Promise<string>) | undefined {
+export function compactorFor(rt: OrchestrationRuntime, taskId?: string): ((middle: ChatMessage[]) => Promise<string>) | undefined {
   const role = rt.config.roles.find((r) => r.id === "compactor" && r.enabled);
   const agent = role && rt.config.agents.find((a) => a.id === role.agent);
   if (!agent) return undefined;
@@ -216,6 +216,21 @@ export function compactorFor(rt: OrchestrationRuntime): ((middle: ChatMessage[])
     ];
     for await (const ev of channel.chat({ model: agent.model, messages, signal: rt.signal })) {
       if (ev.kind === "text") text += ev.text;
+      if (ev.kind === "done") {
+        const costUsd = costOfCall(agent, ev.usage, ev.costUsd);
+        await rt.ledger.record({
+          runId: rt.runId,
+          ...(taskId ? { taskId } : {}),
+          roleId: "compactor",
+          agentId: agent.id,
+          model: agent.model,
+          billing: agent.billing ?? "reported",
+          inTokens: ev.usage?.in ?? 0,
+          outTokens: ev.usage?.out ?? 0,
+          costUsd,
+        });
+        rt.cost.accrued += costUsd;
+      }
     }
     return text;
   };

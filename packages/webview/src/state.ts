@@ -397,6 +397,8 @@ export class Store {
         return this.onCostEvent(ev);
       case "cost.replaced":
         return this.addActivity(ev.runId, "tool-ok", `replaced ${ev.roleId} → ${ev.agentId}`);
+      case "compaction":
+        return this.addActivity(ev.runId, "tool-ok", `context compacted: -${ev.droppedTokens} tokens${ev.pruned ? `, ${ev.pruned} pruned` : ""}${ev.summarized ? ", summarized" : ""}`);
       case "text_delta":
         return this.mutateAssistant(ev.runId, (it) => {
           it.text += ev.text;

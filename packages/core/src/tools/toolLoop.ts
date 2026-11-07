@@ -17,7 +17,7 @@ export interface LoopListener {
   onReasoning?(text: string): void;
   onToolRequested?(call: ToolCall): void;
   onToolOutcome?(call: ToolCall, outcome: ToolOutcome): void;
-  onCompacted?(beforeTokens: number, afterTokens: number): void;
+  onCompacted?(beforeTokens: number, afterTokens: number, detail?: { pruned: number; summarized: boolean }): void;
   onCompactionFailed?(message: string): void;
   /** One model call finished: usage + provider-reported cost (ledger input). */
   onUsage?(usage: { in: number; out: number } | undefined, costUsd: number | undefined): void | Promise<void>;
@@ -127,12 +127,15 @@ export class ToolLoop {
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        if (this.limits.prune && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.6) pruneStale(produced);
+        const before = measureMessages([...base, ...produced]);
+        let pruned = 0;
+        let summarized = false;
+        if (this.limits.prune && before > this.limits.maxContextChars * 0.6) pruned = pruneStale(produced);
         if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * 0.8) {
-          const before = measureMessages([...base, ...produced]);
-          if (await summarizeMiddle(produced, this.summarize)) {
-            listener.onCompacted?.(Math.ceil(before / 4), Math.ceil(measureMessages([...base, ...produced]) / 4));
-          }
+          summarized = await summarizeMiddle(produced, this.summarize);
+        }
+        if (pruned > 0 || summarized) {
+          listener.onCompacted?.(Math.ceil(before / 4), Math.ceil(measureMessages([...base, ...produced]) / 4), { pruned, summarized });
         }
         if (compactIfOver(base, produced, this.limits.maxContextChars, listener)) {
           return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };

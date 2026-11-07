@@ -165,4 +165,17 @@ describe("createAgentSession", () => {
     expect(over.limits.maxModelTurns).not.toBe(DEFAULT_LIMITS.maxModelTurns);
     expect({ ...over.limits, maxModelTurns: DEFAULT_LIMITS.maxModelTurns }).toEqual(DEFAULT_LIMITS);
   });
+
+  it("emits compaction with before/after/pruned/summarized when detail is given, bare otherwise", async () => {
+    const h = harness("a-paid");
+    h.spec.events = { bus: h.bus, runId: "run-1" };
+    const session = createAgentSession(h.spec, systemClock);
+    session.listener.onCompacted?.(100, 40, { pruned: 2, summarized: true });
+    session.listener.onCompacted?.(50, 60);
+    await flush(h.bus);
+    const c = h.events.filter((e) => e.kind === "compaction");
+    expect(c[0]).toMatchObject({ droppedTokens: 60, beforeTokens: 100, afterTokens: 40, pruned: 2, summarized: true });
+    expect(c[1]).toMatchObject({ droppedTokens: 0 });
+    expect(c[1]).not.toHaveProperty("pruned");
+  });
 });

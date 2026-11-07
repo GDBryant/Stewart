@@ -58,7 +58,15 @@ export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSessio
     const { bus } = events;
     listener.onText = (t) => bus.emit({ kind: "text_delta", ...ids, seq: 0, text: t });
     listener.onReasoning = (t) => bus.emit({ kind: "reasoning_delta", ...ids, seq: 0, text: t });
-    listener.onCompacted = (before, after) => bus.emit({ kind: "compaction", ...ids, droppedTokens: Math.max(0, before - after) });
+    listener.onCompacted = (before, after, detail) =>
+      bus.emit({
+        kind: "compaction",
+        ...ids,
+        droppedTokens: Math.max(0, before - after),
+        beforeTokens: before,
+        afterTokens: after,
+        ...(detail ? { pruned: detail.pruned, summarized: detail.summarized } : {}),
+      });
   }
   listener.onToolRequested = (call) => {
     spec.hooks?.onToolRequested?.(call);

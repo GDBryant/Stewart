@@ -72,7 +72,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cost.limit_reached"), ...base, capUsd: z.number(), accruedUsd: z.number() }),
   z.object({ kind: z.literal("cost.limit_raised"), ...base, capUsd: z.number() }),
   z.object({ kind: z.literal("cost.replaced"), ...base, roleId: z.string(), agentId: z.string(), reason: z.string() }),
-  z.object({ kind: z.literal("compaction"), ...base, droppedTokens: z.number() }),
+  z.object({ kind: z.literal("compaction"), ...base, droppedTokens: z.number(), beforeTokens: z.number().optional(), afterTokens: z.number().optional(), pruned: z.number().optional(), summarized: z.boolean().optional() }),
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];

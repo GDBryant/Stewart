@@ -36,6 +36,18 @@ describe("webview chat", () => {
     expect(store.state.busyRunId).toBeUndefined();
   });
 
+  it("records compaction savings as an activity line", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("compaction", { droppedTokens: 300, pruned: 2, summarized: true }));
+      bridge.inbound(ev("compaction", { droppedTokens: 10 }));
+    });
+    const texts = JSON.stringify(store.state);
+    expect(texts).toContain("context compacted: -300 tokens, 2 pruned, summarized");
+    expect(texts).toContain("context compacted: -10 tokens\"");
+  });
+
   it("shows Stop while busy and posts chat.cancel", () => {
     const { bridge } = mk();
     act(() => {
