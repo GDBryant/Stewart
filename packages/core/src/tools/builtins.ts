@@ -4,7 +4,8 @@ import {
   MAX_COMMAND_OUTPUT, MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, ProjectPaths,
 } from "./projectPaths.js";
 import { type Json, type ToolSpec } from "@stewart/kernel";
-import { ToolRegistry, type Tool, type ToolPreview } from "./types.js";
+import { type ToolPreview } from "@stewart/permissions";
+import { ToolRegistry, type Tool } from "./types.js";
 
 function arg(args: Json, key: string): string {
   const v = args[key];

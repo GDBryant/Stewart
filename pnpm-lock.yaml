@@ -309,6 +309,9 @@ importers:
       '@stewart/models':
         specifier: workspace:*
         version: link:../../modules/models
+      '@stewart/permissions':
+        specifier: workspace:*
+        version: link:../../modules/permissions
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../protocol

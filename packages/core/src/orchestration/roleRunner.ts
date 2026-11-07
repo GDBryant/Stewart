@@ -9,7 +9,7 @@ import { ProjectPaths } from "../tools/projectPaths.js";
 import { RunCancelledError, type ApprovalDecision, type LoopResult } from "../tools/toolLoop.js";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "../agentSession.js";
-import type { ToolPreview } from "../tools/types.js";
+import type { ToolPreview } from "@stewart/permissions";
 import { classifyFault, type FaultKind } from "./faults.js";
 import type { Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/types.js";

@@ -178,7 +178,7 @@ describe("ApplyPatch / GetProblems / GetDiff / ReadImage / GenerateImage", () =>
     const p = await w.preview!({ path: ".stewart/scratch/note.txt", content: "ok" });
     await w.execute({ path: ".stewart/scratch/note.txt", content: "ok" }, p, sig);
     expect(files[".stewart/scratch/note.txt"]).toBe("ok");
-    const { Grants } = await import("../src/tools/approvals.js");
+    const { Grants } = await import("@stewart/permissions");
     const g = new Grants();
     expect(g.isGranted("EDITS", p)).toBe(true);
     expect(g.audit[0]).toMatchObject({ decision: "auto", category: "EDITS", target: ".stewart/scratch/note.txt" });
@@ -186,7 +186,7 @@ describe("ApplyPatch / GetProblems / GetDiff / ReadImage / GenerateImage", () =>
 
   it("registers external ToolProvider plugins under MCP:<server> categories", async () => {
     const { reg } = await setup({});
-    const { categoryOf } = await import("../src/tools/types.js");
+    const { categoryOf } = await import("@stewart/permissions");
     reg.registerProvider({
       id: "linear",
       tools: () => [

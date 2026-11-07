@@ -9,8 +9,9 @@ import { ManagedChannel } from "./channels/registry.js";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { projectTools } from "./tools/builtins.js";
 import { ProjectPaths } from "./tools/projectPaths.js";
-import { Grants, type GrantDecision } from "./tools/approvals.js";
-import { categoryOf, ToolRegistry } from "./tools/types.js";
+import { Grants, type GrantDecision } from "@stewart/permissions";
+import { categoryOf } from "@stewart/permissions";
+import { ToolRegistry } from "./tools/types.js";
 import { RunCancelledError, type ApprovalDecision } from "./tools/toolLoop.js";
 import { RunLedger, CostLimit } from "./orchestration/ledger.js";
 import { LeaseManager, TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
@@ -97,7 +98,7 @@ export class RunManager {
   /** Approval gate shared by direct and orchestrated runs. */
   private gate(runId: string, runGrants: Grants) {
     const bus = this.deps.bus;
-    return async (call: ToolCall, preview: import("./tools/types.js").ToolPreview | null): Promise<ApprovalDecision> => {
+    return async (call: ToolCall, preview: import("@stewart/permissions").ToolPreview | null): Promise<ApprovalDecision> => {
       const cat = categoryOf(preview) ?? "OTHER";
       if (runGrants.isGranted(cat, preview) || this.sessionGrants.isGranted(cat, preview)) return { kind: "approved" };
       const approvalId = this.deps.ids.next("appr");

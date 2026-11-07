@@ -20,7 +20,8 @@
     "@stewart/scheduling": "workspace:*",
     "@stewart/catalog": "workspace:*",
     "@stewart/models": "workspace:*",
-    "@stewart/budget": "workspace:*"
+    "@stewart/budget": "workspace:*",
+    "@stewart/permissions": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

@@ -5,10 +5,8 @@ import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { Clock } from "@stewart/kernel";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "@stewart/compaction";
-import {
-  NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry,
-  type ToolOutcome, type ToolPreview,
-} from "./types.js";
+import { type ToolPreview } from "@stewart/permissions";
+import { NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry, type ToolOutcome } from "./types.js";
 
 export type ApprovalDecision = { kind: "approved" } | { kind: "rejected"; reason: string };
 export type ApprovalGate = (call: ToolCall, preview: ToolPreview | null) => Promise<ApprovalDecision>;
