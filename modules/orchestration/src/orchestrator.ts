@@ -13,7 +13,7 @@ import { LeaseCycleError } from "@stewart/run-state";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
 import { questionPrompt } from "@stewart/interaction";
-import { NO_ANSWER, costLimitPrompt, fallbackPrompt, planGatePrompt } from "./prompts.js";
+import { NO_ANSWER, costLimitPrompt, planGatePrompt } from "./prompts.js";
 import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { classifyFault } from "@stewart/agent-loop";

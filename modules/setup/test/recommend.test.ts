@@ -70,6 +70,28 @@ describe("recommendAssignments", () => {
     }
   });
 
+  it("models restricts candidates to the picked pairs", async () => {
+    const r = await recommendAssignments(cfg(), managed({ c1: mc(["m1", "m2"]), c2: mc(["v1"]) }), {
+      mode: "rules",
+      models: [{ channel: "c1", model: "m2" }],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.assignments.every((a) => a.channel === "c1" && a.model === "m2")).toBe(true);
+      expect(r.channels.find((c) => c.id === "c2")?.models).toEqual([]);
+      expect(r.channels.find((c) => c.id === "c1")?.models).toEqual(["m2"]);
+    }
+  });
+
+  it("models matching nothing fails with no models discovered", async () => {
+    const r = await recommendAssignments(cfg(), managed({ c1: mc(["m1"]) }), {
+      mode: "rules",
+      models: [{ channel: "c1", model: "nope" }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("no models");
+  });
+
   it("fails when no models are discovered anywhere", async () => {
     const r = await recommendAssignments(cfg(), managed({ c1: mc([]) }));
     expect(r.ok).toBe(false);

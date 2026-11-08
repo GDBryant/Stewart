@@ -182,7 +182,7 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         return;
       }
       case "setup.recommend": {
-        const r = await core.dispatch("setup.recommend", { projectId: PROJECT_ID, mode: m.mode, evaluator: m.evaluator, context: m.context, bench: m.bench });
+        const r = await core.dispatch("setup.recommend", { projectId: PROJECT_ID, mode: m.mode, evaluator: m.evaluator, context: m.context, bench: m.bench, models: m.models });
         await panel.webview.postMessage({ type: "setup.recommend.result", ...(r as object) });
         return;
       }

@@ -56,9 +56,11 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     evaluator?: { channel: string; model: string };
     context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
     bench?: boolean;
+    models?: { channel: string; model: string }[];
   };
   const ctx = core.ctx(p.projectId);
   if (p.bench) {
+    const picked = p.models ? new Set(p.models.map((m) => `${m.channel}:${m.model}`)) : undefined;
     for (const c of ctx.config.channels.filter((c) => c.enabled)) {
       const ch = core.channelService.get(c.id);
       if (!ch) continue;
@@ -68,6 +70,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
       } catch {
         continue;
       }
+      if (picked) models = models.filter((m) => picked.has(`${c.id}:${m}`));
       for (const model of models) {
         const hit = core.probeCache.get(`${c.id}:${model}`);
         if (hit?.caps.imageGen === true || c.modelCaps?.[model]?.perf?.benchVersion === BENCH_VERSION) continue;
@@ -106,6 +109,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
   return recommendAssignments(ctx.config, core.channelService, {
     mode: p.mode,
     evaluator: p.evaluator,
+    models: p.models,
     context,
     priceFor: async (channelId, model) => {
       const ch = core.channelService.get(channelId);

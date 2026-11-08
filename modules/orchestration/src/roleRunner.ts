@@ -1,6 +1,6 @@
 import { fallbackPrompt } from "./prompts.js";
-import type { AgentDef, RoleDef } from "@stewart/config";
-import type { ChatMessage, ToolCall } from "@stewart/kernel";
+import type { RoleDef } from "@stewart/config";
+import type { ChatMessage } from "@stewart/kernel";
 import { DEFAULT_CAPS, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { agentServesRole } from "@stewart/roles-skills";
@@ -8,12 +8,10 @@ import { roleRegistry } from "@stewart/tools";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
-import { RunCancelledError, type ApprovalDecision, type LoopResult } from "@stewart/agent-loop";
+import { RunCancelledError, type LoopResult } from "@stewart/agent-loop";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "@stewart/agent-loop";
-import type { ToolPreview } from "@stewart/permissions";
-import { classifyFault, type FaultKind, type OrchestrationRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
-import type { Tool } from "@stewart/tools";
+import { classifyFault, type OrchestrationRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
 import { ToolRegistry } from "@stewart/tools";
 import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
@@ -168,7 +166,7 @@ export async function runRoleTask(
 /** Session compaction options from `settings.compaction`; shared by worker and orchestrator loops. */
 export function compactionFor(rt: OrchestrationRuntime, taskId?: string): { prune: boolean; summarize?: (middle: ChatMessage[]) => Promise<string> } {
   const c = rt.config.settings.compaction;
-  return { prune: !!c?.prune, summarize: c?.summarize ? compactorFor(rt, taskId) : undefined };
+  return { prune: c?.prune ?? false, summarize: c?.summarize ? compactorFor(rt, taskId) : undefined };
 }
 
 /**

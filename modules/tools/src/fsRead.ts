@@ -177,7 +177,6 @@ export class Search extends ProjectTool {
           }
         });
       } catch {
-        continue;
       }
     }
     if (overflow > 0) results.push(`[${overflow} more]`);

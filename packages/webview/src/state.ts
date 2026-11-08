@@ -273,7 +273,7 @@ export class Store {
   setWizardOpen(wizardOpen: boolean): void {
     this.patch({ wizardOpen });
   }
-  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }): void {
+  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; models?: { channel: string; model: string }[] }): void {
     if (this.state.recommendBusy) return;
     this.bridge.post(opts ? { type: "setup.recommend", ...opts } : { type: "setup.recommend" });
     this.patch({ recommendBusy: true, recommendError: undefined });

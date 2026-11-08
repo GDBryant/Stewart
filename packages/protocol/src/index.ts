@@ -92,7 +92,7 @@ export interface CoreRequests {
   "config.set": { params: { projectId: string; file: string; yaml: string; layer?: "user" | "project" }; result: { ok: true } };
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
   "channel.probe": { params: { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean }; result: { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: Record<string, unknown>; error?: string } };
-  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
+  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; models?: { channel: string; model: string }[] }; result: unknown };
   "secret.set": { params: { projectId: string; ref: string; value: string }; result: { ok: true } };
   "secret.delete": { params: { projectId: string; ref: string }; result: { ok: true } };
 }
