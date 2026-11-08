@@ -4,7 +4,7 @@ import { ManagedChannel } from "@stewart/channels";
 import { EventBus } from "@stewart/kernel";
 import { loadConfig, type Config } from "@stewart/roles-skills";
 import { counterIds, systemClock } from "@stewart/kernel";
-import { RunService } from "@stewart/runs";
+import { RunService } from "../src/api.js";
 import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { IdempotencyLog } from "@stewart/run-state";

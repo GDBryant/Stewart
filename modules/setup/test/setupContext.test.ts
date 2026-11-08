@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gatherHardware, scanWorkspace, SCAN_FILE_CAP } from "@stewart/setup";
+import { gatherHardware, scanWorkspace, SCAN_FILE_CAP } from "../src/api.js";
 import { fakeHost } from "@stewart/kernel";
 
 describe("scanWorkspace", () => {

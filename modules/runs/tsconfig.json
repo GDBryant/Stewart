@@ -37,6 +37,9 @@
       "path": "../ledger"
     },
     {
+      "path": "../models"
+    },
+    {
       "path": "../orchestration"
     },
     {
@@ -53,6 +56,9 @@
     },
     {
       "path": "../scheduling"
+    },
+    {
+      "path": "../tools"
     }
   ]
 }

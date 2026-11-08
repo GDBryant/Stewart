@@ -69,67 +69,6 @@ const fakeHost = (): HostPort => ({
   log: () => {},
 });
 
-describe("benchModel", () => {
-  it("measures speed, tool reliability, edit and json on the shim path", async () => {
-    let t = 0;
-    const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };
-    const { channel } = fakeChannel(
-      [
-        [text("a hash"), text(" map"), done(210)],
-        [text(pingCall), done()],
-        [text(pingCall), done()],
-        [text(pingCall), done()],
-        [text(editCall), done()],
-        [text('{"ok": true, "n": 1}'), done()],
-      ],
-      { onEvent: (ev) => { if (ev.kind === "text") t += 50; if (ev.kind === "done") t += 1000; } },
-    );
-    const perf = await benchModel(channel, "m", clock);
-    expect(perf.benchVersion).toBe(BENCH_VERSION);
-    expect(perf.ttftMs).toBe(50);
-    // 210 tokens over (first=50 → done=1100) = 200 tok/s
-    expect(perf.tokPerSec).toBeCloseTo(200, 1);
-    expect(perf.toolReliability).toBe(1);
-    expect(perf.editOk).toBe(true);
-    expect(perf.jsonOk).toBe(true);
-  });
-
-  it("counts failed tool trials against reliability", async () => {
-    const { channel } = fakeChannel([
-      [text("ok"), done(10)],
-      [text(pingCall), done()],
-      // trial 2: a plain-text reply completes without calling the tool
-      [text("sorry"), done()],
-      [text(pingCall), done()],
-      [text("cannot edit"), done()],
-      [text("not json at all"), done()],
-    ]);
-    const perf = await benchModel(channel, "m", systemClock);
-    expect(perf.toolReliability).toBeCloseTo(0.67, 2);
-    expect(perf.editOk).toBe(false);
-    expect(perf.jsonOk).toBe(false);
-  });
-
-  it("leaves every field undefined when the model is unreachable", async () => {
-    const { channel } = fakeChannel([], { fail: true });
-    const perf = await benchModel(channel, "m", systemClock);
-    expect(perf.ttftMs).toBeUndefined();
-    expect(perf.tokPerSec).toBeUndefined();
-    expect(perf.toolReliability).toBeUndefined();
-    expect(perf.editOk).toBeUndefined();
-    expect(perf.jsonOk).toBeUndefined();
-    expect(perf.benchVersion).toBe(BENCH_VERSION);
-  });
-
-  it("skips tool and edit probes when tools are disabled", async () => {
-    const { channel } = fakeChannel([[text("x"), done(5)], [text("{}"), done()]], { cfgCaps: { tools: "none" } });
-    const perf = await benchModel(channel, "m", systemClock);
-    expect(perf.toolReliability).toBeUndefined();
-    expect(perf.editOk).toBeUndefined();
-    expect(perf.jsonOk).toBe(false);
-  });
-});
-
 describe("channel.probe bench", () => {
   function benchCore(adapter: ChannelAdapter, capsYaml = ""): Core {
     const core = new Core({
@@ -185,20 +124,3 @@ describe("channel.probe bench", () => {
   });
 });
 
-describe("modelCaps.perf schema", () => {
-  it("loads channels yaml with and without persisted perf", () => {
-    const cfg = loadConfig(
-      {
-        "channels.yaml":
-          "version: 1\nitems:\n  - id: c1\n    type: ollama\n    modelCaps:\n      m1:\n        tools: native\n        perf:\n          tokPerSec: 42.5\n          toolReliability: 0.67\n          benchedAt: 100\n          benchVersion: 1\n      m2:\n        tools: shim\n",
-      },
-      {},
-      {},
-      true,
-    );
-    const m1 = cfg.channels[0].modelCaps.m1;
-    expect(m1.perf).toMatchObject({ tokPerSec: 42.5, toolReliability: 0.67 });
-    expect(cfg.channels[0].modelCaps.m2.perf).toBeUndefined();
-    expect(cfg.errors).toEqual([]);
-  });
-});

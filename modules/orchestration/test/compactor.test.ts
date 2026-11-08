@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactionFor, compactorFor } from "@stewart/orchestration";
+import { compactionFor, compactorFor } from "../src/api.js";
 
 const recorded: Record<string, unknown>[] = [];
 let capped = false;

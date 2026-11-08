@@ -424,6 +424,12 @@ importers:
         specifier: workspace:*
         version: link:../tools
     devDependencies:
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@stewart/ledger':
+        specifier: workspace:*
+        version: link:../ledger
       '@types/node':
         specifier: 22.19.0
         version: 22.19.0
@@ -529,6 +535,12 @@ importers:
         specifier: workspace:*
         version: link:../scheduling
     devDependencies:
+      '@stewart/models':
+        specifier: workspace:*
+        version: link:../models
+      '@stewart/tools':
+        specifier: workspace:*
+        version: link:../tools
       '@types/node':
         specifier: 22.19.0
         version: 22.19.0

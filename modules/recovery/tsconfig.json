@@ -13,10 +13,16 @@
       "path": "../agent-loop"
     },
     {
+      "path": "../channels"
+    },
+    {
       "path": "../config"
     },
     {
       "path": "../kernel"
+    },
+    {
+      "path": "../ledger"
     },
     {
       "path": "../permissions"
