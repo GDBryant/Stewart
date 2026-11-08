@@ -74,7 +74,7 @@ Decisions:
 | 4 | Extra slash commands | Skipped: no core-side consumer | — |
 | 5 | ProbeLoop seam | Done. Contract in `models/src/probe.ts`, `createProbeLoop` in `agent-loop/src/probe.ts`, `Core.probeLoop` injects it; `setup` drops its `agent-loop`/`tools` deps | `fd575e8` |
 | 6 | Interaction FIFO + typed prompts | Done. One card shown at a time, timer starts on show, abort withdraws, `rt.prompt` replaces `ask`/`askTimed`, typed owner prompts in `recovery/continue.ts` and `orchestration/prompts.ts`. Known: approval cards have no withdraw event | `bd88241` |
-| 7 | Permissions facade | Done. `Permissions` (decide/ask/gate + private session grants) in `permissions`; `RunService.gate` deleted, `runtime.ts` wires `rt.approve` from `svc.permissions.gate` | pending |
+| 7 | Permissions facade | Done. `Permissions` (decide/ask/gate + private session grants) in `permissions`; `RunService.gate` deleted, `runtime.ts` wires `rt.approve` from `svc.permissions.gate` | `c4388bc` |
 | 8 | ChannelService facade | Pending | — |
 | 9 | `RunStrategy.plan` | Pending | — |
 | 10 | `ToolRegistry.for(role)` | Pending | — |
