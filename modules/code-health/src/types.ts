@@ -110,7 +110,7 @@ export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "iss
 }
 
 const HEALTH_TERM = /\b(health|healthy|code health|score the code)\b/i;
-const SCOPE_TERM = /\b(project|codebase|code base|repo|repository|this code)\b/i;
+const SCOPE_TERM = /\b(project|codebase|code base|repo|repository|this code|folders?|directory|dirs?|modules?|packages?|files?)\b/i;
 
 export function isHealthCheckRequest(text: string): boolean {
   return HEALTH_TERM.test(text) && SCOPE_TERM.test(text);

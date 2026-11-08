@@ -115,6 +115,9 @@ describe("isHealthCheckRequest", () => {
     expect(isHealthCheckRequest("check the health of this project")).toBe(true);
     expect(isHealthCheckRequest("code health score for the repo")).toBe(true);
     expect(isHealthCheckRequest("how healthy is the codebase")).toBe(true);
+    expect(isHealthCheckRequest("check the health of the code in the folder: modules/kernel/ and give me a score")).toBe(true);
+    expect(isHealthCheckRequest("health of the kernel module")).toBe(true);
+    expect(isHealthCheckRequest("health of these files")).toBe(true);
   });
 
   it("rejects health-adjacent requests without a project scope", () => {

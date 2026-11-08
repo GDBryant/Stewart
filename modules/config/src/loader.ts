@@ -37,6 +37,16 @@ function parseFile<S extends z.ZodTypeAny>(schema: S, name: string, text: string
   }
 }
 
+/**
+ * Tools a shipped orchestration role must hold to do its job; user roles.yaml snapshots
+ * taken before a verb/tool shipped lack them, so they are unioned in at load time
+ * (non-empty lists only — an empty list means all/default).
+ */
+export const REQUIRED_ROLE_TOOLS: Record<string, string[]> = {
+  orchestrator: ["ListCodeFiles", "health_report"],
+  "code-health-reviewer": ["ListCodeFiles", "submit_health"],
+};
+
 /** Per-version migrations; v1 is current, older docs get upgraded key-by-key. */
 export function migrate(name: string, doc: unknown): unknown {
   if (doc && typeof doc === "object" && !("version" in doc)) return { version: CONFIG_VERSION, ...(doc as object) };
@@ -66,6 +76,10 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
   const channels = mergeById([...(ch[0]?.items ?? []), ...(ch[1]?.items ?? [])], []);
   const agents = mergeById([...(ag[0]?.items ?? []), ...(ag[1]?.items ?? [])], []);
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
+  for (const r of roles) {
+    const required = REQUIRED_ROLE_TOOLS[r.id];
+    if (required && r.tools.length) r.tools = [...new Set([...r.tools, ...required])];
+  }
 
   const base = st[0] ?? settingsFile.parse({});
   const settings: Settings = { ...base, ...(st[1] ?? {}), ...(st[2] ?? {}), costLimit: { ...base.costLimit, ...(st[1]?.costLimit ?? {}), ...(st[2]?.costLimit ?? {}) } };

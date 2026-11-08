@@ -89,10 +89,12 @@ export class FindFiles extends ProjectTool {
     }
     const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
+    const base = dir === "." ? "" : `${dir.replace(/\/+$/, "")}/`;
     const results: string[] = [];
     let overflow = 0;
     for (const p of await this.paths.list(dir)) {
-      if (matcher.test(p)) {
+      const rel = base && p.startsWith(base) ? p.slice(base.length) : p;
+      if (matcher.test(p) || matcher.test(rel)) {
         if (results.length < MAX_FIND_RESULTS) results.push(p);
         else overflow++;
       }

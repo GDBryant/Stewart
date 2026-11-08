@@ -6,7 +6,7 @@ import type { RoleDef } from "@stewart/config";
 describe("shipped skill routing text", () => {
   it("orchestrate states the health-check procedure and never mentions phases", () => {
     const body = shippedSkill("orchestrate")!.body;
-    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs"]) expect(body).toContain(x);
+    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "path", `mode "score"`]) expect(body).toContain(x);
     expect(body).not.toContain("phase");
   });
 

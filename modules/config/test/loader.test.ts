@@ -21,6 +21,38 @@ describe("loadConfig", () => {
   });
 });
 
+describe("REQUIRED_ROLE_TOOLS union", () => {
+  const shipped = (tools: string) => `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [${tools}]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, submit_health]\n  - id: investigator\n    enabled: true\n    tools: [ReadFile]\n`;
+
+  it("appends required tools to a stale user roles.yaml and leaves other roles untouched", () => {
+    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, Search]\n`;
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    const o = c.roles.find((r) => r.id === "orchestrator")!;
+    expect(o.tools).toEqual(["dispatch", "ask_user", "ReadFile", "FindFiles", "ListCodeFiles", "health_report"]);
+    const h = c.roles.find((r) => r.id === "code-health-reviewer")!;
+    expect(h.tools).toEqual(["ReadFile", "Search", "ListCodeFiles", "submit_health"]);
+    expect(c.roles.find((r) => r.id === "investigator")!.tools).toEqual(["ReadFile"]);
+  });
+
+  it("does not duplicate tools already present", () => {
+    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ListCodeFiles, health_report]\n`;
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual(["dispatch", "ListCodeFiles", "health_report"]);
+  });
+
+  it("leaves a role with an empty tools list empty", () => {
+    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: []\n`;
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual([]);
+  });
+
+  it("does not add the shipped ids when absent from all layers", () => {
+    const c = loadConfig({ "roles.yaml": "version: 1\nitems:\n  - id: custom\n    enabled: true\n    tools: [ReadFile, ListCodeFiles, submit_health]\n" }, undefined, {}, true);
+    expect(c.roles).toHaveLength(1);
+    expect(c.roles[0].tools).toEqual(["ReadFile", "ListCodeFiles", "submit_health"]);
+  });
+});
+
 describe("store helpers", () => {
   it("SelfWriteGuard recognises its own writes only; only roles.yaml is a project file", () => {
     const g = new SelfWriteGuard();

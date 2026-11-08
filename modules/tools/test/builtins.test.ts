@@ -41,6 +41,22 @@ describe("FindFiles", () => {
     expect(await t.execute({ glob: "*.py" }, null, sig)).toBe("no files matched");
     await expect(t.execute({ glob: "[" }, null, sig)).rejects.toThrow();
   });
+
+  it("matches the glob against the path relative to the given dir", async () => {
+    const { reg } = await setup({ "modules/kernel/src/a.ts": "x", "modules/kernel/src/deep/b.ts": "x", "modules/kernel/README.md": "x", "other/c.ts": "x" });
+    const t = reg.find("FindFiles")!;
+    expect(await t.execute({ glob: "*.ts", path: "modules/kernel/src" }, null, sig)).toBe("modules/kernel/src/a.ts");
+    expect(await t.execute({ glob: "**/*.ts", path: "modules/kernel" }, null, sig)).toBe(
+      "modules/kernel/src/a.ts\nmodules/kernel/src/deep/b.ts",
+    );
+    expect(await t.execute({ glob: "modules/kernel/**/*.ts" }, null, sig)).toBe(
+      "modules/kernel/src/a.ts\nmodules/kernel/src/deep/b.ts",
+    );
+    expect(await t.execute({ glob: "*.zz", path: "modules/kernel" }, null, sig)).toBe("no files matched");
+    const out = await t.execute({ glob: "*.ts", path: "modules/kernel/src" }, null, sig);
+    expect(out).not.toContain("other/c.ts");
+    expect(out).not.toContain("README.md");
+  });
 });
 
 describe("Search", () => {
