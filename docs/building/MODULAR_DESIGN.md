@@ -221,7 +221,7 @@ interface RunService {
 }
 interface RunHandle { id: string; events: AsyncIterable<RunEvent> }
 ```
-Direct, orchestrated and resume are three `RunStrategy` objects (`plan(req) → TaskGraph`), run by one pipeline. Adding a mode means adding a strategy, not editing `RunManager`.
+Direct, orchestrated and resume are three `RunStrategy<Req>` objects — `plan(svc, projectId, req, ctx) → RunPlan | Refusal` builds the Run and seeds task records (direct: one record; resume: the replayed graph; orchestrated: none), `execute(svc, run, rt, req, ctx) → RunOutcome` drives the shared runtime — run by one `runPipeline` (plan → register + `run.started` → idem/journal/`buildRunRuntime` → execute → status/cost/journal/history/`run.finished`). Adding a mode means adding a strategy, not editing `RunService`. — built
 
 ### app (composition root)
 `Core` builds each service once, injects ports, and registers `method → handler` in a table. Handlers are one-liners (`(p) => services.runs.start(p)`). No domain logic lives here, which removes today's ~600-line facade.
@@ -464,7 +464,6 @@ Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, no
 | `ChannelService.stream(agent, req, signal)` (§4) | `ChannelService` resolves/health/probe/secrets; consumers still call `ManagedChannel.chat` via `rt.channelFor`, which resolves through `ChannelService.require` | Add when a second consumer needs agent→channel resolution outside the runtime |
 | `Permissions.grants()/revoke(id)/reset()` (§4) | Session grants are private to `Permissions`; `Grants.revoke(scope?, category?)` exists but has no core-side caller; `/permissions` is webview-only | Add when a `permissions.*` RPC appears |
 | `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
-| `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
 | `RunHandle.events: AsyncIterable` (§4) | Runs emit through the shared `EventBus`; handlers return `{ runId }` | Protocol is event-push; an iterable per run would duplicate the bus |
 | `ToolRegistry.for(role)` decorator (§4) | `roleRegistry(registry, role)` function in `tools/roleRegistry.ts`; `leasedTools` wraps for leases | Same shape, free function instead of method |
 | `v1import` into `config` (§3) | Stays in `packages/core` because it needs `catalog` (same layer as `config`) | Move when `catalog` and `config` split layers |

@@ -15,6 +15,7 @@ import type { RunEvent } from "@stewart/protocol";
 import { directStrategy } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
 import { resumeStrategy, type ResumeRequest, type ResumeResult } from "./resume.js";
+import { runPipeline } from "./strategy.js";
 import type { Run, RunDeps, RunHost } from "./types.js";
 
 export type { Run, RunDeps, RunStatus } from "./types.js";
@@ -102,7 +103,7 @@ export class RunService implements RunHost {
   }
 
   /** Direct-mode run: stream one agent through the tool loop under a role's constraints. */
-  direct(
+  async direct(
     projectId: string,
     channel: ManagedChannel,
     agent: AgentDef,
@@ -114,15 +115,19 @@ export class RunService implements RunHost {
     history: ChatMessage[] | undefined,
     budget: { config: Config; profile: BudgetProfile; name?: string; recovery?: RecoveryState },
   ): Promise<Run> {
-    return directStrategy.start(this, projectId, { channel, agent, text, images, role, rolePrompt, sessionId, history, budget });
+    const r = await runPipeline(this, directStrategy, projectId, { channel, agent, text, images, role, rolePrompt, sessionId, history, budget });
+    if (!r.ok) throw new Error(r.reason);
+    return r.run;
   }
 
   /**
    * Orchestrated run: the Orchestrator routes work through `dispatch`; core
    * schedules tasks, meters cost in the ledger and parks work at the cap.
    */
-  orchestrated(projectId: string, opts: OrchestratedRequest): Promise<Run> {
-    return orchestratedStrategy.start(this, projectId, opts);
+  async orchestrated(projectId: string, opts: OrchestratedRequest): Promise<Run> {
+    const r = await runPipeline(this, orchestratedStrategy, projectId, opts);
+    if (!r.ok) throw new Error(r.reason);
+    return r.run;
   }
 
   journalPath(runId: string, stateDir: string): string {
@@ -169,6 +174,6 @@ export class RunService implements RunHost {
    * or unreadable so a prompt is never replayed with fresh task ids.
    */
   resume(projectId: string, runId: string, opts: ResumeRequest): Promise<ResumeResult> {
-    return resumeStrategy.start(this, projectId, runId, opts);
+    return runPipeline(this, resumeStrategy(runId), projectId, opts);
   }
 }

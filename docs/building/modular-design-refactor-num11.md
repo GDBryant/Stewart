@@ -76,7 +76,7 @@ Decisions:
 | 6 | Interaction FIFO + typed prompts | Done. One card shown at a time, timer starts on show, abort withdraws, `rt.prompt` replaces `ask`/`askTimed`, typed owner prompts in `recovery/continue.ts` and `orchestration/prompts.ts`. Known: approval cards have no withdraw event | `bd88241` |
 | 7 | Permissions facade | Done. `Permissions` (decide/ask/gate + private session grants) in `permissions`; `RunService.gate` deleted, `runtime.ts` wires `rt.approve` from `svc.permissions.gate` | `c4388bc` |
 | 8 | ChannelService facade | Done. `ChannelService` (rebuild/get/require/health/probe/setSecret) in `channels`; `Core.managed`/`rebuildChannels`/`channelById` deleted, handlers go through `core.channelService` | `7a0b98b` |
-| 9 | `RunStrategy.plan` | Pending | — |
+| 9 | `RunStrategy.plan` | Done. `RunStrategy<Req>` plan/execute + one `runPipeline` in `runs/strategy.ts`; three duplicated drive bodies deleted | pending |
 | 10 | `ToolRegistry.for(role)` | Pending | — |
 | 11–14 | Large items | Not scheduled | — |
 
@@ -87,10 +87,18 @@ The product version was bumped to 2.1.0 (`hosts/vscode/package.json`, `build.gra
 - `modules/permissions/src/permissions.ts`: `Permissions` with a private session `Grants`; `decide(req, runGrants)` (fail closed to `ask`), `ask(req, runGrants, tag, signal)` (one `approvalPrompt` card; `chat`→run grant, `always`→session grant, deny/withdrawn→rejected "denied by user"), `gate(runId, signal, runGrants?)` → the per-run `ApproveFn` injected as `rt.approve`. `PermissionDecision` mirrors `ApprovalDecision` (agent-loop sits above this layer).
 - `permissions` gains `kernel` + `interaction` deps (3→2 legal). `RunService.gate`/`sessionGrants` deleted; `RunHost` exposes `readonly permissions`; `runtime.ts` wires one gate per run.
 - `grants()/revoke()/reset()` not built: session grants stay private, `Grants.revoke` has no core-side caller, `/permissions` is webview-only — deviation row added to `MODULAR_DESIGN.md` §11, trigger: a `permissions.*` RPC.
-- Next: #9 `RunStrategy.plan`.
+
 
 ## 5. #8 as built
 
 - `modules/channels/src/service.ts`: `ChannelService` holds the `Map<string, ManagedChannel>`; `rebuild(channels, host)` builds enabled rows via the `ChannelRegistry` (maxParallel default ollama 1 / other 4, unknown type logged + skipped, secrets read through `host.secrets` and returned by ref for `Core.secretValues` redaction). `get`/`require` (same `channel X not configured` message)/`ids`/`health` (+ `missing`)/`listModels`/`probe`/`setSecret` (count of updated channels).
 - `Core` keeps `readonly channelService` (deps: registry + adapter deps; host passed per rebuild). `CoreCtx.managed` → `channelService`; `channelById` and `rebuildChannels` deleted; secret set/delete call `setSecret`. `recommendAssignments` takes the service structurally (`{ get }`).
 - `stream(agent, req, signal)` not built: `rt.channelFor` resolves through `require`, consumers still call `ManagedChannel.chat` — deviation row added to `MODULAR_DESIGN.md` §11, trigger: a second consumer needing agent→channel resolution outside the runtime.
+
+- Next: #10 `ToolRegistry.for(role)`.
+
+## 6. #9 as built
+
+- `modules/runs/src/strategy.ts`: `RunPlan { run, title, config, profileName?, channelFor, profile?, onGraphChange? }`, `Refusal`, `RunOutcome { status, event, error? }`, `RunStrategy<Req> { plan; execute }`, `runPipeline` — ledger/stateDir once, plan may refuse before anything registers/emits, then register + `run.started` (title sliced 80, profile optional) and fire-and-forget drive: idem load → journal → `buildRunRuntime` → execute → status/costUsd/journal/saveHistory/`run.finished`; exceptions keep a cancelled status or mark failed, `rt.timeCap` cancelled in finally.
+- direct: `plan` seeds `run.tasks` with the single chat-role record; `execute` is the old `drive` body (runRoleTask + continue loop) returning `RunOutcome`s; `cost.summary` still emitted when accrued > 0. orchestrated: `plan` builds the run + `onGraphChange`; `execute` maps the orchestrator outcome as before. resume: `resumeStrategy(runId)` factory closes over `{ graph, interrupted, text }`; `plan` does all pre-flight with identical refusal strings; `execute` replays the loop with mid-loop journals kept.
+- `RunService.direct/orchestrated` throw `r.reason` on refusal; `resume` returns the pipeline result as `ResumeResult`. §11 `RunStrategy.plan` deviation row removed — no remaining deviation.
