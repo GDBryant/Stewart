@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { matchGlob } from "@stewart/roles-skills";
-import { roleRegistry } from "@stewart/tools";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { ToolRegistry, type Tool } from "@stewart/tools";

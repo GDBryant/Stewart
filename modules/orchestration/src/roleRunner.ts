@@ -4,7 +4,6 @@ import type { ChatMessage } from "@stewart/kernel";
 import { DEFAULT_CAPS, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { agentServesRole } from "@stewart/roles-skills";
-import { roleRegistry } from "@stewart/tools";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
@@ -71,10 +70,7 @@ export async function runRoleTask(
   const imageGen = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage
     ? (prompt: string) => genChannel.generateImage(genModel, prompt)
     : undefined;
-  const base = roleRegistry(
-    new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGen }).tools, ...extra]),
-    role,
-  );
+  const base = new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGen }).tools, ...extra]).for(role);
   const registry = new ToolRegistry(
     leasedTools(base.tools, {
       host: rt.host,

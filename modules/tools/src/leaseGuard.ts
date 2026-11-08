@@ -2,7 +2,7 @@ import type { HostPort, Json } from "@stewart/kernel";
 import type { ToolPreview } from "@stewart/permissions";
 import type { LeaseManager } from "@stewart/scheduling";
 import { LeaseCycleError, LeaseTimeoutError, recordPreImage } from "@stewart/run-state";
-import { PATH_TOOLS } from "./roleRegistry.js";
+import { PATH_TOOLS } from "./types.js";
 import type { Tool } from "./types.js";
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { roleRegistry } from "../src/roleRegistry.js";
+import { ToolRegistry } from "../src/types.js";
 import { projectTools } from "../src/builtins.js";
 import { ProjectPaths } from "../src/projectPaths.js";
 import { fakeHost } from "@stewart/kernel";
@@ -9,7 +9,7 @@ const role = (over: Partial<RoleDef> = {}): RoleDef => ({
   id: "r", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: 25, ...over,
 });
 
-describe("roleRegistry", () => {
+describe("ToolRegistry.for", () => {
   const mk = async () => {
     const { host } = fakeHost({ "a.ts": "x", "docs/x.md": "d" });
     const paths = await ProjectPaths.forProject(host);
@@ -17,19 +17,19 @@ describe("roleRegistry", () => {
   };
 
   it("filters tools to the role list", async () => {
-    const reg = roleRegistry(await mk(), role({ tools: ["ReadFile", "Search"] }));
+    const reg = (await mk()).for(role({ tools: ["ReadFile", "Search"] }));
     expect(reg.tools.map((t) => t.spec.name).sort()).toEqual(["ReadFile", "Search"]);
     expect(reg.find("WriteFile")).toBeUndefined();
   });
 
   it("empty tools list means unrestricted", async () => {
     const all = await mk();
-    const reg = roleRegistry(all, role({ tools: [] }));
+    const reg = all.for(role({ tools: [] }));
     expect(reg.tools.length).toBe(all.tools.length);
   });
 
   it("enforces the investigator read-only program allow-list on RunTerminal", async () => {
-    const reg = roleRegistry(await mk(), role({ id: "investigator", tools: ["RunTerminal"] }));
+    const reg = (await mk()).for(role({ id: "investigator", tools: ["RunTerminal"] }));
     const term = reg.find("RunTerminal")!;
     await expect(term.preview!({ command: "ls -la" })).resolves.toBeTruthy();
     await expect(term.preview!({ command: "git status" })).resolves.toBeTruthy();
@@ -40,19 +40,19 @@ describe("roleRegistry", () => {
   });
 
   it("rejects a write outside writePaths before preview", async () => {
-    const reg = roleRegistry(await mk(), role({ tools: ["WriteFile"], writePaths: ["docs/**"] }));
+    const reg = (await mk()).for(role({ tools: ["WriteFile"], writePaths: ["docs/**"] }));
     const w = reg.find("WriteFile")!;
     await expect(w.preview!({ path: "src/x.ts", content: "c" })).rejects.toThrow(/outside this role's writePaths/);
     await expect(w.preview!({ path: "docs/x.md", content: "c" })).resolves.toBeTruthy();
   });
 
   it("unrestricted writePaths allow any path", async () => {
-    const reg = roleRegistry(await mk(), role({ tools: ["WriteFile"], writePaths: [] }));
+    const reg = (await mk()).for(role({ tools: ["WriteFile"], writePaths: [] }));
     await expect(reg.find("WriteFile")!.preview!({ path: "src/x.ts", content: "c" })).resolves.toBeTruthy();
   });
 
   it("does not wrap non-path tools", async () => {
-    const reg = roleRegistry(await mk(), role({ tools: ["RunTerminal"], writePaths: ["docs/**"] }));
+    const reg = (await mk()).for(role({ tools: ["RunTerminal"], writePaths: ["docs/**"] }));
     expect(reg.find("RunTerminal")).toBeDefined();
   });
 });

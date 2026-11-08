@@ -17,7 +17,7 @@ import {
 } from "../src/api.js";
 import { GenerateImage } from "../src/media.js";
 import { ProjectPaths } from "../src/projectPaths.js";
-import { checkInvestigatorCommand, roleRegistry } from "../src/roleRegistry.js";
+import { checkInvestigatorCommand } from "../src/types.js";
 import type { RoleDef } from "@stewart/config";
 
 const sig = () => new AbortController().signal;
@@ -248,11 +248,11 @@ describe("checkInvestigatorCommand", () => {
   });
 });
 
-describe("roleRegistry preview passthrough", () => {
+describe("ToolRegistry.for preview passthrough", () => {
   it("calls the base preview when the path is allowed", async () => {
     const { reg } = await setup();
     const role = { id: "r", name: "r", prompt: "", tools: ["WriteFile"], writePaths: ["ok/**"], enabled: true } as unknown as RoleDef;
-    const rr = roleRegistry(reg, role);
+    const rr = reg.for(role);
     const t = rr.find("WriteFile")!;
     const prev = await t.preview!({ path: "ok/a.ts", content: "x" });
     expect(prev?.kind).toBe("file");
