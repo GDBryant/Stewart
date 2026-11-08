@@ -83,7 +83,7 @@ Type `//` to send a literal `/`.
 
 ## Requirements
 
-- Declared platform support: **2026.1 or newer** (build 261+). Plugin Verifier targets **IntelliJ IDEA Community 2026.1** and **PyCharm Professional 2026.2**; other products and newer versions are not automatically verified. See [compatibility notes](docs/COMPATIBILITY.md) for the recorded results and verification caveats.
+- Declared platform support: **2026.1 or newer** (build 261+). Plugin Verifier targets **IntelliJ IDEA Community 2026.1** and **PyCharm Professional 2026.2**; other products and newer versions are not automatically verified. See [compatibility notes](docs/ai_docs/COMPATIBILITY.md) for the recorded results and verification caveats.
 - **JDK 21** to build from source; not needed to run the plugin.
 - At least one provider:
   - **Ollama** running locally (default `http://localhost:11434`), or
@@ -170,7 +170,7 @@ Program grants cover all arguments and any working directory allowed by the comm
 
 Revoke grants with `/permissions revoke <target>` or `/permissions reset`. Revocation affects subsequent approval checks; it does not undo actions or stop an already-running command.
 
-See [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) for the full rule set, parser rejections and storage details.
+See [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) for the full rule set, parser rejections and storage details.
 
 ## Privacy and data handling
 
@@ -245,11 +245,11 @@ scripts/         install-plugin.sh, claude-feasibility.sh
 | Doc | Contents |
 |-----|----------|
 | [`docs/archived_v1/PLAN.md`](docs/archived_v1/PLAN.md) | Architecture, providers, execution contract, milestones |
-| [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md) | Approval categories, grants, parser rules, storage |
-| [`docs/PHASE2.md`](docs/PHASE2.md) | Phase 2 roadmap (orchestration, sessions) |
-| [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |
-| [`docs/DEBUG_LOGGING.md`](docs/DEBUG_LOGGING.md) | Log format, redaction, retention |
-| [`docs/PROGRESS.md`](docs/PROGRESS.md) | Milestone status |
+| [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) | Approval categories, grants, parser rules, storage |
+| [`docs/archived_v2/PHASE2.md`](docs/archived_v2/PHASE2.md) | Phase 2 roadmap (orchestration, sessions) |
+| [`docs/ai_docs/COMPATIBILITY.md`](docs/ai_docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |
+| [`docs/ai_docs/DEBUG_LOGGING.md`](docs/ai_docs/DEBUG_LOGGING.md) | Log format, redaction, retention |
+| [`docs/ai_docs/PROGRESS.md`](docs/ai_docs/PROGRESS.md) | Milestone status |
 | [`AGENTS.md`](AGENTS.md) | Contributor commands and conventions |
 
 ## Contributing

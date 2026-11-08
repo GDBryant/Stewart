@@ -53,7 +53,7 @@ describe("RunService unit paths", () => {
     const { Grants } = await import("@stewart/permissions");
     const runGrants = new Grants();
     runGrants.record("chat", "OTHER", null);
-    const gate = s.gate("r1", runGrants);
+    const gate = s.permissions.gate("r1", new AbortController().signal, runGrants);
     expect((await gate({ id: "c2", name: "X", arguments: {} }, null)).kind).toBe("approved");
   });
 
@@ -157,7 +157,7 @@ describe("gate and prompt meta paths", () => {
     const { s } = svcQ();
     const { Grants } = await import("@stewart/permissions");
     const ac = new AbortController();
-    const gate = s.gate("r1", new Grants(), ac.signal);
+    const gate = s.permissions.gate("r1", ac.signal, new Grants());
     const p = gate({ id: "c1", name: "WriteFile", arguments: {} }, null, { roleId: "w", taskId: "t9" });
     const view = s.interaction.pending()[0];
     expect(view).toMatchObject({ roleId: "w", taskId: "t9", kind: "approval" });

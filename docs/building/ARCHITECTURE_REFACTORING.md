@@ -1,6 +1,6 @@
 # Architecture Refactoring (plan)
 
-Status: **proposed**, 2026-11-07, baseline `57e3da9` (budgets M4). Current state: `docs/ARCHITECTURE_NOW.md`. Refactor rules: `docs/REFACTORING.md` (behavior identical unless stated, one refactor per commit, existing tests bracket each step).
+Status: **proposed**, 2026-11-07, baseline `57e3da9` (budgets M4). Current state: `docs/ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `docs/building/REFACTORING.md` (behavior identical unless stated, one refactor per commit, existing tests bracket each step).
 
 Three refactors. R1 (model profile + agent session) goes first; R2 (one run pipeline) and R3 (integrated context compaction) build on it.
 
@@ -55,7 +55,7 @@ function createAgentSession(spec: SessionSpec, clock: Clock): { loop: ToolLoop; 
 ## R2. One run pipeline: direct = single-task run
 
 ### Problem
-`RunManager` has two engines (see `ARCHITECTURE_NOW.md` §3):
+`RunManager` has two engines (see `../ai_docs/ARCHITECTURE_NOW.md` §3):
 
 | | Direct (`drive`) | Orchestrated / resume |
 |---|---|---|
@@ -84,7 +84,7 @@ Every new run-level rule (M4 time cap, M6 escalation, continue question, code-he
 2. Move run time cap into the runtime; remove the orchestrator check and `drive()` `capTimer`. Behavior identical.
 3. Add `history` to `runRoleTask`; route `direct()` through it behind `settings.directViaRuntime` (default `true`, removable after one release). Delete `drive()` once tests pass.
 4. Webview: hide the single direct task row; show cost for direct runs.
-5. Update `ARCHITECTURE_NOW.md` §3, `docs/FAULT_RECOVERY.md` (resume covers direct), `docs/PROGRESS.md`.
+5. Update `../ai_docs/ARCHITECTURE_NOW.md` §3, `docs/ai_docs/FAULT_RECOVERY.md` (resume covers direct), `docs/ai_docs/PROGRESS.md`.
 
 ### Tests
 - Positive: direct run on a `priced` fake agent records ledger entries and parks at the cap; direct run journal + `/resume` re-dispatches; time cap aborts both modes via one timer; existing direct-run tests (streaming, cancel transcript, turn limit → `stopped`, history save) pass unchanged.
@@ -124,7 +124,7 @@ function planCompaction(msgs: ChatMessage[], ctxTokens: number, policy: Compacti
 2. Add prune stage (stale-result stubs, dedupe, ingest cap) behind `settings.compaction.prune` (default false until bench-compared; summarize step 3 likewise via `settings.compaction.summarize`).
 3. Add pinned/tail split and structured summarizer via `compactor` agent (no default role: user-defined `compactor` role, absent = inert); fallback to the emergency clip on summarizer failure.
 4. Meter compactor cost; extend `compaction` event; webview shows savings.
-5. Update `ARCHITECTURE_NOW.md` (§2 Tools, §3), `docs/FAULT_RECOVERY.md` (`context_limit`), `docs/PROGRESS.md`.
+5. Update `../ai_docs/ARCHITECTURE_NOW.md` (§2 Tools, §3), `docs/ai_docs/FAULT_RECOVERY.md` (`context_limit`), `docs/ai_docs/PROGRESS.md`.
 
 ### Tests
 - Positive: prune stubs stale output and keeps tool_call/result pairs; pinned items survive summarize; compactor cost lands in ledger; compacted run continues to completion; `quick` compacts earlier than `deep`.
@@ -149,5 +149,5 @@ function planCompaction(msgs: ChatMessage[], ctxTokens: number, policy: Compacti
 - `rg "resolveLimits\(" packages/core/src` → only `agentSession.ts` (+ tests).
 - `rg "OrchestrationRuntime = \{|const rt: RunRuntime = \{" packages/core/src` → only `buildRuntime`.
 - `compactIfNeeded` removed from `toolLoop.ts`; compaction lives in `compaction.ts`.
-- `drive()` removed; `ARCHITECTURE_NOW.md` §3 table shows one row for all modes.
+- `drive()` removed; `../ai_docs/ARCHITECTURE_NOW.md` §3 table shows one row for all modes.
 - `pnpm -r build typecheck test` green; coverage ≥90% line / ≥80% branch.

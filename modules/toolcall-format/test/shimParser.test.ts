@@ -230,14 +230,14 @@ describe("repairNativeCall", () => {
 describe("parseToolCalls: attribute-form tag and channel markers (gemma4 log 2026-11-07)", () => {
   const schema: SchemaMap = { ReadFile: { type: "object", properties: { path: { type: "string" } } } };
   const raw =
-    "I will first gather the health criteria.<channel|><tool_call name=\"ReadFile\" arguments='{\"path\":\"docs/2026-11-07-code-health.md\"}'></tool_call>";
+    "I will first gather the health criteria.<channel|><tool_call name=\"ReadFile\" arguments='{\"path\":\"docs/archived_v2/2026-11-07-code-health.md\"}'></tool_call>";
 
   it("parses the verbatim attribute form", () => {
     const r = parseToolCalls(raw, schema);
     expect(r.errors).toEqual([]);
     expect(r.calls).toHaveLength(1);
     expect(r.calls[0].name).toBe("ReadFile");
-    expect(r.calls[0].arguments).toEqual({ path: "docs/2026-11-07-code-health.md" });
+    expect(r.calls[0].arguments).toEqual({ path: "docs/archived_v2/2026-11-07-code-health.md" });
     expect(r.clean).toBe("I will first gather the health criteria.");
   });
 

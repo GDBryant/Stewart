@@ -50,7 +50,7 @@ Decided: one-shot migration on first load (users are internal, few installs):
 4. **User-visible strings** — `plugin.xml` name/vendor/tool-window id/displayName, `build.gradle.kts` `pluginConfiguration` + `version = "0.2.0"`, `ErrorHints` ("Settings → Tools → Stewart"), dialog titles, thread names, log messages, undo command name `"Stewart: edit …"`, test `doRegisterToolWindow("Stewart")`.
 5. **Build/CI/scripts** — `settings.gradle.kts` `rootProject.name = "stewart"`, `.github/workflows/build.yml` artifact name; `scripts/install-plugin.sh`: remove a stale `aijb-assistant` plugin dir when installing.
 6. **Temp prefixes** — `aijb-*` → `stewart-*` in main and tests, plus the `aijb-busy` icon id.
-7. **Docs** — AGENTS.md title + zip path; `docs/*.md` and `docs/superpowers/plans/*` references (`AIJB`, `aijb-assistant`, `com.aijb`, file paths); PROGRESS.md entry. Historical commit hashes stay as-is.
+7. **Docs** — AGENTS.md title + zip path; `docs/*.md` and `docs/superpowers/plans/*` references (`AIJB`, `aijb-assistant`, `com.aijb`, file paths); ../ai_docs/PROGRESS.md entry. Historical commit hashes stay as-is.
 8. **Local env (not committed)** — uninstall old plugin from IDEs; delete gitignored `bin/` (stale Eclipse/VS Code Java build output with the old `com/aijb/assistant` tree; regenerates under the new package if that tooling is used again); delete stale `.idea/AI_Jetbrains_Plugin.iml` in this repo (step 5's `rootProject.name` change regenerates `stewart.iml`; let the IDE re-sync `modules.xml`); Claude memory dir `~/.claude/projects/-media-gdb-Data-Projects-AI-Jetbrains-Plugin` is stale (project already lives at `.../Stewart`).
 
 ## Verification

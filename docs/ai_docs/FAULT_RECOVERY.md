@@ -1,6 +1,6 @@
 # Fault recovery
 
-Status: **ported to the v2 TS core** (`packages/core/src/orchestration/{faults,recovery}.ts`). Spec: `docs/archived_v2/2026-11-04-fault-recovery-design.md` (v1 Kotlin; `.kt` paths there no longer exist). Unblocks budget M6 escalation (`docs/BUDGETS_AND_SETUP_INFO.md` B4).
+Status: **ported to the v2 TS core** (`packages/core/src/orchestration/{faults,recovery}.ts`). Spec: `docs/archived_v2/2026-11-04-fault-recovery-design.md` (v1 Kotlin; `.kt` paths there no longer exist). Unblocks budget M6 escalation (`docs/archived_v2/BUDGETS_AND_SETUP_INFO.md` B4).
 
 Recovers worker and level faults before the run fails.
 

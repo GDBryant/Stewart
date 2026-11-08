@@ -3,14 +3,14 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import type { Config } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
-import type { ChatMessage, ToolCall } from "@stewart/kernel";
-import { Grants, type GrantDecision, categoryOf, type ToolPreview } from "@stewart/permissions";
-import type { ApprovalDecision, OrchestrationRuntime, RecoveryState } from "@stewart/agent-loop";
+import type { ChatMessage } from "@stewart/kernel";
+import { Permissions, type GrantDecision } from "@stewart/permissions";
+import type { OrchestrationRuntime, RecoveryState } from "@stewart/agent-loop";
 import { RunLedger } from "@stewart/ledger";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
 import { createRecovery } from "@stewart/recovery";
-import { Interaction, approvalPrompt } from "@stewart/interaction";
+import { Interaction } from "@stewart/interaction";
 import type { RunEvent } from "@stewart/protocol";
 import { directStrategy } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
@@ -22,9 +22,10 @@ export type { Run, RunDeps, RunStatus } from "./types.js";
 /** Owns runs for one project; direct, orchestrated and resume are RunStrategy objects on one shared pipeline. */
 export class RunService implements RunHost {
   private runs = new Map<string, Run>();
-  private sessionGrants = new Grants();
   /** The one prompt owner (approval + ask_user cards). */
   readonly interaction: Interaction;
+  /** Approval gate: session + run grants, then a card on the Interaction. */
+  readonly permissions: Permissions;
   private ledger?: RunLedger;
   private history?: ChatHistoryStore;
   /** Updated from settings on config (re)load. */
@@ -34,6 +35,7 @@ export class RunService implements RunHost {
 
   constructor(readonly deps: RunDeps) {
     this.interaction = new Interaction({ ids: deps.ids, clock: deps.clock, bus: deps.bus });
+    this.permissions = new Permissions(this.interaction);
   }
 
   get(id: string): Run | undefined {
@@ -59,20 +61,6 @@ export class RunService implements RunHost {
 
   answer(questionId: string, answer: string): boolean {
     return this.interaction.resolveAnswer(questionId, answer);
-  }
-
-  /** Approval gate shared by direct and orchestrated runs: grants first, then an approval card. */
-  gate(runId: string, runGrants: Grants, signal: AbortSignal) {
-    return async (call: ToolCall, preview: ToolPreview | null, meta?: { roleId?: string; taskId?: string }): Promise<ApprovalDecision> => {
-      const cat = categoryOf(preview) ?? "OTHER";
-      if (runGrants.isGranted(cat, preview) || this.sessionGrants.isGranted(cat, preview)) return { kind: "approved" };
-      const o = await this.interaction.ask(approvalPrompt(call.name, call.arguments, cat), { runId, roleId: meta?.roleId, taskId: meta?.taskId }, signal);
-      const d = o.kind === "answered" ? o.value : "deny";
-      if (d === "deny") return { kind: "rejected", reason: "denied by user" };
-      if (d === "chat") runGrants.record("chat", cat, preview);
-      if (d === "always") this.sessionGrants.record("always", cat, preview);
-      return { kind: "approved" };
-    };
   }
 
   /** Prompt routing for one run: questions and cards queue on the run's interaction. */

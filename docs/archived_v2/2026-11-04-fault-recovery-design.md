@@ -54,7 +54,7 @@ A recoverable fault should not end the run.
   - Keys use the same form as `toolPathOverrides`.
 - **Request.** `OllamaProvider` builds `"options": {"num_ctx": N}` only when the model has an entry. Without an entry the request is unchanged.
 - **Debug log.** Each Ollama request logs `num_ctx` (or `default`). A `truncated` failure logs the prompt token count with it.
-- **Docs.** `docs/COMPATIBILITY.md` gets a note on how `num_ctx` relates to VRAM.
+- **Docs.** `docs/ai_docs/COMPATIBILITY.md` gets a note on how `num_ctx` relates to VRAM.
 
 #### 0b. Failure code on the level
 - Change `LevelStatus.Failed(message)` to `Failed(message, code: String?)`.
@@ -210,7 +210,7 @@ The worst case for worker runs is about `maxRecoveriesPerRun × maxSubTasks + ma
 ## Files
 - **New:**
   - `agents/FaultRecovery.kt`: classify, stuck check, continue question, recovery brief, `submit_recovery` parser, merge, assembly
-  - `docs/FAULT_RECOVERY.md`
+  - `docs/ai_docs/FAULT_RECOVERY.md`
 - **Edit:**
   - `agents/Orchestrator.kt`: `LevelStatus.Failed.code`, `runId`, hooks in `runTasksSerially`, the executor round and the planner/replan levels, `FaultNote`, resolving per-task turns
   - `Protocol` and `ProtocolTools`: `submit_recovery`, `max_turns` and `turn_budget` fields with their parsers, size hint, size rule, prompt text
@@ -220,7 +220,7 @@ The worst case for worker runs is about `maxRecoveriesPerRun × maxSubTasks + ma
   - `tools/permissions`: scratch-dir auto-approval
   - `provider/ollama/OllamaProvider.kt`: `options.num_ctx`
   - `settings/StewartSettings.kt` and `StewartConfigurable.kt`: new settings and validation
-  - Docs: `PLAN.md`, `PROGRESS.md`, `PERMISSIONS.md` (scratch rule), `COMPATIBILITY.md` (`num_ctx`), `DEBUG_LOGGING.md` (new log lines)
+  - Docs: `PLAN.md`, `../ai_docs/PROGRESS.md`, `../ai_docs/PERMISSIONS.md` (scratch rule), `../ai_docs/COMPATIBILITY.md` (`num_ctx`), `../ai_docs/DEBUG_LOGGING.md` (new log lines)
   - `AGENTS.md`: reference to the new doc
 
 ## Testing (positive and negative; `koverVerify` must pass)

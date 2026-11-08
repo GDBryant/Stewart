@@ -245,12 +245,12 @@ Path restrictions are glob lists on the role (`writePaths: ["docs/**", "*.md"]`)
 - **Claude CLI transport** (`CLAUDE_FEASIBILITY.md`): exact isolation flags, fresh temp dir, stripped API-key env, `isolation_violation` check, stream-json images, login probe, proxy/CA env for the child.
 - **Ollama**: `/api/tags` + `/api/show` capability probe (tools, vision, thinking), object `arguments`, synthesised ids, `num_ctx` per model, `native_tools_unsupported`.
 - **OpenAI-compatible**: base URL join without doubling, `GET /models` union, string-only `content`, `reasoning_content`, `reasoning_effort` only for reasoning models.
-- **Permissions** (`PERMISSIONS.md`): categories EDITS/COMMANDS/OTHER; once/chat/always scopes; shell splitter with unparseable-construct list; fail closed; audit log; scratch auto-approve.
-- **Fault recovery** (`FAULT_RECOVERY.md`): classify TRUNCATED/INCOMPLETE_STREAM/TURN_LIMIT; layers retry → split (scratch) → re-plan; continue question with stuck detection; all limits.
+- **Permissions** (`../ai_docs/PERMISSIONS.md`): categories EDITS/COMMANDS/OTHER; once/chat/always scopes; shell splitter with unparseable-construct list; fail closed; audit log; scratch auto-approve.
+- **Fault recovery** (`../ai_docs/FAULT_RECOVERY.md`): classify TRUNCATED/INCOMPLETE_STREAM/TURN_LIMIT; layers retry → split (scratch) → re-plan; continue question with stuck detection; all limits.
 - **Effort presets** (`PHASE2.md` M11): MEDIUM = v1 limits; provider fields sent only when the model supports them. New: `unlimited` turn budget per role (see §5 Long runs).
 - **Usage/cost**: summed across turns, compaction and failed/cancelled calls; `cost n/a`, never `$0`, for unmetered agents. Changed: optional per-agent price (`billing: priced`) feeds the cost limit.
-- **Images** (`IMAGES.md`): limits, wire formats, vision gate, history stripping for non-vision models, hash-dedup storage. Now also routed to Image Reader, so non-vision roles get text.
-- **Debug log** (`DEBUG_LOGGING.md`): per-call lines, redaction of keys/bearer/base64, owner-only files, retention, rotation.
+- **Images** (`../ai_docs/IMAGES.md`): limits, wire formats, vision gate, history stripping for non-vision models, hash-dedup storage. Now also routed to Image Reader, so non-vision roles get text.
+- **Debug log** (`../ai_docs/DEBUG_LOGGING.md`): per-call lines, redaction of keys/bearer/base64, owner-only files, retention, rotation.
 - **History**: per-project, atomic writes, retention, corrupt-file quarantine; add named sessions + `/resume`.
 - **Chat UX**: right-aligned user bubbles, busy/active-role label, collapsible tool rows, prompt recall, slash commands, `@file/@selection/@problems`.
 - **Project memory**: auto-inject bounded `AGENTS.md` + memory file.
@@ -326,7 +326,7 @@ Core emits typed, persisted events for every run: `run.started`, `plan.created`,
 - `TaskTrackerPort` in core is the only surface: `authenticate`, `createEpic`, `createIssue(parent, title, body, labels)`, `transition(issueKey, status)`, `comment`, `link`, `listStatuses(project)`. Core and roles never call a provider API directly. Default adapter: **Jira Cloud**, signing in through the browser with OAuth 2.0 (3LO) so the company SSO applies. The refresh token goes to the host secret store. An API-token login is the fallback. Jira Data Center, Azure DevOps, GitHub Issues and Linear are further adapters behind the same port. Before building, verify whether a Jira admin must register the OAuth app.
 - Config: `trackers.yaml` — `id, type, baseUrl, project, auth (oauth | token), secretRef, issueType, statusMap`. `statusMap` maps core states (`todo | in_progress | in_review | done | failed | blocked`) to the project's workflow statuses.
 - Flow: BRS/spec in → Planner + Validator produce milestones/build steps → user plan gate offers **"Create tickets in <project>"** → one epic per run (or per BRS), one issue per milestone/task → `taskId ↔ issueKey` stored in run state → event bus drives transitions and comments (summary, files, PR link, failure reason).
-- Rules: ticket creation and bulk transitions are an approval category `TRACKER` (once / chat / always, as `PERMISSIONS.md`); dry-run preview lists the tickets before creation; idempotent (re-running never duplicates — lookup by stored key or a `stewart-task-<id>` label); offline/failed calls queue and retry, never block development.
+- Rules: ticket creation and bulk transitions are an approval category `TRACKER` (once / chat / always, as `../ai_docs/PERMISSIONS.md`); dry-run preview lists the tickets before creation; idempotent (re-running never duplicates — lookup by stored key or a `stewart-task-<id>` label); offline/failed calls queue and retry, never block development.
 - Possible role: **Ticket Manager** (fast agent, skills `ticket-writing`, `brs-to-backlog`) for issue text; optional, defaults off.
 
 ### Git management through the IDE

@@ -2,7 +2,7 @@
 
 Status: **done**. Fixes gaps in the current retention behaviour in
 `src/main/kotlin/com/adb/stewart/debug/DebugLogSink.kt`. Current behaviour is described in
-`docs/DEBUG_LOGGING.md`.
+`docs/ai_docs/DEBUG_LOGGING.md`.
 
 ## Current behaviour
 
@@ -91,9 +91,9 @@ Status: **done**. Fixes gaps in the current retention behaviour in
 
 ## Docs
 
-- Update `docs/DEBUG_LOGGING.md`: configurable retention, `0` semantics, rotation naming and
+- Update `docs/ai_docs/DEBUG_LOGGING.md`: configurable retention, `0` semantics, rotation naming and
   order, ownership rule, lock file. Mark this plan done.
-- Update `docs/PROGRESS.md`.
+- Update `docs/ai_docs/PROGRESS.md`.
 
 ## Acceptance
 

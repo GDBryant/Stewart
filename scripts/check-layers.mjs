@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Fails if a module depends on its own layer or above, is missing from scripts/layers.json,
-// or exposes more than the single `.` export. See docs/MODULAR_DESIGN.md §6.
+// or exposes more than the single `.` export. See docs/building/MODULAR_DESIGN.md §6.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

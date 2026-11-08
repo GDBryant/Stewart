@@ -69,7 +69,7 @@ Ambiguous scope (e.g. "check the core") → pick the named folder, state the res
 ## Output contract (testable)
 - Line 1: `Scope: <resolved scope> · Mode: <score|issues> · Checked: <n files/lines> · Not checked: <list>`.
 - **score mode:** `<unit> — <score>/10 (<Green|Yellow|Red>)` per unit, then `Overall: <score>/10 (<band>)` for multi-unit.
-- **issues mode:** the score lines, then one finding per line: `<path:line> | <smell> | <high|med|low> | <suggested refactor>`, ordered by severity. Refactor suggestion names a strategy from `docs/REFACTORING.md` where one fits.
+- **issues mode:** the score lines, then one finding per line: `<path:line> | <smell> | <high|med|low> | <suggested refactor>`, ordered by severity. Refactor suggestion names a strategy from `docs/building/REFACTORING.md` where one fits.
 - Healthy code: say so plainly with the score; no filler findings.
 - Judge only what was opened. No edits. No claim of running tools not in the role's tool list.
 
@@ -80,7 +80,7 @@ Ambiguous scope (e.g. "check the core") → pick the named folder, state the res
 - Modify `packages/core/src/orchestration/orchestrator.ts:29` — `READONLY_ROLES`.
 - Modify `packages/core/src/recommend.ts:128` — model-preference prompt text.
 - Test `packages/core/test/skills.test.ts`, `roles.test.ts`, `assign.test.ts`.
-- Docs: `docs/REFACTORING.md` (Code Health section, done), `docs/PROGRESS.md`, `AGENTS.md`, role lists in `docs/SETUP.md` / `docs/BUDGETS_AND_SETUP_INFO.md` if present.
+- Docs: `docs/building/REFACTORING.md` (Code Health section, done), `docs/ai_docs/PROGRESS.md`, `AGENTS.md`, role lists in `docs/ai_docs/SETUP.md` / `docs/archived_v2/BUDGETS_AND_SETUP_INFO.md` if present.
 
 ### Task 1: `code-health` skill
 
@@ -125,7 +125,7 @@ Scope: resolve from the request — file(s) via ReadFile; folder via FindFiles (
 Mode: "score" if asked for score only; otherwise "issues" (score + findings).
 Scoring: each unit starts at 10.0; deduct per finding (high -2.0, med -1.0, low -0.3; max -4.0 per category); clamp 1.0-10.0. Bands: Green >=9.5, Yellow 7.0-9.4, Red <7.0. Folder: LOC-weighted mean, plus worst file and Red-file count. Lines/function/block: label "unit score, not file health".
 Smells (with path:line evidence): high complexity (>10 med, >15 high branches), large functions (>60 / >120 lines) and files (>500 / >1000), deep nesting (4 / >=5), low cohesion, duplicated logic, closure-captured mutable state (>4 / >7 vars), dead code, suppressions or skipped/weakened tests, cross-package coupling. Coverage only if a report is readable; hotspots/history not checked.
-Output: line 1 "Scope · Mode · Checked · Not checked". Score: "<unit> — <n>/10 (<band>)". Issues: one per line "path:line | smell | high/med/low | refactor", most severe first; name a docs/REFACTORING.md strategy when one fits. Judge only what you opened; snippets cannot show coupling or cross-file duplication. Do not edit files. If healthy, say so.`,
+Output: line 1 "Scope · Mode · Checked · Not checked". Score: "<unit> — <n>/10 (<band>)". Issues: one per line "path:line | smell | high/med/low | refactor", most severe first; name a docs/building/REFACTORING.md strategy when one fits. Judge only what you opened; snippets cannot show coupling or cross-file duplication. Do not edit files. If healthy, say so.`,
   },
 ```
 - [ ] **Step 4:** Re-run → PASS.
@@ -200,9 +200,9 @@ Prompt text cannot be unit-tested for model output; test the contract surface we
 
 ### Task 5: Docs
 
-- [ ] `docs/REFACTORING.md`: Code Health section (done in this change).
-- [ ] Add reference line to `AGENTS.md`: `- Code health: \`docs/2026-11-07-code-health.md\` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).`
-- [ ] Add a row to `docs/PROGRESS.md`; add the role to role lists in `docs/SETUP.md` / `docs/BUDGETS_AND_SETUP_INFO.md` (grep `code-reviewer`).
+- [ ] `docs/building/REFACTORING.md`: Code Health section (done in this change).
+- [ ] Add reference line to `AGENTS.md`: `- Code health: \`docs/archived_v2/2026-11-07-code-health.md\` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).`
+- [ ] Add a row to `docs/ai_docs/PROGRESS.md`; add the role to role lists in `docs/ai_docs/SETUP.md` / `docs/archived_v2/BUDGETS_AND_SETUP_INFO.md` (grep `code-reviewer`).
 - [ ] Final: `pnpm -r build && pnpm -r test`; commit `docs: code-health skill and role`.
 
 ## Self-review

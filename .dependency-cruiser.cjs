@@ -4,7 +4,7 @@ module.exports = {
     {
       name: "no-circular",
       severity: "error",
-      comment: "No intra-package dependency cycles (docs/MODULAR_DESIGN.md §6)",
+      comment: "No intra-package dependency cycles (docs/building/MODULAR_DESIGN.md §6)",
       from: {},
       to: { circular: true },
     },

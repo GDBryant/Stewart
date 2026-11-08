@@ -7,5 +7,13 @@
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../interaction"
+    },
+    {
+      "path": "../kernel"
+    }
   ]
 }

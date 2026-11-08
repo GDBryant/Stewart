@@ -45,7 +45,7 @@ Each step has a short "What to do" box and a "Why" tooltip. Examples: Ollama –
 1. **Engine**: role profiles + `scoreAssignments` + tests (each role's hard requirement positive/negative, no-vision, single-model, tie-break, free vs paid). Fold LLM refinement behind validation. 
 2. **Protocol + core**: `setup.discover`, extended `setup.recommend`, `setup.apply` (+ undo), secret handling; host routing + Kotlin/VS Code tests.
 3. **Webview**: stepper component, channel step with API key + presets, discovery table, evaluator picker, review/edit table with diff; resume state; replace `SetupWizard`; keep Settings re-run entry.
-4. **Copy + docs**: instructions text, `docs/SETUP.md`, update AGENTS.md references, PROGRESS.md.
+4. **Copy + docs**: instructions text, `docs/ai_docs/SETUP.md`, update AGENTS.md references, ../ai_docs/PROGRESS.md.
 5. **E2E**: webview tests for the full flow (fake bridge), JCEF e2e smoke, manual check with Ollama-only, openai-compatible-only, and mixed setups.
 
 ## Acceptance

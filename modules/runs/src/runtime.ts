@@ -4,7 +4,6 @@ import type { RunLedger } from "@stewart/ledger";
 import { CostLimit } from "@stewart/ledger";
 import { LeaseManager } from "@stewart/scheduling";
 import type { IdempotencyLog } from "@stewart/run-state";
-import { Grants } from "@stewart/permissions";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "@stewart/budget";
 import { recoveryState, type RunRuntime } from "@stewart/agent-loop";
 import type { Run, RunHost } from "./types.js";
@@ -25,7 +24,6 @@ export function buildRunRuntime(
 ): RunRuntime {
   const s = opts.config.settings;
   const cost = new CostLimit(s.costLimit.perRunUsd, s.costLimit.onLimit, opts.ledger.cost(run.id).costUsd);
-  const grants = new Grants();
   const profile = opts.profile ?? DEFAULT_BUDGET_PROFILES.normal;
   const ms = effectiveRunCapMs(s.maxRunHours, profile);
   const timeCap: NonNullable<RunRuntime["timeCap"]> = { ms, hit: false, cancel: () => {} };
@@ -69,7 +67,7 @@ export function buildRunRuntime(
     onGraphChange: opts.onGraphChange,
     recovery: recoveryState(s),
     prompt: svc.prompt(run.id, run.controller.signal, "orchestrator"),
-    approve: (call, preview, meta) => svc.gate(run.id, grants, run.controller.signal)(call, preview, meta),
+    approve: svc.permissions.gate(run.id, run.controller.signal),
     timeCap,
   };
 }

@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Brief docs; every change ships positive and negative tests; `./gradlew koverVerify` (≥90% line, ≥80% branch) must pass (AGENTS.md).
-- Add this plan and a `docs/IMAGES.md` reference to AGENTS.md when done; update `docs/PROGRESS.md`.
+- Add this plan and a `docs/ai_docs/IMAGES.md` reference to AGENTS.md when done; update `docs/ai_docs/PROGRESS.md`.
 - No provider may receive images silently dropped: if the selected model is not vision-capable, block the send with a visible message.
 
 ## Investigation findings
@@ -45,7 +45,7 @@
 ### Task 1: Claude CLI stream-json image spike (gate)
 
 **Files:**
-- Create: `docs/IMAGES.md` (spike result section)
+- Create: `docs/ai_docs/IMAGES.md` (spike result section)
 - Test: `src/test/kotlin/com/adb/stewart/ClaudeImageLiveTest.kt` (skipped unless `CLAUDE_LIVE=1`)
 
 **Interfaces:** Produces: confirmed stdin JSON shape for image input.
@@ -56,7 +56,7 @@
   printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Describe this image"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"%s"}}]}}\n' "$B64" \
     | claude -p --input-format stream-json --output-format stream-json --verbose --tools "" --safe-mode --no-session-persistence
   ```
-  Expected: assistant text describing the image. If not, record the error in `docs/IMAGES.md` and pick fallback with the user before continuing.
+  Expected: assistant text describing the image. If not, record the error in `docs/ai_docs/IMAGES.md` and pick fallback with the user before continuing.
 - [ ] **Step 2:** Check the stream-json **output** parser (`ClaudeStreamParser`) is unaffected by `--input-format stream-json` (init/system events may differ); record differences.
 - [ ] **Step 3:** Write the live test asserting a non-empty reply to a tiny generated PNG (a solid red 8×8 image, "what colour?" → contains "red", case-insensitive).
 - [ ] **Step 4:** Commit `docs: image spike for Claude CLI`.
@@ -161,9 +161,9 @@
 
 ### Task 7: Docs, coverage, manual check
 
-**Files:** Modify `AGENTS.md` (reference list), `docs/PROGRESS.md`; finalize `docs/IMAGES.md`.
+**Files:** Modify `AGENTS.md` (reference list), `docs/ai_docs/PROGRESS.md`; finalize `docs/ai_docs/IMAGES.md`.
 
-- [ ] **Step 1:** `docs/IMAGES.md`: routes, limits, per-provider wire format, vision gate, persistence layout, known gaps (workers get no images; no image-reading tool; GIF first frame only on Ollama).
+- [ ] **Step 1:** `docs/ai_docs/IMAGES.md`: routes, limits, per-provider wire format, vision gate, persistence layout, known gaps (workers get no images; no image-reading tool; GIF first frame only on Ollama).
 - [ ] **Step 2:** `./gradlew test koverVerify` → PASS (fix coverage gaps with negative tests, not exclusions).
 - [ ] **Step 3:** `./gradlew runIde`: paste a screenshot (Win+Shift+S / Flameshot), drop a file, attach via 📎 against one model per provider; confirm each describes the image.
 - [ ] **Step 4:** Commit `docs: image attachments`.

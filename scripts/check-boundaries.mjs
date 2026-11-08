@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Boundary lint for packages/core/src (docs/MODULAR_DESIGN.md §7 steps 1 and 8).
+// Boundary lint for packages/core/src (docs/building/MODULAR_DESIGN.md §7 steps 1 and 8).
 // Reports files over `maxLines` and, for any file still mapped to a module in scripts/boundaries.json,
 // relative imports that point to the same or a higher layer. The map is empty now that every module has
 // been extracted, so only the size rule applies to core. Known violations live in

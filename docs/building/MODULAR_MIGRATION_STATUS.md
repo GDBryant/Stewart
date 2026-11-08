@@ -1,6 +1,6 @@
 # Modular migration status (2026-11-07)
 
-Snapshot of the §7 incremental migration in `docs/MODULAR_DESIGN.md`. Delete once §7 is complete.
+Snapshot of the §7 incremental migration in `docs/building/MODULAR_DESIGN.md`. Delete once §7 is complete.
 
 ## Verified state
 
@@ -25,6 +25,7 @@ Snapshot of the §7 incremental migration in `docs/MODULAR_DESIGN.md`. Delete on
 
 - §11 #5 ProbeLoop seam: contract in `models/src/probe.ts`, `createProbeLoop` in `agent-loop/src/probe.ts`, `setup` drops `agent-loop` + `tools` deps; `benchModel` takes the probe, `Core.probeLoop` injects it.
 - §11 #6 Interaction queue: FIFO `Interaction` with typed `Prompt<A>`/`PromptOutcome`/`pending()`; runtime `ask`/`askTimed` → `rt.prompt`; gate and prompts bound to the run signal (cancel withdraws); typed owner prompts for continue, plan gate, cost card, fallback, resume, ask_user; `ResumeRequest.ask` → `confirmResume`. Prompt text unchanged. Known: approval cards have no withdraw event, so a cancelled run's approval card stays in the webview (same as before).
+- §11 #7 Permissions facade: `Permissions` (decide/ask/gate) in `modules/permissions` owns the session `Grants` and shows approval cards through the `Interaction` it is given; `permissions` gains `kernel` + `interaction` deps. `RunService.gate`/`sessionGrants` deleted; `RunHost` exposes `permissions`; `runtime.ts` wires `approve: svc.permissions.gate(run.id, signal)`. `grants()/revoke()/reset()` deferred until a `permissions.*` RPC appears (§11 deviation row).
 
 ## Remaining
 

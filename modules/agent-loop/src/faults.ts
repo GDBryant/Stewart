@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@stewart/kernel";
 import type { LoopResult } from "./loopTypes.js";
 
-/** Recoverable fault kinds (v1 port; see docs/FAULT_RECOVERY.md). */
+/** Recoverable fault kinds (v1 port; see docs/ai_docs/FAULT_RECOVERY.md). */
 export type FaultKind = "truncated" | "incomplete_stream" | "turn_limit";
 
 /** Maps a finished loop result to a recoverable fault; completed and other failures give undefined. */

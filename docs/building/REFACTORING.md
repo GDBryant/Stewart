@@ -32,7 +32,7 @@ Rank candidates by risk-adjusted value, not line count:
 
 ## Code Health (CodeScene AI Playbook 2026)
 
-Score is the goal; every refactor must not lower it. Used by the `code-health` skill (`docs/2026-11-07-code-health.md`). Thresholds below are Stewart heuristics unless marked *playbook*.
+Score is the goal; every refactor must not lower it. Used by the `code-health` skill (`docs/archived_v2/2026-11-07-code-health.md`). Thresholds below are Stewart heuristics unless marked *playbook*.
 
 - **Scale:** 10-point; Green ≥9.5 *(playbook)*; Yellow 7.0–9.4, Red <7.0 *(Stewart; 7 = playbook study floor)*.
 - **Playbook smells:** high complexity, deep nesting, low cohesion, unstable hotspots (needs git history), too-large functions.

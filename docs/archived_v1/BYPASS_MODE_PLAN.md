@@ -1,7 +1,7 @@
 # Approval Bypass Mode — Plan
 
 Status: **implemented**. Adds per-category bypass ticks and "allow for this chat / always" grants to the
-tool approval flow. Supersedes the sketch in `docs/PHASE2.md` item 5 (which proposed `alwaysAllow*`
+tool approval flow. Supersedes the sketch in `docs/archived_v2/PHASE2.md` item 5 (which proposed `alwaysAllow*`
 flags in `StewartSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeApprovalGate`, dialogs),
 `tools/ToolLoop.kt` (calls the gate), `tools/ProjectTools.kt` (`WriteFile`, `EditFile`, `RunTerminal`).
 
@@ -40,7 +40,7 @@ flags in `StewartSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeAppr
 - **Grant granularity (explicit limitation):** a program grant covers **every argument list and
   every cwd** for that program. Granting `git` also allows `git push --force`, `git clean -fdx` and
   `git config alias.x '!rm -rf /'`. Granting a build tool (`gradlew`, `npm`, `cargo`, `make`) trusts
-  the project's build files. The dialog and `docs/PERMISSIONS.md` say so. There is no
+  the project's build files. The dialog and `docs/ai_docs/PERMISSIONS.md` say so. There is no
   argument-scoped grant in this version.
 - **Sub-commands:** when `COMMANDS` is not ticked, a command is split into its sub-commands. It runs
   without a prompt only if the command is parseable, has at least one segment, and **every**
@@ -67,7 +67,7 @@ flags in `StewartSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeAppr
   snapshot published through a `@Volatile` field, so it never sees a half-updated map and never
   touches the XML-serialised collections.
 - **Audit:** every auto-approved call is written to the debug log when it is enabled (`DebugLogSink`,
-  see `docs/DEBUG_LOGGING.md`) with the category, the tool and the command or path. The toggle
+  see `docs/ai_docs/DEBUG_LOGGING.md`) with the category, the tool and the command or path. The toggle
   tooltip shows how many calls were auto-approved in this chat.
 - **Consent:** enabling `COMMANDS` or `OTHER` asks for confirmation (they disable every guard);
   enabling `EDITS` does not. While anything is active a dedicated label next to the input shows
@@ -225,11 +225,11 @@ flags in `StewartSettings.State`). Code today: `ui/ApprovalDialogs.kt` (`IdeAppr
    - A moved project keeps `migrated = true`, so a revoke is never undone.
    - The legacy field is never written again.
 9. **Docs**
-   - Add `docs/PERMISSIONS.md`: categories, effective rule, grant granularity, how sub-commands are
+   - Add `docs/ai_docs/PERMISSIONS.md`: categories, effective rule, grant granularity, how sub-commands are
      matched, unparseable constructs and programs, scopes, storage location, sync exclusion, revoke
      paths, migration.
-   - Update `docs/PHASE2.md` item 5 to point at this plan, reference the new doc in `AGENTS.md`,
-     update `docs/PROGRESS.md`, and mark this plan as done.
+   - Update `docs/archived_v2/PHASE2.md` item 5 to point at this plan, reference the new doc in `AGENTS.md`,
+     update `docs/ai_docs/PROGRESS.md`, and mark this plan as done.
 
 ## Tests
 

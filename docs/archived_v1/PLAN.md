@@ -135,7 +135,7 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Structured JSON messages (plan/task/result) between levels; single-model mode; role badges in chat.
 - Validate plan/task/result schemas inside the terminal protocol tools (a rejection returns to the model as a normal tool error and is retried within the level's turn budget), correlate task IDs and propagate cancellation; bound re-planning and dispatch workers serially to avoid conflicting edits. Test malformed worker output and failed tasks.
 - Done when: a multi-step task runs Planner → Executor → Worker with one model and re-plans on a failed task.
-- Fault recovery (layers 0–2, continue question, scratch dir): see `docs/FAULT_RECOVERY.md`.
+- Fault recovery (layers 0–2, continue question, scratch dir): see `docs/ai_docs/FAULT_RECOVERY.md`.
 
 ### 7. Multi-model mode
 - Per-role `ModelRef` binding; per-level streaming and error surfacing.
@@ -174,17 +174,17 @@ Each milestone ships its own tests and passes `buildPlugin`, `check` (tests + `k
 - Approval dialogs modeless (`DialogHost` seam); cancelling the waiting run closes the dialog.
 - `ChatSession.commitIfActive` factors the repeated transcript commit.
 - Branch-coverage headroom raised with negative-path tests.
-- Done when: `test koverVerify verifyPlugin` pass. See `docs/PROGRESS.md` for hashes.
+- Done when: `test koverVerify verifyPlugin` pass. See `docs/ai_docs/PROGRESS.md` for hashes.
 
 ## Open Items
-M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/PROGRESS.md`). Remaining:
+M1–M10 are done (M10: slash commands, cancel-before-start fix; see `docs/ai_docs/PROGRESS.md`). Remaining:
 
 1. ~~Manual `./gradlew runIde` check: all 8 slash commands, autocomplete Tab/Esc inside the tool window~~ — verified 2026-10-31 in PyCharm.
 2. Deferred: `/resume` and `/memory` (history is per-project, so `/resume` is likely redundant). Add only if asked.
 3. ~~Requested follow-ups from `docs/todo.txt`~~ — all resolved 2026-10-31: Qwen/AIF edits, Visual Studio feasibility, Nemotron. See below.
 4. ~~AIF model discovery~~ (done 2026-10-31). ~~Ollama native tools~~ (done 2026-10-31: `/api/show`/`/api/tags` capability probing, `tools` payload, `NativeToolCalls` parsing, `tool_name`+`tool_call_id` results, `native_tools_unsupported` on explicit 400).
 
-Per-item handoff plans: `docs/HANDOFF.md`.
+Per-item handoff plans: `docs/archived_v2/HANDOFF.md`.
 
 ### Requested follow-ups
 

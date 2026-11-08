@@ -1,8 +1,7 @@
 import type { OrchestrationRuntime } from "@stewart/agent-loop";
-import type { ChatMessage, Clock, HostPort, IdGen, ToolCall } from "@stewart/kernel";
+import type { ChatMessage, Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { TaskRecord } from "@stewart/scheduling";
-import type { Grants, ToolPreview } from "@stewart/permissions";
-import type { ApprovalDecision } from "@stewart/agent-loop";
+import type { Permissions } from "@stewart/permissions";
 import type { RunLedger } from "@stewart/ledger";
 import type { createRecovery } from "@stewart/recovery";
 import type { RunEvent } from "@stewart/protocol";
@@ -41,6 +40,6 @@ export interface RunHost {
   journalPath(runId: string, stateDir: string): string;
   saveHistory(run: Run): Promise<void>;
   ledgerFor(): Promise<RunLedger>;
-  gate(runId: string, runGrants: Grants, signal: AbortSignal): (call: ToolCall, preview: ToolPreview | null, meta?: { roleId?: string; taskId?: string }) => Promise<ApprovalDecision>;
+  readonly permissions: Permissions;
   prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): OrchestrationRuntime["prompt"];
 }

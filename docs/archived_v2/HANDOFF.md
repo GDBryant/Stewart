@@ -1,6 +1,6 @@
 # Handoff — outstanding items (post-M10)
 
-State at handoff: `main` @ `189fdb4` plus uncommitted docs and `ToolsProviderMatrixTest`. M1–M10 done (`docs/PROGRESS.md`).
+State at handoff: `main` @ `189fdb4` plus uncommitted docs and `ToolsProviderMatrixTest`. M1–M10 done (`docs/ai_docs/PROGRESS.md`).
 Last recorded gate: 824 tests passed (7 live skipped); `koverVerify` line 96.8%, branch 85.2%. `verifyPlugin` Compatible on IDEA 2025.1 and PyCharm 2025.3 at `5fe43d3` (no platform/UI change since).
 The post-M9 handoff (cancel-before-start fix, slash commands) is done; its text is in git history (`0ee6ce2`).
 
@@ -19,7 +19,7 @@ Items, in order. 1–4 are plugin work; 5–6 are investigations that end in a w
 - Tests for the positive and the negative case in the same change.
 - `./gradlew test koverVerify` must pass (≥90% line, ≥80% branch).
 - `./gradlew verifyPlugin` before any commit that touches `plugin.xml`, UI or platform APIs.
-- One commit per item (or slice). Add a line to `docs/PROGRESS.md` with the hash; remove the item from PLAN Open Items and PROGRESS when done.
+- One commit per item (or slice). Add a line to `docs/ai_docs/PROGRESS.md` with the hash; remove the item from PLAN Open Items and PROGRESS when done.
 - Never log or persist the AIF key (`AifCredentials`, PasswordSafe only). Redact bearer tokens in any captured stream.
 - Tool calls are data: every path goes through `ToolLoop.executeCall` (validate → preview → approval → execute). No provider executes anything. No same-turn native→shim switch, no replay after execution starts.
 - Do not push unless asked.
@@ -36,7 +36,7 @@ Verified by the user in PyCharm with the installed plugin: all 8 slash commands 
 - Mid-run: `/cost` works, `/clear` reports "not available while running", plain text is ignored, the button stops.
 - Unknown `/foo` → error, input kept. `//x` is sent as text `/x`.
 
-**Done when** all pass; record the date in `docs/COMPATIBILITY.md` → Manual smoke, and drop Open Item 1 in `docs/archived_v1/PLAN.md`. Any failure becomes a bug item with a failing test first.
+**Done when** all pass; record the date in `docs/ai_docs/COMPATIBILITY.md` → Manual smoke, and drop Open Item 1 in `docs/archived_v1/PLAN.md`. Any failure becomes a bug item with a failing test first.
 
 ---
 
@@ -89,14 +89,14 @@ Resolved: `AifEditLiveTest` drives a real `WriteFile`+`EditFile` cycle on `qwen3
 ### 3d. CLI write path — only if 3a shows a call that cannot be mapped safely
 Not a fallback. If a model's edit call cannot be mapped (class A unfixable or class B with no stable alias), the correct outcome is the existing `Invalid tool call` result; the model can then use `RunTerminal`, which previews the exact command and cwd and always asks. Do not add a hidden "interpret and run via CLI" step: it would skip the diff preview, undo and `before`/`after` checks. If the user still wants a CLI write tool, it is a new approval-gated tool with its own preview and tests, scoped in a separate handoff.
 
-**Done when** each class seen in 3a has a fixture and a fix (or a documented "model error, message improved"); 3c lands with tests; a live Qwen cycle (read → `EditFile` approved → verified on disk) and a later-turn shim cycle both pass in the disposable project; malformed/rejected calls made no change. Record the Qwen model id and date in `docs/COMPATIBILITY.md` → AIF live check.
+**Done when** each class seen in 3a has a fixture and a fix (or a documented "model error, message improved"); 3c lands with tests; a live Qwen cycle (read → `EditFile` approved → verified on disk) and a later-turn shim cycle both pass in the disposable project; malformed/rejected calls made no change. Record the Qwen model id and date in `docs/ai_docs/COMPATIBILITY.md` → AIF live check.
 
 ---
 
 ## 4. Ollama native tools
 **Done 2026-10-31** (`00ed330`). `OllamaProvider` probes `tools` capability via `/api/tags` (with `/api/show` fallback), sends OpenAI-shape `tools`, parses `NativeToolCalls`, sends `tool_call_id`+`tool_name` results; `ollama` added to `NATIVE_CAPABLE`. The design below is historical context.
 
-**To verify first.** Against the local Ollama: `GET /api/show` with `{"name": "<model>"}` returns a `capabilities` array containing `"tools"` on recent servers; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` where `arguments` is a JSON **object** (not a string as in OpenAI); models without tool support answer HTTP 400 "… does not support tools". Confirm all three on the installed version and record the server version in `docs/COMPATIBILITY.md`.
+**To verify first.** Against the local Ollama: `GET /api/show` with `{"name": "<model>"}` returns a `capabilities` array containing `"tools"` on recent servers; `POST /api/chat` with `tools` returns `message.tool_calls[].function.{name, arguments}` where `arguments` is a JSON **object** (not a string as in OpenAI); models without tool support answer HTTP 400 "… does not support tools". Confirm all three on the installed version and record the server version in `docs/ai_docs/COMPATIBILITY.md`.
 
 **Design.**
 - Capability: `supportsNativeTools(model)` from a per-provider cache filled on `listModels()` via `/api/show` per model (parallel, 10 s timeout). Unknown/failed lookup → `false` (shim), matching the execution contract "unknown capability uses the shim". An explicit `NATIVE` override on an unsupported model still fails with `native_tools_unsupported` (`ToolCallingProvider.kt:43`) — keep that.
@@ -134,6 +134,6 @@ Nemotron on the AIF account is `nemotron-3-embed-8b`, an embeddings-only model �
 ---
 
 ## After the items
-- `docs/PROGRESS.md`: one line per item with hash, test count, coverage.
+- `docs/ai_docs/PROGRESS.md`: one line per item with hash, test count, coverage.
 - `docs/archived_v1/PLAN.md` → Open Items: remove done items; Open Question 7 → **Built** once item 2 lands; path table → confirm Ollama row once item 4 lands.
 - `./gradlew buildPlugin verifyPlugin`, then `scripts/install-plugin.sh --no-build` and a manual smoke test.

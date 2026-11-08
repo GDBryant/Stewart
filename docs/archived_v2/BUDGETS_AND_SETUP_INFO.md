@@ -1,6 +1,6 @@
 # Model-aware budgets and richer setup information (spec)
 
-Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background-tasks`). The v1 continue-question/split machinery is now ported (`orchestration/recovery.ts`, `docs/FAULT_RECOVERY.md`) — M6 escalation is unblocked but not yet built.
+Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background-tasks`). The v1 continue-question/split machinery is now ported (`orchestration/recovery.ts`, `docs/ai_docs/FAULT_RECOVERY.md`) — M6 escalation is unblocked but not yet built.
 
 ## Problem
 
@@ -13,7 +13,7 @@ Status: **M1–M5 implemented** (`b16e2ce`..`6d4ea05`, branch `active-background
 - Per-model budgets derived from measured speed and cost, not hand-set per role.
 - Setup evaluator (rules and AI) receives measured, priced, role-aware, environment-aware input.
 
-Non-goals: new providers, UI redesign beyond the fields listed, changing fault-recovery layers (`docs/FAULT_RECOVERY.md`).
+Non-goals: new providers, UI redesign beyond the fields listed, changing fault-recovery layers (`docs/ai_docs/FAULT_RECOVERY.md`).
 
 ## Part A. Four information upgrades for the setup agent
 
@@ -43,7 +43,7 @@ interface ModelPerf { ttftMs?: number; tokPerSec?: number; toolReliability?: num
 
 ### A2. Pricing and limits catalog
 
-- New file `packages/core/src/catalog.ts` exporting `lookupModelInfo(channelType, model): { inPerMTok?, outPerMTok?, contextTokens?, rpm?, tpm?, family?, tier? } | undefined`. Data lives in `packages/core/src/catalog.data.json` (versioned, `updated` date field), matched by normalised model-name regex. Seed with the models in `docs/COMPATIBILITY.md` plus the Claude 5 family and the common OpenAI/OpenRouter ones.
+- New file `packages/core/src/catalog.ts` exporting `lookupModelInfo(channelType, model): { inPerMTok?, outPerMTok?, contextTokens?, rpm?, tpm?, family?, tier? } | undefined`. Data lives in `packages/core/src/catalog.data.json` (versioned, `updated` date field), matched by normalised model-name regex. Seed with the models in `docs/ai_docs/COMPATIBILITY.md` plus the Claude 5 family and the common OpenAI/OpenRouter ones.
 - Local channels (Ollama, LM Studio): price 0, `billing: "free"`; speed comes from A1 or an unknown value, plus the hardware profile (A4).
 - Wizard prefills `agent.price` and `agent.billing` from the catalog (user-editable, source shown as "catalog 2026-11"). Existing `agent.price` always wins over the catalog.
 - Live provider pricing: `listModels` returns `string[]` only, so add an optional `ChannelAdapter.priceList?(cfg, secret): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>` (OpenRouter `/models` on `openai-compatible`, undefined elsewhere); fall back to catalog.
@@ -128,7 +128,7 @@ Precedence: user override (`/quick`, `/deep`, or a UI toggle in the chat bar) > 
 
 ### B4. Escalation
 
-Prerequisite: the v2 TS core has no continue question, no layer-1 split, and no `maxRecoveryDepth`/`maxContinuations` — `docs/FAULT_RECOVERY.md` describes the removed v1 Kotlin. `TURN_LIMIT` currently just stops the run (`orchestrator.ts`, `runManager.ts`, `roleRunner.ts`). Land the v1 recovery port first, or descope this section to auto-escalation only.
+Prerequisite: the v2 TS core has no continue question, no layer-1 split, and no `maxRecoveryDepth`/`maxContinuations` — `docs/ai_docs/FAULT_RECOVERY.md` describes the removed v1 Kotlin. `TURN_LIMIT` currently just stops the run (`orchestrator.ts`, `runManager.ts`, `roleRunner.ts`). Land the v1 recovery port first, or descope this section to auto-escalation only.
 
 - `quick` that hits `TURN_LIMIT` escalates to `normal` automatically, once, with a log line `[run <id>] profile quick -> normal` (category `recovery`), before the continue question appears. `normal` -> `deep` is offered through the continue question ("Continue as deep run"). Without the port, a `normal` run at `TURN_LIMIT` stops as today.
 - Never de-escalate mid-run.
@@ -155,7 +155,7 @@ Order: 1, 2 and 4 are independent and can go in parallel; 3 needs 1-2; 5 needs 4
 
 ## Docs to update when building
 
-`docs/SETUP.md` (engine inputs, protocol), `docs/FAULT_RECOVERY.md` (profiles and escalation, settings table), `docs/PROGRESS.md` (milestone rows), `AGENTS.md` References (add this file), `docs/DEBUG_LOGGING.md` (new log tags).
+`docs/ai_docs/SETUP.md` (engine inputs, protocol), `docs/ai_docs/FAULT_RECOVERY.md` (profiles and escalation, settings table), `docs/ai_docs/PROGRESS.md` (milestone rows), `AGENTS.md` References (add this file), `docs/ai_docs/DEBUG_LOGGING.md` (new log tags).
 
 ## Open questions
 

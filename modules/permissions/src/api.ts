@@ -4,3 +4,5 @@ export type { ToolPreview, ApprovalCategory } from "./preview.js";
 export { Grants, isScratchPath } from "./grants.js";
 export type { GrantScope, GrantDecision, AuditEntry } from "./grants.js";
 export { splitShellPrograms } from "./shell.js";
+export { Permissions } from "./permissions.js";
+export type { PermissionDecision, PermissionRequest, ApproveFn } from "./permissions.js";

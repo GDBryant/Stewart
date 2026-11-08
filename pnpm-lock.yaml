@@ -395,6 +395,13 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/permissions:
+    dependencies:
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0

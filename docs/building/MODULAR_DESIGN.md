@@ -1,6 +1,6 @@
 # Stewart — Modular Design (healthy-code structure)
 
-Status: implemented through §7 step 7 (all 22 modules extracted, `core.ts` is a router); step 8 (lint limits) deferred. Originally derived from `project_features.md`; §3 now reflects the as-built manifests and §11 lists where the build deviates from the §4 sketches. As-built detail lives in `ARCHITECTURE_NOW.md`; progress in `MODULAR_MIGRATION_STATUS.md`. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
+Status: implemented through §7 step 7 (all 22 modules extracted, `core.ts` is a router); step 8 (lint limits) deferred. Originally derived from `project_features.md`; §3 now reflects the as-built manifests and §11 lists where the build deviates from the §4 sketches. As-built detail lives in `../ai_docs/ARCHITECTURE_NOW.md`; progress in `MODULAR_MIGRATION_STATUS.md`. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
 
 ## 1. Health rules (the design constraints)
 
@@ -35,7 +35,7 @@ L1   platform     config · catalog · toolcall-format · diagnostics
 L0   kernel       Result, errors, ids, Clock, IdGen, EventBus, schema helpers, HostPort types
 ```
 
-`interaction` is the single owner of user-facing prompts: a FIFO queue showing one card at a time (approvals, `ask_user`, continue question, plan gate, cost card, fallback switch, resume confirm). `runs` holds one `Interaction` per project and hands it down as `rt.prompt` (questions) and `rt.approve` (grant gate → approval card), both bound to the run's abort signal. Owners build typed `Prompt<A>` values (`recovery/continue.ts`, `orchestration/prompts.ts`) and handle `withdrawn` explicitly. `permissions` and `ledger` don't prompt.
+`interaction` is the single owner of user-facing prompts: a FIFO queue showing one card at a time (approvals, `ask_user`, continue question, plan gate, cost card, fallback switch, resume confirm). `runs` holds one `Interaction` per project and hands it down as `rt.prompt` (questions) and `rt.approve` (grant gate → approval card), both bound to the run's abort signal. Owners build typed `Prompt<A>` values (`recovery/continue.ts`, `orchestration/prompts.ts`) and handle `withdrawn` explicitly. `permissions` prompts through the `Interaction` it is given; `ledger` doesn't prompt.
 
 ### Outside core
 
@@ -62,7 +62,7 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry` | kernel, catalog, diagnostics, models |
 | 3 | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | pure functions | catalog, models |
 | 3 | `ledger` | append-only cost ledger, cost limit | `RunLedger`, `CostLimit`, `costOfCall` | kernel |
-| 3 | `permissions` | categories, grants (once/chat/always), tool previews, shell splitter | `Grants`, `categoryOf`, `splitShellPrograms` | — |
+| 3 | `permissions` | categories, grants (once/chat/always), tool previews, shell splitter, approval gate | `Permissions` (decide/ask/gate), `Grants`, `categoryOf`, `splitShellPrograms` | kernel, interaction |
 | 3 | `roles-skills` | role + skill definitions, validation, tool filter, `writePaths`, copy-on-write, prompt composition, effective config (`loadConfig` + skills + role validation) | `loadConfig`, `composeRolePrompt`, role/skill helpers | kernel, config, models |
 | 3 | `scheduling` | `TaskGraph`, `LeaseManager`, deadlock detection | `TaskGraph`, `LeaseManager` (pure) | — |
 | 3 | `run-state` | idempotency log, pre-image snapshots/revert, chat history | `IdempotencyLog`, `revertRunSnapshots`, `ChatHistoryStore` | kernel |
@@ -73,7 +73,7 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, interaction, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
 | 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, interaction, kernel, permissions, roles-skills, scheduling, tools |
 | 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel` (takes an injected `ProbeLoop`), `scanWorkspace` | catalog, channels, config, kernel, models, roles-skills |
-| 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume, approval gate + grants; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |
+| 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |
 | 9 | `app` (`packages/core`) | wiring, RPC method → handler table, 30 ms event batching toward the host, `v1import` | `Core.dispatch` | all |
 
 ## 4. Interfaces (contract first)
@@ -134,13 +134,14 @@ interface Ledger {
 interface CostPolicy { check(runId: string, next: AgentRef): 'allow' | 'park'; raise(runId: string, by: number): void }
 ```
 
-### permissions
+### permissions — built
 ```ts
-interface Permissions {
-  decide(req: ToolRequest): Decision;             // total union 'allow' | 'ask'; any internal error yields 'ask' (fail closed)
-  ask(req: ToolRequest, ctx: TaskTag): Promise<Result<Grant>>;   // delegates to Interaction (FIFO)
-  grants(): Grant[];  revoke(id: string): void;  reset(): void;
+class Permissions {
+  decide(req: PermissionRequest, runGrants: Grants): 'allow' | 'ask';             // any internal error yields 'ask' (fail closed)
+  ask(req: PermissionRequest, runGrants: Grants, tag: PromptTag, signal?): Promise<PermissionDecision>;  // one card on the Interaction (FIFO)
+  gate(runId: string, signal: AbortSignal, runGrants?: Grants): ApproveFn;        // per-run rt.approve; session grants are private
 }
+// grants()/revoke(id)/reset() from the sketch are not built — Grants.revoke(scope?, category?) exists but has no core-side caller yet.
 // interaction (L2): the one prompt queue — built
 type Prompt<A> =
   | { kind: 'approval'; tool: string; args: unknown; category: string; decode(g: PromptGrant): A }
@@ -237,7 +238,7 @@ Direct, orchestrated and resume are three `RunStrategy` objects (`plan(req) → 
 2. (Deferred, step 8) Lint limits from §1 via the full eslint rule set (`max-lines`, `max-lines-per-function`, `complexity`, `max-depth`, `max-params`) across every package. Today only `check-boundaries` enforces `maxLines` 300 on `packages/core/src`. Coverage (≥90% line, ≥80% branch) is enforced per package by `pnpm test:coverage` in CI.
 3. (Done) Per-module `README.md` of five lines: purpose, surface, owns, depends on, how to fake it. `scripts/new-module.mjs` writes the template.
 4. The `code-health-reviewer` role scores each module folder; Green (≥ 9.5) is the merge bar for new modules, no worse than current for touched ones. Not yet run over `modules/*`.
-5. (Done) `ARCHITECTURE_NOW.md` stays the as-built map; update it with each extraction commit.
+5. (Done) `../ai_docs/ARCHITECTURE_NOW.md` stays the as-built map; update it with each extraction commit.
 
 ## 7. Mapping from today's code and migration
 
@@ -306,7 +307,7 @@ Per-package conventions:
 - Each package has its own `tsconfig.json` (extends `tsconfig.base.json`, `composite: true`, project `references` to its `@stewart/*` deps — generated by `scripts/sync-tsrefs.mjs`, drift fails `pnpm check:tsrefs` in CI; `typecheck` runs `tsc -p tsconfig.json --composite false --noEmit`), a `vitest.config.ts` with the coverage thresholds, and a `test/` folder using in-memory fakes of its ports.
 - Per-package scripts `build`, `typecheck`, `test`; `pnpm -r build` stays topological. Developers run one module with `pnpm --filter @stewart/budget... test` (the `...` also runs its dependencies' builds).
 - Coverage gate (≥90% line, ≥80% branch) applies per package (`test:coverage` script, v8 provider, `include: ["src/**"]`), so a weak module cannot hide behind a strong one.
-- `docs/ARCHITECTURE_NOW.md` module table is updated per extraction commit; `packages/core` shrinks as modules leave it.
+- `docs/ai_docs/ARCHITECTURE_NOW.md` module table is updated per extraction commit; `packages/core` shrinks as modules leave it.
 - Release packaging bundles the sidecar and VSIX from `@stewart/core`, which pulls the modules in by workspace dependency; no release script change beyond the bundler picking up the new paths.
 
 Risks: more `tsconfig`/build boilerplate (mitigated by `tsconfig.base.json` and a package template script) and slower cold installs (mitigated by the pnpm store). A mistaken layer assignment surfaces immediately as a failing `check-layers.mjs`, which is the intended feedback.
@@ -458,7 +459,7 @@ Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, no
 |---|---|---|
 | `Result<T, StewartError>` for all fallible calls (§1, §4) | Modules throw or return `T \| undefined`; errors surface as `RunEvent` variants or thrown `Error`s caught at the strategy/handler edge | Sweeping change across every surface; do it per module when a module is next reworked |
 | `ChannelService` facade (§4) | Consumers receive `ManagedChannel` via `channelFor(id)` on the runtime; `ChannelRegistry` + `ManagedChannel` are the surface | A facade would wrap one method; add when a second consumer needs `health()` |
-| `Permissions.decide/ask` facade (§4); `permissions` and `ledger` depend on `interaction` | Grant policy (`Grants`, `categoryOf`) stays in `permissions`; the gate that combines grants with an approval card lives in `runs` (`RunService.gate`) and is injected as `rt.approve`. `permissions`, `ledger`, `orchestration`, `recovery` have no `interaction` dependency | The gate is the only place policy meets prompting; moving it down would make `permissions` depend on `interaction` for one call |
+| `Permissions.grants()/revoke(id)/reset()` (§4) | Session grants are private to `Permissions`; `Grants.revoke(scope?, category?)` exists but has no core-side caller; `/permissions` is webview-only | Add when a `permissions.*` RPC appears |
 | `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
 | `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
 | `RunHandle.events: AsyncIterable` (§4) | Runs emit through the shared `EventBus`; handlers return `{ runId }` | Protocol is event-push; an iterable per run would duplicate the bus |
