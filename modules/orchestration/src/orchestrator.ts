@@ -12,6 +12,8 @@ import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import { questionPrompt } from "@stewart/interaction";
+import { NO_ANSWER, costLimitPrompt, fallbackPrompt, planGatePrompt } from "./prompts.js";
 import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { classifyFault } from "@stewart/agent-loop";
@@ -94,7 +96,8 @@ class OrchestratedRun {
       },
       askUser: async (args, signal) => {
         if (signal.aborted) return "Cancelled.";
-        return rt.ask(args.question, args.options);
+        const o = await rt.prompt(questionPrompt("ask_user", args.question, args.options), { roleId: this.orchestrator.id });
+        return o.kind === "answered" ? o.value : NO_ANSWER;
       },
       submitPlan: (args) => this.submitPlan(args),
       submitVerdict: (args) => this.submitVerdict(args),
@@ -235,9 +238,10 @@ class OrchestratedRun {
         /* fall through to user */
       }
     }
-    const userAnswer = await rt.ask(question, options);
-    rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: userAnswer, answeredBy: "user" });
-    return userAnswer;
+    const o = await rt.prompt(questionPrompt("ask_user", question, options), { roleId, taskId });
+    if (o.kind !== "answered") return NO_ANSWER;
+    rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: o.value, answeredBy: "user" });
+    return o.value;
   }
 
   private dispatchAt(spec: TaskSpec, depth: number): Promise<TaskResult> {
@@ -411,8 +415,9 @@ class OrchestratedRun {
     rt.bus.emit({ kind: "plan.validated", runId: rt.runId, verdict: args.verdict, reasons: args.reasons ?? [] });
     if (args.verdict !== "approve") return this.replan(args.reasons);
     if (rt.planGate && !this.planApproved) {
-      const choice = await rt.ask(`Plan approved by the validator (${this.milestoneCount} milestones). Proceed?`, ["Proceed", "Revise"]);
-      if (!choice.startsWith("Proceed")) return this.replan([choice]);
+      const o = await rt.prompt(planGatePrompt(this.milestoneCount), { roleId: this.orchestrator.id });
+      if (o.kind === "withdrawn") return "Plan not approved: prompt withdrawn.";
+      if (o.value.kind === "revise") return this.replan([o.value.reason]);
     }
     this.planApproved = true;
     rt.bus.emit({ kind: "plan.approved", runId: rt.runId, milestoneCount: this.milestoneCount });
@@ -444,15 +449,13 @@ class OrchestratedRun {
       rt.leases.releaseAll();
       return { status: "stopped", error: "cost limit reached", suggestions: this.suggestions };
     }
-    const choice = await rt.ask(
-      `Cost limit reached: $${rt.cost.accrued.toFixed(2)} of $${rt.cost.cap.toFixed(2)}. ${this.parked.length} task(s) parked.`,
-      ["Continue (+cost cap)", ...(this.suggestions.length ? ["Use suggested replacements"] : []), "Stop"],
-    );
-    if (choice.startsWith("Continue")) {
+    const co = await rt.prompt(costLimitPrompt(rt.cost.accrued, rt.cost.cap, this.parked.length, this.suggestions.length > 0), { roleId: this.orchestrator.id });
+    const choice = co.kind === "answered" ? co.value : "stop";
+    if (choice === "continue") {
       const cap = rt.cost.raise();
       rt.bus.emit({ kind: "cost.limit_raised", runId: rt.runId, capUsd: cap });
       await this.rerunParkedTasks(false);
-    } else if (choice.startsWith("Use suggested replacements")) {
+    } else if (choice === "replace") {
       for (const s of this.suggestions) {
         this.overrides.set(s.role, s.agent);
         rt.bus.emit({ kind: "cost.replaced", runId: rt.runId, roleId: s.role, agentId: s.agent, reason: s.reason });

@@ -28,6 +28,9 @@
       "path": "../context"
     },
     {
+      "path": "../interaction"
+    },
+    {
       "path": "../kernel"
     },
     {

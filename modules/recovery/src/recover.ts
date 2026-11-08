@@ -4,7 +4,7 @@ import { countToolCalls, type OrchestrationRuntime, type RecoveryContext, type R
 import type { TaskSpec } from "@stewart/scheduling";
 import { SIZE_HINT, ensureRecovery, logRecovery } from "./consts.js";
 import { splitTask, type Recoverable } from "./split.js";
-import { continueQuestion, mapContinueAnswer } from "./continue.js";
+import { continueQuestion } from "./continue.js";
 
 export function recoverable(runOnce: RunTaskOnce): Recoverable {
   const self: Recoverable = (rt, spec, deps, ctx) => runTaskRecoverable(rt, spec, deps, ctx, runOnce, self);
@@ -62,17 +62,16 @@ async function runTaskRecoverable(
         R.questionsUsed < R.maxContinueQuestionsPerRun;
       if (canAsk) {
         R.questionsUsed++;
-        const { question, options } = continueQuestion({
+        const prompt = continueQuestion({
           spec,
           turns: res.turnBudget ?? 0,
           transcript: res.transcript ?? [],
           maxActions: R.maxActionsInRecoveryBrief,
           canSplit: allowSplit,
+          timeoutMs: R.continueQuestionTimeoutMs,
         });
-        const raw = rt.askTimed
-          ? await rt.askTimed(question, options, R.continueQuestionTimeoutMs)
-          : await rt.ask(question, options);
-        const answer = raw === undefined ? ({ kind: "timeout" } as const) : mapContinueAnswer(raw);
+        const o = await rt.prompt(prompt, { roleId: deps.role.id, taskId: spec.id });
+        const answer = o.kind === "answered" ? o.value : ({ kind: "timeout" } as const);
         logRecovery(rt, `continue question on ${spec.id}: ${answer.kind === "text" ? "guidance" : answer.kind}`);
         if (answer.kind === "continue" || answer.kind === "text") {
           continuations++;

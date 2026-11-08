@@ -5,12 +5,12 @@ import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { Grants, type GrantDecision, categoryOf, type ToolPreview } from "@stewart/permissions";
-import type { ApprovalDecision, RecoveryState } from "@stewart/agent-loop";
+import type { ApprovalDecision, OrchestrationRuntime, RecoveryState } from "@stewart/agent-loop";
 import { RunLedger } from "@stewart/ledger";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
 import { createRecovery } from "@stewart/recovery";
-import { Interaction } from "@stewart/interaction";
+import { Interaction, approvalPrompt } from "@stewart/interaction";
 import type { RunEvent } from "@stewart/protocol";
 import { directStrategy } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
@@ -62,11 +62,12 @@ export class RunService implements RunHost {
   }
 
   /** Approval gate shared by direct and orchestrated runs: grants first, then an approval card. */
-  gate(runId: string, runGrants: Grants) {
-    return async (call: ToolCall, preview: ToolPreview | null): Promise<ApprovalDecision> => {
+  gate(runId: string, runGrants: Grants, signal: AbortSignal) {
+    return async (call: ToolCall, preview: ToolPreview | null, meta?: { roleId?: string; taskId?: string }): Promise<ApprovalDecision> => {
       const cat = categoryOf(preview) ?? "OTHER";
       if (runGrants.isGranted(cat, preview) || this.sessionGrants.isGranted(cat, preview)) return { kind: "approved" };
-      const d = await this.interaction.approval(runId, call.name, call.arguments, cat);
+      const o = await this.interaction.ask(approvalPrompt(call.name, call.arguments, cat), { runId, roleId: meta?.roleId, taskId: meta?.taskId }, signal);
+      const d = o.kind === "answered" ? o.value : "deny";
       if (d === "deny") return { kind: "rejected", reason: "denied by user" };
       if (d === "chat") runGrants.record("chat", cat, preview);
       if (d === "always") this.sessionGrants.record("always", cat, preview);
@@ -74,14 +75,9 @@ export class RunService implements RunHost {
     };
   }
 
-  /** Ask the user (also used by the cost-limit card). */
-  askUser(runId: string, roleId?: string): (question: string, options?: string[]) => Promise<string> {
-    return (question, options) => this.interaction.ask(runId, question, options, roleId);
-  }
-
-  /** askUser with a timeout and run-cancel escape; resolves undefined and withdraws the card. */
-  askTimed(runId: string, signal: AbortSignal, roleId?: string): (question: string, options: string[] | undefined, timeoutMs: number) => Promise<string | undefined> {
-    return (question, options, timeoutMs) => this.interaction.askTimed(runId, question, options, timeoutMs, signal, roleId);
+  /** Prompt routing for one run: questions and cards queue on the run's interaction. */
+  prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): OrchestrationRuntime["prompt"] {
+    return (p, tag) => this.interaction.ask(p, { runId, roleId: tag?.roleId ?? defaultRoleId, taskId: tag?.taskId }, signal);
   }
 
   async ledgerFor(): Promise<RunLedger> {

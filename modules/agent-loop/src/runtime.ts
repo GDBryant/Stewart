@@ -10,6 +10,7 @@ import type { Config } from "@stewart/roles-skills";
 import type { RoleDef } from "@stewart/config";
 import type { Tool } from "@stewart/tools";
 import type { RunEvent } from "@stewart/protocol";
+import type { Prompt, PromptOutcome } from "@stewart/interaction";
 import type { ApprovalDecision } from "./loopTypes.js";
 import type { FaultKind } from "./faults.js";
 
@@ -113,9 +114,7 @@ export interface OrchestrationRuntime {
   /** Recovery service injected by the app (implemented by `@stewart/recovery`). */
   recoveryService: Recovery;
   onGraphChange?(graph: TaskGraph): Promise<void> | void;
-  ask(question: string, options?: string[]): Promise<string>;
-  /** ask with a timeout; resolves undefined when the question is withdrawn. */
-  askTimed?(question: string, options: string[] | undefined, timeoutMs: number): Promise<string | undefined>;
+  prompt<A>(p: Prompt<A>, tag?: { roleId?: string; taskId?: string }): Promise<PromptOutcome<A>>;
   approve(call: ToolCall, preview: ToolPreview | null, meta: { roleId: string; taskId: string }): Promise<ApprovalDecision>;
 }
 

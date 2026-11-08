@@ -129,7 +129,7 @@ async function runtime(
     maxReplans: cfg.settings.maxReplans,
     maxRunHours: cfg.settings.maxRunHours,
     planGate: cfg.settings.planGate,
-    ask: async () => "Stop",
+    prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop") }),
     approve: async () => ({ kind: "approved" }),
     ...over,
   };

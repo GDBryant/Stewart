@@ -35,7 +35,7 @@ L1   platform     config · catalog · toolcall-format · diagnostics
 L0   kernel       Result, errors, ids, Clock, IdGen, EventBus, schema helpers, HostPort types
 ```
 
-`interaction` is the single owner of user-facing prompt cards (approvals, `ask_user`, `withdraw`). As built, `runs` holds the one `Interaction` and hands prompts down through the runtime (`rt.ask`, `rt.askTimed`, `rt.approve`); `orchestration`, `recovery` and `ledger` consume those functions and never build their own cards. The continue question, plan gate and cost card are rendered by their owners as text/options over `rt.ask*` rather than as typed `Prompt<A>` values (see §11).
+`interaction` is the single owner of user-facing prompts: a FIFO queue showing one card at a time (approvals, `ask_user`, continue question, plan gate, cost card, fallback switch, resume confirm). `runs` holds one `Interaction` per project and hands it down as `rt.prompt` (questions) and `rt.approve` (grant gate → approval card), both bound to the run's abort signal. Owners build typed `Prompt<A>` values (`recovery/continue.ts`, `orchestration/prompts.ts`) and handle `withdrawn` explicitly. `permissions` and `ledger` don't prompt.
 
 ### Outside core
 
@@ -58,7 +58,7 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 1 | `toolcall-format` | shim parser, JSON repair, alias map, stream filter, shim prompt | `parseToolCalls`, `ToolCallStreamFilter`, `shimPrompt` (pure) | kernel |
 | 1 | `diagnostics` | debug log sink, redaction, retention | `DebugLogger`, `DebugSink` | protocol |
 | 2 | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile` | `resolveModelProfile`, `profileFromChannel` (pure), `ProbeLoop` contract | kernel, catalog |
-| 2 | `interaction` | approval + `ask_user` cards, timeout/abort `withdraw` | `Interaction` | kernel, protocol |
+| 2 | `interaction` | FIFO prompt queue: approvals, `ask_user`, continue, plan gate, cost card, fallback, resume; timeout/abort `withdraw` | `Interaction`, `Prompt<A>`, `approvalPrompt`, `questionPrompt` | kernel, protocol |
 | 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry` | kernel, catalog, diagnostics, models |
 | 3 | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | pure functions | catalog, models |
 | 3 | `ledger` | append-only cost ledger, cost limit | `RunLedger`, `CostLimit`, `costOfCall` | kernel |
@@ -69,9 +69,9 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 4 | `compaction` | prune / summarize / clip as pure message transforms | pure functions | kernel |
 | 4 | `context` | `@mentions`, image limits, `AGENTS.md`/`MEMORY.md` bounds | `expandMentions`, `normalizeImages`, `loadProjectContext` | kernel |
 | 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), role guards, lease wrapper | `ToolRegistry`, `projectTools`, `roleRegistry`, `leasedTools` | kernel, config, context, permissions, roles-skills, run-state, scheduling |
-| 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `createProbeLoop`, `classifyFault`, `Recovery`, runtime types | kernel, protocol, budget, channels, compaction, config, ledger, models, permissions, roles-skills, run-state, scheduling, toolcall-format, tools |
-| 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
-| 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, kernel, permissions, roles-skills, scheduling, tools |
+| 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `createProbeLoop`, `classifyFault`, `Recovery`, runtime types | budget, channels, compaction, config, interaction, kernel, ledger, models, permissions, protocol, roles-skills, run-state, scheduling, toolcall-format, tools |
+| 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, interaction, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
+| 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, interaction, kernel, permissions, roles-skills, scheduling, tools |
 | 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel` (takes an injected `ProbeLoop`), `scanWorkspace` | catalog, channels, config, kernel, models, roles-skills |
 | 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume, approval gate + grants; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |
 | 9 | `app` (`packages/core`) | wiring, RPC method → handler table, 30 ms event batching toward the host, `v1import` | `Core.dispatch` | all |
@@ -141,13 +141,19 @@ interface Permissions {
   ask(req: ToolRequest, ctx: TaskTag): Promise<Result<Grant>>;   // delegates to Interaction (FIFO)
   grants(): Grant[];  revoke(id: string): void;  reset(): void;
 }
-// interaction (L2a): the one prompt queue
+// interaction (L2): the one prompt queue — built
+type Prompt<A> =
+  | { kind: 'approval'; tool: string; args: unknown; category: string; decode(g: PromptGrant): A }
+  | { kind: 'question'; topic: PromptTopic; question: string; options?: string[]; timeoutMs?: number; decode(answer: string): A };
+type PromptOutcome<A> = { kind: 'answered'; value: A } | { kind: 'withdrawn'; reason: 'timeout' | 'cancel' };   // outcome union, never rejects
 interface Interaction {
-  ask<A>(prompt: Prompt<A>, tag: TaskTag): Promise<Result<A>>;   // approval, ask_user, continue, plan gate, cost card
-  withdraw(promptId: string, reason: 'timeout' | 'cancel'): void; // emits question.withdrawn
-  pending(): PromptView[];
+  ask<A>(prompt: Prompt<A>, tag: PromptTag, signal?: AbortSignal): Promise<PromptOutcome<A>>;
+  withdraw(promptId: string, reason: 'timeout' | 'cancel'): boolean;   // shown question → question.withdrawn
+  resolveApproval(id: string, g: PromptGrant): boolean;  resolveAnswer(id: string, a: string): boolean;   // shown prompt only
+  pending(): PromptView[];   // shown first, then queued
 }
 ```
+FIFO: one prompt is shown at a time, and the next is shown when it settles. A timer starts when its prompt is shown, not when it is queued. An abort removes a queued prompt silently, or withdraws the shown one. Card ids and the `approval.request` / `ask_user` / `question.withdrawn` events are unchanged on the wire.
 The shell splitter is an internal pure function; only `decide` is exported.
 
 ### tools
@@ -452,8 +458,7 @@ Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, no
 |---|---|---|
 | `Result<T, StewartError>` for all fallible calls (§1, §4) | Modules throw or return `T \| undefined`; errors surface as `RunEvent` variants or thrown `Error`s caught at the strategy/handler edge | Sweeping change across every surface; do it per module when a module is next reworked |
 | `ChannelService` facade (§4) | Consumers receive `ManagedChannel` via `channelFor(id)` on the runtime; `ChannelRegistry` + `ManagedChannel` are the surface | A facade would wrap one method; add when a second consumer needs `health()` |
-| `Permissions.decide/ask` facade (§4); `permissions` and `ledger` depend on `interaction` (§3) | Grant policy (`Grants`, `categoryOf`) stays in `permissions`; the gate that combines grants with an approval card lives in `runs` (`RunService.gate`) and is injected as `rt.approve`. `permissions`, `ledger`, `orchestration`, `recovery` have no `interaction` dependency | The gate is the only place policy meets prompting; moving it down would make `permissions` depend on `interaction` for one call |
-| `Interaction` as FIFO queue with `Prompt<A>`, `pending()` (§4) | `Interaction` exposes `approval`, `ask`, `askTimed` + `resolveApproval`/`resolveAnswer`; prompts are concurrent, not queued; continue question / plan gate / cost card are rendered by their owners as question + options over `rt.ask*` | Build the queue and typed prompts when a second UI (JetBrains native cards) or prompt ordering becomes a requirement |
+| `Permissions.decide/ask` facade (§4); `permissions` and `ledger` depend on `interaction` | Grant policy (`Grants`, `categoryOf`) stays in `permissions`; the gate that combines grants with an approval card lives in `runs` (`RunService.gate`) and is injected as `rt.approve`. `permissions`, `ledger`, `orchestration`, `recovery` have no `interaction` dependency | The gate is the only place policy meets prompting; moving it down would make `permissions` depend on `interaction` for one call |
 | `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
 | `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
 | `RunHandle.events: AsyncIterable` (§4) | Runs emit through the shared `EventBus`; handlers return `{ runId }` | Protocol is event-push; an iterable per run would duplicate the bus |

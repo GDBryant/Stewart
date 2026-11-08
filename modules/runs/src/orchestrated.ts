@@ -61,7 +61,6 @@ async function drive(
       run.tasks = g.toJSON();
       await svc.journal(run, stateDir);
     },
-    ask: svc.askUser(run.id, "orchestrator"),
   });
   const cost = rt.cost;
   let outcome: Awaited<ReturnType<typeof runOrchestrated>>;

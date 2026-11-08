@@ -1,3 +1,4 @@
+import { questionPrompt } from "@stewart/interaction";
 import type { Config } from "@stewart/roles-skills";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord } from "@stewart/scheduling";
@@ -12,7 +13,8 @@ import type { Run, RunHost } from "./types.js";
 export interface ResumeRequest {
   config: Config;
   channelFor(channelId: string): ManagedChannel;
-  ask?(question: string, options?: string[]): Promise<string>;
+  /** When true, interrupted tasks trigger a Resume/Cancel prompt before replay. */
+  confirmResume?: boolean;
 }
 
 export interface ResumeResult {
@@ -51,9 +53,11 @@ export const resumeStrategy = {
       t.error = "interrupted";
       svc.deps.bus.emit({ kind: "task.failed", runId, taskId: t.id, roleId: t.roleId, error: "failed: interrupted" });
     }
-    if (req.ask && interrupted.length > 0) {
-      const ans = await req.ask(`Resume ${interrupted.length} interrupted task(s)?`, ["Resume", "Cancel"]);
-      if (!ans.startsWith("Resume")) {
+    if (req.confirmResume && interrupted.length > 0) {
+      const o = await svc.prompt(runId, new AbortController().signal, "orchestrator")(
+        questionPrompt("resume", `Resume ${interrupted.length} interrupted task(s)?`, ["Resume", "Cancel"]),
+      );
+      if (o.kind !== "answered" || !o.value.startsWith("Resume")) {
         return { ok: false, reason: "resume declined by user" };
       }
     }
@@ -83,8 +87,7 @@ export const resumeStrategy = {
           ledger,
           stateDir,
           idem,
-          ask: req.ask ?? svc.askUser(run.id, "orchestrator"),
-        });
+              });
         timeCap = rt.timeCap;
         const cost = rt.cost;
         for (const t of interrupted) {

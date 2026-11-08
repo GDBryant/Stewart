@@ -6,7 +6,7 @@ import type { ChatMessage } from "@stewart/kernel";
 import type { TaskRecord, TaskSpec } from "@stewart/scheduling";
 import { IdempotencyLog } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
-import { continueQuestion, mapContinueAnswer } from "@stewart/recovery";
+import { continueQuestion } from "@stewart/recovery";
 import type { RecoveryState } from "@stewart/agent-loop";
 import { loadProjectContext } from "@stewart/context";
 import { buildRunRuntime } from "./runtime.js";
@@ -63,7 +63,6 @@ async function drive(svc: RunHost, run: Run, req: DirectRequest): Promise<void> 
   const desc = (run.messages.find((m) => m.role === "user")?.content ?? "").replace(/\s+/g, " ").slice(0, 120);
   const spec: TaskSpec = { id: DIRECT_TASK_ID, roleId: chatRole.id, title: desc, task: desc, files: [], dependsOn: [] };
   const recovery = req.budget.recovery;
-  const askTimed = svc.askTimed(runId, run.controller.signal);
   const rec: TaskRecord = { ...spec, status: "running", filesTouched: [] };
   run.tasks = [rec];
   await svc.journal(run, stateDir);
@@ -89,15 +88,16 @@ async function drive(svc: RunHost, run: Run, req: DirectRequest): Promise<void> 
     while (res.status === "stopped" && res.fault === "turn_limit" && res.transcript && recovery?.askOnTurnLimit && continuations < recovery.maxContinuations && questions < recovery.maxContinueQuestionsPerRun) {
       questions++;
       const transcript = res.transcript;
-      const { question, options } = continueQuestion({
+      const contPrompt = continueQuestion({
         spec: { ...spec, roleId: req.role?.id ?? "chat" },
         turns: res.turnBudget ?? 0,
         transcript,
         maxActions: recovery.maxActionsInRecoveryBrief,
         canSplit: false,
+        timeoutMs: recovery.continueQuestionTimeoutMs,
       });
-      const raw = await askTimed(question, options, recovery.continueQuestionTimeoutMs);
-      const answer = raw === undefined ? ({ kind: "timeout" } as const) : mapContinueAnswer(raw);
+      const o = await rt.prompt(contPrompt, { roleId: req.role?.id ?? "chat", taskId: spec.id });
+      const answer = o.kind === "answered" ? o.value : ({ kind: "timeout" } as const);
       svc.deps.host.log(`[run ${runId}] continue question: ${answer.kind === "text" ? "guidance" : answer.kind}`);
       if (answer.kind === "stop" || answer.kind === "timeout") break;
       continuations++;

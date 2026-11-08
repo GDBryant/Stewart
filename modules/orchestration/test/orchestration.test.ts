@@ -23,6 +23,7 @@ import { freeCandidates, parseReplacements, rankDeterministic, validateReplaceme
 import { LeaseCycleError, LeaseTimeoutError } from "@stewart/run-state";
 import { leasedTools } from "@stewart/tools";
 import { runRoleTask } from "../src/api.js";
+import { costLimitPrompt, fallbackPrompt, planGatePrompt } from "../src/prompts.js";
 import { runOrchestrated } from "../src/api.js";
 import { orchestrationTools, type OrchestrationHandlers } from "../src/api.js";
 import type { OrchestrationRuntime } from "@stewart/agent-loop";
@@ -137,7 +138,7 @@ async function runtime(
     maxReplans: cfg.settings.maxReplans,
     maxRunHours: cfg.settings.maxRunHours,
     planGate: cfg.settings.planGate,
-    ask: async () => "Stop",
+    prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop") }),
     approve: async () => ({ kind: "approved" }),
     ...over,
   };
@@ -575,7 +576,7 @@ describe("runRoleTask", () => {
     const healthy = fakeChannel(() => [text("from-fallback"), done()]).channel;
     const { rt: rtDeclined } = await runtime(cfg, healthy, {
       channelFor: (id) => (id === "c1" ? unhealthy : healthy),
-      ask: async () => "Park",
+      prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Park") }),
     });
     cfg.agents.find((a) => a.id === "a-paid")!.channel = "c2";
     cfg.channels.push({ id: "c2", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { tools: "native" } } });
@@ -589,7 +590,7 @@ describe("runRoleTask", () => {
 
     const { rt: rtSwitched } = await runtime(cfg, healthy, {
       channelFor: (id) => (id === "c1" ? unhealthy : healthy),
-      ask: async () => "Switch",
+      prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Switch") }),
     });
     const switched = await runRoleTask(
       rtSwitched,
@@ -856,16 +857,16 @@ describe("runOrchestrated", () => {
         return [text("done"), done()];
       }).channel;
     const first = await runtime(cfg, mk(), {
-      ask: async (q) => {
-        asked.push(q);
-        return "Revise";
+      prompt: async (p: { kind: string; decode(a: string): unknown; question?: string }) => {
+        asked.push(p.question ?? "");
+        return { kind: "answered" as const, value: p.decode("Revise") };
       },
     });
     await runOrchestrated(first.rt, "go");
     expect(asked[0]).toContain("Plan approved by the validator");
     expect(first.events.some((e) => e.kind === "plan.approved")).toBe(false);
 
-    const second = await runtime(cfg, mk(), { ask: async () => "Proceed" });
+    const second = await runtime(cfg, mk(), { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Proceed") }) });
     await runOrchestrated(second.rt, "go");
     expect(second.events.some((e) => e.kind === "plan.approved")).toBe(true);
   });
@@ -886,9 +887,9 @@ describe("runOrchestrated", () => {
     });
     const asked: string[] = [];
     const { rt, events } = await runtime(cfg, channel, {
-      ask: async (q, opts) => {
-        asked.push(`${q} | ${(opts ?? []).join(",")}`);
-        return "Continue (+cost cap)";
+      prompt: async (p: { kind: string; decode(a: string): unknown; question?: string; options?: string[] }) => {
+        asked.push(`${p.question} | ${(p.options ?? []).join(",")}`);
+        return { kind: "answered" as const, value: p.decode("Continue (+cost cap)") };
       },
     });
     const out = await runOrchestrated(rt, "go");
@@ -909,7 +910,7 @@ describe("runOrchestrated", () => {
       if (role === "code-writer") return [text("wrote"), done({ in: 1000, out: 1000 }, 0.05)];
       return [text("looked"), done()];
     });
-    const { rt, events } = await runtime(cfg, channel, { ask: async () => "Stop" });
+    const { rt, events } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop") }) });
     await runOrchestrated(rt, "go");
     expect(events.some((e) => e.kind === "cost.limit_raised")).toBe(false);
     expect(events.some((e) => e.kind === "cost.summary")).toBe(true);
@@ -933,7 +934,7 @@ describe("runOrchestrated", () => {
       if (role === "orchestrator") return n === 1 ? [calls(plan("code-writer", "write")), done()] : [text("done"), done()];
       return [text("wrote"), done({ in: 1000, out: 1000 }, 0.05)];
     });
-    const { rt, events } = await runtime(cfg, channel, { ask: async () => "Stop" });
+    const { rt, events } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop") }) });
     await runOrchestrated(rt, "go");
     const summary = events.find((e) => e.kind === "cost.summary") as Extract<RunEvent, { kind: "cost.summary" }>;
     expect(summary.suggestions.every((s) => s.agent !== "ghost")).toBe(true);
@@ -995,9 +996,9 @@ describe("runOrchestrated", () => {
       return [text("ok"), done()];
     });
     const { rt, events } = await runtime(cfg, channel, {
-      ask: async () => {
+      prompt: async (p: { decode(a: string): unknown }) => {
         uiAsked++;
-        return "user-secret";
+        return { kind: "answered" as const, value: p.decode("user-secret") };
       },
     });
     const out = await runOrchestrated(rt, "update a.ts");
@@ -1027,7 +1028,7 @@ describe("runOrchestrated", () => {
       return [text("done"), done()];
     });
     const { rt, events } = await runtime(cfg, channel, {
-      ask: async () => "Use suggested replacements",
+      prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Use suggested replacements") }),
     });
     const out = await runOrchestrated(rt, "go");
     expect(out.status).toBe("done");
@@ -1156,5 +1157,41 @@ describe("orchestrator edge branches", () => {
     const { rt, events } = await runtime(cfg, channel);
     await runOrchestrated(rt, "go").catch(() => {});
     expect(events.length).toBeGreaterThan(0);
+  });
+});
+
+describe("prompt builders", () => {
+  it("planGatePrompt decodes Proceed/Revise", () => {
+    const p = planGatePrompt(4);
+    expect(p.kind).toBe("question");
+    if (p.kind === "question") {
+      expect(p.topic).toBe("plan_gate");
+      expect(p.question).toBe("Plan approved by the validator (4 milestones). Proceed?");
+      expect(p.decode("Proceed")).toEqual({ kind: "proceed" });
+      expect(p.decode("Revise: too big")).toEqual({ kind: "revise", reason: "Revise: too big" });
+    }
+  });
+
+  it("costLimitPrompt maps answers and keeps the exact question text", () => {
+    const p = costLimitPrompt(0.0123, 0.01, 2, true);
+    if (p.kind === "question") {
+      expect(p.question).toBe("Cost limit reached: $0.01 of $0.01. 2 task(s) parked.");
+      expect(p.options).toEqual(["Continue (+cost cap)", "Use suggested replacements", "Stop"]);
+      expect(p.decode("Continue (+cost cap)")).toBe("continue");
+      expect(p.decode("Use suggested replacements")).toBe("replace");
+      expect(p.decode("Stop")).toBe("stop");
+      expect(p.decode("anything else")).toBe("stop");
+    }
+    const noSugg = costLimitPrompt(1, 1, 0, false);
+    if (noSugg.kind === "question") expect(noSugg.options).toEqual(["Continue (+cost cap)", "Stop"]);
+  });
+
+  it("fallbackPrompt maps Switch/Park and keeps the exact text", () => {
+    const p = fallbackPrompt({ id: "a1", channel: "c9", model: "m", effort: "medium" }, { id: "w" } as never, { id: "a2", channel: "c1", model: "m", effort: "medium" });
+    if (p.kind === "question") {
+      expect(p.question).toBe("Channel 'c9' is unhealthy. Switch role 'w' from free agent 'a1' to paid fallback 'a2'?");
+      expect(p.decode("Switch")).toBe("switch");
+      expect(p.decode("Park")).toBe("park");
+    }
   });
 });

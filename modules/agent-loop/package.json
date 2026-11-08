@@ -22,19 +22,20 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
-    "@stewart/kernel": "workspace:*",
-    "@stewart/channels": "workspace:*",
-    "@stewart/tools": "workspace:*",
-    "@stewart/toolcall-format": "workspace:*",
-    "@stewart/compaction": "workspace:*",
     "@stewart/budget": "workspace:*",
-    "@stewart/ledger": "workspace:*",
-    "@stewart/permissions": "workspace:*",
-    "@stewart/models": "workspace:*",
+    "@stewart/channels": "workspace:*",
+    "@stewart/compaction": "workspace:*",
     "@stewart/config": "workspace:*",
-    "@stewart/roles-skills": "workspace:*",
+    "@stewart/interaction": "workspace:*",
+    "@stewart/kernel": "workspace:*",
+    "@stewart/ledger": "workspace:*",
+    "@stewart/models": "workspace:*",
+    "@stewart/permissions": "workspace:*",
     "@stewart/protocol": "workspace:*",
+    "@stewart/roles-skills": "workspace:*",
+    "@stewart/run-state": "workspace:*",
     "@stewart/scheduling": "workspace:*",
-    "@stewart/run-state": "workspace:*"
+    "@stewart/toolcall-format": "workspace:*",
+    "@stewart/tools": "workspace:*"
   }
 }

@@ -6,7 +6,7 @@ import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/ch
 import { RunLedger } from "@stewart/ledger";
 import { LeaseManager, type TaskSpec } from "@stewart/scheduling";
 import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
-import { createRecovery, type RecoveryPlan } from "../src/api.js";
+import { continueQuestion, createRecovery, type RecoveryPlan } from "../src/api.js";
 import { submitRecoveryTool } from "../src/plan.js";
 import { assembleFinalFile, splitTask } from "../src/split.js";
 import { recoveryBrain, recoveryCall } from "../src/brain.js";
@@ -43,7 +43,7 @@ function mkRt(over: Partial<OrchestrationRuntime> = {}) {
     signal: new AbortController().signal, startedAt: 0, leaseWaitMs: 10, skillBudgetTokens: 100,
     maxNestedDispatches: 1, maxReplans: 1, maxRunHours: 0, planGate: false,
     approve: async () => ({ kind: "approved" }),
-    ask: async () => "continue",
+    prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("continue") }),
     recoveryService: undefined as never,
     ...over,
   };
@@ -133,7 +133,7 @@ describe("recoverable layers", () => {
   });
 
   it("stops when the user declines continuation", async () => {
-    const { rt } = mkRt({ ask: async () => "Stop" });
+    const { rt } = mkRt({ prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop") }) });
     const { done } = run([fault("turn_limit", { transcript: [] })], rt);
     const res = await done;
     expect(res.status).toBe("failed");
@@ -247,13 +247,13 @@ describe("recoverable turn-limit branches", () => {
   });
 
   it("treats an askTimed timeout like a decline", async () => {
-    const { rt } = mkRt({ askTimed: async () => undefined });
+    const { rt } = mkRt({ prompt: async () => ({ kind: "withdrawn" as const, reason: "timeout" as const }) });
     const res = await run(rt, [fault("turn_limit", { transcript: [] })], { depth: 0 });
     expect(res.fault).toBe("turn_limit");
   });
 
   it("appends guidance text to the continuation history", async () => {
-    const { rt } = mkRt({ ask: async () => "focus on part one" });
+    const { rt } = mkRt({ prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("focus on part one") }) });
     const seen: (ChatMessage[] | undefined)[] = [];
     let i = 0;
     const rec = createRecovery(async (_r, _s, deps) => {
@@ -266,7 +266,7 @@ describe("recoverable turn-limit branches", () => {
   });
 
   it("split answer falls through to layer 1 and returns its result", async () => {
-    const { rt } = mkRt({ ask: async () => "Split it" });
+    const { rt } = mkRt({ prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Split it") }) });
     const brain = { channel: new ManagedChannel({ type: "fake", listModels: async () => [], probeCaps: async () => ({}), chat: async function* () {
       yield { kind: "text", text: '<tool_call>{"name":"submit_recovery","arguments":{"subtasks":[{"description":"a","output_file":"o1"},{"description":"b","output_file":"o2"}]}}</tool_call>' } as ChatEvent;
       yield { kind: "done" } as ChatEvent;
@@ -297,5 +297,20 @@ describe("parseRecoveryArgs extra branches", () => {
     expect(() => parseArgs(p4, lim)).toThrow("description");
     const p5 = { subtasks: [{ description: "a", output_file: "o1" }, { description: "b", output_file: "o2", max_turns: 2.5 }] };
     expect(() => parseArgs(p5, lim)).toThrow("max_turns");
+  });
+});
+
+describe("continueQuestion as Prompt", () => {
+  it("returns a continue-topic prompt with the timeout that decodes to a ContinueChoice", () => {
+    const p = continueQuestion({ spec, turns: 5, transcript: [], maxActions: 3, canSplit: true, timeoutMs: 1234 });
+    expect(p.kind).toBe("question");
+    if (p.kind === "question") {
+      expect(p.topic).toBe("continue");
+      expect(p.timeoutMs).toBe(1234);
+      expect(p.options[0]).toContain("Continue (+5 turns)");
+      expect(p.decode("Split into smaller tasks")).toEqual({ kind: "split" });
+      expect(p.decode("Continue (+5 turns)")).toEqual({ kind: "continue" });
+      expect(p.decode("look in utils.ts")).toEqual({ kind: "text", text: "look in utils.ts" });
+    }
   });
 });

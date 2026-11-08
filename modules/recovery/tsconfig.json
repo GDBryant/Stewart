@@ -19,6 +19,9 @@
       "path": "../config"
     },
     {
+      "path": "../interaction"
+    },
+    {
       "path": "../kernel"
     },
     {

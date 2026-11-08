@@ -59,20 +59,15 @@ describe("RunService unit paths", () => {
 
   it("interaction approval/answer resolve through the service", async () => {
     const { s } = svc();
-    let approved = "";
-    const p = s.interaction.approval("r1", "WriteFile", {}, "EDITS").then((d) => (approved = d as string));
-    const int = s.interaction as unknown as { approvals: Map<string, unknown> };
-    const id = [...int.approvals.keys()][0] as string;
+    const { approvalPrompt, questionPrompt } = await import("@stewart/interaction");
+    const p = s.interaction.ask(approvalPrompt("WriteFile", {}, "EDITS"), { runId: "r1" });
+    const id = s.interaction.pending()[0].id;
     expect(s.approve(id, "once")).toBe(true);
-    await p;
-    expect(approved).toBe("once");
-    let got = "";
-    const q = s.interaction.ask("r1", "q?", ["yes"]).then((a) => (got = a));
-    const ints = s.interaction as unknown as { answers: Map<string, unknown> };
-    const qid = [...ints.answers.keys()][0] as string;
+    expect(await p).toEqual({ kind: "answered", value: "once" });
+    const q = s.interaction.ask(questionPrompt("ask_user", "q?", ["yes"]), { runId: "r1" });
+    const qid = s.interaction.pending()[0].id;
     expect(s.answer(qid, "yes")).toBe(true);
-    await q;
-    expect(got).toBe("yes");
+    expect(await q).toEqual({ kind: "answered", value: "yes" });
   });
 
   it("journal writes best-effort and tolerates failures", async () => {
@@ -120,5 +115,64 @@ describe("RunService unit paths", () => {
     expect(res.ok).toBe(true);
     expect(files["a.ts"]).toBe("old");
     expect((events as { kind: string }[]).some((e) => e.kind === "run.reverted")).toBe(true);
+  });
+});
+
+function svcQ() {
+  const events: unknown[] = [];
+  const { host } = fakeHost();
+  return { s: new RunService({ host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) }), events };
+}
+
+describe("prompt queue through the service", () => {
+  it("two concurrent approvals emit one at a time in FIFO order", async () => {
+    const { s, events } = svcQ();
+    const { approvalPrompt } = await import("@stewart/interaction");
+    const p1 = s.interaction.ask(approvalPrompt("WriteFile", {}, "EDITS"), { runId: "r1", roleId: "w", taskId: "t1" });
+    const p2 = s.interaction.ask(approvalPrompt("RunTerminal", {}, "CMDS"), { runId: "r1", roleId: "w", taskId: "t2" });
+    const reqs = (events as { kind: string; approvalId?: string; tool?: string }[]).filter((e) => e.kind === "approval.request");
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0].tool).toBe("WriteFile");
+    expect(s.approve(reqs[0].approvalId!, "once")).toBe(true);
+    await p1;
+    expect(s.interaction.pending()).toHaveLength(1);
+    expect(s.approve(s.interaction.pending()[0].id, "chat")).toBe(true);
+    await p2;
+  });
+
+  it("a run cancel withdraws the pending question card", async () => {
+    const { s, events } = svcQ();
+    const { questionPrompt } = await import("@stewart/interaction");
+    const ac = new AbortController();
+    const p = s.interaction.ask(questionPrompt("ask_user", "q?", ["a"]), { runId: "r1", roleId: "w" }, ac.signal);
+    ac.abort();
+    expect(await p).toEqual({ kind: "withdrawn", reason: "cancel" });
+    expect((events as { kind: string }[]).some((e) => e.kind === "question.withdrawn")).toBe(true);
+    expect(s.interaction.pending()).toHaveLength(0);
+  });
+});
+
+describe("gate and prompt meta paths", () => {
+  it("gate passes meta roleId/taskId through and withdrawn becomes denied", async () => {
+    const { s } = svcQ();
+    const { Grants } = await import("@stewart/permissions");
+    const ac = new AbortController();
+    const gate = s.gate("r1", new Grants(), ac.signal);
+    const p = gate({ id: "c1", name: "WriteFile", arguments: {} }, null, { roleId: "w", taskId: "t9" });
+    const view = s.interaction.pending()[0];
+    expect(view).toMatchObject({ roleId: "w", taskId: "t9", kind: "approval" });
+    ac.abort();
+    expect((await p).kind).toBe("rejected");
+  });
+
+  it("prompt falls back to the default roleId and honours explicit tags", async () => {
+    const { s } = svcQ();
+    const { questionPrompt } = await import("@stewart/interaction");
+    const ask = s.prompt("r1", new AbortController().signal, "orchestrator");
+    void ask(questionPrompt("ask_user", "a?"));
+    expect(s.interaction.pending()[0].roleId).toBe("orchestrator");
+    const p = ask(questionPrompt("ask_user", "b?"), { roleId: "w", taskId: "t1" });
+    void p;
+    expect(s.interaction.pending()[1]).toMatchObject({ roleId: "w", taskId: "t1" });
   });
 });

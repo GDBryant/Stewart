@@ -60,6 +60,9 @@ importers:
       '@stewart/config':
         specifier: workspace:*
         version: link:../config
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -350,6 +353,9 @@ importers:
       '@stewart/context':
         specifier: workspace:*
         version: link:../context
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -411,6 +417,9 @@ importers:
       '@stewart/config':
         specifier: workspace:*
         version: link:../config
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../kernel

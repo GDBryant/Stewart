@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@stewart/kernel";
+import type { Prompt } from "@stewart/interaction";
 import { actionsSoFar, detectStuck } from "@stewart/agent-loop";
 import type { TaskSpec } from "@stewart/scheduling";
 
@@ -18,7 +19,8 @@ export function continueQuestion(opts: {
   transcript: ChatMessage[];
   maxActions: number;
   canSplit: boolean;
-}): { question: string; options: string[] } {
+  timeoutMs?: number;
+}): Prompt<ContinueChoice> {
   const stuck = detectStuck(opts.transcript);
   const acts = actionsSoFar(opts.transcript, opts.maxActions);
   const desc = opts.spec.task.replace(/\s+/g, " ").slice(0, 120);
@@ -34,5 +36,5 @@ export function continueQuestion(opts: {
       : [continueOpt, "Split into smaller tasks", "Stop this task"]
     : [continueOpt, "Stop this task"];
   const question = lines.join("\n").slice(0, 600);
-  return { question, options };
+  return { kind: "question", topic: "continue", question, options, timeoutMs: opts.timeoutMs, decode: mapContinueAnswer };
 }

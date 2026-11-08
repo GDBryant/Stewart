@@ -20,7 +20,6 @@ export function buildRunRuntime(
     stateDir: string;
     idem: IdempotencyLog;
     profile?: BudgetProfile;
-    ask?: (question: string, options?: string[]) => Promise<string>;
     onGraphChange?: RunRuntime["onGraphChange"];
   },
 ): RunRuntime {
@@ -69,9 +68,8 @@ export function buildRunRuntime(
     planGate: s.planGate,
     onGraphChange: opts.onGraphChange,
     recovery: recoveryState(s),
-    ask: opts.ask ?? svc.askUser(run.id, "orchestrator"),
-    askTimed: svc.askTimed(run.id, run.controller.signal, "orchestrator"),
-    approve: (call, preview) => svc.gate(run.id, grants)(call, preview),
+    prompt: svc.prompt(run.id, run.controller.signal, "orchestrator"),
+    approve: (call, preview, meta) => svc.gate(run.id, grants, run.controller.signal)(call, preview, meta),
     timeCap,
   };
 }

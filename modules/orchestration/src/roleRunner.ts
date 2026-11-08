@@ -1,3 +1,4 @@
+import { fallbackPrompt } from "./prompts.js";
 import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { DEFAULT_CAPS, isCosting } from "@stewart/models";
@@ -53,11 +54,8 @@ export async function runRoleTask(
       return { status: "parked", summary: `parked: channel ${fb.channel} unhealthy`, filesTouched: [] };
     }
     if (!isCosting(agent) && isCosting(fb)) {
-      const choice = await rt.ask(
-        `Channel '${agent.channel}' is unhealthy. Switch role '${role.id}' from free agent '${agent.id}' to paid fallback '${fb.id}'?`,
-        ["Switch", "Park"],
-      );
-      if (!choice.startsWith("Switch")) {
+      const o = await rt.prompt(fallbackPrompt(agent, role, fb), { roleId: role.id, taskId: spec.id });
+      if (o.kind !== "answered" || o.value !== "switch") {
         return { status: "parked", summary: `parked: fallback to paid agent '${fb.id}' declined`, filesTouched: [] };
       }
     }

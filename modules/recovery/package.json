@@ -24,12 +24,13 @@
     "@stewart/ledger": "workspace:*"
   },
   "dependencies": {
-    "@stewart/kernel": "workspace:*",
-    "@stewart/tools": "workspace:*",
-    "@stewart/permissions": "workspace:*",
-    "@stewart/config": "workspace:*",
-    "@stewart/roles-skills": "workspace:*",
     "@stewart/agent-loop": "workspace:*",
-    "@stewart/scheduling": "workspace:*"
+    "@stewart/config": "workspace:*",
+    "@stewart/interaction": "workspace:*",
+    "@stewart/kernel": "workspace:*",
+    "@stewart/permissions": "workspace:*",
+    "@stewart/roles-skills": "workspace:*",
+    "@stewart/scheduling": "workspace:*",
+    "@stewart/tools": "workspace:*"
   }
 }

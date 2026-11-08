@@ -114,7 +114,7 @@ async function runtime(
     maxReplans: cfg.settings.maxReplans,
     maxRunHours: cfg.settings.maxRunHours,
     planGate: cfg.settings.planGate,
-    ask: async () => "Stop this task",
+    prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop this task") }),
     approve: async () => ({ kind: "approved" }),
     ...rest,
   };
@@ -136,7 +136,7 @@ describe("runTaskRecoverable", () => {
         : [text("?"), done()],
     );
     const { rt } = await runtime(cfg, channel, {
-      askTimed: async () => "Continue (+1 turns)",
+      prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Continue (+1 turns)") }),
     });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const res = await recoveryService.runTask(rt, workerSpec, { role }, { depth: 0, brain: recoveryService.brain(rt) });
@@ -148,7 +148,7 @@ describe("runTaskRecoverable", () => {
   it("fails with 'stopped by user' when the user picks Stop", async () => {
     const cfg = config({ roles: { "general-worker": TURNS_1 } });
     const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
-    const { rt } = await runtime(cfg, channel, { askTimed: async () => "Stop this task" });
+    const { rt } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Stop this task") }) })
     const res = await recoveryService.runTask(rt, workerSpec, { role: cfg.roles.find((r) => r.id === "general-worker")! }, { depth: 0 });
     expect(res.status).toBe("failed");
     expect(res.summary).toContain("stopped by user");
@@ -164,7 +164,7 @@ describe("runTaskRecoverable", () => {
       }
       return role === "general-worker" ? [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()] : [text("?"), done()];
     });
-    const { rt } = await runtime(cfg, channel, { askTimed: async () => "try b.ts instead" });
+    const { rt } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("try b.ts instead") }) })
     const res = await recoveryService.runTask(rt, workerSpec, { role: cfg.roles.find((r) => r.id === "general-worker")! }, { depth: 0 });
     expect(res.status).toBe("done");
     expect(sawGuidance).toBe(true);
@@ -175,9 +175,9 @@ describe("runTaskRecoverable", () => {
     const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
     let asked = 0;
     const { rt } = await runtime(cfg, channel, {
-      askTimed: async () => {
+      prompt: async (p: { decode(a: string): unknown }) => {
         asked++;
-        return "Continue (+1 turns)";
+        return { kind: "answered" as const, value: p.decode("Continue (+1 turns)") };
       },
     });
     const res = await recoveryService.runTask(rt, workerSpec, { role: cfg.roles.find((r) => r.id === "general-worker")! }, { depth: 0 });
@@ -210,7 +210,7 @@ describe("runTaskRecoverable", () => {
         done(),
       ];
     });
-    const { rt, files } = await runtime(cfg, channel, { askTimed: async () => "Split into smaller tasks" });
+    const { rt, files } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Split into smaller tasks") }) })
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const res = await recoveryService.runTask(rt, workerSpec, { role }, { depth: 0, brain: recoveryService.brain(rt) });
     expect(res.status).toBe("done");
@@ -225,7 +225,7 @@ describe("runTaskRecoverable", () => {
     const { channel } = fakeChannel((role) =>
       role === "general-worker" ? [calls({ id: "w", name: "ReadFile", arguments: { path: "a.ts" } }), done()] : [text("no plan"), done()],
     );
-    const { rt } = await runtime(cfg, channel, { askTimed: async () => "Split into smaller tasks" });
+    const { rt } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Split into smaller tasks") }) })
     const res = await recoveryService.runTask(rt, workerSpec, { role: cfg.roles.find((r) => r.id === "general-worker")! }, { depth: 0, brain: recoveryService.brain(rt) });
     expect(res.status).toBe("failed");
     expect(res.summary).toContain("recovery: no valid submit_recovery");
@@ -237,7 +237,7 @@ describe("runTaskRecoverable", () => {
     const { channel } = fakeChannel((role, n) =>
       role === "general-worker" ? [calls({ id: `w${n}`, name: "ReadFile", arguments: { path: "a.ts" } }), done()] : [text("no plan"), done()],
     );
-    const { rt } = await runtime(cfg, channel, { askTimed: async () => "Split into smaller tasks" });
+    const { rt } = await runtime(cfg, channel, { prompt: async (p: { decode(a: string): unknown }) => ({ kind: "answered" as const, value: p.decode("Split into smaller tasks") }) })
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
     const deep = await recoveryService.runTask(rt, workerSpec, { role }, { depth: 2, brain: recoveryService.brain(rt) });
     expect(deep.status).toBe("stopped");
