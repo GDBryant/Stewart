@@ -37,7 +37,7 @@ function fakeChannel(
 
 const text = (t: string): ChatEvent => ({ kind: "text", text: t });
 const done = (out?: number): ChatEvent => ({ kind: "done", usage: out === undefined ? undefined : { in: 10, out } });
-const pingCall = '<tool_call>{"name":"bench_ping","arguments":{"ok":true}}</tool_call>';
+// removed: const pingCall = '<tool_call>{"name":"bench_ping","arguments":{"ok":true}}</tool_call>';
 const editCall = '<tool_call>{"name":"EditFile","arguments":{"path":"notes.txt","old_string":"line3","new_string":"three"}}</tool_call>';
 
 function memStore(): ConfigStore {
@@ -70,49 +70,65 @@ const fakeHost = (): HostPort => ({
 });
 
 describe("benchModel", () => {
+  type R = { kind: "ok"; toolOk: boolean } | { kind: "failed"; message: string };
+  const fakeProbe = (results: R[] | ((req: { tool: { name: string } }) => R)) => {
+    const reqs: { model: string; tool: { name: string }; reply: string; prompt: string; maxTurns: number; timeoutMs: number }[] = [];
+    const fn = async (_c: unknown, req: (typeof reqs)[number]) => {
+      reqs.push(req);
+      return typeof results === "function" ? results(req) : (results[Math.min(reqs.length - 1, results.length - 1)] ?? { kind: "ok", toolOk: true });
+    };
+    return { fn: fn as never, reqs };
+  };
+
   it("measures speed, tool reliability, edit and json on the shim path", async () => {
     let t = 0;
     const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };
     const { channel } = fakeChannel(
       [
         [text("a hash"), text(" map"), done(210)],
-        [text(pingCall), done()],
-        [text(pingCall), done()],
-        [text(pingCall), done()],
-        [text(editCall), done()],
         [text('{"ok": true, "n": 1}'), done()],
       ],
       { onEvent: (ev) => { if (ev.kind === "text") t += 50; if (ev.kind === "done") t += 1000; } },
     );
-    const perf = await benchModel(channel, "m", clock);
+    const probe = fakeProbe([{ kind: "ok", toolOk: true }]);
+    const perf = await benchModel(channel, "m", clock, probe.fn);
     expect(perf.benchVersion).toBe(BENCH_VERSION);
     expect(perf.ttftMs).toBe(50);
-    // 210 tokens over (first=50 → done=1100) = 200 tok/s
     expect(perf.tokPerSec).toBeCloseTo(200, 1);
     expect(perf.toolReliability).toBe(1);
     expect(perf.editOk).toBe(true);
     expect(perf.jsonOk).toBe(true);
+    expect(probe.reqs).toHaveLength(4);
+    expect(probe.reqs.slice(0, 3).every((r) => r.tool.name === "bench_ping" && r.maxTurns === 3 && r.timeoutMs === 30000)).toBe(true);
+    expect(probe.reqs[0].reply).toBe("pong");
+    expect(probe.reqs[0].prompt).toContain("bench_ping");
+    expect(probe.reqs[3].tool.name).toBe("EditFile");
+    expect(probe.reqs[3].reply).toBe("edited");
+    expect(probe.reqs[3].prompt).toContain("line3");
   });
 
-  it("counts failed tool trials against reliability", async () => {
-    const { channel } = fakeChannel([
-      [text("ok"), done(10)],
-      [text(pingCall), done()],
-      // trial 2: a plain-text reply completes without calling the tool
-      [text("sorry"), done()],
-      [text(pingCall), done()],
-      [text("cannot edit"), done()],
-      [text("not json at all"), done()],
-    ]);
-    const perf = await benchModel(channel, "m", systemClock);
-    expect(perf.toolReliability).toBeCloseTo(0.67, 2);
+  it("counts non-calling trials against reliability and reports malformed json", async () => {
+    const { channel } = fakeChannel([[text("ok"), done(10)], [text("not json at all"), done()]]);
+    const probe = fakeProbe((req) => ({ kind: "ok", toolOk: req.tool.name === "EditFile" ? false : false }));
+    const perf = await benchModel(channel, "m", systemClock, probe.fn);
+    expect(perf.toolReliability).toBe(0);
     expect(perf.editOk).toBe(false);
     expect(perf.jsonOk).toBe(false);
   });
 
+  it("leaves toolReliability and editOk undefined when a probe fails", async () => {
+    const { channel } = fakeChannel([[text("x"), done(10)], [text("{}"), done()]]);
+    const probe = fakeProbe((_req) => ({ kind: "failed" as const, message: "boom" }));
+    const perf = await benchModel(channel, "m", systemClock, probe.fn);
+    expect(perf.toolReliability).toBeUndefined();
+    expect(perf.editOk).toBeUndefined();
+    expect(perf.ttftMs).toBeDefined();
+  });
+
   it("leaves every field undefined when the model is unreachable", async () => {
     const { channel } = fakeChannel([], { fail: true });
-    const perf = await benchModel(channel, "m", systemClock);
+    const probe = fakeProbe((_req) => ({ kind: "failed" as const, message: "boom" }));
+    const perf = await benchModel(channel, "m", systemClock, probe.fn);
     expect(perf.ttftMs).toBeUndefined();
     expect(perf.tokPerSec).toBeUndefined();
     expect(perf.toolReliability).toBeUndefined();
@@ -121,9 +137,11 @@ describe("benchModel", () => {
     expect(perf.benchVersion).toBe(BENCH_VERSION);
   });
 
-  it("skips tool and edit probes when tools are disabled", async () => {
+  it("skips the probe entirely when tools are disabled", async () => {
     const { channel } = fakeChannel([[text("x"), done(5)], [text("{}"), done()]], { cfgCaps: { tools: "none" } });
-    const perf = await benchModel(channel, "m", systemClock);
+    const probe = fakeProbe([]);
+    const perf = await benchModel(channel, "m", systemClock, probe.fn);
+    expect(probe.reqs).toHaveLength(0);
     expect(perf.toolReliability).toBeUndefined();
     expect(perf.editOk).toBeUndefined();
     expect(perf.jsonOk).toBe(false);

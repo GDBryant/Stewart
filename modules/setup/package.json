@@ -26,8 +26,6 @@
     "@stewart/config": "workspace:*",
     "@stewart/models": "workspace:*",
     "@stewart/channels": "workspace:*",
-    "@stewart/tools": "workspace:*",
-    "@stewart/agent-loop": "workspace:*",
     "@stewart/catalog": "workspace:*",
     "@stewart/roles-skills": "workspace:*"
   }

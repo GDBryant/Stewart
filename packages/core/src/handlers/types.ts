@@ -4,7 +4,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import type { Config } from "@stewart/roles-skills";
 import type { ConfigStore, SelfWriteGuard } from "@stewart/config";
 import type { RunService } from "@stewart/runs";
-import type { ModelCaps } from "@stewart/models";
+import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { WorkspaceInfo } from "@stewart/setup";
 import type { DebugLevel, DebugSink } from "@stewart/diagnostics";
 
@@ -43,6 +43,7 @@ export interface CoreCtx {
   readonly probeCache: Map<string, { caps: Partial<ModelCaps>; probedAt: number }>;
   readonly priceCache: Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>;
   readonly wsScan: Map<string, { info: WorkspaceInfo; at: number }>;
+  readonly probeLoop: ProbeLoop<ManagedChannel>;
   readonly userGuard: SelfWriteGuard;
   readonly secretValues: Map<string, string>;
   readonly defaults: Record<string, string | undefined>;

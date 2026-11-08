@@ -57,7 +57,7 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 1 | `catalog` | bundled price/limits/context data, `lookupModelInfo`, `costTier`, `normalizeModel` | pure functions | — |
 | 1 | `toolcall-format` | shim parser, JSON repair, alias map, stream filter, shim prompt | `parseToolCalls`, `ToolCallStreamFilter`, `shimPrompt` (pure) | kernel |
 | 1 | `diagnostics` | debug log sink, redaction, retention | `DebugLogger`, `DebugSink` | protocol |
-| 2 | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile` | `resolveModelProfile`, `profileFromChannel` (pure) | catalog |
+| 2 | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile` | `resolveModelProfile`, `profileFromChannel` (pure), `ProbeLoop` contract | kernel, catalog |
 | 2 | `interaction` | approval + `ask_user` cards, timeout/abort `withdraw` | `Interaction` | kernel, protocol |
 | 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry` | kernel, catalog, diagnostics, models |
 | 3 | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | pure functions | catalog, models |
@@ -69,10 +69,10 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 4 | `compaction` | prune / summarize / clip as pure message transforms | pure functions | kernel |
 | 4 | `context` | `@mentions`, image limits, `AGENTS.md`/`MEMORY.md` bounds | `expandMentions`, `normalizeImages`, `loadProjectContext` | kernel |
 | 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), role guards, lease wrapper | `ToolRegistry`, `projectTools`, `roleRegistry`, `leasedTools` | kernel, config, context, permissions, roles-skills, run-state, scheduling |
-| 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `classifyFault`, `Recovery`, runtime types | kernel, protocol, budget, channels, compaction, config, ledger, models, permissions, roles-skills, run-state, scheduling, toolcall-format, tools |
+| 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `createProbeLoop`, `classifyFault`, `Recovery`, runtime types | kernel, protocol, budget, channels, compaction, config, ledger, models, permissions, roles-skills, run-state, scheduling, toolcall-format, tools |
 | 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
 | 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, kernel, permissions, roles-skills, scheduling, tools |
-| 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel`, `scanWorkspace` | agent-loop, catalog, channels, config, kernel, models, roles-skills, tools |
+| 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel` (takes an injected `ProbeLoop`), `scanWorkspace` | catalog, channels, config, kernel, models, roles-skills |
 | 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume, approval gate + grants; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |
 | 9 | `app` (`packages/core`) | wiring, RPC method → handler table, 30 ms event batching toward the host, `v1import` | `Core.dispatch` | all |
 
@@ -167,24 +167,24 @@ interface AgentSessionFactory { create(spec: { role: RoleRef; agent: AgentRef; t
 ```
 It is the only place that wires profile → limits → listener → ledger. The loop is a small state machine (`stream → parse → execute → settle`), one function per stage.
 
-### probe-loop (setup benchmark seam)
-The contract is declared in `models` (L2a), so `setup` and `agent-loop` both depend downward on it and never on each other.
+### probe-loop (setup benchmark seam) — built
+The contract is declared in `models` (L2), so `setup` and `agent-loop` both depend downward on it and never on each other. One probe = one tool-call trial; `setup` owns trial counts and scoring.
 ```ts
-// models/api.ts
-interface ProbeRequest  { agent: AgentRef; prompt: string; tools: ProbeToolSpec[]; trials: number; maxTurns: number; timeoutMs: number }
-interface ProbeObservation { ttftMs: number; tokensPerSec: number; toolRoundTrips: { attempted: number; ok: number }; jsonValid: boolean; editOk: boolean }
-type ProbeLoop = (req: ProbeRequest, signal: AbortSignal) => Promise<Result<ProbeObservation>>;
+// models/api.ts — C is the channel type, generic because channels sits above models
+interface ProbeRequest { model: string; tool: ToolSpec; reply: string; prompt: string; maxTurns: number; timeoutMs: number }
+type ProbeResult = { kind: 'ok'; toolOk: boolean } | { kind: 'failed'; message: string };   // outcome union; never throws
+type ProbeLoop<C = unknown> = (channel: C, req: ProbeRequest) => Promise<ProbeResult>;
 
 // agent-loop/api.ts
-function createProbeLoop(deps: { sessions: AgentSessionFactory }): ProbeLoop;
+function createProbeLoop(deps: { clock: Clock }): ProbeLoop<ManagedChannel>;
 
 // setup/api.ts
-function createSetupService(deps: { channels: ChannelService; models: ModelProfiles; roles: RoleCatalog; config: ConfigService; host: Pick<HostPort, 'stateDir' | 'get' | 'set'>; probeLoop: ProbeLoop; clock: Clock; ids: IdGen }): SetupService;   // see §10
+function benchModel(channel: ManagedChannel, model: string, clock: Clock, probe: ProbeLoop<ManagedChannel>): Promise<ModelPerf>;
 ```
-- `createProbeLoop` is a thin function over `AgentSession`. It uses a fixed in-memory sandbox tool set, no permissions and no ledger metering, and enforces the 30 s per-model cap through `timeoutMs` and the signal.
-- Because it runs through the real loop, shim reliability is still measured (`toolRoundTrips`).
-- `app` builds it once and injects it into `setup`. Setup tests pass a fake `ProbeLoop` that returns canned observations, with no channel, loop or timer needed.
-- Negative cases to test: timeout returns an error `Result`, zero round trips scores reliability 0, and malformed JSON sets `jsonValid: false` without throwing.
+- `createProbeLoop` is a thin function over `createAgentSession`: a synthetic `bench` agent, one terminal sandbox tool that returns `req.reply`, auto-approve, no ledger metering, `maxModelTurns: req.maxTurns`, `AbortSignal.timeout(req.timeoutMs)` (30 s cap per probe). A failed loop or thrown error (timeout) maps to `failed`.
+- Because it runs through the real loop, shim reliability is still measured.
+- `app` (`Core.probeLoop`) builds it once and injects it via the `channel.probe` bench handler. Setup tests pass a recording fake `ProbeLoop`, no agent loop needed; the speed and JSON probes still call `channel.chat` directly and use a scripted channel.
+- Tested negatives: a `failed` trial leaves `toolReliability`/`editOk` undefined, zero successful trials scores 0, `tools: none` skips the probe, malformed JSON sets `jsonOk: false`, a hanging channel times out to `failed` without throwing.
 
 ### scheduling / run-state (pure + stores)
 ```ts
@@ -454,7 +454,6 @@ Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, no
 | `ChannelService` facade (§4) | Consumers receive `ManagedChannel` via `channelFor(id)` on the runtime; `ChannelRegistry` + `ManagedChannel` are the surface | A facade would wrap one method; add when a second consumer needs `health()` |
 | `Permissions.decide/ask` facade (§4); `permissions` and `ledger` depend on `interaction` (§3) | Grant policy (`Grants`, `categoryOf`) stays in `permissions`; the gate that combines grants with an approval card lives in `runs` (`RunService.gate`) and is injected as `rt.approve`. `permissions`, `ledger`, `orchestration`, `recovery` have no `interaction` dependency | The gate is the only place policy meets prompting; moving it down would make `permissions` depend on `interaction` for one call |
 | `Interaction` as FIFO queue with `Prompt<A>`, `pending()` (§4) | `Interaction` exposes `approval`, `ask`, `askTimed` + `resolveApproval`/`resolveAnswer`; prompts are concurrent, not queued; continue question / plan gate / cost card are rendered by their owners as question + options over `rt.ask*` | Build the queue and typed prompts when a second UI (JetBrains native cards) or prompt ordering becomes a requirement |
-| `setup` takes an injected `ProbeLoop` declared in `models`; no `agent-loop` import (§3, §4) | `setup/bench.ts` imports `createAgentSession` directly; `setup` and `agent-loop` are both layer 7/6 so the dependency is legal | Introduce the seam when `setup` tests need to run without a channel, or when the five-phase session (§10) is built |
 | `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
 | `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
 | `RunHandle.events: AsyncIterable` (§4) | Runs emit through the shared `EventBus`; handlers return `{ runId }` | Protocol is event-push; an iterable per run would duplicate the bus |

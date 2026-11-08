@@ -1,71 +1,41 @@
 import type { ManagedChannel } from "@stewart/channels";
-import { DEFAULT_CAPS, type ModelPerf, type ToolsMode } from "@stewart/models";
-import type { AgentDef } from "@stewart/config";
-import { createAgentSession } from "@stewart/agent-loop";
-import type { Clock } from "@stewart/kernel";
-import { ToolLoop } from "@stewart/agent-loop";
-import { ToolRegistry, type Tool } from "@stewart/tools";
+import { DEFAULT_CAPS, type ModelPerf, type ProbeLoop, type ToolsMode } from "@stewart/models";
+import type { Clock, ToolSpec } from "@stewart/kernel";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */
 export const BENCH_VERSION = 1;
 const PROBE_CAP_MS = 30_000;
 const TOOL_TRIALS = 3;
 
-const approve = async () => ({ kind: "approved" as const });
-
-const pingTool: Tool = {
-  spec: {
-    name: "bench_ping",
-    description: "Test tool. Call it exactly once with ok=true, then stop.",
-    parameters: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false },
-  },
-  requiresApproval: false,
-  execute: async () => "pong",
+const pingTool: ToolSpec = {
+  name: "bench_ping",
+  description: "Test tool. Call it exactly once with ok=true, then stop.",
+  parameters: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false },
 };
 
-const editProbeTool: Tool = {
-  spec: {
-    name: "EditFile",
-    description: "Replace text in a file",
-    parameters: {
-      type: "object",
-      properties: {
-        path: { type: "string" },
-        old_string: { type: "string" },
-        new_string: { type: "string" },
-        replace_all: { type: "boolean" },
-      },
-      required: ["path", "old_string", "new_string"],
-      additionalProperties: false,
+const editProbeTool: ToolSpec = {
+  name: "EditFile",
+  description: "Replace text in a file",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string" },
+      old_string: { type: "string" },
+      new_string: { type: "string" },
+      replace_all: { type: "boolean" },
     },
+    required: ["path", "old_string", "new_string"],
+    additionalProperties: false,
   },
-  requiresApproval: false,
-  execute: async () => "edited",
 };
-
-/** Synthetic agent: the probe runs on the model's channel caps, not a configured agent. */
-function benchLoop(channel: ManagedChannel, model: string, tools: Tool[], terminal: string, clock: Clock): ToolLoop {
-  const agent: AgentDef = { id: "bench", channel: channel.cfg.id, model, effort: "medium" };
-  return createAgentSession(
-    {
-      agent,
-      channel,
-      registry: new ToolRegistry(tools),
-      approve,
-      terminal: new Set([terminal]),
-      limitsOverride: { maxModelTurns: 3 },
-    },
-    clock,
-  ).loop;
-}
 
 /**
  * Opt-in benchmark: latency + throughput from one streamed request, tool-call
- * reliability and edit ability through the real ToolLoop (so shim-mode models
+ * reliability and edit ability through the injected ProbeLoop (so shim-mode models
  * are measured on the same path they run on). Every field is best-effort — a
  * failed probe leaves it undefined, never zero.
  */
-export async function benchModel(channel: ManagedChannel, model: string, clock: Clock): Promise<ModelPerf> {
+export async function benchModel(channel: ManagedChannel, model: string, clock: Clock, probe: ProbeLoop<ManagedChannel>): Promise<ModelPerf> {
   const perf: ModelPerf = { benchedAt: clock.now(), benchVersion: BENCH_VERSION };
   const mode = (channel.cfg.modelCaps?.[model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
 
@@ -102,15 +72,16 @@ export async function benchModel(channel: ManagedChannel, model: string, clock: 
     try {
       let ok = 0;
       for (let i = 0; i < TOOL_TRIALS; i++) {
-        let called = false;
-        const r = await benchLoop(channel, model, [pingTool], "bench_ping", clock).run(
+        const r = await probe(channel, {
           model,
-          [{ role: "user", content: 'Call the bench_ping tool exactly once with {"ok": true}. Do not write any other text.' }],
-          { onToolOutcome: (c, o) => { if (c.name === "bench_ping" && o.kind === "success") called = true; } },
-          AbortSignal.timeout(PROBE_CAP_MS),
-        );
-        if (r.kind === "failed") throw new Error(`bench call failed: ${r.message}`);
-        if (called) ok++;
+          tool: pingTool,
+          reply: "pong",
+          prompt: 'Call the bench_ping tool exactly once with {"ok": true}. Do not write any other text.',
+          maxTurns: 3,
+          timeoutMs: PROBE_CAP_MS,
+        });
+        if (r.kind === "failed") throw new Error(r.message);
+        if (r.toolOk) ok++;
       }
       perf.toolReliability = Math.round((ok / TOOL_TRIALS) * 100) / 100;
     } catch {
@@ -118,16 +89,17 @@ export async function benchModel(channel: ManagedChannel, model: string, clock: 
     }
 
     try {
-      let edited = false;
       const body = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join("\n");
-      const r = await benchLoop(channel, model, [editProbeTool], "EditFile", clock).run(
+      const r = await probe(channel, {
         model,
-        [{ role: "user", content: `A file notes.txt contains:\n${body}\nUse the EditFile tool to change "line3" to "three".` }],
-        { onToolOutcome: (c, o) => { if (c.name === "EditFile" && o.kind === "success") edited = true; } },
-        AbortSignal.timeout(PROBE_CAP_MS),
-      );
-      if (r.kind === "failed") throw new Error(`bench call failed: ${r.message}`);
-      perf.editOk = edited;
+        tool: editProbeTool,
+        reply: "edited",
+        prompt: `A file notes.txt contains:\n${body}\nUse the EditFile tool to change "line3" to "three".`,
+        maxTurns: 3,
+        timeoutMs: PROBE_CAP_MS,
+      });
+      if (r.kind === "failed") throw new Error(r.message);
+      perf.editOk = r.toolOk;
     } catch {
       /* edit probe failed: leave undefined */
     }

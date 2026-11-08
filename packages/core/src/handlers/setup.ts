@@ -37,7 +37,7 @@ export async function handleChannelProbe(core: CoreCtx, params: unknown): Promis
     const caps = await ch.probeCaps(p.model);
     let perf = hit?.caps.perf;
     if (p.bench && caps.imageGen !== true) {
-      perf = await benchModel(ch, p.model, core.clock).catch(() => perf);
+      perf = await benchModel(ch, p.model, core.clock, core.probeLoop).catch(() => perf);
     }
     const merged = perf ? { ...caps, perf } : caps;
     const probedAt = core.clock.now();

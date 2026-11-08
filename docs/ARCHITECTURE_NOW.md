@@ -43,9 +43,9 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Runs | `@stewart/runs` | `RunService`: run lifecycle via three strategies (direct/orchestrated/resume), grants + approval gate, ledger, history, journal, revert |
 | Interaction | `@stewart/interaction` | `Interaction`: approval + `ask_user` cards, timeout/abort withdraw; resolved from `chat.approve`/`chat.answer` |
 | Orchestration | `@stewart/orchestration` + `@stewart/recovery` | `runOrchestrated`, `runRoleTask`, `createRecovery` (v1 port: classify, stuck check, continue question, layer-0 retry, layer-1 split, scratch; injected as `rt.recoveryService`), replacements |
-| Setup | `@stewart/setup` (`assign`, `recommend`, `bench`, `setupContext`) + `@stewart/catalog` | rules + AI assignment, benchmarks (`ModelPerf`), price catalog, workspace/hardware context |
+| Setup | `@stewart/setup` (`assign`, `recommend`, `bench`, `setupContext`) + `@stewart/catalog` | rules + AI assignment, benchmarks (`ModelPerf`; tool/edit trials run through an injected `ProbeLoop` — contract in `models`, `createProbeLoop` in `agent-loop`, wired as `Core.probeLoop`; `setup` does not depend on `agent-loop`/`tools`), price catalog, workspace/hardware context |
 | Model facts | `@stewart/models` `profile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier, `contextTokens` (`numCtx` > `contextTokens` > catalog); `mergeProbeCaps` (user > probe); used by `@stewart/budget` `limits.ts`, `roles.ts`, `recommend.ts` (caps), `core.ts` |
-| Agent session | `@stewart/agent-loop` `session.ts` | `createAgentSession`: the one `ToolLoop` builder (profile → limits → listener with events + ledger metering). Used by `roleRunner`, orchestrator, recovery and bench; the only `new ToolLoop(` |
+| Agent session | `@stewart/agent-loop` `session.ts` | `createAgentSession`: the one `ToolLoop` builder (profile → limits → listener with events + ledger metering). Used by `roleRunner`, orchestrator, recovery and `createProbeLoop` (bench); the only `new ToolLoop(` |
 | Misc | `v1import.ts` | |
 
 ## 3. Run paths (current reality)

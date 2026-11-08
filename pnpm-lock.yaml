@@ -313,6 +313,9 @@ importers:
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../catalog
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -571,9 +574,6 @@ importers:
 
   modules/setup:
     dependencies:
-      '@stewart/agent-loop':
-        specifier: workspace:*
-        version: link:../agent-loop
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../catalog
@@ -592,9 +592,6 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: 22.19.0

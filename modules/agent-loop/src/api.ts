@@ -10,3 +10,4 @@ export { recoveryState } from "./runtime.js";
 export type {
   RecoveryState, TaskResult, RoleTaskDeps, OrchestrationRuntime, RunRuntime, RecoveryBrain, RecoveryContext, RunTaskOnce, Recovery,
 } from "./runtime.js";
+export { createProbeLoop } from "./probe.js";

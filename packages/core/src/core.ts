@@ -10,13 +10,14 @@ import { loadConfig, type Config } from "@stewart/roles-skills";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
 import { RunService } from "@stewart/runs";
-import type { ModelCaps } from "@stewart/models";
+import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { ChannelDeps } from "@stewart/channels";
 import type { WorkspaceInfo } from "@stewart/setup";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "@stewart/diagnostics";
 import * as chat from "./handlers/chat.js";
 import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
+import { createProbeLoop } from "@stewart/agent-loop";
 import { applyProbes } from "./handlers/util.js";
 import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
 
@@ -32,6 +33,7 @@ export class Core implements CoreCtx {
   priceCache = new Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>();
   /** Workspace scan cache, 24h TTL — shared by setup.recommend and the task classifier. */
   wsScan = new Map<string, { info: WorkspaceInfo; at: number }>();
+  readonly probeLoop: ProbeLoop<ManagedChannel>;
   userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
   clock: Clock;
@@ -47,6 +49,7 @@ export class Core implements CoreCtx {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.ids ?? counterIds();
     this.chDeps = { fetcher: deps.fetcher ?? nodeFetch, debug: this.debug };
+    this.probeLoop = createProbeLoop({ clock: this.clock });
     this.bus = new EventBus(deps.emitEvent);
     this.bus.subscribe((ev) => {
       if (this.debug.level !== "full") return;

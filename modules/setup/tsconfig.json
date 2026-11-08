@@ -10,9 +10,6 @@
   ],
   "references": [
     {
-      "path": "../agent-loop"
-    },
-    {
       "path": "../catalog"
     },
     {
@@ -29,9 +26,6 @@
     },
     {
       "path": "../roles-skills"
-    },
-    {
-      "path": "../tools"
     }
   ]
 }

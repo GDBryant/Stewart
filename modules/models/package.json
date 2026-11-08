@@ -22,6 +22,7 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
+    "@stewart/kernel": "workspace:*",
     "@stewart/catalog": "workspace:*"
   }
 }
