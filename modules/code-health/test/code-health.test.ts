@@ -145,4 +145,9 @@ describe("isSourceFile", () => {
     expect(isSourceFile("src/test/util.ts", { includeTests: true })).toBe(true);
     expect(isSourceFile("dist/a.ts", { includeTests: true })).toBe(false);
   });
+
+  it("tolerates ./-prefixed paths from host file listings", () => {
+    expect(isSourceFile("./src/a.ts")).toBe(true);
+    expect(isSourceFile("./dist/a.ts")).toBe(false);
+  });
 });

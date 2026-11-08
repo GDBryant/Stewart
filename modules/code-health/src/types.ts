@@ -129,7 +129,7 @@ const GENERATED = /(\.d\.ts$|\.min\.|\.generated\.|\.lock$)/i;
 
 export function isSourceFile(path: string, opts: { includeTests?: boolean } = {}): boolean {
   const norm = path.replace(/\\/g, "/");
-  const parts = norm.split("/");
+  const parts = norm.split("/").filter((p) => p !== ".");
   if (parts.some((p) => p.startsWith(".") || EXCLUDED_DIRS.has(p))) return false;
   const name = parts[parts.length - 1];
   if (GENERATED.test(name)) return false;

@@ -2,7 +2,7 @@
 
 Living description of the code **as it is**. Update in the same commit as any change to modules, run paths, protocol, config, or host wiring. Plans live elsewhere (`docs/archived_v2/ARCHITECTURE.md` = original v2 plan; `docs/archived_v2/BUDGETS_AND_SETUP_INFO.md`, `docs/archived_v2/2026-11-07-code-health.md` = current plans).
 
-Last updated: 2026-11-07 (modular migration M-7: `runs` + `setup` extracted, `core.ts` is a router). Planned restructuring: `docs/building/ARCHITECTURE_REFACTORING.md`.
+Last updated: 2026-11-08 (`files.*` absolute/relative path contract fixed in the VS Code host; `list(".")` unprefixed on both hosts). Planned restructuring: `docs/building/ARCHITECTURE_REFACTORING.md`.
 
 ## 1. Layout
 
@@ -72,6 +72,7 @@ Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins
 
 - Files: shared `~/.config/stewart/{channels,agents,roles,settings}.yaml`, `skills/` — one dir for every IDE and project (`@stewart/config` `userDir.ts` `sharedUserConfigDir`: `$STEWART_CONFIG_DIR` > `$XDG_CONFIG_HOME/stewart` > `%APPDATA%\stewart` > `~/.config/stewart`; Kotlin mirror `UserConfigDir.kt`). Created on host start (`ensureUserConfigDir`), which also copies missing files once from the legacy per-project JetBrains `user-config/<hash>` and VS Code `globalStorage/user-config` dirs (never overwrites). Files must be `.yaml` (not `.yml`); project `.stewart/{roles.yaml,skills/,scratch/}` (trusted workspaces only).
 - State dir (HostPort): `ledger.jsonl`, run journals, `scratch/<runId>/{executed.jsonl,snapshots/}`, history.
+- `files.*` path contract (both hosts): absolute paths used as-is (state dir, config); relative paths resolve under the workspace root. `files.list` returns `dir`-prefixed relative paths (`""`/`"."` → unprefixed).
 - Secrets via HostPort only (`secretRef`).
 
 ## 6. In progress

@@ -130,7 +130,7 @@ class WorkspaceFiles(private val project: Project) {
                 if (out.size >= 20_000) return
             }
         }
-        walk(root, if (dir.isBlank()) "" else dir.trimEnd('/'))
+        walk(root, if (dir.isBlank() || dir == ".") "" else dir.trimEnd('/'))
         return JsonArray(out)
     }
 

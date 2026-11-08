@@ -168,6 +168,15 @@ class WorkspaceFilesTest : BasePlatformTestCase() {
         assertTrue(out.any { it.endsWith("rooted.txt") })
     }
 
+    fun testListDotDirReturnsUnprefixedPaths() {
+        write("rooted.txt", "x")
+        write("src/keep.kt", "x")
+        val out = files().list(".").jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(out.contains("rooted.txt"))
+        assertTrue(out.contains("src/keep.kt"))
+        assertTrue(out.none { it.startsWith("./") })
+    }
+
     fun testWriteAtomicOverwrites() {
         val files = files()
         files.writeAtomic("state/y.txt", "one")

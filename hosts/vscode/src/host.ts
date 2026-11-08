@@ -14,8 +14,17 @@ export class VsCodeHost implements HostPort {
     return ws.uri.fsPath;
   }
 
+  /** FilesPort contract (mirrors WorkspaceFiles.kt): absolute paths used as-is; relative paths resolve under the workspace root. */
+  private fileUri(p: string): vscode.Uri {
+    return path.isAbsolute(p) ? vscode.Uri.file(p) : vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p);
+  }
+
+  private absPath(p: string): string {
+    return path.isAbsolute(p) ? p : path.join(this.wsRoot(), p);
+  }
+
   private docFor(path: string): Thenable<vscode.TextDocument> {
-    return vscode.workspace.openTextDocument(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, path));
+    return vscode.workspace.openTextDocument(this.fileUri(path));
   }
 
   readonly secrets: HostPort["secrets"] = {
@@ -52,14 +61,14 @@ export class VsCodeHost implements HostPort {
     readBack: async (p) => (await this.docFor(p)).getText(),
     exists: async (p) => {
       try {
-        await vscode.workspace.fs.stat(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
+        await vscode.workspace.fs.stat(this.fileUri(p));
         return true;
       } catch {
         return false;
       }
     },
     list: async (dir) => {
-      const root = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, dir || ".");
+      const root = this.fileUri(dir || ".");
       const out: string[] = [];
       const walk = async (uri: vscode.Uri, rel: string) => {
         for (const [name, ftype] of await vscode.workspace.fs.readDirectory(uri)) {
@@ -70,30 +79,32 @@ export class VsCodeHost implements HostPort {
           if (out.length >= 20_000) return;
         }
       };
-      await walk(root, dir);
+      await walk(root, dir === "." ? "" : dir);
       return out;
     },
     stat: async (p) => {
-      const s = await vscode.workspace.fs.stat(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
+      const s = await vscode.workspace.fs.stat(this.fileUri(p));
       return { size: s.size };
     },
     readBinary: async (p) => {
-      const data = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p));
+      const data = await vscode.workspace.fs.readFile(this.fileUri(p));
       return { base64: Buffer.from(data).toString("base64"), size: data.byteLength };
     },
     writeBinary: async (p, b64) => {
-      await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p), Buffer.from(b64, "base64"));
+      await vscode.workspace.fs.writeFile(this.fileUri(p), Buffer.from(b64, "base64"));
     },
     writeAtomic: async (p, content) => {
-      const uri = vscode.Uri.file(p);
-      await fs.mkdir(path.dirname(p), { recursive: true });
+      const abs = this.absPath(p);
+      const uri = vscode.Uri.file(abs);
+      await fs.mkdir(path.dirname(abs), { recursive: true });
       const tmp = uri.with({ path: `${uri.path}.tmp-${Date.now()}` });
       await vscode.workspace.fs.writeFile(tmp, Buffer.from(content, "utf8"));
       await vscode.workspace.fs.rename(tmp, uri, { overwrite: true });
     },
     appendLine: async (p, line) => {
-      await fs.mkdir(path.dirname(p), { recursive: true });
-      const fh = await fs.open(p, "a");
+      const abs = this.absPath(p);
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      const fh = await fs.open(abs, "a");
       try {
         await fh.write(`${line}\n`);
         await fh.sync();
@@ -103,14 +114,14 @@ export class VsCodeHost implements HostPort {
     },
     readLines: async (p) => {
       try {
-        return (await fs.readFile(p, "utf8")).split("\n").filter((l) => l.length > 0);
+        return (await fs.readFile(this.absPath(p), "utf8")).split("\n").filter((l) => l.length > 0);
       } catch {
         return [];
       }
     },
     delete: async (p) => {
       try {
-        await fs.rm(p, { force: true });
+        await fs.rm(this.absPath(p), { force: true });
       } catch {
         /* absent file is not an error */
       }
