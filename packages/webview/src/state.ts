@@ -96,6 +96,9 @@ export interface State {
   /** Profile the current/last run used, from run.started. */
   runProfile?: string;
   recommendBusy?: boolean;
+  setupPhase?: string;
+  setupSaved?: boolean;
+  setupError?: string;
   recommendation?: {
     assignments: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
     researcher?: { channel: string; model: string };
@@ -270,8 +273,25 @@ export class Store {
     this.bridge.post(wizard !== undefined ? { type: "roles.assignAgent", agentId, wizard } : { type: "roles.assignAgent", agentId });
     this.requestConfig();
   }
+  /** Stage the rendered file set, then review → auto-approve (result arrives as setup.approve.result). */
+  setupApply(files: Record<string, string>): void {
+    this.patch({ setupSaved: undefined, setupError: undefined });
+    this.bridge.post({ type: "setup.session.update", patch: { files } });
+    this.bridge.post({ type: "setup.review" });
+  }
+
+  setupUndo(): void {
+    this.bridge.post({ type: "setup.undo" });
+  }
+
   setWizardOpen(wizardOpen: boolean): void {
     this.patch({ wizardOpen });
+    if (wizardOpen) {
+      this.patch({ setupSaved: undefined, setupError: undefined });
+      this.bridge.post({ type: "setup.session.start" });
+    } else {
+      this.bridge.post({ type: "setup.session.cancel" });
+    }
   }
   recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }): void {
     if (this.state.recommendBusy) return;
@@ -330,6 +350,14 @@ export class Store {
     if (m.type === "history.messages") return this.onHistoryMessages(m);
     if (m.type === "v1.draft") return this.onV1Draft(m);
     if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
+    if (m.type === "setup.session.result") return this.patch({ setupPhase: m.phase });
+    if (m.type === "setup.review.result") {
+      if (m.token) this.bridge.post({ type: "setup.approve", token: m.token });
+      else return this.patch({ setupError: m.error ?? "review failed" });
+      return;
+    }
+    if (m.type === "setup.approve.result") return this.patch({ setupSaved: m.ok, setupError: m.error });
+    if (m.type === "setup.undo.result") return this.patch({ setupSaved: false, setupError: m.error });
     if (m.type === "setup.recommend.result") {
       if (m.ok)
         return this.patch({

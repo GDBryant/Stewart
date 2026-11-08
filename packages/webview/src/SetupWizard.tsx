@@ -177,8 +177,10 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
       const ref = chosen.find((c) => c.role === r.id)?.ref;
       return ref ? { ...r, agent: pairToAgent.get(ref), enabled: true } : { ...r, enabled: false };
     });
-    store.saveFile("agents.yaml", stringify({ version: 1, items: [...nextAgents.values()] }, null, 2));
-    store.saveFile("roles.yaml", stringify({ version: 1, items: nextRoles }, null, 2));
+    store.setupApply({
+      "agents.yaml": stringify({ version: 1, items: [...nextAgents.values()] }, null, 2),
+      "roles.yaml": stringify({ version: 1, items: nextRoles }, null, 2),
+    });
     store.dismissRecommendation();
     setStep(5);
   };
@@ -410,9 +412,16 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
 
       {step === 5 ? (
         <div class="form">
-          <p><b>Setup complete.</b> Roles now use the agents you approved. Go to Chat and try: <i>“Summarise this project’s structure.”</i></p>
+          {store.state.setupSaved === false ? (
+            <p><b>Save failed.</b> {store.state.setupError ?? "unknown error"} — nothing was written.</p>
+          ) : (
+            <p><b>Setup complete.</b> Roles now use the agents you approved. Go to Chat and try: <i>“Summarise this project’s structure.”</i></p>
+          )}
           <p class="hint">Re-run any time from Settings → Run setup. Fine-tune channels, agents and roles in their tabs.</p>
-          <div class="row"><button class="send" onClick={() => store.setWizardOpen(false)}>Finish</button></div>
+          <div class="row">
+            {store.state.setupSaved ? <button class="small" onClick={() => store.setupUndo()}>Undo</button> : null}
+            <button class="send" onClick={() => store.setWizardOpen(false)}>Finish</button>
+          </div>
         </div>
       ) : null}
     </div>

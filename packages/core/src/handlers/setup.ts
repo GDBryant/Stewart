@@ -1,8 +1,102 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, type SetupContext } from "@stewart/setup";
-import type { CoreCtx } from "./types.js";
+import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
+import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
+import type { CoreCtx, ProjectCtx } from "./types.js";
 import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
+
+const sessions = new Map<string, SetupSession>();
+
+async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<SetupSessionDeps> {
+  const stateDir = await ctx.host.workspace.stateDir();
+  return {
+    files: ctx.host.files,
+    stateDir,
+    readUserFiles: () => core.deps.userConfig.read(),
+    writeUserFile: async (name, yaml) => {
+      core.userGuard.recordWrite(name, yaml);
+      await core.deps.userConfig.write(name, yaml);
+    },
+    validateFiles: (files) => {
+      for (const [name, yaml] of Object.entries(files)) {
+        const schema = CONFIG_FILE_SCHEMAS[name];
+        if (!schema) return `unknown config file: ${name}`;
+        let doc: unknown;
+        try {
+          doc = parseYaml(yaml);
+        } catch (e) {
+          return `${name}: invalid YAML: ${e instanceof Error ? e.message : e}`;
+        }
+        const parsed = schema.safeParse(doc ?? {});
+        if (!parsed.success) return `${name}: ${parsed.error.issues[0]?.message ?? "schema error"}`;
+      }
+      return undefined;
+    },
+    deleteSecret: async (ref) => {
+      await ctx.host.secrets.delete(ref);
+      core.secretValues.delete(ref);
+      core.channelService.setSecret(ref, undefined);
+    },
+    onEvent: (ev) => core.deps.emitEvent({ kind: "setup.event", projectId, event: ev }),
+  };
+}
+
+async function sessionFor(core: CoreCtx, p: { projectId: string }): Promise<{ ctx: ProjectCtx; session: SetupSession }> {
+  const ctx = core.ctx(p.projectId);
+  let s = sessions.get(p.projectId);
+  if (!s || s.phase === "cancelled" || s.phase === "saved") {
+    s = await SetupSession.open(await sessionDeps(core, ctx, p.projectId));
+    sessions.set(p.projectId, s);
+  }
+  return { ctx, session: s };
+}
+
+const publicState = (s: SetupSession) => ({ phase: s.phase, draft: s.state });
+
+export async function handleSetupSessionStart(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  return publicState(session);
+}
+export async function handleSetupSessionGet(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  return publicState(session);
+}
+export async function handleSetupSessionUpdate(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; patch: Record<string, unknown> };
+  const { session } = await sessionFor(core, p);
+  return { phase: session.phase, draft: await session.update(p.patch) };
+}
+export async function handleSetupSessionAdvance(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  return session.advance();
+}
+export async function handleSetupSessionBack(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  return session.back();
+}
+export async function handleSetupSessionCancel(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  await session.cancel();
+  return { ok: true };
+}
+export async function handleSetupReview(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  return session.review();
+}
+export async function handleSetupApprove(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; token: string };
+  const { session } = await sessionFor(core, p);
+  const res = await session.approveAndSave(p.token);
+  if (res.ok) await core.reload(p.projectId);
+  return res;
+}
+export async function handleSetupUndo(core: CoreCtx, params: unknown): Promise<unknown> {
+  const { session } = await sessionFor(core, params as { projectId: string });
+  const res = await session.undo();
+  const p = params as { projectId: string };
+  if (res.ok) await core.reload(p.projectId);
+  return res;
+}
 
 export function handleHello(params: unknown): unknown {
   const hello = helloSchema.parse(params);

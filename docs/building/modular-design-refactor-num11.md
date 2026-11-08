@@ -77,8 +77,11 @@ Decisions:
 | 7 | Permissions facade | Done. `Permissions` (decide/ask/gate + private session grants) in `permissions`; `RunService.gate` deleted, `runtime.ts` wires `rt.approve` from `svc.permissions.gate` | `c4388bc` |
 | 8 | ChannelService facade | Done. `ChannelService` (rebuild/get/require/health/probe/setSecret) in `channels`; `Core.managed`/`rebuildChannels`/`channelById` deleted, handlers go through `core.channelService` | `7a0b98b` |
 | 9 | `RunStrategy.plan` | Done. `RunStrategy<Req>` plan/execute + one `runPipeline` in `runs/strategy.ts`; three duplicated drive bodies deleted | `0cf9dc4` |
-| 10 | `ToolRegistry.for(role)` | Pending | — |
-| 11–14 | Large items | Not scheduled | — |
+| 10 | `ToolRegistry.for(role)` | Done. Method on `ToolRegistry` in `tools/types.ts`; `roleRegistry.ts` deleted | `12034fa` |
+| 11 | `Result<T, StewartError>` | Done (foundation): `kernel/result.ts`; adopted at the §4 seams (`TaskGraph.add`, snapshot capture/revert, lease errors). Remaining throwers adopt per-module rework | `5362c97` |
+| 12 | §10 setup session | Done (core): `SetupSession` state machine + versioned `setup-draft.json` + gated phases + `SetupEvent` coalescing + `review()`/`approveAndSave(token)` atomic save + backup/undo + secrets cleanup; `setup.session.*`/`setup.review`/`setup.approve`/`setup.undo` methods; wizard apply() goes through review+approve; channel staging still writes channels.yaml directly (deviation) | |
+| 13 | `RunHandle.events` | Done: `runs/handle.ts` — AsyncIterable view over the shared bus per run, attached by `runPipeline` | `5362c97` |
+| 14 | `v1import → config` | Done: moved to `modules/config`; `config` retiered L2 with a `catalog` (L1) dep | `5362c97` |
 
 The product version was bumped to 2.1.0 (`hosts/vscode/package.json`, `build.gradle.kts`) in `4ac6fde`.
 

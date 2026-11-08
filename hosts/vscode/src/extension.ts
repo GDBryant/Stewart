@@ -186,6 +186,23 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         await panel.webview.postMessage({ type: "setup.recommend.result", ...(r as object) });
         return;
       }
+      case "setup.session.start":
+      case "setup.session.get":
+      case "setup.session.update":
+      case "setup.session.advance":
+      case "setup.session.back":
+      case "setup.session.cancel": {
+        const r = await core.dispatch(m.type, { ...m, projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "setup.session.result", ...(r as object) });
+        return;
+      }
+      case "setup.review":
+      case "setup.approve":
+      case "setup.undo": {
+        const r = await core.dispatch(m.type, { ...m, projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: `${m.type}.result`, ...(r as object) });
+        return;
+      }
       case "editor.insert": {
         const ed = vscode.window.activeTextEditor;
         if (!ed) throw new Error("no active editor");

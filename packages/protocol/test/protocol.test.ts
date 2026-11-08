@@ -36,6 +36,6 @@ describe("protocol", () => {
     expect(METHODS).toContain("chat.send");
     expect(METHODS).toContain("chat.revert");
     expect(METHODS).toContain("channel.probe");
-    expect(METHODS.length).toBe(13);
+    expect(METHODS.length).toBe(22);
   });
 });

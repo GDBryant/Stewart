@@ -25,6 +25,14 @@ export type Outbound =
   | { type: "roles.reset"; roleId?: string }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
   | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
+  | { type: "setup.session.start" }
+  | { type: "setup.session.update"; patch: Record<string, unknown> }
+  | { type: "setup.session.advance" }
+  | { type: "setup.session.back" }
+  | { type: "setup.session.cancel" }
+  | { type: "setup.review" }
+  | { type: "setup.approve"; token: string }
+  | { type: "setup.undo" }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -117,6 +125,10 @@ export type Inbound =
       dropped?: string[];
       error?: string;
     }
+  | { type: "setup.session.result"; phase?: string; draft?: Record<string, unknown>; ok?: boolean; error?: string }
+  | { type: "setup.review.result"; token?: string; error?: string }
+  | { type: "setup.approve.result"; ok: boolean; error?: string }
+  | { type: "setup.undo.result"; ok: boolean; error?: string }
   | { type: "error"; message: string };
 
 export interface Bridge {

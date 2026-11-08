@@ -73,6 +73,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cost.limit_raised"), ...base, capUsd: z.number() }),
   z.object({ kind: z.literal("cost.replaced"), ...base, roleId: z.string(), agentId: z.string(), reason: z.string() }),
   z.object({ kind: z.literal("compaction"), ...base, droppedTokens: z.number(), beforeTokens: z.number().optional(), afterTokens: z.number().optional(), pruned: z.number().optional(), summarized: z.boolean().optional() }),
+  z.object({ kind: z.literal("setup.event"), projectId: z.string(), event: z.unknown() }),
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];
@@ -95,6 +96,15 @@ export interface CoreRequests {
   "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
   "secret.set": { params: { projectId: string; ref: string; value: string }; result: { ok: true } };
   "secret.delete": { params: { projectId: string; ref: string }; result: { ok: true } };
+  "setup.session.start": { params: { projectId: string }; result: unknown };
+  "setup.session.get": { params: { projectId: string }; result: unknown };
+  "setup.session.update": { params: { projectId: string; patch: Record<string, unknown> }; result: unknown };
+  "setup.session.advance": { params: { projectId: string }; result: { ok: boolean; error?: string } };
+  "setup.session.back": { params: { projectId: string }; result: { ok: boolean } };
+  "setup.session.cancel": { params: { projectId: string }; result: { ok: boolean } };
+  "setup.review": { params: { projectId: string }; result: unknown };
+  "setup.approve": { params: { projectId: string; token: string }; result: { ok: boolean; error?: string } };
+  "setup.undo": { params: { projectId: string }; result: { ok: boolean; error?: string } };
 }
 
 /** Core -> host notifications. */
@@ -116,6 +126,15 @@ export const METHODS = [
   "channel.probe",
   "secret.set",
   "secret.delete",
+  "setup.session.start",
+  "setup.session.get",
+  "setup.session.update",
+  "setup.session.advance",
+  "setup.session.back",
+  "setup.session.cancel",
+  "setup.review",
+  "setup.approve",
+  "setup.undo",
 ] as const;
 export type Method = (typeof METHODS)[number];
 

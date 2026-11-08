@@ -836,11 +836,14 @@ describe("webview settings", () => {
     expect(screen.getByText(/⚠ model is ~4B/)).toBeTruthy();
     expect(screen.getByText(/disabled: no model with: vision/)).toBeTruthy();
     fireEvent.click(screen.getByText("Apply"));
-    const agents = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
-    expect(agents.yaml).toContain("c1-big-32b");
-    const roles = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "roles.yaml") as any;
-    expect(roles.yaml).toContain("agent: c1-big-32b");
-    expect(roles.yaml).toMatch(/id: image-reader\n\s+enabled: false/);
+    const upd = bridge.sent.find((m: any) => m.type === "setup.session.update") as any;
+    expect(upd.patch.files["agents.yaml"]).toContain("c1-big-32b");
+    expect(upd.patch.files["roles.yaml"]).toContain("agent: c1-big-32b");
+    expect(upd.patch.files["roles.yaml"]).toMatch(/id: image-reader\n\s+enabled: false/);
+    expect(bridge.sent).toContainEqual({ type: "setup.review" });
+    act(() => bridge.inbound({ type: "setup.review.result", token: "tok1" }));
+    expect(bridge.sent).toContainEqual({ type: "setup.approve", token: "tok1" });
+    act(() => bridge.inbound({ type: "setup.approve.result", ok: true }));
     expect(store.state.recommendation).toBeUndefined();
     expect(screen.getByText(/Setup complete/)).toBeTruthy();
   });
@@ -862,10 +865,10 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByText("Build proposal"));
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "general-worker", channel: "c1", model: "big:32b" }] }));
     fireEvent.click(screen.getByText("Apply"));
-    const agents = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "agents.yaml") as any;
-    expect(agents.yaml).toContain("billing: priced");
-    expect(agents.yaml).toContain("inPerMTok: 1.25");
-    expect(agents.yaml).toContain("outPerMTok: 10");
+    const agents = (bridge.sent.find((m: any) => m.type === "setup.session.update") as any).patch.files["agents.yaml"];
+    expect(agents).toContain("billing: priced");
+    expect(agents).toContain("inPerMTok: 1.25");
+    expect(agents).toContain("outPerMTok: 10");
   });
 
   it("reuses an existing agent for an edited row and can disable a role", () => {
@@ -877,8 +880,8 @@ describe("webview settings", () => {
     fireEvent.change(screen.getByLabelText("role general-worker"), { target: { value: "c1:m" } });
     fireEvent.change(screen.getByLabelText("role image-reader"), { target: { value: "" } });
     fireEvent.click(screen.getByText("Apply"));
-    const roles = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "roles.yaml") as any;
-    expect(roles.yaml).toContain("agent: a1");
+    const roles = (bridge.sent.find((m: any) => m.type === "setup.session.update") as any).patch.files["roles.yaml"];
+    expect(roles).toContain("agent: a1");
   });
 
   it("AI mode sends the chosen evaluator, and a failure offers a rules fallback", () => {
