@@ -30,8 +30,6 @@ export interface RecommendOptions {
   context?: Partial<SetupContext>;
   /** Resolves live/catalog price info per model (agent.price always wins over it). */
   priceFor?: (channel: string, model: string) => Promise<ModelInfo | undefined>;
-  /** Restricts candidates to these channel:model pairs (wizard-ticked models). */
-  models?: { channel: string; model: string }[];
 }
 
 export type RecommendResult =
@@ -76,10 +74,6 @@ export async function recommendAssignments(
     } catch (e) {
       channels.push({ id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: e instanceof Error ? e.message : String(e) });
     }
-  }
-  if (opts.models) {
-    const picked = new Set(opts.models.map((m) => `${m.channel}:${m.model}`));
-    for (const c of channels) c.models = c.models.filter((m) => picked.has(`${c.id}:${m}`));
   }
   if (!channels.some((c) => c.models.length)) {
     return { ok: false, error: "no models discovered; check channels", channels };

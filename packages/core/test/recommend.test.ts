@@ -111,19 +111,6 @@ describe("setup.recommend", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("forwards models so rules mode only uses picked pairs", async () => {
-    const { core } = mk([{ body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }]);
-    await core.attachProject("p", fakeHost().host);
-    const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules", models: [{ channel: "c1", model: "m2" }] })) as {
-      ok: boolean;
-      assignments: { channel: string; model: string }[];
-      channels: { id: string; models: string[] }[];
-    };
-    expect(r.ok).toBe(true);
-    expect(r.assignments.every((a) => a.channel === "c1" && a.model === "m2")).toBe(true);
-    expect(r.channels[0].models).toEqual(["m2"]);
-  });
-
   it("does not write any config files", async () => {
     const userLayer: ConfigLayer = {};
     const answer = JSON.stringify({ assignments: [{ role: "tester", channel: "c1", model: "m1" }] });

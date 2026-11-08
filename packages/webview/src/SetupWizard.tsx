@@ -68,13 +68,12 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [source, setSource] = useState<"existing" | "new">(channels.length > 0 ? "existing" : "new");
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const seeded = useRef(new Set<string>());
+  const [evalChannel, setEvalChannel] = useState("");
 
   const tests = store.state.channelTest;
   const enabled = channels.filter((c) => c.enabled);
   const okChannels = enabled.filter((c) => tests[c.id]?.ok);
-  const pairs = okChannels.flatMap((c) => channelModels(store, c).filter((m) => picked.has(key(c.id, m))).map((m) => ({ channel: c.id, model: m })));
+  const pairs = okChannels.flatMap((c) => channelModels(store, c).map((m) => ({ channel: c.id, model: m })));
 
   // Test every configured channel once it appears (config.set rebuilds the live channels first).
   useEffect(() => {
@@ -82,37 +81,16 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
     for (const c of enabled) if (!tests[c.id]) store.testChannel(c.id);
   }, [step, enabled.map((c) => c.id).join()]);
 
-  useEffect(() => {
-    for (const c of enabled) {
-      if (!tests[c.id]?.ok || seeded.current.has(c.id)) continue;
-      seeded.current.add(c.id);
-      const models = channelModels(store, c);
-      const agentModels = agents.filter((a) => a.channel === c.id && models.includes(a.model)).map((a) => a.model);
-      const picks = agentModels.length ? agentModels : models;
-      setPicked((prev) => {
-        const next = new Set(prev);
-        for (const m of picks) next.add(key(c.id, m));
-        return next;
-      });
-    }
-  }, [enabled.map((c) => c.id).join(), tests, agents.map((a) => a.id).join()]);
-
-  const toggleModel = (c: string, m: string, on: boolean) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(key(c, m));
-      else next.delete(key(c, m));
-      return next;
-    });
-  const toggleChannel = (c: ChannelSummary, on: boolean) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      for (const m of channelModels(store, c)) {
-        if (on) next.add(key(c.id, m));
-        else next.delete(key(c.id, m));
-      }
-      return next;
-    });
+  const evalChannels = source === "existing" ? okChannels : okChannels.filter((c) => added.has(c.id));
+  const evalChan = evalChannels.some((c) => c.id === evalChannel) ? evalChannel : (evalChannels[0]?.id ?? "");
+  const evalChanObj = evalChannels.find((c) => c.id === evalChan);
+  const evalAgents = evalChan ? agents.filter((a) => a.channel === evalChan) : [];
+  const evalOptions = !evalChanObj
+    ? []
+    : source === "existing" && evalAgents.length
+      ? evalAgents.map((a) => ({ v: key(evalChan, a.model), label: `${a.id} (${a.model})` }))
+      : channelModels(store, evalChanObj).map((m) => ({ v: key(evalChan, m), label: m }));
+  const evalSel = evalOptions.some((o) => o.v === evaluator) ? evaluator : (evalOptions[0]?.v ?? "");
 
   const benched = useRef(new Set<string>());
 
@@ -154,10 +132,10 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   };
   const buildProposal = () => {
     setEdits({});
-    const f = evaluator || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "");
+    const f = evaluator || evalSel || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "");
     const i = f.indexOf(":");
     const ev = evalMode === "ai" && f ? { evaluator: { channel: f.slice(0, i), model: f.slice(i + 1) } } : {};
-    store.recommend({ mode: evalMode, ...ev, models: pairs, context: { priorities, ...(typicalWork ? { typicalWork } : {}) }, bench });
+    store.recommend({ mode: evalMode, ...ev, context: { priorities, ...(typicalWork ? { typicalWork } : {}) }, bench });
     setStep(4);
   };
 
@@ -234,7 +212,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
 
       {step === 1 ? (
         <div class="form">
-          <p><b>What to do:</b> pick the models to include in this setup run — tick the models under each channel once it shows ✓, then continue.</p>
+          <p><b>What to do:</b> pick the channel and agent that will run the evaluation of all available models.</p>
           {channels.length > 0 ? (
             <div class="row">
               <label><input type="radio" name="source" aria-label="source existing" checked={source === "existing"} onChange={() => setSource("existing")} /> Use existing channels</label>
@@ -267,42 +245,50 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           ) : null}
           {(source === "existing" ? enabled : enabled.filter((c) => added.has(c.id))).map((c) => {
             const t = tests[c.id];
-            const models = t?.ok ? channelModels(store, c) : [];
             return (
               <div key={c.id} class="summary">
                 <b>{c.id}</b> ({c.type}) {t ? (t.ok ? <span>✓ {t.models?.length ?? 0} models</span> : <span class="fail">✗ {friendlyError(c.type, t.error)}</span>) : <span class="hint">testing…</span>}
                 <button class="small" onClick={() => store.testChannel(c.id)}>Retest</button>
-                {t?.ok ? (
-                  <div>
-                    <label>
-                      <input
-                        type="checkbox"
-                        aria-label={`channel ${c.id}`}
-                        checked={models.length > 0 && models.every((m) => picked.has(key(c.id, m)))}
-                        onChange={(e) => toggleChannel(c, (e.target as HTMLInputElement).checked)}
-                      />{" "}
-                      all models
-                    </label>
-                    {models.map((m) => {
-                      const agent = agents.find((a) => a.channel === c.id && a.model === m);
-                      return (
-                        <div key={m}>
-                          <label>
-                            <input type="checkbox" aria-label={`model ${c.id}:${m}`} checked={picked.has(key(c.id, m))} onChange={(e) => toggleModel(c.id, m, (e.target as HTMLInputElement).checked)} />{" "}
-                            {m}
-                            {agent ? <span class="hint"> (agent {agent.id})</span> : null}
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
               </div>
             );
           })}
+          {evalChannels.length ? (
+            <div>
+              <label class="field">
+                <span>Evaluator channel</span>
+                <select
+                  aria-label="evaluator channel"
+                  value={evalChan}
+                  onChange={(e) => {
+                    setEvalChannel((e.target as HTMLSelectElement).value);
+                    setEvaluator("");
+                  }}
+                >
+                  {evalChannels.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {source === "existing" && evalChanObj && evalAgents.length === 0 ? (
+                <div class="hint">No agents on this channel; use Add a new channel or pick it after setup</div>
+              ) : null}
+              <label class="field">
+                <span>Evaluator agent</span>
+                <select aria-label="evaluator agent" value={evalSel} onChange={(e) => setEvaluator((e.target as HTMLSelectElement).value)}>
+                  {evalOptions.map((o) => (
+                    <option key={o.v} value={o.v}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
           <div class="row">
             <button class="small" onClick={() => setStep(0)}>Back</button>
-            {next("Next: discover models", 2, pairs.length === 0)}
+            {next("Next: discover models", 2, okChannels.length === 0 || !evalSel)}
           </div>
         </div>
       ) : null}
@@ -340,7 +326,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           {evalMode === "ai" ? (
             <label class="field">
               <span>Evaluator model</span>
-              <select aria-label="evaluator" value={evaluator || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "")} onChange={(e) => setEvaluator((e.target as HTMLSelectElement).value)}>
+              <select aria-label="evaluator" value={evaluator || evalSel || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "")} onChange={(e) => setEvaluator((e.target as HTMLSelectElement).value)}>
                 {pairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
               </select>
             </label>
@@ -383,7 +369,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           {store.state.recommendError ? (
             <div class="fail">
               {store.state.recommendError}
-              {evalMode === "ai" ? <button class="small" onClick={() => { setEvalMode("rules"); store.recommend({ mode: "rules", models: pairs }); }}>Use rules instead</button> : null}
+              {evalMode === "ai" ? <button class="small" onClick={() => { setEvalMode("rules"); store.recommend({ mode: "rules" }); }}>Use rules instead</button> : null}
             </div>
           ) : null}
           {rec ? (

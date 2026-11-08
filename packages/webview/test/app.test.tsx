@@ -664,7 +664,6 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByText("Start"));
     if (n < 2) return;
     act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
-    fireEvent.click(screen.getByLabelText("model c1:big:32b"));
     fireEvent.click(screen.getByText("Next: discover models"));
     if (n < 3) return;
     fireEvent.click(screen.getByText("Next: choose evaluator"));
@@ -713,54 +712,61 @@ describe("webview settings", () => {
     expect(screen.getByText(/rejected the API key/)).toBeTruthy();
   });
 
-  it("seeds model picks from existing agents when a channel test passes", () => {
+  it("existing mode offers an evaluator channel + agent select seeded to the first ok channel's agent", () => {
     const { bridge } = mk();
     openWizard(bridge);
     fireEvent.click(screen.getByText("Start"));
-    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
-    expect((screen.getByLabelText("model c1:m") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("model c1:big:32b") as HTMLInputElement).checked).toBe(false);
-  });
-
-  it("disables Next when every model is unticked", () => {
-    const { bridge } = mk();
-    openWizard(bridge);
-    fireEvent.click(screen.getByText("Start"));
-    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
-    fireEvent.click(screen.getByLabelText("model c1:m"));
     expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(true);
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c2", ok: true, models: ["v"] }));
+    const chanSel = screen.getByLabelText("evaluator channel") as HTMLSelectElement;
+    expect(chanSel.value).toBe("c1");
+    const agentSel = screen.getByLabelText("evaluator agent") as HTMLSelectElement;
+    expect(agentSel.value).toBe("c1:m");
+    expect([...agentSel.options].map((o) => o.text)).toEqual(["a1 (m)"]);
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(chanSel, { target: { value: "c2" } });
+    expect([...agentSel.options].map((o) => o.text)).toEqual(["va (v)"]);
+    expect(agentSel.value).toBe("c2:v");
   });
 
-  it("channel checkbox toggles all its models", () => {
+  it("falls back to channel models when the chosen channel has no agents", () => {
     const { bridge } = mk();
-    openWizard(bridge);
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() =>
+      bridge.inbound({
+        ...configReply,
+        summary: {
+          ...configReply.summary,
+          channels: [...configReply.summary.channels, { id: "c3", type: "ollama", enabled: true, baseUrl: "http://z" }],
+        },
+      } as typeof configReply),
+    );
+    fireEvent.click(screen.getByText("Run setup"));
     fireEvent.click(screen.getByText("Start"));
-    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
-    fireEvent.click(screen.getByLabelText("channel c1"));
-    expect((screen.getByLabelText("model c1:m") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("model c1:big:32b") as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByLabelText("channel c1"));
-    expect((screen.getByLabelText("model c1:m") as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByLabelText("model c1:big:32b") as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(true);
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m"] }));
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c3", ok: true, models: ["x", "y"] }));
+    fireEvent.change(screen.getByLabelText("evaluator channel"), { target: { value: "c3" } });
+    expect(screen.getByText(/No agents on this channel/)).toBeTruthy();
+    const agentSel = screen.getByLabelText("evaluator agent") as HTMLSelectElement;
+    expect([...agentSel.options].map((o) => o.value)).toEqual(["c3:x", "c3:y"]);
+    expect(agentSel.value).toBe("c3:x");
   });
 
-  it("probes and recommends only the picked models", () => {
+  it("step-1 evaluator choice carries into step 3 and setup.recommend in AI mode", () => {
     const { bridge } = mk();
     openWizard(bridge);
-    fireEvent.click(screen.getByText("Start"));
-    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
-    fireEvent.click(screen.getByText("Next: discover models"));
-    expect(bridge.sent).toContainEqual({ type: "channel.probe", channelId: "c1", model: "m", force: false });
-    expect(bridge.sent.some((m: any) => m.type === "channel.probe" && m.model === "big:32b")).toBe(false);
-    fireEvent.click(screen.getByText("Next: choose evaluator"));
+    toStep(bridge, 3);
+    fireEvent.click(screen.getByLabelText(/AI refine/));
+    expect((screen.getByLabelText("evaluator") as HTMLSelectElement).value).toBe("c1:m");
     fireEvent.click(screen.getByText("Build proposal"));
     expect(bridge.sent).toContainEqual(
-      expect.objectContaining({ type: "setup.recommend", mode: "rules", models: [{ channel: "c1", model: "m" }] }),
+      expect.objectContaining({ type: "setup.recommend", mode: "ai", evaluator: { channel: "c1", model: "m" } }),
     );
   });
 
-  it("existing mode hides the add form; new mode shows it and seeds all models of a channel added this run", () => {
+  it("existing mode hides the add form; new mode shows it and offers the added channel's models as evaluator", () => {
     const { bridge } = mk();
     openWizard(bridge);
     fireEvent.click(screen.getByText("Start"));
@@ -778,9 +784,12 @@ describe("webview settings", () => {
       } as typeof configReply),
     );
     act(() => bridge.inbound({ type: "channel.test.result", channelId: "local-ollama", ok: true, models: ["x", "y"] }));
-    expect((screen.getByLabelText("model local-ollama:x") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("model local-ollama:y") as HTMLInputElement).checked).toBe(true);
-    expect(screen.queryByLabelText("model c1:m")).toBeNull();
+    const chanSel = screen.getByLabelText("evaluator channel") as HTMLSelectElement;
+    expect([...chanSel.options].map((o) => o.value)).toEqual(["local-ollama"]);
+    const agentSel = screen.getByLabelText("evaluator agent") as HTMLSelectElement;
+    expect([...agentSel.options].map((o) => o.value)).toEqual(["local-ollama:x", "local-ollama:y"]);
+    expect(agentSel.value).toBe("local-ollama:x");
+    expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("shows no source radios and the add form when no channels are configured", () => {
@@ -886,14 +895,7 @@ describe("webview settings", () => {
     expect(screen.getByText(/could not parse/)).toBeTruthy();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByText("Use rules instead"));
-    expect(bridge.sent.filter((m: any) => m.type === "setup.recommend").at(-1)).toEqual({
-      type: "setup.recommend",
-      mode: "rules",
-      models: [
-        { channel: "c1", model: "m" },
-        { channel: "c1", model: "big:32b" },
-      ],
-    });
+    expect(bridge.sent.filter((m: any) => m.type === "setup.recommend").at(-1)).toEqual({ type: "setup.recommend", mode: "rules" });
     expect(store.state.recommendBusy).toBe(true);
   });
 
