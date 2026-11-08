@@ -18,36 +18,12 @@ import * as chat from "./handlers/chat.js";
 import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
 import { applyProbes } from "./handlers/util.js";
+import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
 
-export interface CoreDeps {
-  fetcher?: Fetcher;
-  clock?: Clock;
-  ids?: IdGen;
-  /** User-level config (~/.config/stewart); readable + writable. */
-  userConfig: ConfigStore;
-  /** Project .stewart/ config; read applied only when trusted. */
-  projectConfig: (projectId: string) => Promise<ConfigStore> | ConfigStore;
-  /** Shipped default config layer. */
-  defaults: Record<string, string | undefined>;
-  emitEvent(ev: RunEvent): void;
-  /** Built when settings.log.level is not `off`; rebuilt when level or retainDays change. Default: no-op. */
-  debugSinkFactory?: (opts: { level: Exclude<DebugLevel, "off">; retainDays: number }) => DebugSink;
-}
-
-export interface ProjectCtx {
-  host: HostPort;
-  config: Config;
-  trusted: boolean;
-  runs: RunService;
-  projectStore: ConfigStore;
-  projectGuard: SelfWriteGuard;
-  /** Raw layers as last loaded (skill resolution, role reset). */
-  userLayer: Record<string, string | undefined>;
-  projectLayer: Record<string, string | undefined>;
-}
+export type { CoreDeps, ProjectCtx } from "./handlers/types.js";
 
 /** Composition root + JSON-RPC router. Domain logic lives in `handlers/*`, which wire Core's deps to module services. */
-export class Core {
+export class Core implements CoreCtx {
   readonly channels = new ChannelRegistry();
   private projects = new Map<string, ProjectCtx>();
   managed = new Map<string, ManagedChannel>();

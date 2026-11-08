@@ -1,5 +1,79 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
-  "include": ["src"]
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../modules/agent-loop"
+    },
+    {
+      "path": "../../modules/budget"
+    },
+    {
+      "path": "../../modules/catalog"
+    },
+    {
+      "path": "../../modules/channels"
+    },
+    {
+      "path": "../../modules/compaction"
+    },
+    {
+      "path": "../../modules/config"
+    },
+    {
+      "path": "../../modules/context"
+    },
+    {
+      "path": "../../modules/diagnostics"
+    },
+    {
+      "path": "../../modules/kernel"
+    },
+    {
+      "path": "../../modules/ledger"
+    },
+    {
+      "path": "../../modules/models"
+    },
+    {
+      "path": "../../modules/orchestration"
+    },
+    {
+      "path": "../../modules/permissions"
+    },
+    {
+      "path": "../../modules/recovery"
+    },
+    {
+      "path": "../../modules/roles-skills"
+    },
+    {
+      "path": "../../modules/run-state"
+    },
+    {
+      "path": "../../modules/runs"
+    },
+    {
+      "path": "../../modules/scheduling"
+    },
+    {
+      "path": "../../modules/setup"
+    },
+    {
+      "path": "../../modules/toolcall-format"
+    },
+    {
+      "path": "../../modules/tools"
+    },
+    {
+      "path": "../protocol"
+    }
+  ]
 }

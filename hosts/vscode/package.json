@@ -2,7 +2,7 @@
   "name": "stewart",
   "displayName": "Stewart",
   "description": "Multi-role AI assistant",
-  "version": "2.0.4",
+  "version": "2.1.0",
   "private": true,
   "publisher": "stewart",
   "license": "MIT",
@@ -48,7 +48,7 @@
   },
   "scripts": {
     "build": "node -e \"require('node:fs').cpSync('../../packages/webview/dist','webview',{recursive:true})\" && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --composite false --noEmit",
     "test": "vitest run --passWithNoTests",
     "package": "vsce package --no-dependencies --skip-license --out stewart.vsix"
   },

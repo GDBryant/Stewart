@@ -7,11 +7,11 @@ import type { IdempotencyLog } from "@stewart/run-state";
 import { Grants } from "@stewart/permissions";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "@stewart/budget";
 import { recoveryState, type RunRuntime } from "@stewart/agent-loop";
-import type { Run, RunService } from "./service.js";
+import type { Run, RunHost } from "./types.js";
 
 /** Single construction point for the per-run orchestration runtime (resume and fresh runs). */
 export function buildRunRuntime(
-  svc: RunService,
+  svc: RunHost,
   run: Run,
   opts: {
     config: Config;

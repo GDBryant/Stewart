@@ -2,9 +2,54 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": true
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../budget"
+    },
+    {
+      "path": "../channels"
+    },
+    {
+      "path": "../compaction"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../ledger"
+    },
+    {
+      "path": "../models"
+    },
+    {
+      "path": "../permissions"
+    },
+    {
+      "path": "../roles-skills"
+    },
+    {
+      "path": "../run-state"
+    },
+    {
+      "path": "../scheduling"
+    },
+    {
+      "path": "../toolcall-format"
+    },
+    {
+      "path": "../tools"
+    }
   ]
 }

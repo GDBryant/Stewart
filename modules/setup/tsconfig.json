@@ -2,9 +2,36 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": true
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../agent-loop"
+    },
+    {
+      "path": "../catalog"
+    },
+    {
+      "path": "../channels"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../models"
+    },
+    {
+      "path": "../roles-skills"
+    },
+    {
+      "path": "../tools"
+    }
   ]
 }

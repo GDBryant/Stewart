@@ -3,8 +3,21 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [],
+    "composite": true
   },
-  "include": ["src", "test"]
+  "include": [
+    "src",
+    "test"
+  ],
+  "references": [
+    {
+      "path": "../protocol"
+    }
+  ]
 }

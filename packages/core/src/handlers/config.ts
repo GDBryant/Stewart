@@ -2,9 +2,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
 import { importV1Xml, parseMiniXml } from "../v1import.js";
-import type { Core, ProjectCtx } from "../core.js";
+import type { CoreCtx, ProjectCtx } from "./types.js";
 
-async function writeUser(core: Core, file: string, yaml: string): Promise<void> {
+async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {
   core.userGuard.recordWrite(file, yaml);
   await core.deps.userConfig.write(file, yaml);
 }
@@ -14,7 +14,7 @@ async function writeProject(ctx: ProjectCtx, file: string, yaml: string): Promis
   await ctx.projectStore.write(file, yaml);
 }
 
-export async function handleConfigGet(core: Core, params: unknown): Promise<unknown> {
+export async function handleConfigGet(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string };
   const ctx = core.ctx(p.projectId);
   const userFiles = await core.deps.userConfig.read();
@@ -28,13 +28,13 @@ export async function handleConfigGet(core: Core, params: unknown): Promise<unkn
   return { files, summary, errors, secrets };
 }
 
-export async function handleConfigReload(core: Core, params: unknown): Promise<unknown> {
+export async function handleConfigReload(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; fromWatcher?: boolean };
   const { suppressed } = await core.reload(p.projectId, p.fromWatcher ?? false);
   return { ok: true, suppressed };
 }
 
-export async function handleConfigSet(core: Core, params: unknown): Promise<unknown> {
+export async function handleConfigSet(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; file: string; yaml: string; layer?: "user" | "project" };
   const ctx = core.ctx(p.projectId);
   const schema = CONFIG_FILE_SCHEMAS[p.file];
@@ -59,7 +59,7 @@ export async function handleConfigSet(core: Core, params: unknown): Promise<unkn
   return { ok: true };
 }
 
-export async function handleConfigImportV1(core: Core, params: unknown): Promise<unknown> {
+export async function handleConfigImportV1(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; xml: string; apply?: boolean };
   const res = importV1Xml(p.xml, parseMiniXml);
   if (p.apply && Object.keys(res.files).length) {
@@ -71,7 +71,7 @@ export async function handleConfigImportV1(core: Core, params: unknown): Promise
   return res;
 }
 
-export async function handleSkillsSave(core: Core, params: unknown): Promise<unknown> {
+export async function handleSkillsSave(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; id: string; body: string; description?: string; layer?: "user" | "project" };
   const ctx = core.ctx(p.projectId);
   const shipped = shippedSkill(p.id);
@@ -93,7 +93,7 @@ export async function handleSkillsSave(core: Core, params: unknown): Promise<unk
   return { ok: true };
 }
 
-export async function handleSkillsReset(core: Core, params: unknown): Promise<unknown> {
+export async function handleSkillsReset(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; id: string };
   const file = `skills/${p.id}.md`;
   const ctx = core.ctx(p.projectId);
@@ -105,7 +105,7 @@ export async function handleSkillsReset(core: Core, params: unknown): Promise<un
   return { ok: true };
 }
 
-export async function handleRolesReset(core: Core, params: unknown): Promise<unknown> {
+export async function handleRolesReset(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; roleId?: string };
   const ctx = core.ctx(p.projectId);
   const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
@@ -116,7 +116,7 @@ export async function handleRolesReset(core: Core, params: unknown): Promise<unk
   return { ok: true };
 }
 
-export async function handleRolesAssignAgent(core: Core, params: unknown): Promise<unknown> {
+export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; agentId: string; wizard?: boolean };
   const ctx = core.ctx(p.projectId);
   if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
@@ -134,7 +134,7 @@ export async function handleRolesAssignAgent(core: Core, params: unknown): Promi
   return { ok: true };
 }
 
-export async function handleSecretSet(core: Core, params: unknown): Promise<unknown> {
+export async function handleSecretSet(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; ref: string; value: string };
   const ctx = core.ctx(p.projectId);
   await ctx.host.secrets.set(p.ref, p.value);
@@ -145,7 +145,7 @@ export async function handleSecretSet(core: Core, params: unknown): Promise<unkn
   return { ok: true };
 }
 
-export async function handleSecretDelete(core: Core, params: unknown): Promise<unknown> {
+export async function handleSecretDelete(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; ref: string };
   const ctx = core.ctx(p.projectId);
   await ctx.host.secrets.delete(p.ref);

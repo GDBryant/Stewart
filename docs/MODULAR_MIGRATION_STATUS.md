@@ -21,6 +21,8 @@ Snapshot of the §7 incremental migration in `docs/MODULAR_DESIGN.md`. Delete on
 
 - Audit (post M-7b): CI now runs `check:layers` + `check:boundaries`; all 22 module READMEs filled (purpose/owns/fake-it); stale manifest deps removed (`recovery→channels`, `orchestration→protocol`, unused `kernel` in six leaf modules); `MODULAR_DESIGN.md` §3 rewritten from the as-built manifests with §2 layer numbers, §6/§9 marked done/deferred, new §11 lists every sketch-vs-build deviation with its revisit trigger.
 
+- §11 small items: `dependency-cruiser` 18.7.0 `check:cycles` (12 type-only cycles fixed via `runs/src/types.ts` `RunHost` and `core/src/handlers/types.ts` `CoreCtx`); per-package `vitest.config.ts` + `test:coverage` (90/80) on 27 packages; tsconfig `composite` + `references` via `scripts/sync-tsrefs.mjs` (`check:tsrefs`). All wired into CI. Coverage gate currently fails on 17 packages; tests being added to reach 90/80 (in progress).
+
 ## Remaining
 
 - **Step 8 (deferred, decided):** full eslint rules per §6 — `max-lines` 300, `max-lines-per-function` 40, `complexity` 10, `max-depth` 3, `max-params` 4 — wired across all 22 modules + `packages/*`; extend `check-boundaries` size scan to `modules/*`; flip warn-with-baseline to error. Expect existing oversize files (`toolLoop.ts`, `orchestrator.ts`, `roleRunner.ts`, `runs/service.ts`, `runs/resume.ts`) to need splitting.

@@ -5,7 +5,7 @@ import { IdempotencyLog } from "@stewart/run-state";
 import { runOrchestrated } from "@stewart/orchestration";
 import { buildRunRuntime } from "./runtime.js";
 import { timeCapMessage } from "./consts.js";
-import type { Run, RunService, RunStatus } from "./service.js";
+import type { Run, RunHost, RunStatus } from "./types.js";
 
 export interface OrchestratedRequest {
   config: Config;
@@ -19,7 +19,7 @@ export interface OrchestratedRequest {
 
 /** Orchestrated strategy: the Orchestrator routes work through `dispatch`. */
 export const orchestratedStrategy = {
-  async start(svc: RunService, projectId: string, req: OrchestratedRequest): Promise<Run> {
+  async start(svc: RunHost, projectId: string, req: OrchestratedRequest): Promise<Run> {
     const run: Run = {
       id: req.runId ?? svc.deps.ids.next("run"),
       projectId,
@@ -41,7 +41,7 @@ export const orchestratedStrategy = {
 };
 
 async function drive(
-  svc: RunService,
+  svc: RunHost,
   run: Run,
   req: { config: Config; channelFor(channelId: string): ManagedChannel; text: string; profile?: BudgetProfile },
 ): Promise<void> {

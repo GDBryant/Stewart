@@ -1,7 +1,7 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, type SetupContext } from "@stewart/setup";
-import type { Core } from "../core.js";
+import type { CoreCtx } from "./types.js";
 import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
 
 export function handleHello(params: unknown): unknown {
@@ -11,7 +11,7 @@ export function handleHello(params: unknown): unknown {
   return { protocol: PROTOCOL_VERSION, capabilities: r.capabilities };
 }
 
-export async function handleChannelTest(core: Core, params: unknown): Promise<unknown> {
+export async function handleChannelTest(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; channelId: string };
   const ch = core.managed.get(p.channelId);
   if (!ch) return { ok: false, error: "channel not configured or disabled" };
@@ -23,7 +23,7 @@ export async function handleChannelTest(core: Core, params: unknown): Promise<un
   }
 }
 
-export async function handleChannelProbe(core: Core, params: unknown): Promise<unknown> {
+export async function handleChannelProbe(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean };
   const ctx = core.ctx(p.projectId);
   const ch = core.managed.get(p.channelId);
@@ -49,7 +49,7 @@ export async function handleChannelProbe(core: Core, params: unknown): Promise<u
   }
 }
 
-export async function handleSetupRecommend(core: Core, params: unknown): Promise<unknown> {
+export async function handleSetupRecommend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as {
     projectId: string;
     mode?: "rules" | "ai";

@@ -20,9 +20,12 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r typecheck
       - run: pnpm -r test
+      - run: pnpm run test:coverage
       - run: pnpm run test:scripts
       - run: pnpm run check:layers
       - run: pnpm run check:boundaries
+      - run: pnpm run check:cycles
+      - run: pnpm run check:tsrefs
       - run: pnpm --filter stewart run package
         working-directory: hosts/vscode
 

@@ -6,10 +6,12 @@
   "scripts": {
     "test": "vitest run",
     "build": "echo no-build",
-    "typecheck": "echo ok"
+    "typecheck": "echo ok",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "22.19.0",
+    "@vitest/coverage-v8": "3.2.4",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   },

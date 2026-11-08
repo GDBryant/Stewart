@@ -1,5 +1,24 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "out", "types": ["node"] },
-  "include": ["src"]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "out",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../../packages/webview"
+    }
+  ]
 }

@@ -4,12 +4,12 @@ import { CATALOG_UPDATED, lookupModelInfo } from "@stewart/catalog";
 import { mergeProbeCaps } from "@stewart/models";
 import type { Config } from "@stewart/roles-skills";
 import { scanWorkspace, type WorkspaceInfo } from "@stewart/setup";
-import type { Core, ProjectCtx } from "../core.js";
+import type { CoreCtx, ProjectCtx } from "./types.js";
 
 const WS_SCAN_TTL_MS = 24 * 3_600_000;
 
 /** Workspace scan cache (24h TTL) shared by setup.recommend and the task classifier. */
-export async function workspaceInfoFor(core: Core, ctx: ProjectCtx, projectId: string): Promise<WorkspaceInfo | undefined> {
+export async function workspaceInfoFor(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<WorkspaceInfo | undefined> {
   const hit = core.wsScan.get(projectId);
   if (hit && core.clock.now() - hit.at < WS_SCAN_TTL_MS) return hit.info;
   try {
@@ -21,7 +21,7 @@ export async function workspaceInfoFor(core: Core, ctx: ProjectCtx, projectId: s
   }
 }
 
-export function applyProbes(core: Core, config: Config): Config {
+export function applyProbes(core: CoreCtx, config: Config): Config {
   for (const ch of config.channels) {
     for (const [key, entry] of core.probeCache.entries()) {
       if (!key.startsWith(`${ch.id}:`)) continue;
@@ -33,7 +33,7 @@ export function applyProbes(core: Core, config: Config): Config {
 }
 
 /** Live provider pricing wins over the bundled catalog; either may be absent. */
-export async function catalogFor(core: Core, ch: ManagedChannel, model: string): Promise<(ModelInfo & { source: string }) | undefined> {
+export async function catalogFor(core: CoreCtx, ch: ManagedChannel, model: string): Promise<(ModelInfo & { source: string }) | undefined> {
   if (!core.priceCache.has(ch.cfg.id)) {
     core.priceCache.set(ch.cfg.id, await ch.priceList().catch(() => undefined));
   }
@@ -43,7 +43,7 @@ export async function catalogFor(core: Core, ch: ManagedChannel, model: string):
   return info ? { ...info, source: `catalog ${CATALOG_UPDATED}` } : undefined;
 }
 
-export function channelById(core: Core, channelId: string): ManagedChannel {
+export function channelById(core: CoreCtx, channelId: string): ManagedChannel {
   const ch = core.managed.get(channelId);
   if (!ch) throw new Error(`channel ${channelId} not configured`);
   return ch;

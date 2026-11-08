@@ -11,11 +11,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json --composite false --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "devDependencies": {
     "@types/node": "22.19.0",
+    "@vitest/coverage-v8": "3.2.4",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }

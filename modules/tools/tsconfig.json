@@ -2,9 +2,33 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "composite": true
   },
   "include": [
     "src"
+  ],
+  "references": [
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../context"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../permissions"
+    },
+    {
+      "path": "../roles-skills"
+    },
+    {
+      "path": "../run-state"
+    },
+    {
+      "path": "../scheduling"
+    }
   ]
 }

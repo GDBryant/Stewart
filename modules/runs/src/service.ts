@@ -7,7 +7,6 @@ import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { Grants, type GrantDecision, categoryOf, type ToolPreview } from "@stewart/permissions";
 import type { ApprovalDecision, RecoveryState } from "@stewart/agent-loop";
 import { RunLedger } from "@stewart/ledger";
-import type { TaskRecord } from "@stewart/scheduling";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
 import { createRecovery } from "@stewart/recovery";
@@ -16,33 +15,12 @@ import type { RunEvent } from "@stewart/protocol";
 import { directStrategy } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
 import { resumeStrategy, type ResumeRequest, type ResumeResult } from "./resume.js";
+import type { Run, RunDeps, RunHost } from "./types.js";
 
-export type RunStatus = "running" | "done" | "failed" | "cancelled" | "interrupted" | "stopped" | "no_dispatch";
-
-export interface Run {
-  id: string;
-  projectId: string;
-  status: RunStatus;
-  controller: AbortController;
-  startedAt: number;
-  messages: ChatMessage[];
-  costUsd: number;
-  tasks?: TaskRecord[];
-  /** Direct-run agent id, journaled so `/resume` can rebind it. */
-  agentId?: string;
-  sessionId?: string;
-  externalRefs?: { tracker?: string; branch?: string; pr?: string };
-}
-
-export interface RunDeps {
-  host: HostPort;
-  clock: Clock;
-  ids: IdGen;
-  bus: { emit(ev: RunEvent): void };
-}
+export type { Run, RunDeps, RunStatus } from "./types.js";
 
 /** Owns runs for one project; direct, orchestrated and resume are RunStrategy objects on one shared pipeline. */
-export class RunService {
+export class RunService implements RunHost {
   private runs = new Map<string, Run>();
   private sessionGrants = new Grants();
   /** The one prompt owner (approval + ask_user cards). */

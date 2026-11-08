@@ -11,7 +11,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build all: `pnpm -r build`
 - Tests: `pnpm -r test`
 - Typecheck: `pnpm -r typecheck`
-- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export) + `pnpm check:boundaries` (core file size); both run in CI
+- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export), `pnpm check:boundaries` (core file size), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`); all run in CI
+- Coverage: `pnpm test:coverage` (per package ≥90% line, ≥80% branch)
 - New module: `node scripts/new-module.mjs <name> "<purpose>"`, then add it to `scripts/layers.json` and fill its `README.md`
 - JetBrains: `./gradlew test koverVerify buildPlugin`; JCEF e2e: `./gradlew test -Pe2e` (needs display/xvfb)
 - Build + install: `./scripts/build-install.sh`
@@ -49,5 +50,5 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Stack: TypeScript pnpm monorepo (`packages/*` shared, `hosts/*` per-IDE); JetBrains plugin module in Kotlin added at M2.
 - Docs live in `docs/`; add a reference here when adding one.
 - New code always gets tests for both positive and negative cases.
-- Every change ships tests (positive + negative). Coverage target ≥90% line, ≥80% branch; vitest coverage gate lands with CI.
+- Every change ships tests (positive + negative). Coverage target ≥90% line, ≥80% branch; enforced per package by `pnpm test:coverage` in CI.
 - New tool-call formats: add to the TS parser with a verbatim fixture test.

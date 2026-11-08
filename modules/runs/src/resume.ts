@@ -7,7 +7,7 @@ import type { RunRuntime } from "@stewart/agent-loop";
 import { loadProjectContext } from "@stewart/context";
 import { buildRunRuntime } from "./runtime.js";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
-import type { Run, RunService } from "./service.js";
+import type { Run, RunHost } from "./types.js";
 
 export interface ResumeRequest {
   config: Config;
@@ -23,7 +23,7 @@ export interface ResumeResult {
 
 /** Resume strategy: replays a journaled task graph; interrupted tasks re-dispatch under their original ids. */
 export const resumeStrategy = {
-  async start(svc: RunService, projectId: string, runId: string, req: ResumeRequest): Promise<ResumeResult> {
+  async start(svc: RunHost, projectId: string, runId: string, req: ResumeRequest): Promise<ResumeResult> {
     const live = svc.get(runId);
     if (live && live.status !== "interrupted") return { ok: false, reason: `run is ${live.status}` };
     const stateDir = await svc.deps.host.workspace.stateDir();

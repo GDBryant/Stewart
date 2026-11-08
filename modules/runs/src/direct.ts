@@ -11,7 +11,7 @@ import type { RecoveryState } from "@stewart/agent-loop";
 import { loadProjectContext } from "@stewart/context";
 import { buildRunRuntime } from "./runtime.js";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
-import type { Run, RunService, RunStatus } from "./service.js";
+import type { Run, RunHost, RunStatus } from "./types.js";
 
 export interface DirectRequest {
   channel: ManagedChannel;
@@ -27,7 +27,7 @@ export interface DirectRequest {
 
 /** Direct-mode strategy: a single task of the chat role through `runRoleTask` (same runtime as orchestrated runs). */
 export const directStrategy = {
-  async start(svc: RunService, projectId: string, req: DirectRequest): Promise<Run> {
+  async start(svc: RunHost, projectId: string, req: DirectRequest): Promise<Run> {
     const run: Run = {
       id: svc.deps.ids.next("run"),
       projectId,
@@ -50,7 +50,7 @@ export const directStrategy = {
   },
 };
 
-async function drive(svc: RunService, run: Run, req: DirectRequest): Promise<void> {
+async function drive(svc: RunHost, run: Run, req: DirectRequest): Promise<void> {
   const bus = svc.deps.bus;
   const runId = run.id;
   const ledger = await svc.ledgerFor();

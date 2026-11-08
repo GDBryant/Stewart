@@ -21,3 +21,4 @@ coverage/
 *.vsix
 hosts/vscode/webview/
 *.vsix
+*.tsbuildinfo

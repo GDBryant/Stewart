@@ -15,14 +15,15 @@ w("package.json", JSON.stringify({
   name: `@stewart/${name}`, version: "0.1.0", private: true, type: "module",
   exports: { ".": { types: "./dist/api.d.ts", default: "./dist/api.js" } },
   scripts: {
-    build: "tsc -p tsconfig.json", typecheck: "tsc -p tsconfig.json --noEmit",
-    test: "vitest run --passWithNoTests",
+    build: "tsc -p tsconfig.json", typecheck: "tsc -p tsconfig.json --composite false --noEmit",
+    test: "vitest run --passWithNoTests", "test:coverage": "vitest run --coverage --passWithNoTests",
   },
-  devDependencies: { "@types/node": "22.19.0", typescript: "5.9.3", vitest: "3.2.4" },
+  devDependencies: { "@types/node": "22.19.0", "@vitest/coverage-v8": "3.2.4", typescript: "5.9.3", vitest: "3.2.4" },
 }, null, 2) + "\n");
 w("tsconfig.json", JSON.stringify({
   extends: "../../tsconfig.base.json",
-  compilerOptions: { outDir: "dist", rootDir: "src" }, include: ["src"],
+  compilerOptions: { outDir: "dist", rootDir: "src", composite: true }, include: ["src"],
 }, null, 2) + "\n");
 w("src/api.ts", `// Public surface of @stewart/${name}. Only this file is importable from outside.\nexport {};\n`);
+w("vitest.config.ts", `import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["test/**/*.test.ts"], coverage: { provider: "v8", include: ["src/**"], thresholds: { lines: 90, branches: 80 } } } });\n`);
 w("README.md", `# @stewart/${name}\n\n- Purpose: ${purpose}\n- Surface: \`src/api.ts\`\n- Owns: TODO\n- Depends on: see \`package.json\` (lower layers only; \`scripts/layers.json\`)\n- Fake it: TODO\n`);

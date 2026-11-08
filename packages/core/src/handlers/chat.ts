@@ -3,10 +3,10 @@ import { composeRolePrompt } from "@stewart/roles-skills";
 import { budgetProfile, classifyTask } from "@stewart/budget";
 import { recoveryState } from "@stewart/agent-loop";
 import { parseChatCommand } from "@stewart/runs";
-import type { Core } from "../core.js";
+import type { CoreCtx } from "./types.js";
 import { channelById, pickChatAgent, workspaceInfoFor } from "./util.js";
 
-export async function handleChatSend(core: Core, params: unknown): Promise<unknown> {
+export async function handleChatSend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
   const ctx = core.ctx(p.projectId);
   const cmd = parseChatCommand(p.text, p.profile);
@@ -58,12 +58,12 @@ export async function handleChatSend(core: Core, params: unknown): Promise<unkno
   return { runId: run.id };
 }
 
-export function handleChatCancel(core: Core, params: unknown): unknown {
+export function handleChatCancel(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; runId: string };
   return { ok: core.ctx(p.projectId).runs.cancel(p.runId) };
 }
 
-export async function handleChatResume(core: Core, params: unknown): Promise<unknown> {
+export async function handleChatResume(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; runId: string };
   const ctx = core.ctx(p.projectId);
   const res = await ctx.runs.resume(p.projectId, p.runId, {
@@ -73,34 +73,34 @@ export async function handleChatResume(core: Core, params: unknown): Promise<unk
   return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
 }
 
-export function handleChatRevert(core: Core, params: unknown): unknown {
+export function handleChatRevert(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; runId: string };
   return core.ctx(p.projectId).runs.revert(p.runId);
 }
 
-export function handleChatAnswer(core: Core, params: unknown): unknown {
+export function handleChatAnswer(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; questionId: string; answer: string };
   return { ok: core.ctx(p.projectId).runs.answer(p.questionId, p.answer) };
 }
 
-export function handleChatApprove(core: Core, params: unknown): unknown {
+export function handleChatApprove(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" };
   return { ok: core.ctx(p.projectId).runs.approve(p.approvalId, p.grant) };
 }
 
-export async function handleHistoryList(core: Core, params: unknown): Promise<unknown> {
+export async function handleHistoryList(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string };
   const store = await core.ctx(p.projectId).runs.historyStore();
   return { sessions: await store.list() };
 }
 
-export async function handleHistoryLoad(core: Core, params: unknown): Promise<unknown> {
+export async function handleHistoryLoad(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
   const store = await core.ctx(p.projectId).runs.historyStore();
   return { messages: (await store.load(p.sessionId)) ?? [] };
 }
 
-export async function handleHistoryDelete(core: Core, params: unknown): Promise<unknown> {
+export async function handleHistoryDelete(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
   const store = await core.ctx(p.projectId).runs.historyStore();
   await store.delete(p.sessionId);
