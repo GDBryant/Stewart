@@ -10,7 +10,8 @@ describe("pre-image snapshots", () => {
     files["a.ts"] = "changed";
     files["new.ts"] = "created";
     const restored = await revertRunSnapshots(host, ".stewart", "r1");
-    expect(restored.sort()).toEqual(["a.ts", "new.ts"]);
+    expect(restored.ok).toBe(true);
+    if (restored.ok) expect(restored.value.sort()).toEqual(["a.ts", "new.ts"]);
     expect(files["a.ts"]).toBe("old");
     expect(files["new.ts"]).toBeUndefined();
   });
@@ -21,7 +22,7 @@ describe("pre-image snapshots", () => {
     await recordPreImage(host, ".stewart", "r1", "a.ts");
     await revertRunSnapshots(host, ".stewart", "r1");
     expect(files["a.ts"]).toBe("v1");
-    expect(await revertRunSnapshots(host, ".stewart", "none")).toEqual([]);
+    expect(await revertRunSnapshots(host, ".stewart", "none")).toEqual({ ok: true, value: [] });
     expect(snapshotName("src/a/b.ts")).toBe("src__a__b.ts");
   });
 });

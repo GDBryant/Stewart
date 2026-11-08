@@ -1,3 +1,5 @@
+import { err, ok, type Result } from "@stewart/kernel";
+
 /** Task DAG for one run: dependency validation, readiness, per-channel parallelism. */
 export interface TaskSpec {
   id: string;
@@ -32,11 +34,11 @@ export interface TaskRecord extends TaskSpec {
 export class TaskGraph {
   private tasks = new Map<string, TaskRecord>();
 
-  add(spec: TaskSpec): TaskRecord {
-    if (this.tasks.has(spec.id)) throw new Error(`duplicate task id: ${spec.id}`);
+  add(spec: TaskSpec): Result<TaskRecord> {
+    if (this.tasks.has(spec.id)) return err("duplicate_task_id", `duplicate task id: ${spec.id}`);
     const rec: TaskRecord = { ...spec, status: "pending", filesTouched: [] };
     this.tasks.set(spec.id, rec);
-    return rec;
+    return ok(rec);
   }
 
   get(id: string): TaskRecord | undefined {

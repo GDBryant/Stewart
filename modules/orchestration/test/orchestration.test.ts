@@ -149,7 +149,7 @@ describe("TaskGraph", () => {
   it("rejects duplicate ids", () => {
     const g = new TaskGraph();
     g.add({ id: "t1", roleId: "r", title: "t", task: "x", files: [], dependsOn: [] });
-    expect(() => g.add({ id: "t1", roleId: "r", title: "t", task: "x", files: [], dependsOn: [] })).toThrow(/duplicate/);
+    expect(g.add({ id: "t1", roleId: "r", title: "t", task: "x", files: [], dependsOn: [] }).ok).toBe(false);
   });
 
   it("reports unknown dependencies and cycles", () => {

@@ -39,7 +39,7 @@ describe("revertRunSnapshots edge cases", () => {
     files["ok.ts"] = "after";
     files["gone.ts"] = "after";
     const restored = await revertRunSnapshots(host, ".stewart", "r1");
-    expect(restored).toEqual(["ok.ts"]);
+    expect(restored).toEqual({ ok: true, value: ["ok.ts"] });
     expect(files["ok.ts"]).toBe("prior");
     expect(files["gone.ts"]).toBe("after");
   });

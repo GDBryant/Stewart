@@ -5,6 +5,7 @@ import type { BudgetProfile } from "@stewart/budget";
 import { IdempotencyLog } from "@stewart/run-state";
 import type { RunRuntime } from "@stewart/agent-loop";
 import { buildRunRuntime } from "./runtime.js";
+import { runHandle, type RunHandle } from "./handle.js";
 import type { Run, RunHost, RunStatus } from "./types.js";
 
 export interface PlanCtx {
@@ -35,17 +36,19 @@ export interface RunStrategy<Req> {
 }
 
 /** The one pipeline: plan → register + run.started → idem + journal + runtime → execute → finish (status, costUsd, journal, saveHistory, run.finished). Exceptions → failed. */
-export async function runPipeline<Req>(svc: RunHost, strategy: RunStrategy<Req>, projectId: string, req: Req): Promise<{ ok: true; run: Run } | Refusal> {
+export async function runPipeline<Req>(svc: RunHost, strategy: RunStrategy<Req>, projectId: string, req: Req): Promise<{ ok: true; run: Run; handle: RunHandle } | Refusal> {
   const ledger = await svc.ledgerFor();
   const stateDir = await svc.deps.host.workspace.stateDir();
   const ctx: PlanCtx = { stateDir, ledger };
   const plan = await strategy.plan(svc, projectId, req, ctx);
   if ("reason" in plan) return plan;
   const { run } = plan;
+  const handle = runHandle(svc.deps.bus, run.id);
+  run.handle = handle;
   svc.register(run);
   svc.deps.bus.emit({ kind: "run.started", runId: run.id, title: plan.title.slice(0, 80), ...(plan.profileName ? { profile: plan.profileName } : {}) });
   void drive(svc, strategy, run, plan, req, ctx);
-  return { ok: true, run };
+  return { ok: true, run, handle };
 }
 
 async function drive<Req>(svc: RunHost, strategy: RunStrategy<Req>, run: Run, plan: RunPlan, req: Req, ctx: PlanCtx): Promise<void> {

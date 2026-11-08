@@ -14,6 +14,5 @@ export * from "@stewart/permissions";
 export * from "@stewart/toolcall-format";
 export * from "@stewart/ledger";
 export * from "@stewart/context";
-export * from "./v1import.js";
 export * from "@stewart/setup";
 export { loadConfig, type Config } from "@stewart/roles-skills";

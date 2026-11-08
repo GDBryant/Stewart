@@ -159,7 +159,9 @@ export class RunService implements RunHost {
       return { ok: false, filesRestored: [], reason: "run is still running" };
     }
     const stateDir = await this.deps.host.workspace.stateDir();
-    const filesRestored = await revertRunSnapshots(this.deps.host, stateDir, runId);
+    const r = await revertRunSnapshots(this.deps.host, stateDir, runId);
+    if (!r.ok) return { ok: false, filesRestored: [], reason: r.error.message };
+    const filesRestored = r.value;
     if (filesRestored.length === 0) {
       return { ok: false, filesRestored: [], reason: "no snapshots for run" };
     }

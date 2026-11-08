@@ -16,7 +16,7 @@ describe("TaskGraph", () => {
     const g = new TaskGraph();
     g.add(spec("a", ["b"]));
     g.add(spec("b", ["a"]));
-    expect(() => g.add(spec("a"))).toThrow(/duplicate/);
+    expect(g.add(spec("a")).ok).toBe(false);
     expect(g.validate().join()).toMatch(/cycle/);
     const h = new TaskGraph();
     h.add(spec("x", ["nope"]));

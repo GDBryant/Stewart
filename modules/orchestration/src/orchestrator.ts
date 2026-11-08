@@ -256,7 +256,9 @@ class OrchestratedRun {
     const role = resolveRole(rt, spec.roleId);
     if (!role) return Promise.resolve({ status: "failed", summary: `no enabled role for '${spec.roleId}' and no General Worker fallback`, filesTouched: [] } as TaskResult);
     if (rt.planGate && !this.planApproved && isWriteCapableRole(role)) {
-      const rec = this.graph.add({ ...spec, roleId: role.id });
+      const added = this.graph.add({ ...spec, roleId: role.id });
+      if (!added.ok) return Promise.resolve({ status: "failed", summary: added.error.message, filesTouched: [] });
+      const rec = added.value;
       rec.status = "failed";
       const r: TaskResult = { status: "failed", summary: "plan gate active: plan must be validated and approved before dispatching write tasks", filesTouched: [] };
       rec.summary = r.summary;
@@ -266,7 +268,9 @@ class OrchestratedRun {
       rt.bus.emit({ kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: r.summary });
       return Promise.resolve(r);
     }
-    const rec = this.graph.add({ ...spec, roleId: role.id });
+    const added = this.graph.add({ ...spec, roleId: role.id });
+    if (!added.ok) return Promise.resolve({ status: "failed", summary: added.error.message, filesTouched: [] });
+    const rec = added.value;
     rt.leases.register(rec.id);
     void this.syncGraph();
     rt.bus.emit({ kind: "task.created", runId: rt.runId, taskId: rec.id, roleId: role.id, title: rec.title, dependsOn: rec.dependsOn });

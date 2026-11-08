@@ -6,3 +6,5 @@ export type { OrchestratedRequest } from "./orchestrated.js";
 export type { ResumeRequest, ResumeResult } from "./resume.js";
 export { parseChatCommand } from "./parseCommand.js";
 export type { ChatCommand } from "./parseCommand.js";
+export { runHandle } from "./handle.js";
+export type { RunHandle } from "./handle.js";

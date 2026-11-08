@@ -49,9 +49,8 @@ export function leasedTools(
         const effectivePreview = waited && basePreview && preview?.kind === "file" ? await basePreview(args) : preview;
         if (!snapshotted.has(path)) {
           snapshotted.add(path);
-          await recordPreImage(deps.host, deps.stateDir, deps.runId, path).catch(() => {
-            /* snapshot is best-effort; a missing pre-image must not block the write */
-          });
+          /* snapshot is best-effort; a missing pre-image must not block the write */
+          await recordPreImage(deps.host, deps.stateDir, deps.runId, path);
         }
         return base(args, effectivePreview, signal);
       },
