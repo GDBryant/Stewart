@@ -172,6 +172,21 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  modules/code-health:
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   modules/compaction:
     dependencies:
       '@stewart/kernel':
@@ -344,6 +359,9 @@ importers:
       '@stewart/channels':
         specifier: workspace:*
         version: link:../channels
+      '@stewart/code-health':
+        specifier: workspace:*
+        version: link:../code-health
       '@stewart/compaction':
         specifier: workspace:*
         version: link:../compaction
@@ -643,6 +661,9 @@ importers:
 
   modules/tools:
     dependencies:
+      '@stewart/code-health':
+        specifier: workspace:*
+        version: link:../code-health
       '@stewart/config':
         specifier: workspace:*
         version: link:../config

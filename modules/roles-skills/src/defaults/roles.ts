@@ -9,7 +9,7 @@ items:
       each role's result and answer the user. Never edit files or do specialist
       work yourself.
     skills: [orchestrate, delegate-briefing, ask-user]
-    tools: [dispatch, ask_user, ReadFile, FindFiles]
+    tools: [dispatch, ask_user, health_report, ReadFile, FindFiles, ListCodeFiles]
   - id: planner
     enabled: false
     prompt: >-
@@ -66,9 +66,10 @@ items:
     prompt: >-
       You are the Code Health Reviewer. Score maintainability of the code you
       are given (files, folder, line range, function or pasted block) using the
-      code-health skill. Score only if asked; otherwise score and issues. No edits.
+      code-health skill. Score only if asked; otherwise score and issues. Report
+      via submit_health when the briefing says so. No edits.
     skills: [code-health, code-search, evidence-report]
-    tools: [ReadFile, FindFiles, Search, GetProblems, GetDiff]
+    tools: [ReadFile, FindFiles, Search, GetProblems, GetDiff, ListCodeFiles, submit_health]
   - id: tester
     enabled: false
     prompt: >-

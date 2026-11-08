@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   baseHashFor, composeRolePrompt, hashBody, parseSkillMd, resolveSkills, serializeSkillMd, shippedSkill, TRUNCATED_MARKER,
 } from "../src/api.js";
-import { DEFAULT_SKILLS } from "../src/api.js";
+import { DEFAULT_SKILLS, DEFAULT_ROLES_YAML } from "../src/api.js";
+import { parse as parseYaml } from "yaml";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -106,6 +107,22 @@ describe("composeRolePrompt", () => {
   });
 });
 
+describe("orchestrate skill", () => {
+  const body = () => shippedSkill("orchestrate")!.body;
+  it("states the project health-check procedure", () => {
+    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs"]) expect(body()).toContain(x);
+  });
+  it("does not mention phases", () => {
+    expect(body()).not.toContain("phase");
+  });
+  it("the shipped orchestrator prompt is not truncated at the default budget", () => {
+    const skills = resolveSkills({}, undefined);
+    const orchestrator = (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items.find((r) => r.id === "orchestrator")!;
+    const { truncated } = composeRolePrompt(orchestrator, skills, 8000);
+    expect(truncated).toBe(false);
+  });
+});
+
 describe("code-health skill", () => {
   const body = () => shippedSkill("code-health")!.body;
   it("ships with a non-empty body distinct from code-review", () => {
@@ -136,5 +153,9 @@ describe("code-health skill", () => {
   });
   it("stays under the size budget", () => {
     expect(body().length).toBeLessThan(2600);
+  });
+  it("covers listed-file scope and the submit_health path", () => {
+    expect(body()).toContain("every listed file");
+    expect(body()).toContain("submit_health");
   });
 });

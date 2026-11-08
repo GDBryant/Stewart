@@ -59,6 +59,51 @@ describe("Search", () => {
   });
 });
 
+describe("ListCodeFiles", () => {
+  it("returns source files LOC-desc with tab separators", async () => {
+    const { reg } = await setup({ "src/big.ts": "a\nb\nc", "src/small.ts": "a", "lib/x.py": "a\nb", "README.md": "doc" });
+    const t = reg.find("ListCodeFiles")!;
+    const out = (await t.execute({}, null, sig)) as string;
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("src/big.ts\t3");
+    expect(lines[1]).toBe("lib/x.py\t2");
+    expect(lines[2]).toBe("src/small.ts\t1");
+    expect(out).not.toContain("README.md");
+  });
+
+  it("excludes dist, tests and dotdirs; include_tests adds them back", async () => {
+    const { reg } = await setup({
+      "src/a.ts": "x",
+      "dist/a.js": "x",
+      "src/a.test.ts": "x",
+      "test/util.ts": "x",
+      ".hidden/b.ts": "x",
+      "node_modules/m/index.js": "x",
+      "src/a.d.ts": "x",
+    });
+    const t = reg.find("ListCodeFiles")!;
+    expect(await t.execute({}, null, sig)).toBe("src/a.ts\t1");
+    const withTests = (await t.execute({ include_tests: true }, null, sig)) as string;
+    expect(withTests).toContain("src/a.test.ts\t1");
+    expect(withTests).toContain("test/util.ts\t1");
+    expect(withTests).not.toContain("dist/a.js");
+    expect(withTests).not.toContain(".hidden/b.ts");
+  });
+
+  it("scopes to path and rejects escapes", async () => {
+    const { reg } = await setup({ "src/a.ts": "x", "other/b.ts": "x" });
+    const t = reg.find("ListCodeFiles")!;
+    expect(await t.execute({ path: "src" }, null, sig)).toBe("src/a.ts\t1");
+    await expect(t.execute({ path: "../out" }, null, sig)).rejects.toThrow(/escapes workspace/);
+  });
+
+  it("reports oversize files as ?", async () => {
+    const { reg } = await setup({ "huge.ts": "x".repeat(1_000_001), "a.ts": "x" });
+    const t = reg.find("ListCodeFiles")!;
+    expect(await t.execute({}, null, sig)).toBe("a.ts\t1\nhuge.ts\t?");
+  });
+});
+
 describe("WriteFile / EditFile", () => {
   it("writes a new file via preview+execute", async () => {
     const { reg, files } = await setup({});

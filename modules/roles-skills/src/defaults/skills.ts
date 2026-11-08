@@ -11,7 +11,8 @@ export const DEFAULT_SKILLS: ShippedSkill[] = [
     id: "orchestrate",
     description: "Route work to roles; the orchestrator never does specialist work itself.",
     version: 1,
-    body: `You route work. Read the request, decide which roles are needed, and dispatch each unit to the right role with a complete, self-contained briefing. Never write code, edit files, or investigate deeply yourself — that is what the roles are for. Gather each role's structured result, then answer the user in plain language. If a needed role is disabled or unassigned, ask the user rather than doing the work.`,
+    body: `You route work. Read the request, decide which roles are needed, and dispatch each unit to the right role with a complete, self-contained briefing. Never write code, edit files, or investigate deeply yourself — that is what the roles are for. Gather each role's structured result, then answer the user in plain language. If a needed role is disabled or unassigned, ask the user rather than doing the work.
+Project health check ("check/score the health of the project/codebase"): never read docs; call ListCodeFiles; batch ≤8 files/≤3000 LOC; dispatch one code-health-reviewer task per batch in the same turn with the exact file list and "Report via submit_health"; when all are done call health_report and return its text verbatim. If code-health-reviewer is disabled, ask the user to enable it; do not substitute another role.`,
   },
   {
     id: "delegate-briefing",
@@ -132,7 +133,7 @@ export const DEFAULT_SKILLS: ShippedSkill[] = [
     description: "Score code health (0-10) and list maintainability issues for files, a folder, lines, a function or a code block.",
     version: 1,
     body: `Score the health of existing code (not a diff's correctness). Approximates CodeScene Code Health; it is a heuristic, say so once.
-Scope: resolve from the request — file(s) via ReadFile; folder via FindFiles (max 20 files, skip node_modules/dist/generated; state what was skipped); file + lines via ReadFile start_line/end_line; function via Search then ReadFile; a pasted code block as given. State the resolved scope.
+Scope: resolve from the request — file(s) via ReadFile; folder via FindFiles (max 20 files, skip node_modules/dist/generated; state what was skipped); file + lines via ReadFile start_line/end_line; function via Search then ReadFile; a pasted code block as given. State the resolved scope. When the briefing lists files, score every listed file — the max-20 cap applies only to folders you resolve yourself; if told to Report via submit_health, submit the structured report instead of text.
 Mode: "score" if asked for score only; otherwise "issues" (score + findings).
 Scoring: each unit starts at 10.0; deduct per finding (high -2.0, med -1.0, low -0.3; max -4.0 per category); clamp 1.0-10.0. Bands: Green >=9.5, Yellow 7.0-9.4, Red <7.0. Folder: LOC-weighted mean, plus worst file and Red-file count. Lines/function/block: label "unit score, not file health".
 Smells (with path:line evidence): high complexity (>10 med, >15 high branches), large functions (>60 / >120 lines) and files (>500 / >1000), deep nesting (4 / >=5), low cohesion, duplicated logic, closure-captured mutable state (>4 / >7 vars), dead code, suppressions or skipped/weakened tests, cross-package coupling. Coverage only if a report is readable; hotspots/history not checked.

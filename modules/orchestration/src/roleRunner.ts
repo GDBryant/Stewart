@@ -22,7 +22,7 @@ import { loadProjectContext } from "@stewart/context";
 import type { TaskSpec } from "@stewart/scheduling";
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
-const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements"]);
+const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements", "submit_health"]);
 
 /** Deterministic prefix order: role prompt + skills, bounded AGENTS.md + memory, then the briefing. */
 export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): Promise<string> {

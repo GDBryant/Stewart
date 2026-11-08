@@ -22,11 +22,12 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
+    "@stewart/code-health": "workspace:*",
+    "@stewart/config": "workspace:*",
+    "@stewart/context": "workspace:*",
     "@stewart/kernel": "workspace:*",
     "@stewart/permissions": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
-    "@stewart/config": "workspace:*",
-    "@stewart/context": "workspace:*",
     "@stewart/run-state": "workspace:*",
     "@stewart/scheduling": "workspace:*"
   }

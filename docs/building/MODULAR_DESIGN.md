@@ -29,7 +29,7 @@ L7   agents       orchestration · recovery · setup
 L6   loop         agent-loop (also declares the `Recovery` interface and fault types)
 L5   tools        tools (uses `context` for image limits)
 L4   engine       compaction · context
-L2b  domain       roles-skills · channels · budget · ledger · permissions · scheduling · run-state
+L2b  domain       roles-skills · code-health · channels · budget · ledger · permissions · scheduling · run-state
 L2a  domain base  models · interaction
 L1   platform     config · catalog · toolcall-format · diagnostics
 L0   kernel       Result, errors, ids, Clock, IdGen, EventBus, schema helpers, HostPort types
@@ -64,13 +64,14 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 3 | `ledger` | append-only cost ledger, cost limit | `RunLedger`, `CostLimit`, `costOfCall` | kernel |
 | 3 | `permissions` | categories, grants (once/chat/always), tool previews, shell splitter, approval gate | `Permissions` (decide/ask/gate), `Grants`, `categoryOf`, `splitShellPrograms` | kernel, interaction |
 | 3 | `roles-skills` | role + skill definitions, validation, tool filter, `writePaths`, copy-on-write, prompt composition, effective config (`loadConfig` + skills + role validation) | `loadConfig`, `composeRolePrompt`, role/skill helpers | kernel, config, models |
+| 3 | `code-health` | health report types, inventory batching, LOC-weighted aggregation, Markdown render, request routing + source-file filters | `bandFor`, `batchInventory`, `mergeReports`, `aggregate`, `renderReport`, `isHealthCheckRequest`, `isSourceFile` (pure) | — |
 | 3 | `scheduling` | `TaskGraph`, `LeaseManager`, deadlock detection | `TaskGraph`, `LeaseManager` (pure) | — |
 | 3 | `run-state` | idempotency log, pre-image snapshots/revert, chat history | `IdempotencyLog`, `revertRunSnapshots`, `ChatHistoryStore` | kernel |
 | 4 | `compaction` | prune / summarize / clip as pure message transforms | pure functions | kernel |
 | 4 | `context` | `@mentions`, image limits, `AGENTS.md`/`MEMORY.md` bounds | `expandMentions`, `normalizeImages`, `loadProjectContext` | kernel |
-| 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), role guards, lease wrapper | `ToolRegistry`, `projectTools`, `roleRegistry`, `leasedTools` | kernel, config, context, permissions, roles-skills, run-state, scheduling |
+| 5 | `tools` | `ToolRegistry`, built-ins by group (fs-read, fs-write, process, media), role guards, lease wrapper | `ToolRegistry`, `projectTools`, `roleRegistry`, `leasedTools` | kernel, code-health, config, context, permissions, roles-skills, run-state, scheduling |
 | 6 | `agent-loop` | `ToolLoop` stream→parse→execute, `createAgentSession` (the only loop builder), fault classification; declares `OrchestrationRuntime`/`RunRuntime`, `Recovery` + fault types | `createAgentSession`, `createProbeLoop`, `classifyFault`, `Recovery`, runtime types | budget, channels, compaction, config, interaction, kernel, ledger, models, permissions, protocol, roles-skills, run-state, scheduling, toolcall-format, tools |
-| 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, compaction, config, context, interaction, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
+| 7 | `orchestration` | hub verbs, plan gate, nested dispatch, `ask_user` routing, role task runner, replacement ranking | `runOrchestrated`, `runRoleTask`, `orchestrationTools`, replacements | agent-loop, budget, channels, code-health, compaction, config, context, interaction, kernel, ledger, models, permissions, roles-skills, run-state, scheduling, tools |
 | 7 | `recovery` | fault classify, stuck check, layer 0/1, continue question; implements `Recovery` | `createRecovery`, `continueQuestion`, scratch helpers | agent-loop, config, interaction, kernel, permissions, roles-skills, scheduling, tools |
 | 7 | `setup` | rules scorer, AI-refined assignment, model benchmark, workspace/hardware scan (the five-phase session of §10 is not built) | `scoreAssignments`, `recommendAssignments`, `benchModel` (takes an injected `ProbeLoop`), `scanWorkspace` | catalog, channels, config, kernel, models, roles-skills |
 | 8 | `runs` | `RunService`: one pipeline, three strategies, cancel, revert, resume; slash-command parsing (`/direct /quick /deep`) | `RunService`, `parseChatCommand` | agent-loop, budget, channels, config, context, interaction, kernel, ledger, orchestration, permissions, protocol, recovery, roles-skills, run-state, scheduling |

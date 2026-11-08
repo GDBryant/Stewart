@@ -2,7 +2,7 @@
   "kernel": 0,
   "config": 1, "catalog": 1, "toolcall-format": 1, "diagnostics": 1,
   "models": 2, "interaction": 2,
-  "channels": 3, "budget": 3, "ledger": 3, "permissions": 3, "roles-skills": 3, "scheduling": 3, "run-state": 3,
+  "channels": 3, "budget": 3, "ledger": 3, "permissions": 3, "roles-skills": 3, "code-health": 3, "scheduling": 3, "run-state": 3,
   "compaction": 4, "context": 4,
   "tools": 5,
   "agent-loop": 6,

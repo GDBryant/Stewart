@@ -167,7 +167,7 @@ export async function recommendAssignments(
     rules.assignments.map((a) => `- ${a.role}: ${a.channel}:${a.model}`).join("\n") || "(none)",
     "",
     "Choose the best model for each role. Every role must appear; channel and model must come from the candidates above.",
-    "Prefer reasoning models for orchestrator, planner and plan-validator; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
+    "Prefer reasoning models for orchestrator, planner, plan-validator, code-reviewer and code-health-reviewer; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
   ].join("\n");
 
   const mc = managed.get(researcher.channel)!;

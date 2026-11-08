@@ -1,4 +1,5 @@
 import type { Json, ToolSpec } from "@stewart/kernel";
+import { isSourceFile } from "@stewart/code-health";
 import { MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS } from "./projectPaths.js";
 import { arg, optBool, optInt, schema, str, int, bool, ProjectTool } from "./toolBase.js";
 
@@ -98,6 +99,40 @@ export class FindFiles extends ProjectTool {
     }
     if (overflow > 0) results.push(`[${overflow} more]`);
     return results.length === 0 ? "no files matched" : results.join("\n");
+  }
+}
+
+export class ListCodeFiles extends ProjectTool {
+  spec: ToolSpec = {
+    name: "ListCodeFiles",
+    description: "Inventory project source files with line counts, sorted by LOC descending",
+    parameters: schema({ path: str, include_tests: bool }, []),
+  };
+  requiresApproval = false;
+
+  async execute(args: Json): Promise<string> {
+    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
+    const includeTests = optBool(args, "include_tests");
+    const entries: { path: string; loc: number | null }[] = [];
+    for (const rel of await this.paths.list(dir)) {
+      if (!isSourceFile(rel, { includeTests })) continue;
+      try {
+        const st = await this.paths.stat(rel);
+        if (st.size > MAX_FILE_BYTES) {
+          entries.push({ path: rel, loc: null });
+          continue;
+        }
+        const { content } = await this.paths.read(rel);
+        entries.push({ path: rel, loc: content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0) });
+      } catch {
+        entries.push({ path: rel, loc: null });
+      }
+    }
+    entries.sort((a, b) => (b.loc ?? -1) - (a.loc ?? -1));
+    const shown = entries.slice(0, MAX_FIND_RESULTS).map((e) => `${e.path}\t${e.loc ?? "?"}`);
+    if (entries.length > MAX_FIND_RESULTS) shown.push(`[${entries.length - MAX_FIND_RESULTS} more]`);
+    return shown.length === 0 ? "no source files" : shown.join("\n");
   }
 }
 

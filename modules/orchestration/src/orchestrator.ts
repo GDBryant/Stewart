@@ -18,6 +18,7 @@ import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { classifyFault } from "@stewart/agent-loop";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
+import { aggregate, isHealthCheckRequest, mergeReports, renderReport, type HealthReport } from "@stewart/code-health";
 import { freeCandidates, parseReplacements, rankDeterministic, validateReplacements, type Replacement } from "./replacements.js";
 
 export interface OrchestrationOutcome {
@@ -28,7 +29,7 @@ export interface OrchestrationOutcome {
 
 const ORCHESTRATION_ROLES = new Set(["orchestrator"]);
 /** Used when the orchestrator role lists no tools: routing only, never project tools. */
-export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements"];
+export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements", "health_report"];
 const ORCHESTRATOR_MAX_TOOL_OUTPUT = 4_000;
 
 /** Resolve an enabled role by id. Unknown or disabled ids return undefined; there is no silent fallback. */
@@ -61,6 +62,9 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   if (!orchestrator) return { status: "failed", error: "orchestrator role is not enabled", suggestions: [] };
   const agent = rt.config.agents.find((a) => a.id === orchestrator.agent);
   if (!agent) return { status: "failed", error: `role orchestrator: enabled but no agent bound`, suggestions: [] };
+  if (isHealthCheckRequest(userText) && !resolveRole(rt, "code-health-reviewer")) {
+    return { status: "failed", error: "code-health-reviewer is not enabled; enable it in roles.yaml or rerun setup", suggestions: [] };
+  }
   return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText).run();
 }
 
@@ -79,6 +83,7 @@ class OrchestratedRun {
   private milestoneCount = 0;
   private limitAnnounced = false;
   private planApproved = false;
+  private readonly healthReports = new Map<string, HealthReport>();
   private readonly handlers: OrchestrationHandlers;
 
   constructor(
@@ -102,6 +107,8 @@ class OrchestratedRun {
       submitPlan: (args) => this.submitPlan(args),
       submitVerdict: (args) => this.submitVerdict(args),
       submitReplacements: (args) => this.submitReplacements(args),
+      submitHealth: () => "Health reports are submitted by dispatched reviewer tasks.",
+      healthReport: (args) => this.healthReport(args),
     };
   }
 
@@ -401,6 +408,8 @@ class OrchestratedRun {
       submitPlan: (args) => this.handlers.submitPlan(args),
       submitVerdict: (args) => this.handlers.submitVerdict(args),
       submitReplacements: () => "Replacements are submitted by the Orchestrator.",
+      submitHealth: (args) => this.submitHealth(parentId, args),
+      healthReport: () => "Reports are aggregated by the Orchestrator.",
     }).filter((t) => (t.spec.name === "dispatch" ? canDispatch : wanted.includes(t.spec.name)));
   }
 
@@ -430,6 +439,29 @@ class OrchestratedRun {
     this.suggestions = validateReplacements(parseReplacements(args), candidates);
     for (const s of this.suggestions) rt.bus.emit({ kind: "cost.replaced", runId: rt.runId, roleId: s.role, agentId: s.agent, reason: s.reason });
     return `Replacements recorded: ${this.suggestions.map((s) => `${s.role}→${s.agent}`).join(", ") || "none valid"}`;
+  }
+
+  private submitHealth(taskId: string, report: HealthReport): string {
+    this.healthReports.set(taskId, report);
+    const a = aggregate(mergeReports([report]));
+    const worst = a.worst ? `, worst ${a.worst.path} ${a.worst.score}/10` : "";
+    return `Health report recorded: ${a.files} files, mean ${a.score}/10${worst}`;
+  }
+
+  private async healthReport(args: { mode?: "score" | "issues" }): Promise<string> {
+    if (this.healthReports.size === 0) return "No health reports recorded.";
+    const merged = mergeReports([...this.healthReports.values()]);
+    const missing = this.graph
+      .all()
+      .filter((t) => t.roleId === "code-health-reviewer" && !this.healthReports.has(t.id))
+      .map((t) => t.title);
+    const report: HealthReport = { ...merged, notChecked: [...merged.notChecked, ...missing] };
+    const rendered = renderReport(aggregate(report), report, args.mode ?? "issues");
+    const path = `.stewart/scratch/health/${this.rt.runId}.md`;
+    await this.rt.host.files.writeAtomic(path, rendered);
+    if (rendered.length <= ORCHESTRATOR_MAX_TOOL_OUTPUT) return rendered;
+    const tail = `\n… truncated, see ${path}`;
+    return rendered.slice(0, ORCHESTRATOR_MAX_TOOL_OUTPUT - tail.length) + tail;
   }
 
   /** Cost-cap resolution after the Orchestrator loop ends; returns an early outcome or null to continue. */
