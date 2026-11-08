@@ -139,9 +139,7 @@ export async function handleSecretSet(core: CoreCtx, params: unknown): Promise<u
   const ctx = core.ctx(p.projectId);
   await ctx.host.secrets.set(p.ref, p.value);
   core.secretValues.set(p.ref, p.value);
-  for (const c of ctx.config.channels) {
-    if (c.secretRef === p.ref) core.managed.get(c.id)?.setSecret(p.value);
-  }
+  core.channelService.setSecret(p.ref, p.value);
   return { ok: true };
 }
 
@@ -150,8 +148,6 @@ export async function handleSecretDelete(core: CoreCtx, params: unknown): Promis
   const ctx = core.ctx(p.projectId);
   await ctx.host.secrets.delete(p.ref);
   core.secretValues.delete(p.ref);
-  for (const c of ctx.config.channels) {
-    if (c.secretRef === p.ref) core.managed.get(c.id)?.setSecret(undefined);
-  }
+  core.channelService.setSecret(p.ref, undefined);
   return { ok: true };
 }

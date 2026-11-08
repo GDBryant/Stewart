@@ -8,5 +8,7 @@ export { ClaudeCliAdapter } from "./claude/adapter.js";
 export type { ClaudeDeps, ClaudeLoginState } from "./claude/adapter.js";
 export { nodeSpawn, makeTempDir, writeTempFile, rmDir } from "./claude/nodeSpawn.js";
 export type { SpawnedProc, SpawnFn } from "./claude/nodeSpawn.js";
+export { ChannelService } from "./service.js";
+export type { ChannelHealth, ChannelServiceDeps, ChannelSpec } from "./service.js";
 export { ClaudeStreamParser } from "./claude/parser.js";
 export type { ClaudeEvent } from "./claude/parser.js";

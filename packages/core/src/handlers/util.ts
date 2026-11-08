@@ -43,12 +43,6 @@ export async function catalogFor(core: CoreCtx, ch: ManagedChannel, model: strin
   return info ? { ...info, source: `catalog ${CATALOG_UPDATED}` } : undefined;
 }
 
-export function channelById(core: CoreCtx, channelId: string): ManagedChannel {
-  const ch = core.managed.get(channelId);
-  if (!ch) throw new Error(`channel ${channelId} not configured`);
-  return ch;
-}
-
 export function pickChatAgent(config: Config, role?: Config["roles"][number]): Config["agents"][number] {
   if (role) {
     if (!role.agent) throw new Error(`role ${role.id}: enabled but no agent bound`);

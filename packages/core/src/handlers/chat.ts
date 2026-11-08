@@ -4,7 +4,7 @@ import { budgetProfile, classifyTask } from "@stewart/budget";
 import { recoveryState } from "@stewart/agent-loop";
 import { parseChatCommand } from "@stewart/runs";
 import type { CoreCtx } from "./types.js";
-import { channelById, pickChatAgent, workspaceInfoFor } from "./util.js";
+import { pickChatAgent, workspaceInfoFor } from "./util.js";
 
 export async function handleChatSend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
@@ -27,7 +27,7 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   if (orchestrator && !direct) {
     const run = await ctx.runs.orchestrated(p.projectId, {
       config: ctx.config,
-      channelFor: (id) => channelById(core, id),
+      channelFor: (id) => core.channelService.require(id),
       text: mention.text,
       sessionId: p.sessionId,
       profile,
@@ -37,7 +37,7 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   }
   const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
   const agent = pickChatAgent(ctx.config, role);
-  const channel = channelById(core, agent.channel);
+  const channel = core.channelService.require(agent.channel);
   const { prompt, truncated } = role
     ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
     : { prompt: undefined, truncated: false };
@@ -68,7 +68,7 @@ export async function handleChatResume(core: CoreCtx, params: unknown): Promise<
   const ctx = core.ctx(p.projectId);
   const res = await ctx.runs.resume(p.projectId, p.runId, {
     config: ctx.config,
-    channelFor: (id) => channelById(core, id),
+    channelFor: (id) => core.channelService.require(id),
   });
   return res.ok ? { ok: true, resumed: true, runId: res.run!.id } : { ok: false, resumed: false, reason: res.reason };
 }

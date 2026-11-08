@@ -75,7 +75,7 @@ Decisions:
 | 5 | ProbeLoop seam | Done. Contract in `models/src/probe.ts`, `createProbeLoop` in `agent-loop/src/probe.ts`, `Core.probeLoop` injects it; `setup` drops its `agent-loop`/`tools` deps | `fd575e8` |
 | 6 | Interaction FIFO + typed prompts | Done. One card shown at a time, timer starts on show, abort withdraws, `rt.prompt` replaces `ask`/`askTimed`, typed owner prompts in `recovery/continue.ts` and `orchestration/prompts.ts`. Known: approval cards have no withdraw event | `bd88241` |
 | 7 | Permissions facade | Done. `Permissions` (decide/ask/gate + private session grants) in `permissions`; `RunService.gate` deleted, `runtime.ts` wires `rt.approve` from `svc.permissions.gate` | `c4388bc` |
-| 8 | ChannelService facade | Pending | — |
+| 8 | ChannelService facade | Done. `ChannelService` (rebuild/get/require/health/probe/setSecret) in `channels`; `Core.managed`/`rebuildChannels`/`channelById` deleted, handlers go through `core.channelService` | pending |
 | 9 | `RunStrategy.plan` | Pending | — |
 | 10 | `ToolRegistry.for(role)` | Pending | — |
 | 11–14 | Large items | Not scheduled | — |
@@ -87,4 +87,10 @@ The product version was bumped to 2.1.0 (`hosts/vscode/package.json`, `build.gra
 - `modules/permissions/src/permissions.ts`: `Permissions` with a private session `Grants`; `decide(req, runGrants)` (fail closed to `ask`), `ask(req, runGrants, tag, signal)` (one `approvalPrompt` card; `chat`→run grant, `always`→session grant, deny/withdrawn→rejected "denied by user"), `gate(runId, signal, runGrants?)` → the per-run `ApproveFn` injected as `rt.approve`. `PermissionDecision` mirrors `ApprovalDecision` (agent-loop sits above this layer).
 - `permissions` gains `kernel` + `interaction` deps (3→2 legal). `RunService.gate`/`sessionGrants` deleted; `RunHost` exposes `readonly permissions`; `runtime.ts` wires one gate per run.
 - `grants()/revoke()/reset()` not built: session grants stay private, `Grants.revoke` has no core-side caller, `/permissions` is webview-only — deviation row added to `MODULAR_DESIGN.md` §11, trigger: a `permissions.*` RPC.
-- Next: #8 ChannelService facade.
+- Next: #9 `RunStrategy.plan`.
+
+## 5. #8 as built
+
+- `modules/channels/src/service.ts`: `ChannelService` holds the `Map<string, ManagedChannel>`; `rebuild(channels, host)` builds enabled rows via the `ChannelRegistry` (maxParallel default ollama 1 / other 4, unknown type logged + skipped, secrets read through `host.secrets` and returned by ref for `Core.secretValues` redaction). `get`/`require` (same `channel X not configured` message)/`ids`/`health` (+ `missing`)/`listModels`/`probe`/`setSecret` (count of updated channels).
+- `Core` keeps `readonly channelService` (deps: registry + adapter deps; host passed per rebuild). `CoreCtx.managed` → `channelService`; `channelById` and `rebuildChannels` deleted; secret set/delete call `setSecret`. `recommendAssignments` takes the service structurally (`{ get }`).
+- `stream(agent, req, signal)` not built: `rt.channelFor` resolves through `require`, consumers still call `ManagedChannel.chat` — deviation row added to `MODULAR_DESIGN.md` §11, trigger: a second consumer needing agent→channel resolution outside the runtime.

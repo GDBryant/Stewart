@@ -2,7 +2,7 @@ import type { RunEvent } from "@stewart/protocol";
 import type { Clock, Fetcher, HostPort, IdGen } from "@stewart/kernel";
 import { systemClock, counterIds, nodeFetch } from "@stewart/kernel";
 import { EventBus, type EventSubscriber } from "@stewart/kernel";
-import { ChannelRegistry, ManagedChannel } from "@stewart/channels";
+import { ChannelRegistry, ChannelService, type ManagedChannel } from "@stewart/channels";
 import { OllamaAdapter } from "@stewart/channels";
 import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
@@ -27,7 +27,7 @@ export type { CoreDeps, ProjectCtx } from "./handlers/types.js";
 export class Core implements CoreCtx {
   readonly channels = new ChannelRegistry();
   private projects = new Map<string, ProjectCtx>();
-  managed = new Map<string, ManagedChannel>();
+  readonly channelService: ChannelService;
   probeCache = new Map<string, { caps: Partial<ModelCaps>; probedAt: number }>();
   /** Live price lists fetched once per channel (undefined = unsupported or failed). */
   priceCache = new Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>();
@@ -49,6 +49,7 @@ export class Core implements CoreCtx {
     this.clock = deps.clock ?? systemClock;
     this.ids = deps.ids ?? counterIds();
     this.chDeps = { fetcher: deps.fetcher ?? nodeFetch, debug: this.debug };
+    this.channelService = new ChannelService({ registry: this.channels, adapterDeps: this.chDeps });
     this.probeLoop = createProbeLoop({ clock: this.clock });
     this.bus = new EventBus(deps.emitEvent);
     this.bus.subscribe((ev) => {
@@ -105,25 +106,8 @@ export class Core implements CoreCtx {
   }
 
   private async rebuildChannels(config: Config, host: HostPort): Promise<void> {
-    this.managed.clear();
-    for (const c of config.channels) {
-      if (!c.enabled) continue;
-      try {
-        const adapter = this.channels.create(c.type, this.chDeps);
-        const maxParallel = c.maxParallel ?? (c.type === "ollama" ? 1 : 4);
-        const mc = new ManagedChannel(adapter, { ...c, maxParallel });
-        if (c.secretRef) {
-          const secret = await host.secrets.get(c.secretRef);
-          if (secret !== undefined) {
-            mc.setSecret(secret);
-            this.secretValues.set(c.secretRef, secret);
-          }
-        }
-        this.managed.set(c.id, mc);
-      } catch (e) {
-        host.log(`channel ${c.id}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
+    const secrets = await this.channelService.rebuild(config.channels, host);
+    for (const [k, v] of secrets) this.secretValues.set(k, v);
   }
 
   ctx(projectId: string): ProjectCtx {

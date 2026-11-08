@@ -13,7 +13,7 @@ export function handleHello(params: unknown): unknown {
 
 export async function handleChannelTest(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; channelId: string };
-  const ch = core.managed.get(p.channelId);
+  const ch = core.channelService.get(p.channelId);
   if (!ch) return { ok: false, error: "channel not configured or disabled" };
   try {
     const models = await ch.listModels();
@@ -26,7 +26,7 @@ export async function handleChannelTest(core: CoreCtx, params: unknown): Promise
 export async function handleChannelProbe(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean };
   const ctx = core.ctx(p.projectId);
-  const ch = core.managed.get(p.channelId);
+  const ch = core.channelService.get(p.channelId);
   if (!ch) return { ok: false, error: "channel not configured or disabled" };
   const cacheKey = `${p.channelId}:${p.model}`;
   const hit = core.probeCache.get(cacheKey);
@@ -60,7 +60,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
   const ctx = core.ctx(p.projectId);
   if (p.bench) {
     for (const c of ctx.config.channels.filter((c) => c.enabled)) {
-      const ch = core.managed.get(c.id);
+      const ch = core.channelService.get(c.id);
       if (!ch) continue;
       let models: string[] = [];
       try {
@@ -103,12 +103,12 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     workspace: await workspaceInfoFor(core, ctx, p.projectId),
     hardware: await gatherHardware(ctx.host).catch(() => undefined),
   };
-  return recommendAssignments(ctx.config, core.managed, {
+  return recommendAssignments(ctx.config, core.channelService, {
     mode: p.mode,
     evaluator: p.evaluator,
     context,
     priceFor: async (channelId, model) => {
-      const ch = core.managed.get(channelId);
+      const ch = core.channelService.get(channelId);
       return ch ? catalogFor(core, ch, model) : undefined;
     },
   });

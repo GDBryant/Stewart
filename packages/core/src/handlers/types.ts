@@ -1,6 +1,6 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { Clock, Fetcher, HostPort, IdGen } from "@stewart/kernel";
-import type { ManagedChannel } from "@stewart/channels";
+import type { ChannelService, ManagedChannel } from "@stewart/channels";
 import type { Config } from "@stewart/roles-skills";
 import type { ConfigStore, SelfWriteGuard } from "@stewart/config";
 import type { RunService } from "@stewart/runs";
@@ -39,7 +39,7 @@ export interface ProjectCtx {
 export interface CoreCtx {
   readonly deps: CoreDeps;
   clock: Clock;
-  readonly managed: Map<string, ManagedChannel>;
+  readonly channelService: ChannelService;
   readonly probeCache: Map<string, { caps: Partial<ModelCaps>; probedAt: number }>;
   readonly priceCache: Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>;
   readonly wsScan: Map<string, { info: WorkspaceInfo; at: number }>;

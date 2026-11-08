@@ -59,7 +59,7 @@ Each row: layer (matches `scripts/layers.json` and §2), what it owns, the surfa
 | 1 | `diagnostics` | debug log sink, redaction, retention | `DebugLogger`, `DebugSink` | protocol |
 | 2 | `models` | one merge of caps/probe/bench/catalog/price → `ModelProfile` | `resolveModelProfile`, `profileFromChannel` (pure), `ProbeLoop` contract | kernel, catalog |
 | 2 | `interaction` | FIFO prompt queue: approvals, `ask_user`, continue, plan gate, cost card, fallback, resume; timeout/abort `withdraw` | `Interaction`, `Prompt<A>`, `approvalPrompt`, `questionPrompt` | kernel, protocol |
-| 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry` | kernel, catalog, diagnostics, models |
+| 3 | `channels` | adapter contract, registry, managed policy (queue, `maxParallel`, back-off, stall, breaker), probe, secrets-by-ref, channel facade | `ChannelAdapter`, `ManagedChannel`, `ChannelRegistry`, `ChannelService` (rebuild/get/require/health/listModels/probe/setSecret) | kernel, catalog, diagnostics, models |
 | 3 | `budget` | profiles quick/normal/deep, `resolveLimits`, `classifyTask`, compaction thresholds | pure functions | catalog, models |
 | 3 | `ledger` | append-only cost ledger, cost limit | `RunLedger`, `CostLimit`, `costOfCall` | kernel |
 | 3 | `permissions` | categories, grants (once/chat/always), tool previews, shell splitter, approval gate | `Permissions` (decide/ask/gate), `Grants`, `categoryOf`, `splitShellPrograms` | kernel, interaction |
@@ -107,11 +107,14 @@ interface ChannelAdapter {                       // implemented per type; contra
   probe(model: ModelId): Promise<Result<Capabilities>>;
   stream(req: ChatRequest, signal: AbortSignal): AsyncIterable<StreamEvent>;  // StreamEvent includes { kind: 'error', error }
 }
-interface ChannelService {                       // the only thing other modules see
-  stream(agent: AgentRef, req: ChatRequest, signal: AbortSignal): AsyncIterable<StreamEvent>;
-  health(channelId: string): Health;             // breaker state
-  probe(channelId: string, model: ModelId): Promise<Result<Capabilities>>;
+class ChannelService {                           // — built; the only thing other modules see
+  rebuild(channels: ChannelSpec[], host): Promise<Map<string, string>>;  // builds ManagedChannels, returns secrets by ref
+  get(id: string): ManagedChannel | undefined; require(id: string): ManagedChannel;
+  ids(): string[]; health(id: string): 'healthy' | 'unhealthy' | 'backoff' | 'missing';
+  listModels(id: string): Promise<string[]>; probe(id: string, model: string): Promise<Partial<ModelCaps>>;
+  setSecret(ref: string, value: string | undefined): number;
 }
+// stream(agent, req, signal) from the sketch is not on it: consumers still call ManagedChannel.chat via rt.channelFor, which resolves through ChannelService.require.
 ```
 `ManagedChannel` policy (queue, back-off, stall, breaker) is a decorator over any adapter, so adapters stay free of policy. A new channel type (ACP) is one adapter file plus a registry entry.
 
@@ -458,7 +461,7 @@ Verified against the code at M-7b (`d8e3722`). Each is a conscious scope cut, no
 | Sketch (§) | As built | Why / trigger to revisit |
 |---|---|---|
 | `Result<T, StewartError>` for all fallible calls (§1, §4) | Modules throw or return `T \| undefined`; errors surface as `RunEvent` variants or thrown `Error`s caught at the strategy/handler edge | Sweeping change across every surface; do it per module when a module is next reworked |
-| `ChannelService` facade (§4) | Consumers receive `ManagedChannel` via `channelFor(id)` on the runtime; `ChannelRegistry` + `ManagedChannel` are the surface | A facade would wrap one method; add when a second consumer needs `health()` |
+| `ChannelService.stream(agent, req, signal)` (§4) | `ChannelService` resolves/health/probe/secrets; consumers still call `ManagedChannel.chat` via `rt.channelFor`, which resolves through `ChannelService.require` | Add when a second consumer needs agent→channel resolution outside the runtime |
 | `Permissions.grants()/revoke(id)/reset()` (§4) | Session grants are private to `Permissions`; `Grants.revoke(scope?, category?)` exists but has no core-side caller; `/permissions` is webview-only | Add when a `permissions.*` RPC appears |
 | `setup` five-phase session, drafts, undo (§3, §10) | `setup` holds the scorer, recommend, bench and workspace scan; the wizard flow lives in the webview against `setup.recommend`/`channel.probe` | §10 is the plan for the next setup iteration; not part of the extraction |
 | `RunStrategy.plan(req) → TaskGraph` (§4) | Strategies are `{ start(svc, projectId, req) }` objects that build their own `Run` and drive it; the shared pipeline is `buildRunRuntime` + `RunService` helpers | A `plan` step only pays off once a fourth mode needs graph-level reuse |
