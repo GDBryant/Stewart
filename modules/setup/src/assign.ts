@@ -112,63 +112,70 @@ export function meetsHardRequirements(role: string, c: Candidate): boolean {
   return eligible(c, ROLE_PROFILES[role] ?? DEFAULT_PROFILE) === undefined;
 }
 
-function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; why: string[]; warnings: string[] } {
-  const why: string[] = [];
-  const warnings: string[] = [];
-  const priorities = sctx?.priorities ?? { speed: 2, cost: 2, quality: 2 };
-  const q = priorities.quality / 2;
-  let s = 10;
-  const size = effectiveSize(c);
-  if (size !== undefined) {
-    const sz = Math.min(Math.log2(Math.max(size, 1) / 2), 6);
-    if (p.cheap) {
-      s += 3 - Math.abs(sz - 2); // favour small-mid models
-      why.push("fast/cheap");
-    } else {
-      s += sz * q;
-    }
-    if (p.minSizeB && size < p.minSizeB) {
-      s -= 4;
-      warnings.push(`model is ~${size}B; ${p.minSizeB}B+ recommended for this role`);
-    }
-  } else if (p.minSizeB) {
-    warnings.push("model size unknown");
+/** One scoring dimension's contribution: score delta plus human-readable reason/warning strings. */
+interface Term {
+  delta: number;
+  why: string[];
+  warnings: string[];
+}
+
+const term = (delta = 0, why: string[] = [], warnings: string[] = []): Term => ({ delta, why, warnings });
+
+function sizeScore(p: Profile, size: number | undefined, q: number): Term {
+  if (size === undefined) return p.minSizeB ? term(0, [], ["model size unknown"]) : term();
+  const sz = Math.min(Math.log2(Math.max(size, 1) / 2), 6);
+  const t = p.cheap ? term(3 - Math.abs(sz - 2), ["fast/cheap"]) : term(sz * q);
+  if (p.minSizeB && size < p.minSizeB) {
+    t.delta -= 4;
+    t.warnings.push(`model is ~${size}B; ${p.minSizeB}B+ recommended for this role`);
   }
+  return t;
+}
+
+function capabilityScore(c: Candidate, p: Profile, q: number): Term {
+  const why: string[] = [];
+  let delta = 0;
   if (c.caps.tools === "native") {
-    s += 2;
+    delta += 2;
     why.push("native tools");
   }
   if (p.wantsReasoning && c.caps.reasoning) {
-    s += 3 * q;
+    delta += 3 * q;
     why.push("reasoning");
   }
   if (p.wantsCoder && CODER.test(c.model)) {
-    s += 2 * q;
+    delta += 2 * q;
     why.push("coding model");
   }
   if (p.needs?.vision && c.caps.vision) why.push("vision");
   if (p.needs?.imageGen && c.caps.imageGen) why.push("image generation");
+  return term(delta, why);
+}
+
+function contextScore(c: Candidate, p: Profile): Term {
   const numCtx = c.caps.numCtx ?? c.caps.contextTokens;
-  if (p.minCtx && numCtx !== undefined) {
-    if (numCtx >= p.minCtx) s += 1;
-    else {
-      s -= 3;
-      warnings.push(`context ${numCtx} < ${p.minCtx}`);
-    }
-  }
-  if (c.channelType === "ollama") {
-    s += 1;
-    why.push("local/free");
-  }
+  if (!p.minCtx || numCtx === undefined) return term();
+  if (numCtx >= p.minCtx) return term(1);
+  return term(-3, [], [`context ${numCtx} < ${p.minCtx}`]);
+}
+
+function localityScore(c: Candidate): Term {
+  return c.channelType === "ollama" ? term(1, ["local/free"]) : term();
+}
+
+function perfScore(c: Candidate, p: Profile, speedPriority: number): Term {
   const perf = c.caps.perf;
+  const why: string[] = [];
+  const warnings: string[] = [];
+  let delta = 0;
   if (perf?.tokPerSec !== undefined) {
     const speedTerm = Math.min(Math.max(Math.log2(perf.tokPerSec / 20), -1.5), 2);
-    s += speedTerm * (p.latency === "interactive" ? SCORE_WEIGHTS.interactiveSpeed : SCORE_WEIGHTS.batchSpeed) * (priorities.speed / 2);
+    delta += speedTerm * (p.latency === "interactive" ? SCORE_WEIGHTS.interactiveSpeed : SCORE_WEIGHTS.batchSpeed) * (speedPriority / 2);
     why.push(`${Math.round(perf.tokPerSec)} tok/s`);
   }
   if (p.needsEdit) {
     if (perf?.editOk === true) {
-      s += SCORE_WEIGHTS.edit;
+      delta += SCORE_WEIGHTS.edit;
       why.push("edit ok");
     } else {
       warnings.push("edit ability not measured");
@@ -178,24 +185,47 @@ function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; 
     if (perf?.toolReliability === undefined) {
       warnings.push("tool reliability not measured");
     } else {
-      s += SCORE_WEIGHTS.reliability * perf.toolReliability;
+      delta += SCORE_WEIGHTS.reliability * perf.toolReliability;
       why.push(`tool ${Math.round(perf.toolReliability * 3)}/3`);
     }
   }
-  if (c.costTier) {
-    const idx = { free: 0, low: 1, mid: 2, high: 3 }[c.costTier];
-    if (idx > 0) {
-      const w = SCORE_WEIGHTS.costPerTier[p.costSensitivity ?? "medium"] * (priorities.cost / 2) * (p.parallelism === "high" ? SCORE_WEIGHTS.parallelismCost : 1);
-      s -= idx * w;
-    }
-    why.push(c.costTier === "free" ? "free" : `${c.costTier} cost`);
-  }
-  if (sctx?.hardware && c.channelType === "ollama" && size !== undefined) {
-    const need = size * 0.6;
-    const budget = sctx.hardware.gpus?.reduce((m, g) => Math.max(m, g.vramGb), 0) || sctx.hardware.ramGb;
-    if (need > budget) warnings.push(`~${size}B needs ~${Math.round(need)}GB at Q4; ~${Math.round(budget)}GB available`);
-  }
-  return { score: s, why, warnings };
+  return term(delta, why, warnings);
+}
+
+function costScore(c: Candidate, p: Profile, costPriority: number): Term {
+  if (!c.costTier) return term();
+  const idx = { free: 0, low: 1, mid: 2, high: 3 }[c.costTier];
+  const why = [c.costTier === "free" ? "free" : `${c.costTier} cost`];
+  if (idx === 0) return term(0, why);
+  const w = SCORE_WEIGHTS.costPerTier[p.costSensitivity ?? "medium"] * (costPriority / 2) * (p.parallelism === "high" ? SCORE_WEIGHTS.parallelismCost : 1);
+  return term(-idx * w, why);
+}
+
+function hardwareWarnings(c: Candidate, size: number | undefined, sctx?: SetupContext): string[] {
+  if (!sctx?.hardware || c.channelType !== "ollama" || size === undefined) return [];
+  const need = size * 0.6;
+  const budget = sctx.hardware.gpus?.reduce((m, g) => Math.max(m, g.vramGb), 0) || sctx.hardware.ramGb;
+  if (need > budget) return [`~${size}B needs ~${Math.round(need)}GB at Q4; ~${Math.round(budget)}GB available`];
+  return [];
+}
+
+function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; why: string[]; warnings: string[] } {
+  const priorities = sctx?.priorities ?? { speed: 2, cost: 2, quality: 2 };
+  const q = priorities.quality / 2;
+  const size = effectiveSize(c);
+  const terms = [
+    sizeScore(p, size, q),
+    capabilityScore(c, p, q),
+    contextScore(c, p),
+    localityScore(c),
+    perfScore(c, p, priorities.speed),
+    costScore(c, p, priorities.cost),
+  ];
+  return {
+    score: 10 + terms.reduce((a, t) => a + t.delta, 0),
+    why: terms.flatMap((t) => t.why),
+    warnings: [...terms.flatMap((t) => t.warnings), ...hardwareWarnings(c, size, sctx)],
+  };
 }
 
 /**

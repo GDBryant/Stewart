@@ -1,8 +1,6 @@
-import type { ToolCall } from "@stewart/kernel";
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
-import type { Fetcher } from "@stewart/kernel";
 import { ChannelError } from "./types.js";
-import { sseData } from "./stream.js";
+import { postForStream, sseData, StreamAccumulator, type WireDelta } from "./stream.js";
 
 function url(cfg: ChannelConfig, path: string): string {
   // Join without doubling /v1 style suffixes.
@@ -15,6 +13,46 @@ type Delta = {
   reasoning_content?: string;
   tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
 };
+
+type OpenAIChunk = {
+  choices?: { delta?: Delta; finish_reason?: string | null }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+};
+
+function toOpenAIMessages(req: ChatRequest) {
+  return req.messages.map((m) => {
+    if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+    if (m.role === "assistant") {
+      return { role: "assistant", content: m.content || null, tool_calls: m.toolCalls?.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) };
+    }
+    if (m.images?.length) {
+      return { role: m.role, content: [{ type: "text", text: m.content }, ...m.images.map((b64) => ({ type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } }))] };
+    }
+    return { role: m.role, content: m.content };
+  });
+}
+
+/** Decode one SSE chunk into normalized wire deltas. */
+function openAiDeltas(j: OpenAIChunk): WireDelta[] {
+  const out: WireDelta[] = [];
+  const d = j.choices?.[0]?.delta;
+  if (d?.reasoning_content) out.push({ t: "reasoning", text: d.reasoning_content });
+  if (d?.content) out.push({ t: "text", text: d.content });
+  if (d?.tool_calls) {
+    for (const tc of d.tool_calls) {
+      out.push({ t: "tool_fragment", index: tc.index, id: tc.id, name: tc.function?.name, args: tc.function?.arguments });
+    }
+  }
+  if (j.choices?.[0]?.finish_reason === "length") out.push({ t: "truncated" });
+  if (j.usage) {
+    out.push({
+      t: "usage",
+      usage: { in: j.usage.prompt_tokens ?? 0, out: j.usage.completion_tokens ?? 0 },
+      costUsd: typeof j.usage.cost === "number" ? j.usage.cost : undefined,
+    });
+  }
+  return out;
+}
 
 /** OpenAI-compatible channel: SSE streaming, GET /models, dummy-tool capability probe. */
 export class OpenAICompatAdapter implements ChannelAdapter {
@@ -90,16 +128,7 @@ export class OpenAICompatAdapter implements ChannelAdapter {
 
   async *chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
     const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
-    const messages = req.messages.map((m) => {
-      if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
-      if (m.role === "assistant") {
-        return { role: "assistant", content: m.content || null, tool_calls: m.toolCalls?.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) };
-      }
-      if (m.images?.length) {
-        return { role: m.role, content: [{ type: "text", text: m.content }, ...m.images.map((b64) => ({ type: "image_url", image_url: { url: `data:image/png;base64,${b64}` } }))] };
-      }
-      return { role: m.role, content: m.content };
-    });
+    const messages = toOpenAIMessages(req);
     const dbg = this.deps.debug;
     const body = JSON.stringify({
       model: req.model,
@@ -110,64 +139,30 @@ export class OpenAICompatAdapter implements ChannelAdapter {
       temperature: req.temperature,
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: body });
-    let r: Awaited<ReturnType<Fetcher>>;
+    const stream = await postForStream(
+      this.deps,
+      this.type,
+      req.model,
+      url(cfg, "/chat/completions"),
+      { headers: this.headers(cfg, secret), signal: req.signal, body },
+      (status, text) => new ChannelError(`POST /chat/completions → ${status}: ${text.slice(0, 200)}`, status),
+    );
+    const acc = new StreamAccumulator();
     try {
-      r = await this.deps.fetcher(url(cfg, "/chat/completions"), { method: "POST", headers: this.headers(cfg, secret), signal: req.signal, body });
-    } catch (e) {
-      dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: `connection failed: ${e instanceof Error ? e.message : String(e)}` });
-      throw e;
-    }
-    if (r.status !== 200) {
-      const text = await new Response(r.body).text();
-      dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: `HTTP ${r.status}: ${text}` });
-      if (r.status === 429) throw new ChannelError("rate limited", 429, Number(r.headers["retry-after"] ?? 1) * 1000);
-      throw new ChannelError(`POST /chat/completions → ${r.status}: ${text.slice(0, 200)}`, r.status);
-    }
-    if (!r.body) throw new ChannelError("empty response body");
-
-    const partial: { id: string; name: string; args: string }[] = [];
-    let usage: { in: number; out: number } | undefined;
-    let costUsd: number | undefined;
-    let truncated = false;
-    try {
-      for await (const data of sseData(r.body, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
+      for await (const data of sseData(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
         dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: data });
-        let j: { choices?: { delta?: Delta; finish_reason?: string | null }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } };
+        let j: OpenAIChunk;
         try {
           j = JSON.parse(data);
         } catch {
           continue; // fail closed on malformed chunks
         }
-        const d = j.choices?.[0]?.delta;
-        if (d?.reasoning_content) yield { kind: "reasoning", text: d.reasoning_content };
-        if (d?.content) yield { kind: "text", text: d.content };
-        if (d?.tool_calls) {
-          for (const tc of d.tool_calls) {
-            const i = tc.index ?? partial.length;
-            if (!partial[i]) partial[i] = { id: tc.id ?? `call_${i}`, name: "", args: "" };
-            if (tc.id) partial[i].id = tc.id;
-            if (tc.function?.name) partial[i].name += tc.function.name;
-            if (tc.function?.arguments) partial[i].args += tc.function.arguments;
-          }
-        }
-        if (j.choices?.[0]?.finish_reason === "length") truncated = true;
-        if (j.usage) {
-          usage = { in: j.usage.prompt_tokens ?? 0, out: j.usage.completion_tokens ?? 0 };
-          if (typeof j.usage.cost === "number") costUsd = j.usage.cost;
-        }
+        for (const d of openAiDeltas(j)) yield* acc.apply(d);
       }
     } catch (e) {
       dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: e instanceof Error ? e.message : String(e) });
       throw e;
     }
-    if (partial.length) {
-      const calls: ToolCall[] = partial.filter((p) => p.name).map((p) => {
-        let args: Record<string, unknown> = {};
-        try { args = JSON.parse(p.args || "{}"); } catch { /* fail closed: drop bad args */ }
-        return { id: p.id, name: p.name, arguments: args };
-      });
-      if (calls.length) yield { kind: "tool_calls", calls };
-    }
-    yield { kind: "done", usage, costUsd, truncated };
+    yield* acc.finish();
   }
 }

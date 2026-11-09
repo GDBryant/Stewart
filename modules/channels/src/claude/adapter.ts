@@ -3,7 +3,7 @@ import type { ModelCaps } from "@stewart/models";
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "../types.js";
 import { ChannelError } from "../types.js";
 import type { DebugSink } from "@stewart/diagnostics";
-import { ClaudeStreamParser, classify } from "./parser.js";
+import { ClaudeStreamParser, classify, type ClaudeRawCall } from "./parser.js";
 import { normalizeModel } from "@stewart/catalog";
 import { argv as claudeArgv, prepare } from "./transcript.js";
 import { nodeSpawn, makeTempDir, rmDir, writeTempFile, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
@@ -28,6 +28,76 @@ export interface ClaudeLoginState {
 
 function abortError(): Error {
   return Object.assign(new Error("aborted"), { name: "AbortError" });
+}
+
+/** Map parser call events to ToolCalls; native calls without ids get call_N from parser order. */
+function toToolCalls(calls: ClaudeRawCall[], parser: ClaudeStreamParser): ToolCall[] {
+  return calls.map((c) => {
+    let args: Record<string, unknown> = {};
+    try {
+      const p = JSON.parse(c.argumentsJson) as unknown;
+      if (p && typeof p === "object" && !Array.isArray(p)) args = p as Record<string, unknown>;
+    } catch {
+      args = {};
+    }
+    return { id: c.id ?? `call_${parser.nativeCalls.indexOf(c)}`, name: c.name, arguments: args };
+  });
+}
+
+/** Consume CLI stdout lines into ChatEvents; returns the parser's failure event if one was emitted. */
+async function* consumeStdout(
+  proc: SpawnedProc,
+  parser: ClaudeStreamParser,
+  req: ChatRequest,
+  rec: (direction: "incoming", payload: string) => void,
+): AsyncGenerator<ChatEvent, { message: string; code: string } | undefined, unknown> {
+  let failure: { message: string; code: string } | undefined;
+  for await (const line of proc.stdout) {
+    rec("incoming", line);
+    if (req.signal.aborted) {
+      await proc.kill();
+      throw abortError();
+    }
+    for (const ev of parser.feed(line)) {
+      if (ev.t === "text") yield { kind: "text", text: ev.text };
+      else if (ev.t === "reasoning") yield { kind: "reasoning", text: ev.text };
+      else if (ev.t === "calls") yield { kind: "tool_calls", calls: toToolCalls(ev.calls, parser) };
+      else if (ev.t === "failed") failure = { message: ev.message, code: ev.code };
+    }
+    if (parser.failedEmitted || parser.toolTurnEnded) {
+      await proc.kill();
+      break;
+    }
+  }
+  return failure;
+}
+
+/** Post-stream outcome: debug stderr/exit, then a done event or the right ChannelError. */
+async function finishChat(
+  parser: ClaudeStreamParser,
+  proc: SpawnedProc,
+  exitCode: number,
+  dbg: DebugSink | undefined,
+  rec: (direction: "stderr" | "error", payload: string) => void,
+): Promise<ChatEvent | undefined> {
+  if (dbg) {
+    const err = await proc.stderrText();
+    if (err) rec("stderr", err.slice(-2000));
+    if (exitCode !== 0) rec("error", `exit code ${exitCode}`);
+  }
+  if (parser.toolTurnEnded || (parser.cutPending && !parser.resultSeen)) {
+    const u = parser.turnUsage();
+    return { kind: "done", usage: usageOf(u), costUsd: u?.costUsd };
+  }
+  if (!parser.resultSeen) {
+    if (exitCode === 0) throw new ChannelError("stream ended before completion", 0, undefined, "incomplete_stream");
+    const tail = (await proc.stderrText()).slice(-2000);
+    const cls = classify(tail);
+    throw new ChannelError(`Claude CLI exited with code ${exitCode}: ${tail}`, 0, undefined, cls === "auth" ? "auth" : "cli_exit");
+  }
+  if (exitCode !== 0) throw new ChannelError(`Claude CLI exited with code ${exitCode}`, 0, undefined, "cli_exit");
+  const u = parser.turnUsage();
+  return { kind: "done", usage: usageOf(u), costUsd: u?.costUsd, truncated: parser.finishReason === "length" };
 }
 
 /**
@@ -140,58 +210,11 @@ export class ClaudeCliAdapter implements ChannelAdapter {
       proc.stdin(stdin);
 
       const parser = new ClaudeStreamParser();
-      let failure: { message: string; code: string } | undefined;
-      for await (const line of proc.stdout) {
-        rec("incoming", line);
-        if (req.signal.aborted) {
-          await proc.kill();
-          throw abortError();
-        }
-        for (const ev of parser.feed(line)) {
-          if (ev.t === "text") yield { kind: "text", text: ev.text };
-          else if (ev.t === "reasoning") yield { kind: "reasoning", text: ev.text };
-          else if (ev.t === "calls") {
-            const calls: ToolCall[] = ev.calls.map((c) => {
-              let args: Record<string, unknown> = {};
-              try {
-                const p = JSON.parse(c.argumentsJson) as unknown;
-                if (p && typeof p === "object" && !Array.isArray(p)) args = p as Record<string, unknown>;
-              } catch {
-                args = {};
-              }
-              return { id: c.id ?? `call_${parser.nativeCalls.indexOf(c)}`, name: c.name, arguments: args };
-            });
-            yield { kind: "tool_calls", calls };
-          } else if (ev.t === "failed") {
-            failure = { message: ev.message, code: ev.code };
-          }
-        }
-        if (parser.failedEmitted || parser.toolTurnEnded) {
-          await proc.kill();
-          break;
-        }
-      }
+      const failure = yield* consumeStdout(proc, parser, req, rec);
       if (failure) throw new ChannelError(failure.message, 0, undefined, failure.code);
       const { code: exitCode } = await proc.done;
-      if (dbg) {
-        const err = await proc.stderrText();
-        if (err) rec("stderr", err.slice(-2000));
-        if (exitCode !== 0) rec("error", `exit code ${exitCode}`);
-      }
-      if (parser.toolTurnEnded || (parser.cutPending && !parser.resultSeen)) {
-        const u = parser.turnUsage();
-        yield { kind: "done", usage: usageOf(u), costUsd: u?.costUsd };
-        return;
-      }
-      if (!parser.resultSeen) {
-        if (exitCode === 0) throw new ChannelError("stream ended before completion", 0, undefined, "incomplete_stream");
-        const tail = (await proc.stderrText()).slice(-2000);
-        const cls = classify(tail);
-        throw new ChannelError(`Claude CLI exited with code ${exitCode}: ${tail}`, 0, undefined, cls === "auth" ? "auth" : "cli_exit");
-      }
-      if (exitCode !== 0) throw new ChannelError(`Claude CLI exited with code ${exitCode}`, 0, undefined, "cli_exit");
-      const u = parser.turnUsage();
-      yield { kind: "done", usage: usageOf(u), costUsd: u?.costUsd, truncated: parser.finishReason === "length" };
+      const fin = await finishChat(parser, proc, exitCode, dbg, rec);
+      if (fin) yield fin;
     } finally {
       if (proc) await proc.kill().catch(() => {});
       if (promptDir) await rm(promptDir);

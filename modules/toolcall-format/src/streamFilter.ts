@@ -1,7 +1,9 @@
 /** Streaming filter: hides shim tool-call blocks (`<tool_call>…</tool_call>` and variants) from live text deltas. */
 
+import { callAttrTagEnd } from "./shimParser.js";
+
 const ATTR_END_RE = /^<tool_call\s+name=(["'])[^"']+\1\s+arguments='[\s\S]*?'\s*>(?:\s*<\/tool_call>)?/;
-const OPEN_RE = /<\|tool_call>|<tool_call>|<tool_call(?=\s)|<call>|<function=[^>]*>|<\/tool_call>|<tool_call\|>|<\/call>|<\/function>/;
+const OPEN_RE = /<\|tool_call>|<tool_call>|<tool_call(?=\s)|<call>|<call(?=\s)|<function=[^>]*>|<\/tool_call>|<tool_call\|>|<\/call>|<\/function>/;
 const LITERALS = ["<|tool_call>", "<tool_call>", "<tool_call", "<call>", "<function=", "</tool_call>", "<tool_call|>", "</call>", "</function>"];
 
 type EndFn = (buf: string) => number;
@@ -15,6 +17,7 @@ function endFor(opener: string): EndFn | null {
   if (opener === "<|tool_call>") return after("<tool_call|>");
   if (opener === "<tool_call>") return after("</tool_call>");
   if (opener === "<call>") return after("</call>");
+  if (opener === "<call") return (buf) => callAttrTagEnd(buf, 0);
   if (opener.startsWith("<function=")) return after("</function>");
   if (opener === "<tool_call") {
     const plain = after("</tool_call>");
@@ -30,6 +33,8 @@ function endFor(opener: string): EndFn | null {
 function heldSuffix(s: string): number {
   const fn = /<function=[^>]*$/.exec(s);
   if (fn) return s.length - fn.index;
+  const ca = /<call(?=[\s/])[^>]*$/.exec(s);
+  if (ca) return s.length - ca.index;
   for (let n = Math.min(s.length, 13); n > 0; n--) {
     const tail = s.slice(-n);
     if (LITERALS.some((l) => l.length > n && l.startsWith(tail))) return n;

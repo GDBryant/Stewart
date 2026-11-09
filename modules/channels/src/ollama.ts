@@ -1,8 +1,7 @@
-import type { ToolCall } from "@stewart/kernel";
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
-import type { Fetcher } from "@stewart/kernel";
 import { ChannelError } from "./types.js";
-import { lines } from "./stream.js";
+import type { DebugSink } from "@stewart/diagnostics";
+import { lines, postForStream, StreamAccumulator, type WireDelta } from "./stream.js";
 
 function url(cfg: ChannelConfig, path: string): string {
   return (cfg.baseUrl ?? "http://localhost:11434").replace(/\/+$/, "") + path;
@@ -17,6 +16,57 @@ export function extractError(body: string, fallback: string): string {
     return body;
   } catch {
     return body;
+  }
+}
+
+type OllamaToolCall = { id?: string; function: { name: string; arguments: Record<string, unknown> } };
+type OllamaLine = {
+  error?: unknown;
+  message?: unknown;
+  done?: unknown;
+  done_reason?: string;
+  prompt_eval_count?: number;
+  eval_count?: number;
+};
+
+function toOllamaMessages(req: ChatRequest) {
+  return req.messages.map((m) => {
+    if (m.role === "tool") return { role: "tool", content: m.content };
+    if (m.role === "assistant") {
+      return { role: "assistant", content: m.content, tool_calls: m.toolCalls?.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })) };
+    }
+    return { role: m.role, content: m.content, images: m.images };
+  });
+}
+
+/** Decode one NDJSON line into normalized wire deltas. Throws ChannelError on provider error lines. */
+function ollamaDeltas(j: OllamaLine): WireDelta[] {
+  if (j.error !== undefined) throw new ChannelError(String(j.error));
+  const m = j.message as { content?: unknown; thinking?: string; tool_calls?: OllamaToolCall[] } | null | undefined;
+  if (m !== undefined && m !== null && typeof m !== "object") throw new ChannelError("invalid message field");
+  const out: WireDelta[] = [];
+  if (typeof m?.content === "string" && m.content) out.push({ t: "text", text: m.content });
+  if (m?.thinking) out.push({ t: "reasoning", text: m.thinking });
+  if (Array.isArray(m?.tool_calls) && m.tool_calls.length) {
+    out.push({ t: "tool_calls", calls: m.tool_calls.map((tc) => ({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments })) });
+  }
+  if (j.done === true) {
+    out.push({ t: "usage", usage: { in: j.prompt_eval_count ?? 0, out: j.eval_count ?? 0 } });
+    if (j.done_reason === "length") out.push({ t: "truncated" });
+  }
+  return out;
+}
+
+/** Warn when the provider evaluated far fewer prompt tokens than sent (num_ctx truncation). */
+function warnIfTruncated(acc: StreamAccumulator, estTokens: number, numCtx: number | undefined, dbg: DebugSink | undefined, provider: string, model: string): void {
+  const u = acc.sawUsage;
+  if (u && u.in > 0 && u.in < estTokens * 0.6) {
+    dbg?.record({
+      direction: "error",
+      provider,
+      model,
+      payload: `prompt truncated by provider: ~${estTokens} tokens sent, ${u.in} evaluated (num_ctx=${numCtx ?? "default"}); raise numCtx`,
+    });
   }
 }
 
@@ -48,13 +98,7 @@ export class OllamaAdapter implements ChannelAdapter {
 
   async *chat(cfg: ChannelConfig, _secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
     const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
-    const messages = req.messages.map((m) => {
-      if (m.role === "tool") return { role: "tool", content: m.content };
-      if (m.role === "assistant") {
-        return { role: "assistant", content: m.content, tool_calls: m.toolCalls?.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })) };
-      }
-      return { role: m.role, content: m.content, images: m.images };
-    });
+    const messages = toOllamaMessages(req);
     const dbg = this.deps.debug;
     const caps = cfg.modelCaps?.[req.model];
     const estTokens = estimatePromptTokens(messages, tools);
@@ -67,63 +111,29 @@ export class OllamaAdapter implements ChannelAdapter {
       options: { temperature: req.temperature, num_ctx: numCtx },
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: `num_ctx=${numCtx ?? "default"} ${body}` });
-    let r: Awaited<ReturnType<Fetcher>>;
-    try {
-      r = await this.deps.fetcher(url(cfg, "/api/chat"), { method: "POST", headers: { "content-type": "application/json" }, signal: req.signal, body });
-    } catch (e) {
-      dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: `connection failed: ${e instanceof Error ? e.message : String(e)}` });
-      throw e;
-    }
-    if (r.status !== 200) {
-      const text = await new Response(r.body).text();
-      dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: `HTTP ${r.status}: ${text}` });
-      if (r.status === 429) throw new ChannelError("rate limited", 429, Number(r.headers["retry-after"] ?? 1) * 1000);
-      throw new ChannelError(extractError(text, `POST /api/chat → ${r.status}`), r.status); // v1: extractError
-    }
-    if (!r.body) throw new ChannelError("empty response body");
-
-    const calls: ToolCall[] = [];
-    let usage: { in: number; out: number } | undefined;
-    let truncated = false;
+    const stream = await postForStream(
+      this.deps,
+      this.type,
+      req.model,
+      url(cfg, "/api/chat"),
+      { headers: { "content-type": "application/json" }, signal: req.signal, body },
+      (status, text) => new ChannelError(extractError(text, `POST /api/chat → ${status}`), status), // v1: extractError
+    );
+    const acc = new StreamAccumulator();
     let sawDone = false;
     try {
-      for await (const line of lines(r.body, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
+      for await (const line of lines(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
         dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: line });
-        let j: {
-          error?: unknown;
-          message?: unknown;
-          done?: unknown;
-          done_reason?: string;
-          prompt_eval_count?: number;
-          eval_count?: number;
-        };
+        let j: OllamaLine;
         try {
           j = JSON.parse(line);
         } catch {
           throw new ChannelError(`malformed NDJSON line: ${line.slice(0, 80)}`); // v1: malformed → Failed
         }
-        if (j.error !== undefined) throw new ChannelError(String(j.error));
-        const m = j.message as { content?: unknown; thinking?: string; tool_calls?: { id?: string; function: { name: string; arguments: Record<string, unknown> } }[] } | null | undefined;
-        if (m !== undefined && m !== null && typeof m !== "object") throw new ChannelError("invalid message field");
-        if (typeof m?.content === "string" && m.content) yield { kind: "text", text: m.content };
-        if (m?.thinking) yield { kind: "reasoning", text: m.thinking };
-        if (Array.isArray(m?.tool_calls)) {
-          for (const tc of m.tool_calls) {
-            calls.push({ id: tc.id ?? `call_${calls.length}`, name: tc.function.name, arguments: tc.function.arguments }); // v1: synthesised call_N ids
-          }
-        }
+        for (const d of ollamaDeltas(j)) yield* acc.apply(d);
         if (j.done === true) {
-          usage = { in: j.prompt_eval_count ?? 0, out: j.eval_count ?? 0 };
-          if (usage.in > 0 && usage.in < estTokens * 0.6) {
-            dbg?.record({
-              direction: "error",
-              provider: this.type,
-              model: req.model,
-              payload: `prompt truncated by provider: ~${estTokens} tokens sent, ${usage.in} evaluated (num_ctx=${numCtx ?? "default"}); raise numCtx`,
-            });
-          }
-          truncated = j.done_reason === "length";
           sawDone = true;
+          warnIfTruncated(acc, estTokens, numCtx, dbg, this.type, req.model);
           break;
         }
       }
@@ -132,8 +142,7 @@ export class OllamaAdapter implements ChannelAdapter {
       throw e;
     }
     if (!sawDone && !req.signal.aborted) dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: "stream ended before done" });
-    if (calls.length) yield { kind: "tool_calls", calls };
-    yield { kind: "done", usage, truncated };
+    yield* acc.finish();
   }
 }
 

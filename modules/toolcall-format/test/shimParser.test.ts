@@ -202,6 +202,59 @@ describe("parseToolCalls: bare JSON, fenced JSON, Gemma tokens, errors", () => {
   });
 });
 
+describe("parseToolCalls: <call name=... arguments=...> attribute form", () => {
+  it("parses the self-closing form with raw JSON arguments", () => {
+    const r = parseToolCalls('list files <call name="ReadFile" arguments={"path":"docs/"} /> done', schema);
+    expect(r.errors).toEqual([]);
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0].name).toBe("ReadFile");
+    expect(r.calls[0].arguments).toEqual({ path: "docs/" });
+    expect(r.clean).toBe("list files  done");
+  });
+
+  it("parses single-quoted and double-quoted arguments", () => {
+    const sq = parseToolCalls(`<call name='ReadFile' arguments='{"path":"a"}'></call>`, schema);
+    expect(sq.calls[0]?.arguments).toEqual({ path: "a" });
+    const dq = parseToolCalls(`<call name="ReadFile" arguments="{\\"path\\":\\"b\\"}"></call>`, schema);
+    expect(dq.calls[0]?.arguments).toEqual({ path: "b" });
+  });
+
+  it("handles arguments before name and '>' inside argument strings", () => {
+    const r = parseToolCalls(`<call arguments={"command":"echo a > b"} name="RunTerminal"/>`, schema);
+    expect(r.calls[0]?.name).toBe("RunTerminal");
+    expect(r.calls[0]?.arguments).toEqual({ command: "echo a > b" });
+  });
+
+  it("defaults missing arguments to an empty object", () => {
+    const r = parseToolCalls('<call name="ReadFile"/>', schema);
+    expect(r.calls[0]?.name).toBe("ReadFile");
+    expect(r.calls[0]?.arguments).toEqual({});
+  });
+
+  it("leaves the classic <call> JSON form working", () => {
+    const r = parseToolCalls('<call>{"name":"ReadFile","arguments":{"path":"a"}}</call>', schema);
+    expect(r.calls[0]?.name).toBe("ReadFile");
+  });
+
+  it("does not treat <calls> or <caller> as call tags", () => {
+    const r = parseToolCalls("<calls> and <caller>", schema);
+    expect(r.calls).toHaveLength(0);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("reports unknown tool names from the attribute form", () => {
+    const r = parseToolCalls('<call name="Nope" arguments={}/>', schema);
+    expect(r.calls).toHaveLength(0);
+    expect(r.errors).toEqual([expect.objectContaining({ code: "TC-UNKNOWN-TOOL" })]);
+  });
+
+  it("leaves an incomplete attribute tag as text", () => {
+    const r = parseToolCalls('pre <call name="ReadFile" arguments={"path":"a"', schema);
+    expect(r.calls).toHaveLength(0);
+    expect(r.clean).toContain("<call");
+  });
+});
+
 describe("repairNativeCall", () => {
   it("accepts a named offered function with valid args", () => {
     const calls = repairNativeCall({ id: "x", name: "ReadFile", arguments: '{"path":"a"}' }, schema);

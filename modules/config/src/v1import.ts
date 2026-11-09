@@ -100,22 +100,18 @@ function modelRef(raw: string | undefined): { provider: string; model: string } 
   return { provider: raw.slice(0, i), model: raw.slice(i + 1) };
 }
 
-export function importV1Xml(xml: string, parseDom: (s: string) => XmlNode): V1ImportResult {
-  const warnings: string[] = [];
-  let doc: XmlNode;
-  try {
-    doc = parseDom(xml);
-  } catch (e) {
-    return { files: {}, warnings: [`could not parse stewart.xml: ${e instanceof Error ? e.message : e}`] };
-  }
-  const component = doc.querySelector('component[name="StewartSettings"]');
-  if (!component) return { files: {}, warnings: ["no StewartSettings component found — not a v1 settings file"] };
+/** Shared state threaded through the per-section import helpers. */
+interface V1Ctx {
+  component: XmlNode;
+  warnings: string[];
+  channels: Record<string, unknown>[];
+  agents: Record<string, unknown>[];
+  roles: Record<string, unknown>[];
+  aifBase?: string;
+}
 
+function importChannels(component: XmlNode): { channels: Record<string, unknown>[]; aifBase?: string } {
   const channels: Record<string, unknown>[] = [];
-  const agents: Record<string, unknown>[] = [];
-  const roles: Record<string, unknown>[] = [];
-  const seen = new Set<string>();
-
   const ollamaUrl = opt(component, "ollamaUrl") || "http://localhost:11434";
   channels.push({ id: "ollama", type: "ollama", enabled: true, baseUrl: ollamaUrl });
 
@@ -128,19 +124,24 @@ export function importV1Xml(xml: string, parseDom: (s: string) => XmlNode): V1Im
   const claudePath = opt(component, "claudeCliPath") || "claude";
   const claudeModels = listOpt(component, "claudeModels").map(normalizeModel);
   channels.push({ id: "claude", type: "claude-cli", enabled: true, cliPath: claudePath, extraModels: claudeModels });
+  return { channels, aifBase };
+}
 
-  const channelFor = (provider: string): string | undefined => {
-    if (provider === "ollama") return "ollama";
-    if (provider === "claude") return "claude";
-    if (provider === "aif") return aifBase ? "aif" : undefined;
-    warnings.push(`unknown v1 provider '${provider}' — skipped`);
-    return undefined;
-  };
+function channelForProvider(provider: string, aifBase: string | undefined, warnings: string[]): string | undefined {
+  if (provider === "ollama") return "ollama";
+  if (provider === "claude") return "claude";
+  if (provider === "aif") return aifBase ? "aif" : undefined;
+  warnings.push(`unknown v1 provider '${provider}' — skipped`);
+  return undefined;
+}
 
+function importAgents(ctx: V1Ctx): void {
+  const { component, warnings, agents, roles, aifBase } = ctx;
   const effort = opt(component, "effort")?.toLowerCase();
+  const seen = new Set<string>();
   const mkAgent = (id: string, ref: { provider: string; model: string } | undefined) => {
     if (!ref || seen.has(id)) return;
-    const channel = channelFor(ref.provider);
+    const channel = channelForProvider(ref.provider, aifBase, warnings);
     if (!channel) return;
     seen.add(id);
     agents.push({ id, channel, model: ref.model, ...(effort ? { effort } : {}) });
@@ -161,35 +162,35 @@ export function importV1Xml(xml: string, parseDom: (s: string) => XmlNode): V1Im
   if (chat && !roles.length && seen.has("chat")) {
     roles.push({ id: "general-worker", enabled: true, agent: "chat" });
   }
+}
 
-  const numCtx = mapOpt(component, "ollamaNumCtx");
-  const ollama = channels.find((c) => c.id === "ollama") as Record<string, unknown> | undefined;
-  if (ollama && Object.keys(numCtx).length) {
-    const caps: Record<string, { numCtx: number }> = {};
-    for (const [k, v] of Object.entries(numCtx)) {
-      const model = k.startsWith("ollama/") ? k.slice(7) : k;
-      const n = Number(v);
-      if (Number.isInteger(n) && n > 0) caps[model] = { numCtx: n };
-    }
-    if (Object.keys(caps).length) ollama.modelCaps = caps;
+function importOllamaNumCtx(ctx: V1Ctx): void {
+  const numCtx = mapOpt(ctx.component, "ollamaNumCtx");
+  const ollama = ctx.channels.find((c) => c.id === "ollama") as Record<string, unknown> | undefined;
+  if (!ollama || !Object.keys(numCtx).length) return;
+  const caps: Record<string, { numCtx: number }> = {};
+  for (const [k, v] of Object.entries(numCtx)) {
+    const model = k.startsWith("ollama/") ? k.slice(7) : k;
+    const n = Number(v);
+    if (Number.isInteger(n) && n > 0) caps[model] = { numCtx: n };
   }
+  if (Object.keys(caps).length) ollama.modelCaps = caps;
+}
 
-  const visionOverrides = listOpt(component, "visionModelOverrides");
-  for (const ref of visionOverrides) {
+function importVisionOverrides(ctx: V1Ctx): void {
+  for (const ref of listOpt(ctx.component, "visionModelOverrides")) {
     const r = modelRef(ref);
-    const ch = r ? channels.find((c) => c.id === channelFor(r.provider)) as Record<string, unknown> | undefined : undefined;
+    const ch = r
+      ? (ctx.channels.find((c) => c.id === channelForProvider(r.provider, ctx.aifBase, ctx.warnings)) as Record<string, unknown> | undefined)
+      : undefined;
     if (!r || !ch) continue;
     const caps = (ch.modelCaps ?? {}) as Record<string, Record<string, unknown>>;
     caps[r.model] = { ...(caps[r.model] ?? {}), vision: true };
     ch.modelCaps = caps;
   }
+}
 
-  const files: Record<string, string> = {
-    "channels.yaml": stringifyYaml({ version: 1, items: channels }),
-  };
-  if (agents.length) files["agents.yaml"] = stringifyYaml({ version: 1, items: agents });
-  if (roles.length) files["roles.yaml"] = stringifyYaml({ version: 1, items: roles });
-
+function importSettings(component: XmlNode): string | undefined {
   const retentionRaw = opt(component, "historyRetentionDays");
   const retention = retentionRaw === undefined ? NaN : Number(retentionRaw);
   const settings: Record<string, unknown> = { version: 1 };
@@ -197,9 +198,37 @@ export function importV1Xml(xml: string, parseDom: (s: string) => XmlNode): V1Im
   if (opt(component, "debugLogEnabled") === "true") {
     settings.log = { level: "calls", retainDays: Number(opt(component, "debugLogRetentionDays") ?? 7) || 7 };
   }
-  if (Object.keys(settings).length > 1) files["settings.yaml"] = stringifyYaml(settings);
+  if (Object.keys(settings).length > 1) return stringifyYaml(settings);
+  return undefined;
+}
 
-  if (!agents.length) warnings.push("no v1 models found — imported channels only");
+export function importV1Xml(xml: string, parseDom: (s: string) => XmlNode): V1ImportResult {
+  const warnings: string[] = [];
+  let doc: XmlNode;
+  try {
+    doc = parseDom(xml);
+  } catch (e) {
+    return { files: {}, warnings: [`could not parse stewart.xml: ${e instanceof Error ? e.message : e}`] };
+  }
+  const component = doc.querySelector('component[name="StewartSettings"]');
+  if (!component) return { files: {}, warnings: ["no StewartSettings component found — not a v1 settings file"] };
+
+  const { channels, aifBase } = importChannels(component);
+  const ctx: V1Ctx = { component, warnings, channels, agents: [], roles: [], aifBase };
+  importAgents(ctx);
+  importOllamaNumCtx(ctx);
+  importVisionOverrides(ctx);
+
+  const files: Record<string, string> = {
+    "channels.yaml": stringifyYaml({ version: 1, items: channels }),
+  };
+  if (ctx.agents.length) files["agents.yaml"] = stringifyYaml({ version: 1, items: ctx.agents });
+  if (ctx.roles.length) files["roles.yaml"] = stringifyYaml({ version: 1, items: ctx.roles });
+
+  const settingsYaml = importSettings(component);
+  if (settingsYaml) files["settings.yaml"] = settingsYaml;
+
+  if (!ctx.agents.length) warnings.push("no v1 models found — imported channels only");
   const skipped = ["autoApproveEdits", "multiModel", "autoCompactTokens", "toolPathOverrides", "toolsEnabled"]
     .filter((k) => opt(component, k) !== undefined);
   if (skipped.length) warnings.push(`v1-only settings not imported: ${skipped.join(", ")}`);
