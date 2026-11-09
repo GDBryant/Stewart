@@ -1,5 +1,5 @@
 // Scan TS/TSX sources for functions with high branch counts.
-// Usage: node temp/complexity-scan.mjs
+// Usage: node scripts/complexity-scan.mjs
 import ts from "typescript";
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
