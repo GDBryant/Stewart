@@ -35,19 +35,15 @@ export function resumeStrategy(runId: string): RunStrategy<ResumeRequest> {
   };
 }
 
-async function planResume(
+async function loadResumeGraph(
   runId: string,
   state: ResumeState,
   svc: RunHost,
-  projectId: string,
+  live: Run | undefined,
+  persisted: { tasks?: unknown; text?: string; startedAt?: number; agentId?: string } | undefined,
   req: ResumeRequest,
   ctx: PlanCtx,
-): Promise<RunPlan | Refusal> {
-  const live = svc.get(runId);
-  if (live && live.status !== "interrupted") return { ok: false, reason: `run is ${live.status}` };
-  const loaded = await loadPersistedRun(svc, runId, ctx.stateDir, live);
-  if (!loaded.ok) return loaded;
-  const { persisted } = loaded;
+): Promise<RunPlan | Refusal | null> {
   const taskRecords = live?.tasks ?? persisted?.tasks;
   if (!Array.isArray(taskRecords) || taskRecords.length === 0) {
     return { ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" };
@@ -63,7 +59,12 @@ async function planResume(
     }
   }
   state.text = live?.messages.find((m) => m.role === "user")?.content ?? persisted?.text ?? "";
-  const run: Run = {
+  void ctx;
+  return null;
+}
+
+function resumeRunRecord(runId: string, projectId: string, state: ResumeState, live: Run | undefined, persisted: { startedAt?: number; agentId?: string } | undefined, svc: RunHost, ctx: PlanCtx): Run {
+  return {
     id: runId,
     projectId,
     status: "running",
@@ -71,9 +72,27 @@ async function planResume(
     startedAt: live?.startedAt ?? persisted?.startedAt ?? svc.deps.clock.now(),
     messages: [{ role: "user", content: state.text }],
     costUsd: ctx.ledger.cost(runId).costUsd,
-    tasks: graph.toJSON(),
+    tasks: state.graph!.toJSON(),
     agentId: live?.agentId ?? persisted?.agentId,
   };
+}
+
+async function planResume(
+  runId: string,
+  state: ResumeState,
+  svc: RunHost,
+  projectId: string,
+  req: ResumeRequest,
+  ctx: PlanCtx,
+): Promise<RunPlan | Refusal> {
+  const live = svc.get(runId);
+  if (live && live.status !== "interrupted") return { ok: false, reason: `run is ${live.status}` };
+  const loaded = await loadPersistedRun(svc, runId, ctx.stateDir, live);
+  if (!loaded.ok) return loaded;
+  const { persisted } = loaded;
+  const early = await loadResumeGraph(runId, state, svc, live, persisted, req, ctx);
+  if (early) return early;
+  const run = resumeRunRecord(runId, projectId, state, live, persisted, svc, ctx);
   return { run, title: state.text, config: req.config, channelFor: req.channelFor };
 }
 

@@ -50,7 +50,7 @@ const PRUNE_TAIL = 4;
  * same tool+path, or outside the last `PRUNE_TAIL` messages. Message pairs stay intact; only the
  * result content changes. Mutates `produced`; returns the number of results stubbed.
  */
-export function pruneStale(produced: ChatMessage[]): number {
+function collectToolCalls(produced: ChatMessage[]): { calls: Map<string, { name: string; key: string }>; latest: Map<string, string> } {
   const calls = new Map<string, { name: string; key: string }>();
   const latest = new Map<string, string>();
   for (const m of produced) {
@@ -62,15 +62,26 @@ export function pruneStale(produced: ChatMessage[]): number {
       }
     }
   }
+  return { calls, latest };
+}
+
+function pruneTarget(m: ChatMessage, i: number, calls: Map<string, { name: string; key: string }>, latest: Map<string, string>, cutoff: number): { key: string; len: number } | null {
+  if (m.role !== "tool" || m.content.length < PRUNE_MIN_CHARS || m.content.startsWith("[elided")) return null;
+  const c = calls.get(m.toolCallId);
+  if (!c) return null;
+  const superseded = latest.get(c.key) !== m.toolCallId;
+  if (!superseded && i >= cutoff) return null;
+  return { key: c.key, len: m.content.length };
+}
+
+export function pruneStale(produced: ChatMessage[]): number {
+  const { calls, latest } = collectToolCalls(produced);
   let n = 0;
   const cutoff = produced.length - PRUNE_TAIL;
   produced.forEach((m, i) => {
-    if (m.role !== "tool" || m.content.length < PRUNE_MIN_CHARS || m.content.startsWith("[elided")) return;
-    const c = calls.get(m.toolCallId);
-    if (!c) return;
-    const superseded = latest.get(c.key) !== m.toolCallId;
-    if (!superseded && i >= cutoff) return;
-    produced[i] = { ...m, content: `[elided: ${c.key} ${m.content.length} chars; re-run the tool if needed]` };
+    const t = pruneTarget(m, i, calls, latest, cutoff);
+    if (!t) return;
+    produced[i] = { ...m, content: `[elided: ${t.key} ${t.len} chars; re-run the tool if needed]` };
     n++;
   });
   return n;

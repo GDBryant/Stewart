@@ -68,13 +68,7 @@ export async function scanWorkspace(host: Pick<HostPort, "files" | "proc">, now:
     const lang = LANGS[extOf(f)];
     if (!lang) continue;
     languages[lang] = (languages[lang] ?? 0) + 1;
-    if (now() >= deadline) continue;
-    try {
-      if ((await host.files.stat(f)).size > READ_SIZE_CAP) continue;
-      loc += countLines((await host.files.read(f)).content);
-    } catch {
-      /* unreadable or vanished file: counted, not read */
-    }
+    loc += await countFileLoc(host, f, now, deadline);
   }
   const monorepo = MONOREPO_MARKERS.some((m) => all.includes(m)) || packageJsons >= 3;
   const sizeClass: WorkspaceInfo["sizeClass"] =
@@ -84,6 +78,17 @@ export async function scanWorkspace(host: Pick<HostPort, "files" | "proc">, now:
         ? "small"
         : "medium";
   return { files: files.length, loc, languages, monorepo, sizeClass };
+}
+
+async function countFileLoc(host: Pick<HostPort, "files">, f: string, now: () => number, deadline: number): Promise<number> {
+  if (now() >= deadline) return 0;
+  try {
+    if ((await host.files.stat(f)).size > READ_SIZE_CAP) return 0;
+    return countLines((await host.files.read(f)).content);
+  } catch {
+    /* unreadable or vanished file: counted, not read */
+    return 0;
+  }
 }
 
 async function detectGpus(host: Pick<HostPort, "files" | "proc">): Promise<{ name: string; vramGb: number }[] | undefined> {

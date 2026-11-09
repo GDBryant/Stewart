@@ -39,21 +39,36 @@ function toOllamaMessages(req: ChatRequest) {
   });
 }
 
+function ollamaMessage(m: { content?: unknown; thinking?: string; tool_calls?: OllamaToolCall[] } | null | undefined, out: WireDelta[]): void {
+  if (typeof m?.content === "string" && m.content) out.push({ t: "text", text: m.content });
+  if (m?.thinking) out.push({ t: "reasoning", text: m.thinking });
+  if (Array.isArray(m?.tool_calls) && m.tool_calls.length) {
+    out.push({ t: "tool_calls", calls: m.tool_calls.map((tc) => ({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments })) });
+  }
+}
+
+function ollamaDone(j: OllamaLine, out: WireDelta[]): void {
+  if (j.done !== true) return;
+  out.push({ t: "usage", usage: { in: j.prompt_eval_count ?? 0, out: j.eval_count ?? 0 } });
+  if (j.done_reason === "length") out.push({ t: "truncated" });
+}
+
+function parseOllamaLine(line: string): OllamaLine {
+  try {
+    return JSON.parse(line);
+  } catch {
+    throw new ChannelError(`malformed NDJSON line: ${line.slice(0, 80)}`); // v1: malformed → Failed
+  }
+}
+
 /** Decode one NDJSON line into normalized wire deltas. Throws ChannelError on provider error lines. */
 function ollamaDeltas(j: OllamaLine): WireDelta[] {
   if (j.error !== undefined) throw new ChannelError(String(j.error));
   const m = j.message as { content?: unknown; thinking?: string; tool_calls?: OllamaToolCall[] } | null | undefined;
   if (m !== undefined && m !== null && typeof m !== "object") throw new ChannelError("invalid message field");
   const out: WireDelta[] = [];
-  if (typeof m?.content === "string" && m.content) out.push({ t: "text", text: m.content });
-  if (m?.thinking) out.push({ t: "reasoning", text: m.thinking });
-  if (Array.isArray(m?.tool_calls) && m.tool_calls.length) {
-    out.push({ t: "tool_calls", calls: m.tool_calls.map((tc) => ({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments })) });
-  }
-  if (j.done === true) {
-    out.push({ t: "usage", usage: { in: j.prompt_eval_count ?? 0, out: j.eval_count ?? 0 } });
-    if (j.done_reason === "length") out.push({ t: "truncated" });
-  }
+  ollamaMessage(m, out);
+  ollamaDone(j, out);
   return out;
 }
 
@@ -122,27 +137,26 @@ export class OllamaAdapter implements ChannelAdapter {
     const acc = new StreamAccumulator();
     let sawDone = false;
     try {
-      for await (const line of lines(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
-        dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: line });
-        let j: OllamaLine;
-        try {
-          j = JSON.parse(line);
-        } catch {
-          throw new ChannelError(`malformed NDJSON line: ${line.slice(0, 80)}`); // v1: malformed → Failed
-        }
-        for (const d of ollamaDeltas(j)) yield* acc.apply(d);
-        if (j.done === true) {
-          sawDone = true;
-          warnIfTruncated(acc, estTokens, numCtx, dbg, this.type, req.model);
-          break;
-        }
-      }
+      sawDone = yield* this.ollamaLines(stream, req, acc, dbg, estTokens, numCtx);
     } catch (e) {
       dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: e instanceof Error ? e.message : String(e) });
       throw e;
     }
     if (!sawDone && !req.signal.aborted) dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: "stream ended before done" });
     yield* acc.finish();
+  }
+
+  private async *ollamaLines(stream: ReadableStream<Uint8Array>, req: ChatRequest, acc: StreamAccumulator, dbg: DebugSink | undefined, estTokens: number, numCtx: number | undefined): AsyncGenerator<ChatEvent, boolean> {
+    for await (const line of lines(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
+      dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: line });
+      const j = parseOllamaLine(line);
+      for (const d of ollamaDeltas(j)) yield* acc.apply(d);
+      if (j.done === true) {
+        warnIfTruncated(acc, estTokens, numCtx, dbg, this.type, req.model);
+        return true;
+      }
+    }
+    return false;
   }
 }
 

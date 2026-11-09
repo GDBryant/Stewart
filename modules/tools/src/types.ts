@@ -66,21 +66,23 @@ export function validateArgs(args: Json, schema: Json, name: string): string | n
   return null;
 }
 
+function typeMatches(ty: string, value: unknown): boolean {
+  switch (ty) {
+    case "string": return typeof value === "string";
+    case "integer": return typeof value === "number" && Number.isInteger(value);
+    case "number": return typeof value === "number";
+    case "boolean": return typeof value === "boolean";
+    case "array": return Array.isArray(value);
+    case "object": return typeof value === "object" && value !== null && !Array.isArray(value);
+    default: return true;
+  }
+}
+
 function typeError(value: unknown, schema: Json): string | null {
   const t = schema.type;
   if (typeof t !== "string" && !Array.isArray(t)) return null;
   const types = Array.isArray(t) ? (t as string[]) : [t as string];
-  const ok = types.some((ty) => {
-    switch (ty) {
-      case "string": return typeof value === "string";
-      case "integer": return typeof value === "number" && Number.isInteger(value);
-      case "number": return typeof value === "number";
-      case "boolean": return typeof value === "boolean";
-      case "array": return Array.isArray(value);
-      case "object": return typeof value === "object" && value !== null && !Array.isArray(value);
-      default: return true;
-    }
-  });
+  const ok = types.some((ty) => typeMatches(ty, value));
   return ok ? null : `expected type ${types.join("|")}`;
 }
 

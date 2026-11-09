@@ -82,20 +82,22 @@ export function detectStuck(messages: ChatMessage[]): { stuck: boolean; reason?:
   return { stuck: false };
 }
 
+function actionLabel(c: { id: string; name: string; arguments: Record<string, unknown> }, outcomes: Map<string, string>): string | null {
+  const out = outcomes.get(c.id);
+  if (out === undefined || !successfulOutcome(out)) return null;
+  const target = c.arguments.path ?? c.arguments.command ?? c.arguments.task ?? "";
+  return `${c.name}${typeof target === "string" && target ? ` ${target.slice(0, 120)}` : ""}`;
+}
+
 /** Successful tool calls as `name path|command`, most recent last, capped. */
 export function actionsSoFar(messages: ChatMessage[], cap: number): string[] {
-  const outcomes = new Map<string, string>();
-  for (const m of messages) {
-    if (m.role === "tool" && m.toolCallId) outcomes.set(m.toolCallId, m.content);
-  }
+  const outcomes = collectOutcomes(messages);
   const acts: string[] = [];
   for (const m of messages) {
     if (m.role !== "assistant" || !m.toolCalls) continue;
     for (const c of m.toolCalls) {
-      const out = outcomes.get(c.id);
-      if (out === undefined || !successfulOutcome(out)) continue;
-      const target = c.arguments.path ?? c.arguments.command ?? c.arguments.task ?? "";
-      acts.push(`${c.name}${typeof target === "string" && target ? ` ${target.slice(0, 120)}` : ""}`);
+      const act = actionLabel(c, outcomes);
+      if (act) acts.push(act);
     }
   }
   return acts.slice(-cap);

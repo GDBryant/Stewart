@@ -42,21 +42,18 @@ export interface AgentSession {
   limits: LoopLimits;
 }
 
-/** The only place a `ToolLoop` is built: model profile -> limits -> listener (events + ledger). */
-export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSession {
-  const { agent, role, channel, events, meter } = spec;
-  const profile = profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent });
-  let limits: LoopLimits;
-  if (spec.budget) {
-    limits = resolveLimits({ baseTurns: role ? roleTurnBudget(role) : undefined, agent, profile: spec.budget.profile, ceiling: spec.budget.ceiling, model: profile });
-    const resolvedTurns = limits.maxModelTurns;
-    limits = { ...limits, ...spec.limitsOverride };
-    if (spec.limitsOverride?.maxModelTurns !== undefined) limits.maxModelTurns = Math.min(spec.limitsOverride.maxModelTurns, resolvedTurns);
-  } else {
-    limits = { ...DEFAULT_LIMITS, ...spec.limitsOverride };
-  }
+function sessionLimits(spec: SessionSpec, profile: ModelProfile, role: SessionSpec["role"]): LoopLimits {
+  if (!spec.budget) return { ...DEFAULT_LIMITS, ...spec.limitsOverride };
+  const resolved = resolveLimits({ baseTurns: role ? roleTurnBudget(role) : undefined, agent: spec.agent, profile: spec.budget.profile, ceiling: spec.budget.ceiling, model: profile });
+  const resolvedTurns = resolved.maxModelTurns;
+  const limits = { ...resolved, ...spec.limitsOverride };
+  if (spec.limitsOverride?.maxModelTurns !== undefined) limits.maxModelTurns = Math.min(spec.limitsOverride.maxModelTurns, resolvedTurns);
+  return limits;
+}
+
+function wireEventListener(listener: LoopListener, spec: SessionSpec): void {
+  const { events } = spec;
   const ids = events ? { runId: events.runId, ...(events.taskId ? { taskId: events.taskId } : {}), ...(events.roleId ? { roleId: events.roleId } : {}) } : undefined;
-  const listener: LoopListener = {};
   if (events && ids) {
     const { bus } = events;
     listener.onText = (t) => bus.emit({ kind: "text_delta", ...ids, seq: 0, text: t });
@@ -79,23 +76,36 @@ export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSessio
     spec.hooks?.onToolOutcome?.(call, outcome);
     if (events && ids) events.bus.emit({ kind: "tool.outcome", ...ids, callId: call.id, ok: outcome.kind === "success", summary: outcome.kind });
   };
-  if (meter) {
-    listener.onUsage = async (usage, reported) => {
-      const costUsd = costOfCall(agent, usage, reported);
-      await meter.ledger.record({
-        runId: meter.runId,
-        ...(meter.taskId ? { taskId: meter.taskId } : {}),
-        roleId: meter.roleId,
-        agentId: agent.id,
-        model: agent.model,
-        billing: agent.billing ?? "reported",
-        inTokens: usage?.in ?? 0,
-        outTokens: usage?.out ?? 0,
-        costUsd,
-      });
-      meter.cost.accrued += costUsd;
-    };
-  }
+}
+
+function wireMeterListener(listener: LoopListener, spec: SessionSpec, agent: SessionSpec["agent"]): void {
+  const { meter } = spec;
+  if (!meter) return;
+  listener.onUsage = async (usage, reported) => {
+    const costUsd = costOfCall(agent, usage, reported);
+    await meter.ledger.record({
+      runId: meter.runId,
+      ...(meter.taskId ? { taskId: meter.taskId } : {}),
+      roleId: meter.roleId,
+      agentId: agent.id,
+      model: agent.model,
+      billing: agent.billing ?? "reported",
+      inTokens: usage?.in ?? 0,
+      outTokens: usage?.out ?? 0,
+      costUsd,
+    });
+    meter.cost.accrued += costUsd;
+  };
+}
+
+/** The only place a `ToolLoop` is built: model profile -> limits -> listener (events + ledger). */
+export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSession {
+  const { agent, role, channel } = spec;
+  const profile = profileFromChannel(channel.cfg, { channel: agent.channel, model: agent.model, agent });
+  const limits = sessionLimits(spec, profile, role);
+  const listener: LoopListener = {};
+  wireEventListener(listener, spec);
+  wireMeterListener(listener, spec, agent);
   const loop = new ToolLoop(channel, spec.registry, spec.approve, limits, clock, spec.prompt, spec.terminal ?? new Set(), profile.toolsMode, spec.idem, spec.summarize);
   return { loop, listener, profile, limits };
 }

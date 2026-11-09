@@ -6,8 +6,52 @@ import { parseChatCommand } from "@stewart/runs";
 import type { CoreCtx } from "./types.js";
 import { pickChatAgent, workspaceInfoFor } from "./util.js";
 
+type ChatParams = { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
+
+async function chatProfileName(core: CoreCtx, ctx: ReturnType<CoreCtx["ctx"]>, p: ChatParams, cmd: ReturnType<typeof parseChatCommand>, mentionText: string, hasImages: boolean, orchestrated: boolean): Promise<ReturnType<typeof classifyTask>> {
+  if (cmd.profileName) return cmd.profileName as ReturnType<typeof classifyTask>;
+  const ws = await workspaceInfoFor(core, ctx, p.projectId);
+  return classifyTask(mentionText, { workspaceSize: ws?.sizeClass, hasAttachments: hasImages, orchestrated });
+}
+
+async function orchestratedChat(core: CoreCtx, ctx: ReturnType<CoreCtx["ctx"]>, p: ChatParams, mentionText: string, sessionId: string | undefined, profile: ReturnType<typeof budgetProfile>, profileName: string): Promise<unknown> {
+  const run = await ctx.runs.orchestrated(p.projectId, {
+    config: ctx.config,
+    channelFor: (id) => core.channelService.require(id),
+    text: mentionText,
+    sessionId,
+    profile,
+    profileName,
+  });
+  return { runId: run.id };
+}
+
+async function directChat(core: CoreCtx, ctx: ReturnType<CoreCtx["ctx"]>, p: ChatParams, mentionText: string, images: string[] | undefined, sessionId: string | undefined, profile: ReturnType<typeof budgetProfile>, profileName: string): Promise<unknown> {
+  const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
+  const agent = pickChatAgent(ctx.config, role);
+  const channel = core.channelService.require(agent.channel);
+  const { prompt, truncated } = role
+    ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
+    : { prompt: undefined, truncated: false };
+  if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
+  const history = sessionId ? ((await (await ctx.runs.historyStore()).load(sessionId)) ?? []) : [];
+  const run = await ctx.runs.direct(
+    p.projectId,
+    channel,
+    agent,
+    mentionText,
+    images,
+    role,
+    prompt || undefined,
+    sessionId,
+    history,
+    { config: ctx.config, profile, name: profileName, recovery: recoveryState(ctx.config.settings) },
+  );
+  return { runId: run.id };
+}
+
 export async function handleChatSend(core: CoreCtx, params: unknown): Promise<unknown> {
-  const p = params as { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string };
+  const p = params as ChatParams;
   const ctx = core.ctx(p.projectId);
   const cmd = parseChatCommand(p.text, p.profile);
   const direct = p.direct || cmd.direct;
@@ -16,48 +60,11 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   const norm = normalizeImages(p.images ?? []);
   if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
   const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
-  const profileName =
-    cmd.profileName ??
-    classifyTask(mention.text, {
-      workspaceSize: (await workspaceInfoFor(core, ctx, p.projectId))?.sizeClass,
-      hasAttachments: norm.images.length > 0,
-      orchestrated: !!orchestrator && !direct,
-    });
+  const profileName = await chatProfileName(core, ctx, p, cmd, mention.text, norm.images.length > 0, !!orchestrator && !direct);
   const profile = budgetProfile(ctx.config.settings, profileName);
-  if (orchestrator && !direct) {
-    const run = await ctx.runs.orchestrated(p.projectId, {
-      config: ctx.config,
-      channelFor: (id) => core.channelService.require(id),
-      text: mention.text,
-      sessionId: p.sessionId,
-      profile,
-      profileName,
-    });
-    return { runId: run.id };
-  }
-  const role = ctx.config.roles.find((r) => r.id === "general-worker" && r.enabled);
-  const agent = pickChatAgent(ctx.config, role);
-  const channel = core.channelService.require(agent.channel);
-  const { prompt, truncated } = role
-    ? composeRolePrompt(role, ctx.config.skills, ctx.config.settings.skillBudgetTokens)
-    : { prompt: undefined, truncated: false };
-  if (truncated) ctx.host.log(`role ${role?.id}: skill text truncated at skillBudgetTokens`);
-  const history = p.sessionId ? ((await (await ctx.runs.historyStore()).load(p.sessionId)) ?? []) : [];
-  const run = await ctx.runs.direct(
-    p.projectId,
-    channel,
-    agent,
-    mention.text,
-    norm.images.length ? norm.images : undefined,
-    role,
-    prompt || undefined,
-    p.sessionId,
-    history,
-    { config: ctx.config, profile, name: profileName, recovery: recoveryState(ctx.config.settings) },
-  );
-  return { runId: run.id };
+  if (orchestrator && !direct) return orchestratedChat(core, ctx, p, mention.text, p.sessionId, profile, profileName);
+  return directChat(core, ctx, p, mention.text, norm.images.length ? norm.images : undefined, p.sessionId, profile, profileName);
 }
-
 export function handleChatCancel(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; runId: string };
   return { ok: core.ctx(p.projectId).runs.cancel(p.runId) };

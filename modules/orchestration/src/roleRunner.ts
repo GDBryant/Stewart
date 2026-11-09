@@ -5,7 +5,7 @@ import { DEFAULT_CAPS, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { agentServesRole } from "@stewart/roles-skills";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
-import { projectTools } from "@stewart/tools";
+import { projectTools, type ImageGenerator } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { RunCancelledError, type LoopResult } from "@stewart/agent-loop";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
@@ -43,26 +43,57 @@ export async function runRoleTask(
   for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
   const { session, state } = await buildSessionDeps(rt, spec, deps, agent, channel);
 
-  const briefingParts = [spec.task];
-  if (spec.files.length) briefingParts.push(`Files: ${spec.files.join(", ")}`);
-  if (spec.expect) briefingParts.push(`Expect: ${spec.expect}`);
-  if (deps.extraBriefing) briefingParts.push(deps.extraBriefing);
-  if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
-  const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: briefingParts.join("\n\n") }];
+  const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: roleBriefing(spec, deps) }];
 
   let result: LoopResult;
   try {
     result = await session.loop.run(agent.model, messages, session.listener, rt.signal);
   } catch (e) {
-    if (e instanceof LeaseCycleError) {
-      return { status: "cancelled", summary: e.message, filesTouched: state.filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
-    }
-    if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched, transcript: e.transcript };
-    if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched };
-    return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched: state.filesTouched };
+    return roleTaskError(e, state, rt);
   }
 
   return toTaskResult(result, state, session.limits.maxModelTurns);
+}
+
+function roleBriefing(spec: TaskSpec, deps: RoleTaskDeps): string {
+  const parts = [spec.task];
+  if (spec.files.length) parts.push(`Files: ${spec.files.join(", ")}`);
+  if (spec.expect) parts.push(`Expect: ${spec.expect}`);
+  if (deps.extraBriefing) parts.push(deps.extraBriefing);
+  if (deps.depSummaries?.length) parts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
+  return parts.join("\n\n");
+}
+
+function roleTaskError(e: unknown, state: { filesTouched: string[] }, rt: OrchestrationRuntime): TaskResult {
+  if (e instanceof LeaseCycleError) {
+    return { status: "cancelled", summary: e.message, filesTouched: state.filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
+  }
+  if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched, transcript: e.transcript };
+  if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched };
+  return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched: state.filesTouched };
+}
+
+async function unhealthyFallback(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  role: RoleDef,
+  agent: NonNullable<RoleTaskDeps["agent"]>,
+): Promise<TaskResult | { agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<OrchestrationRuntime["channelFor"]> }> {
+  const fb = role.fallbackAgent ? rt.config.agents.find((a) => a.id === role.fallbackAgent) : undefined;
+  if (!fb || !agentServesRole(fb, rt.config.channels, role.id)) {
+    return { status: "parked", summary: `parked: channel ${agent.channel} unhealthy`, filesTouched: [] };
+  }
+  const fbChannel = rt.channelFor(fb.channel);
+  if (fbChannel.unhealthy) {
+    return { status: "parked", summary: `parked: channel ${fb.channel} unhealthy`, filesTouched: [] };
+  }
+  if (!isCosting(agent) && isCosting(fb)) {
+    const o = await rt.prompt(fallbackPrompt(agent, role, fb), { roleId: role.id, taskId: spec.id });
+    if (o.kind !== "answered" || o.value !== "switch") {
+      return { status: "parked", summary: `parked: fallback to paid agent '${fb.id}' declined`, filesTouched: [] };
+    }
+  }
+  return { agent: fb, channel: fbChannel };
 }
 
 async function resolveAgent(
@@ -76,27 +107,34 @@ async function resolveAgent(
   if (!agent) return { status: "failed", summary: `role ${role.id}: enabled but no agent bound`, filesTouched: [] };
   let channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) {
-    const fb = role.fallbackAgent ? rt.config.agents.find((a) => a.id === role.fallbackAgent) : undefined;
-    if (!fb || !agentServesRole(fb, rt.config.channels, role.id)) {
-      return { status: "parked", summary: `parked: channel ${agent.channel} unhealthy`, filesTouched: [] };
-    }
-    const fbChannel = rt.channelFor(fb.channel);
-    if (fbChannel.unhealthy) {
-      return { status: "parked", summary: `parked: channel ${fb.channel} unhealthy`, filesTouched: [] };
-    }
-    if (!isCosting(agent) && isCosting(fb)) {
-      const o = await rt.prompt(fallbackPrompt(agent, role, fb), { roleId: role.id, taskId: spec.id });
-      if (o.kind !== "answered" || o.value !== "switch") {
-        return { status: "parked", summary: `parked: fallback to paid agent '${fb.id}' declined`, filesTouched: [] };
-      }
-    }
-    agent = fb;
-    channel = fbChannel;
+    const fb = await unhealthyFallback(rt, spec, role, agent);
+    if ("status" in fb) return fb;
+    agent = fb.agent;
+    channel = fb.channel;
   }
   if (rt.cost.reached() && isCosting(agent)) {
     return { status: "parked", summary: `parked: cost limit reached`, filesTouched: [] };
   }
   return { agent, channel };
+}
+
+function imageGenFor(channel: ReturnType<OrchestrationRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>): ImageGenerator | undefined {
+  const enabled = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage;
+  return enabled ? (prompt: string) => channel.generateImage(agent.model, prompt) : undefined;
+}
+
+function leasedRegistry(rt: OrchestrationRuntime, spec: TaskSpec, role: RoleDef, base: ToolRegistry): ToolRegistry {
+  return new ToolRegistry(
+    leasedTools(base.tools, {
+      host: rt.host,
+      leases: rt.leases,
+      taskId: spec.id,
+      runId: rt.runId,
+      leaseWaitMs: rt.leaseWaitMs,
+      stateDir: rt.stateDir,
+      onWait: (_path, holder) => rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: spec.id, roleId: role.id, waitingOn: holder }),
+    }),
+  );
 }
 
 async function buildSessionDeps(
@@ -109,23 +147,9 @@ async function buildSessionDeps(
   const { role } = deps;
   const paths = await ProjectPaths.forProject(rt.host);
   const extra = deps.nestedTools ?? [];
-  const genChannel = channel;
-  const genModel = agent.model;
-  const imageGen = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage
-    ? (prompt: string) => genChannel.generateImage(genModel, prompt)
-    : undefined;
+  const imageGen = imageGenFor(channel, agent);
   const base = new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGen }).tools, ...extra]).for(role);
-  const registry = new ToolRegistry(
-    leasedTools(base.tools, {
-      host: rt.host,
-      leases: rt.leases,
-      taskId: spec.id,
-      runId: rt.runId,
-      leaseWaitMs: rt.leaseWaitMs,
-      stateDir: rt.stateDir,
-      onWait: (_path, holder) => rt.bus.emit({ kind: "task.blocked", runId: rt.runId, taskId: spec.id, roleId: role.id, waitingOn: holder }),
-    }),
-  );
+  const registry = leasedRegistry(rt, spec, role, base);
 
   const prompt = deps.prompt ?? (await buildRolePrompt(rt, role));
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
@@ -206,31 +230,35 @@ export function compactorFor(rt: OrchestrationRuntime, taskId?: string): ((middl
   if (!agent) return undefined;
   const channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) return undefined;
-  return async (middle) => {
-    if (rt.cost.reached() && isCosting(agent)) return "";
-    let text = "";
-    const messages: ChatMessage[] = [
-      { role: "system", content: SUMMARY_INSTRUCTIONS },
-      { role: "user", content: renderForSummary(middle) },
-    ];
-    for await (const ev of channel.chat({ model: agent.model, messages, signal: rt.signal })) {
-      if (ev.kind === "text") text += ev.text;
-      if (ev.kind === "done") {
-        const costUsd = costOfCall(agent, ev.usage, ev.costUsd);
-        await rt.ledger.record({
-          runId: rt.runId,
-          ...(taskId ? { taskId } : {}),
-          roleId: "compactor",
-          agentId: agent.id,
-          model: agent.model,
-          billing: agent.billing ?? "reported",
-          inTokens: ev.usage?.in ?? 0,
-          outTokens: ev.usage?.out ?? 0,
-          costUsd,
-        });
-        rt.cost.accrued += costUsd;
-      }
-    }
-    return text;
-  };
+  return (middle) => runCompactor(rt, channel, agent, middle, taskId);
+}
+
+async function recordCompactionCost(rt: OrchestrationRuntime, agent: NonNullable<RoleTaskDeps["agent"]>, ev: { usage?: { in: number; out: number }; costUsd?: number }, taskId?: string): Promise<void> {
+  const costUsd = costOfCall(agent, ev.usage, ev.costUsd);
+  await rt.ledger.record({
+    runId: rt.runId,
+    ...(taskId ? { taskId } : {}),
+    roleId: "compactor",
+    agentId: agent.id,
+    model: agent.model,
+    billing: agent.billing ?? "reported",
+    inTokens: ev.usage?.in ?? 0,
+    outTokens: ev.usage?.out ?? 0,
+    costUsd,
+  });
+  rt.cost.accrued += costUsd;
+}
+
+async function runCompactor(rt: OrchestrationRuntime, channel: ReturnType<OrchestrationRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>, middle: ChatMessage[], taskId?: string): Promise<string> {
+  if (rt.cost.reached() && isCosting(agent)) return "";
+  let text = "";
+  const messages: ChatMessage[] = [
+    { role: "system", content: SUMMARY_INSTRUCTIONS },
+    { role: "user", content: renderForSummary(middle) },
+  ];
+  for await (const ev of channel.chat({ model: agent.model, messages, signal: rt.signal })) {
+    if (ev.kind === "text") text += ev.text;
+    if (ev.kind === "done") await recordCompactionCost(rt, agent, ev, taskId);
+  }
+  return text;
 }

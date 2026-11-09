@@ -23,6 +23,16 @@ export function channelModels(store: Store, c: ChannelSummary): string[] {
   return [...new Set([...(t?.ok ? t.models ?? [] : []), ...(c.extraModels ?? [])])];
 }
 
+function perfBadges(perf: { ttftMs?: number; tokPerSec?: number; toolReliability?: number; jsonOk?: boolean; editOk?: boolean }): string[] {
+  const out: string[] = [];
+  if (perf.tokPerSec !== undefined) out.push(`${Math.round(perf.tokPerSec)} tok/s`);
+  if (perf.ttftMs !== undefined) out.push(`ttft ${(perf.ttftMs / 1000).toFixed(1)}s`);
+  if (perf.toolReliability !== undefined) out.push(`tool ${Math.round(perf.toolReliability * 3)}/3`);
+  if (perf.editOk !== undefined) out.push(perf.editOk ? "edit ok" : "edit fail");
+  if (perf.jsonOk !== undefined) out.push(perf.jsonOk ? "json ok" : "json fail");
+  return out;
+}
+
 export function capBadges(caps?: Record<string, unknown>): string {
   if (!caps) return "";
   const out: string[] = [];
@@ -32,13 +42,7 @@ export function capBadges(caps?: Record<string, unknown>): string {
   if (caps.imageGen) out.push("image-gen");
   if (typeof caps.contextTokens === "number") out.push(`${Math.round(caps.contextTokens / 1000)}k ctx`);
   const perf = caps.perf as { ttftMs?: number; tokPerSec?: number; toolReliability?: number; jsonOk?: boolean; editOk?: boolean } | undefined;
-  if (perf) {
-    if (perf.tokPerSec !== undefined) out.push(`${Math.round(perf.tokPerSec)} tok/s`);
-    if (perf.ttftMs !== undefined) out.push(`ttft ${(perf.ttftMs / 1000).toFixed(1)}s`);
-    if (perf.toolReliability !== undefined) out.push(`tool ${Math.round(perf.toolReliability * 3)}/3`);
-    if (perf.editOk !== undefined) out.push(perf.editOk ? "edit ok" : "edit fail");
-    if (perf.jsonOk !== undefined) out.push(perf.jsonOk ? "json ok" : "json fail");
-  }
+  if (perf) out.push(...perfBadges(perf));
   return out.join(" · ");
 }
 

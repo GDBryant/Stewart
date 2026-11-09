@@ -77,6 +77,23 @@ export function prepare(messages: ChatMessage[]): ClaudeInput {
   };
 }
 
+function renderMessage(msg: ChatMessage, callNames: Map<string, string>): string {
+  const tag = msg.role === "assistant" ? "assistant" : msg.role === "tool" ? "tool_result" : "user";
+  let body = `\n\n<${tag}`;
+  if (msg.role === "tool") {
+    const n = callNames.get(msg.toolCallId);
+    if (n) body += ` tool="${n}"`;
+  }
+  body += `>\n${msg.content}`;
+  if (msg.role === "assistant") {
+    for (const call of msg.toolCalls ?? []) {
+      callNames.set(call.id, call.name);
+      body += `\n[called tool ${call.name} with arguments ${JSON.stringify(call.arguments)}]`;
+    }
+  }
+  return `${body}\n</${tag}>`;
+}
+
 export function render(messages: ChatMessage[]): [string, string] {
   const system =
     messages
@@ -88,21 +105,6 @@ export function render(messages: ChatMessage[]): [string, string] {
   let body = "The conversation so far is below. Reply as the assistant to the last user message.";
   // Raw tool history (e.g. from another provider) is rendered as neutral notes, not as a callable format.
   const callNames = new Map<string, string>();
-  for (const msg of rest) {
-    const tag = msg.role === "assistant" ? "assistant" : msg.role === "tool" ? "tool_result" : "user";
-    body += `\n\n<${tag}`;
-    if (msg.role === "tool") {
-      const n = callNames.get(msg.toolCallId);
-      if (n) body += ` tool="${n}"`;
-    }
-    body += `>\n${msg.content}`;
-    if (msg.role === "assistant") {
-      for (const call of msg.toolCalls ?? []) {
-        callNames.set(call.id, call.name);
-        body += `\n[called tool ${call.name} with arguments ${JSON.stringify(call.arguments)}]`;
-      }
-    }
-    body += `\n</${tag}>`;
-  }
+  for (const msg of rest) body += renderMessage(msg, callNames);
   return [system, body];
 }

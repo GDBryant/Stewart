@@ -42,6 +42,14 @@ export function resolveModelProfile(
 }
 
 /** Same as `resolveModelProfile` when only the channel config is at hand (run paths). */
+function resolvePrice(ref: { channel: string; model: string; agent?: AgentPrice }, live: PriceMap | undefined, channelType: string): ModelProfile["price"] {
+  if (ref.agent?.price) return { ...ref.agent.price, source: "agent" };
+  if (live?.[ref.model]) return { inPerMTok: live[ref.model].inPerMTok, outPerMTok: live[ref.model].outPerMTok, source: "live" };
+  const info = channelType ? lookupModelInfo(channelType, ref.model) : undefined;
+  if (info?.inPerMTok !== undefined) return { inPerMTok: info.inPerMTok, outPerMTok: info.outPerMTok ?? info.inPerMTok, source: "catalog" };
+  return undefined;
+}
+
 export function profileFromChannel(
   ch: ChannelLike | undefined,
   ref: { channel: string; model: string; agent?: AgentPrice },
@@ -49,16 +57,9 @@ export function profileFromChannel(
 ): ModelProfile {
   const caps: Partial<ModelCaps> = ch?.modelCaps?.[ref.model] ?? {};
   const channelType = ch?.type ?? "";
-  let price: ModelProfile["price"];
-  if (ref.agent?.price) price = { ...ref.agent.price, source: "agent" };
-  else if (live?.[ref.model]) price = { inPerMTok: live[ref.model].inPerMTok, outPerMTok: live[ref.model].outPerMTok, source: "live" };
-  else {
-    const info = channelType ? lookupModelInfo(channelType, ref.model) : undefined;
-    if (info?.inPerMTok !== undefined) price = { inPerMTok: info.inPerMTok, outPerMTok: info.outPerMTok ?? info.inPerMTok, source: "catalog" };
-  }
+  const price = resolvePrice(ref, live, channelType);
   const costBlended = blendedCost(price);
-  const contextTokens =
-    caps.numCtx ?? caps.contextTokens ?? (channelType ? lookupModelInfo(channelType, ref.model)?.contextTokens : undefined);
+  const contextTokens = caps.numCtx ?? caps.contextTokens ?? (channelType ? lookupModelInfo(channelType, ref.model)?.contextTokens : undefined);
   return {
     channelId: ref.channel,
     channelType,

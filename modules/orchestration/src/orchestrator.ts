@@ -68,6 +68,16 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText).run();
 }
 
+function taskRecordStatus(result: TaskResult): TaskRecord["status"] {
+  return result.status === "done" ? "done" : result.status === "failed" ? "failed" : result.status === "parked" ? "parked" : "stopped";
+}
+
+function taskOutcomeEvent(rt: OrchestrationRuntime, rec: TaskRecord, role: RoleDef, result: TaskResult): Parameters<OrchestrationRuntime["bus"]["emit"]>[0] {
+  return result.status === "done"
+    ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: result.summary.slice(0, 400) }
+    : { kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: result.summary.slice(0, 400) };
+}
+
 class OrchestratedRun {
   private readonly graph = new TaskGraph();
   private readonly results = new Map<string, TaskResult>();
@@ -147,36 +157,45 @@ class OrchestratedRun {
     );
   }
 
+  private retryInput(result: LoopResult, flags: { retried: boolean; nudged: boolean }, R: ReturnType<OrchestrationRuntime["recoveryService"]["state"]>, input: ChatMessage[]): ChatMessage[] | "return" {
+    const rt = this.rt;
+    const fault = classifyFault(result);
+    if (fault && !flags.retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
+      flags.retried = true;
+      R.recoveriesUsed++;
+      rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
+      return fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${rt.recoveryService.sizeHint}` }];
+    }
+    if (result.kind !== "failed" && !flags.nudged && this.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
+      flags.nudged = true;
+      rt.recoveryService.log(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
+      return [{ role: "user", content: `${this.userText}\n\n${CALL_NUDGE}` }];
+    }
+    return "return";
+  }
+
+  private sessionError(e: unknown): OrchestrationOutcome {
+    const rt = this.rt;
+    rt.leases.releaseAll();
+    if (e instanceof RunCancelledError || rt.signal.aborted) return { status: "cancelled", suggestions: this.suggestions };
+    if (e instanceof LeaseCycleError) return { status: "failed", error: e.message, suggestions: this.suggestions };
+    return { status: "failed", error: e instanceof Error ? e.message : String(e), suggestions: this.suggestions };
+  }
+
   private async runSession(session: AgentSession): Promise<LoopResult | OrchestrationOutcome> {
     const rt = this.rt;
     try {
       const R = rt.recoveryService.state(rt);
-      let retried = false;
-      let nudged = false;
+      const flags = { retried: false, nudged: false };
       let input: ChatMessage[] = [{ role: "user", content: this.userText }];
       while (true) {
         const result = await session.loop.run(this.agent.model, input, session.listener, rt.signal);
-        const fault = classifyFault(result);
-        if (fault && !retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
-          retried = true;
-          R.recoveriesUsed++;
-          rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
-          input = fault === "incomplete_stream" ? input : [{ role: "user", content: `${this.userText}\n\n${rt.recoveryService.sizeHint}` }];
-          continue;
-        }
-        if (result.kind !== "failed" && !nudged && this.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
-          nudged = true;
-          rt.recoveryService.log(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
-          input = [{ role: "user", content: `${this.userText}\n\n${CALL_NUDGE}` }];
-          continue;
-        }
-        return result;
+        const next = this.retryInput(result, flags, R, input);
+        if (next === "return") return result;
+        input = next;
       }
     } catch (e) {
-      rt.leases.releaseAll();
-      if (e instanceof RunCancelledError || rt.signal.aborted) return { status: "cancelled", suggestions: this.suggestions };
-      if (e instanceof LeaseCycleError) return { status: "failed", error: e.message, suggestions: this.suggestions };
-      return { status: "failed", error: e instanceof Error ? e.message : String(e), suggestions: this.suggestions };
+      return this.sessionError(e);
     }
   }
 
@@ -365,17 +384,13 @@ class OrchestratedRun {
     this.results.set(rec.id, result);
     rt.leases.release(rec.id);
     rec.filesTouched = result.filesTouched;
-    rec.status = result.status === "done" ? "done" : result.status === "failed" ? "failed" : result.status === "parked" ? "parked" : "stopped";
+    rec.status = taskRecordStatus(result);
     rec.summary = result.summary;
     await this.syncGraph();
     const agentForRole = rt.config.agents.find((a) => a.id === (this.overrides.get(role.id) ?? role.agent));
     if (opts.requeueParked && result.status === "parked") this.parked.push(rec.id);
     if (result.status === "done" && agentForRole && !isCosting(agentForRole)) this.freeFinished.push(rec.id);
-    rt.bus.emit(
-      result.status === "done"
-        ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: result.summary.slice(0, 400) }
-        : { kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: result.summary.slice(0, 400) },
-    );
+    rt.bus.emit(taskOutcomeEvent(rt, rec, role, result));
     if (opts.announceLimit && rt.cost.reached() && !this.limitAnnounced) {
       this.limitAnnounced = true;
       rt.bus.emit({ kind: "cost.limit_reached", runId: rt.runId, capUsd: rt.cost.cap, accruedUsd: rt.cost.accrued });

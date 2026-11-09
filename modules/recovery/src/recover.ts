@@ -44,15 +44,30 @@ async function runTaskRecoverable(
 
     if (layer0Retry(rt, spec, fault, worker, canRecover, R, state)) continue;
     if (!worker) return res;
-
-    if (fault === "turn_limit") {
-      const decision = await askContinue(rt, spec, deps.role.id, res, allowSplit, R, state);
-      if (decision === "retry") continue;
-      if (decision === "stop") return { ...res, status: "failed", summary: "stopped by user at turn limit" };
-    }
-
-    return (await trySplit(rt, spec, deps, ctx, res, R, self, allowSplit, canRecover)) ?? res;
+    const out = await recoverFault(rt, spec, deps, ctx, res, R, self, allowSplit, canRecover, state);
+    if (out === "retry") continue;
+    return out;
   }
+}
+
+async function recoverFault(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  deps: RoleTaskDeps,
+  ctx: RecoveryContext,
+  res: TaskResult,
+  R: RecoveryState,
+  self: Recoverable,
+  allowSplit: boolean,
+  canRecover: boolean,
+  state: RetryState,
+): Promise<"retry" | TaskResult> {
+  if (res.fault === "turn_limit") {
+    const decision = await askContinue(rt, spec, deps.role.id, res, allowSplit, R, state);
+    if (decision === "retry") return "retry";
+    if (decision === "stop") return { ...res, status: "failed", summary: "stopped by user at turn limit" };
+  }
+  return (await trySplit(rt, spec, deps, ctx, res, R, self, allowSplit, canRecover)) ?? res;
 }
 
 function layer0Retry(
@@ -105,10 +120,14 @@ async function askContinue(
   const o = await rt.prompt(prompt, { roleId, taskId: spec.id });
   const answer = o.kind === "answered" ? o.value : ({ kind: "timeout" } as const);
   logRecovery(rt, `continue question on ${spec.id}: ${answer.kind === "text" ? "guidance" : answer.kind}`);
+  return applyContinueAnswer(answer, res, state);
+}
+
+function applyContinueAnswer(answer: { kind: string; text?: string }, res: TaskResult, state: RetryState): "retry" | "stop" | "fallthrough" {
   if (answer.kind === "continue" || answer.kind === "text") {
     state.continuations++;
     state.history = [...(res.transcript ?? [])];
-    if (answer.kind === "text") state.history.push({ role: "user", content: answer.text });
+    if (answer.kind === "text") state.history.push({ role: "user", content: answer.text ?? "" });
     state.idemOffset = countToolCalls(state.history);
     return "retry";
   }

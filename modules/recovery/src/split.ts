@@ -57,24 +57,8 @@ export async function assembleFinalFile(
 }
 
 /** Layer-1 split: planner brief, serial sub-tasks under the scratch gate, assembly, merge. */
-export async function splitTask(
-  rt: OrchestrationRuntime,
-  spec: TaskSpec,
-  role: RoleDef,
-  parent: TaskResult,
-  ctx: SplitContext,
-  R: RecoveryState,
-): Promise<TaskResult> {
-  const taskDir = taskScratchDir(rt.runId, spec.id);
-  const fault: FaultKind = parent.fault ?? "turn_limit";
-  let scratchFiles: string[] = [];
-  try {
-    scratchFiles = (await rt.host.files.list(taskDir)).map((f) => f.slice(taskDir.length + 1));
-  } catch {
-    /* no scratch yet */
-  }
-  const acts = actionsSoFar(parent.transcript ?? [], R.maxActionsInRecoveryBrief);
-  const brief = [
+function splitBrief(spec: TaskSpec, parent: TaskResult, fault: FaultKind, taskDir: string, scratchFiles: string[], acts: string[], R: RecoveryState): string {
+  return [
     `A worker task hit a fault and must be split into smaller sub-tasks.`,
     `Fault: ${fault}: ${parent.summary}`,
     `Task: ${spec.task}`,
@@ -85,19 +69,27 @@ export async function splitTask(
   ]
     .filter(Boolean)
     .join("\n\n");
-  R.recoveriesUsed++;
-  const plan = await recoveryCall(rt, ctx.brain!, brief, R);
-  if (!plan) {
-    return { ...parent, status: "failed", summary: `${parent.summary}; recovery: no valid submit_recovery; scratch: ${taskDir}` };
-  }
-  logRecovery(rt, `layer 1: ${fault} on task ${spec.id} -> ${plan.subtasks.length} sub-tasks`);
-  const subRole = roleWithScratch(role, taskDir);
-  const gate = scratchGate(taskDir, rt.approve);
-  const results: { file: string; res: TaskResult }[] = [];
-  const filesTouched = new Set(parent.filesTouched);
-  let allDone = true;
+}
+
+interface SplitRun {
+  results: { file: string; res: TaskResult }[];
+  filesTouched: Set<string>;
+  allDone: boolean;
+}
+
+async function runSplitSubtasks(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  plan: RecoveryPlan,
+  subRole: RoleDef,
+  taskDir: string,
+  ctx: SplitContext,
+  R: RecoveryState,
+  gate: Parameters<SplitContext["recurse"]>[2]["approve"],
+  run: SplitRun,
+): Promise<void> {
   for (const [i, sub] of plan.subtasks.entries()) {
-    const prior = results
+    const prior = run.results
       .map((r, k) => `${plan.subtasks[k].outputFile}: ${r.res.summary.slice(0, R.recoverySummaryChars)}`)
       .join("\n");
     const subSpec: TaskSpec = {
@@ -118,41 +110,88 @@ export async function splitTask(
       .join("\n\n");
     const res = await ctx.recurse(rt, subSpec, { role: subRole, extraBriefing: extra, approve: gate }, { depth: ctx.depth + 1, brain: ctx.brain });
     rt.leases.release(subSpec.id);
-    results.push({ file: sub.outputFile, res });
-    for (const f of res.filesTouched) filesTouched.add(f);
+    run.results.push({ file: sub.outputFile, res });
+    for (const f of res.filesTouched) run.filesTouched.add(f);
     if (res.status !== "done") {
-      allDone = false;
+      run.allDone = false;
       break;
     }
   }
-  if (allDone) {
-    const asm = await assembleFinalFile(rt, spec, role, plan, taskDir);
-    if (!asm.ok) {
-      return { ...parent, status: "failed", summary: `${parent.summary}; recovery: assembly failed (${asm.error}); scratch: ${taskDir}`, filesTouched: [...filesTouched] };
-    }
-    if (asm.rel) filesTouched.add(asm.rel);
-    for (const s of plan.subtasks) {
-      try {
-        await rt.host.files.delete(`${taskDir}/${s.outputFile}`);
-      } catch {
-        /* cleanup is best-effort */
-      }
-    }
-    const parts = results.map((r) => `${r.file}: ${r.res.summary.slice(0, R.recoverySummaryChars)}`);
-    return {
-      status: "done",
-      summary: [`split into ${results.length} sub-tasks: ${parts.join(" | ")}`, plan.finalFile ? `assembled -> ${plan.finalFile}` : ""]
-        .filter(Boolean)
-        .join("; ")
-        .slice(0, 1000),
-      filesTouched: [...filesTouched],
-    };
+}
+
+async function assembleSplit(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  role: RoleDef,
+  plan: RecoveryPlan,
+  taskDir: string,
+  parent: TaskResult,
+  run: SplitRun,
+  R: RecoveryState,
+): Promise<TaskResult> {
+  const asm = await assembleFinalFile(rt, spec, role, plan, taskDir);
+  if (!asm.ok) {
+    return { ...parent, status: "failed", summary: `${parent.summary}; recovery: assembly failed (${asm.error}); scratch: ${taskDir}`, filesTouched: [...run.filesTouched] };
   }
-  const failed = results[results.length - 1]?.res;
+  if (asm.rel) run.filesTouched.add(asm.rel);
+  for (const s of plan.subtasks) {
+    try {
+      await rt.host.files.delete(`${taskDir}/${s.outputFile}`);
+    } catch {
+      /* cleanup is best-effort */
+    }
+  }
+  const parts = run.results.map((r) => `${r.file}: ${r.res.summary.slice(0, R.recoverySummaryChars)}`);
+  return {
+    status: "done",
+    summary: [`split into ${run.results.length} sub-tasks: ${parts.join(" | ")}`, plan.finalFile ? `assembled -> ${plan.finalFile}` : ""]
+      .filter(Boolean)
+      .join("; ")
+      .slice(0, 1000),
+    filesTouched: [...run.filesTouched],
+  };
+}
+
+function splitFailed(parent: TaskResult, run: SplitRun, taskDir: string): TaskResult {
+  const failed = run.results[run.results.length - 1]?.res;
   return {
     ...parent,
     status: "failed",
     summary: `${parent.summary}; recovery: sub-task failed (${failed?.summary ?? "unknown"}); scratch: ${taskDir}`,
-    filesTouched: [...filesTouched],
+    filesTouched: [...run.filesTouched],
   };
 }
+
+/** Layer-1 split: planner brief, serial sub-tasks under the scratch gate, assembly, merge. */
+export async function splitTask(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  role: RoleDef,
+  parent: TaskResult,
+  ctx: SplitContext,
+  R: RecoveryState,
+): Promise<TaskResult> {
+  const taskDir = taskScratchDir(rt.runId, spec.id);
+  const fault: FaultKind = parent.fault ?? "turn_limit";
+  let scratchFiles: string[] = [];
+  try {
+    scratchFiles = (await rt.host.files.list(taskDir)).map((f) => f.slice(taskDir.length + 1));
+  } catch {
+    /* no scratch yet */
+  }
+  const acts = actionsSoFar(parent.transcript ?? [], R.maxActionsInRecoveryBrief);
+  const brief = splitBrief(spec, parent, fault, taskDir, scratchFiles, acts, R);
+  R.recoveriesUsed++;
+  const plan = await recoveryCall(rt, ctx.brain!, brief, R);
+  if (!plan) {
+    return { ...parent, status: "failed", summary: `${parent.summary}; recovery: no valid submit_recovery; scratch: ${taskDir}` };
+  }
+  logRecovery(rt, `layer 1: ${fault} on task ${spec.id} -> ${plan.subtasks.length} sub-tasks`);
+  const subRole = roleWithScratch(role, taskDir);
+  const gate = scratchGate(taskDir, rt.approve);
+  const run: SplitRun = { results: [], filesTouched: new Set(parent.filesTouched), allDone: true };
+  await runSplitSubtasks(rt, spec, plan, subRole, taskDir, ctx, R, gate, run);
+  if (run.allDone) return assembleSplit(rt, spec, role, plan, taskDir, parent, run, R);
+  return splitFailed(parent, run, taskDir);
+}
+

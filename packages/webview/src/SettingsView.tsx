@@ -106,6 +106,19 @@ function FieldRow({ field, form, set, modelsFor }: FieldControlProps) {
   );
 }
 
+function itemSecrets(fields: Field[], form: Record<string, string>): Record<string, string> {
+  const secrets: Record<string, string> = {};
+  for (const f of fields) if (f.kind === "secret" && form[f.key]) secrets[f.key] = form[f.key];
+  return secrets;
+}
+
+function itemSummary(fields: Field[], form: Record<string, string>): string {
+  return fields
+    .filter((f) => f.kind !== "secret" && form[f.key] !== undefined && form[f.key] !== "")
+    .map((f) => `${f.label}: ${form[f.key]}`)
+    .join(" · ");
+}
+
 function ItemCard<T extends object>({
   item, fields, onSave, onRemove, extra, startEditing, modelsFor,
 }: {
@@ -120,6 +133,12 @@ function ItemCard<T extends object>({
   const { form, set } = useForm(item as object);
   const [editing, setEditing] = useState(!!startEditing);
   const idMissing = fields.some((f) => f.key === "id") && !(form.id ?? "").trim();
+  const save = () => {
+    const merged = { ...(item as object), ...unflatten(form, fields) };
+    onSave(merged as T, itemSecrets(fields, form));
+    set("apiKey", "");
+    setEditing(false);
+  };
   return (
     <div class="card">
       <div class="card-title">
@@ -128,18 +147,7 @@ function ItemCard<T extends object>({
         {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
         <button onClick={() => { if (editing) set("apiKey", ""); setEditing(!editing); }}>{editing ? "Cancel" : "Edit"}</button>
         {editing ? (
-          <button
-            class="send"
-            disabled={idMissing}
-            onClick={() => {
-              const merged = { ...(item as object), ...unflatten(form, fields) };
-              const secrets: Record<string, string> = {};
-              for (const f of fields) if (f.kind === "secret" && form[f.key]) secrets[f.key] = form[f.key];
-              onSave(merged as T, secrets);
-              set("apiKey", "");
-              setEditing(false);
-            }}
-          >
+          <button class="send" disabled={idMissing} onClick={save}>
             Save
           </button>
         ) : null}
@@ -151,7 +159,7 @@ function ItemCard<T extends object>({
           ))}
         </div>
       ) : (
-        <div class="summary">{fields.filter((f) => f.kind !== "secret" && form[f.key] !== undefined && form[f.key] !== "").map((f) => `${f.label}: ${form[f.key]}`).join(" · ")}</div>
+        <div class="summary">{itemSummary(fields, form)}</div>
       )}
     </div>
   );
@@ -260,6 +268,22 @@ export function looksLikeKey(ref: string): boolean {
   return ref.length >= 32 || /^(sk|rk|pk|ghp|xox[a-z])[-_]/i.test(ref);
 }
 
+function ChannelTestBadge({ test }: { test?: { ok: boolean; models?: string[]; error?: string } }) {
+  if (!test) return null;
+  if (test.ok) return <span class="ok">✓ {(test.models ?? []).join(", ")}</span>;
+  return <span class="fail">✗ {test.error}</span>;
+}
+
+function ChannelSecretBlock({ secretRef, stored, onClear }: { secretRef?: string; stored: boolean; onClear(): void }) {
+  if (!secretRef) return null;
+  return (
+    <span class="secret">
+      {stored ? <span class="ok">key stored</span> : <span class="hint">no key stored</span>}
+      {stored ? <button class="small deny" onClick={onClear}>Clear key</button> : null}
+    </span>
+  );
+}
+
 function ChannelExtra({ item, store }: { item: ChannelSummary; store: Store }) {
   const test = store.state.channelTest[item.id];
   const ref = item.secretRef;
@@ -274,19 +298,16 @@ function ChannelExtra({ item, store }: { item: ChannelSummary; store: Store }) {
   };
   return (
     <span class="extra">
-      {test ? (test.ok ? <span class="ok">✓ {(test.models ?? []).join(", ")}</span> : <span class="fail">✗ {test.error}</span>) : null}
+      <ChannelTestBadge test={test} />
       <button class="small" onClick={() => store.testChannel(item.id)}>Test</button>
       {leaked ? (
         <span class="fail">
           API key is saved as plain text in channels.yaml.{" "}
           <button class="small" onClick={moveToStore}>Move to secret store</button>
         </span>
-      ) : ref ? (
-        <span class="secret">
-          {stored ? <span class="ok">key stored</span> : <span class="hint">no key stored</span>}
-          {stored ? <button class="small deny" onClick={() => store.deleteSecret(ref)}>Clear key</button> : null}
-        </span>
-      ) : null}
+      ) : (
+        <ChannelSecretBlock secretRef={ref} stored={!!stored} onClear={() => ref && store.deleteSecret(ref)} />
+      )}
     </span>
   );
 }
@@ -341,6 +362,34 @@ function useAgentChannelTests(store: Store, active: SettingsTab, channels: Chann
   }, [active, channels]);
 }
 
+function settingsData(cfg: NonNullable<ConfigReply["summary"]>): Pick<TabData, "channels" | "agents" | "roles" | "skills" | "settings"> {
+  return {
+    channels: cfg.channels ?? [],
+    agents: cfg.agents ?? [],
+    roles: cfg.roles ?? [],
+    skills: cfg.skills ?? [],
+    settings: cfg.settings ?? ({} as SettingsSummary),
+  };
+}
+
+function SettingsErrors({ errors, lastError }: { errors: string[]; lastError?: string }) {
+  if (!errors.length && !lastError) return null;
+  return (
+    <>
+      {errors.length ? (
+        <div class="card errors">
+          {errors.map((e, i) => <div key={i} class="fail">⚠ {e}</div>)}
+        </div>
+      ) : null}
+      {lastError ? (
+        <div class="card errors">
+          <div class="fail">⚠ {lastError}</div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function SettingsView({ store }: { store: Store }) {
   const cfg = store.state.config?.summary;
   const [active, setActive] = useState<SettingsTab>("channels");
@@ -353,27 +402,12 @@ export function SettingsView({ store }: { store: Store }) {
       </div>
     );
   }
-  const errors = store.state.config?.errors ?? [];
-  const channels = cfg.channels ?? [];
-  const agents = cfg.agents ?? [];
-  const roles = cfg.roles ?? [];
-  const skills = cfg.skills ?? [];
-  const settings = cfg.settings ?? ({} as SettingsSummary);
-  const tabData: TabData = { store, channels, agents, roles, skills, settings };
-  const showWizard = store.state.wizardOpen ?? (channels.length === 0 && agents.length === 0);
+  const data = settingsData(cfg);
+  const showWizard = store.state.wizardOpen ?? (data.channels.length === 0 && data.agents.length === 0);
   return (
     <div class="settings">
-      {errors.length ? (
-        <div class="card errors">
-          {errors.map((e, i) => <div key={i} class="fail">⚠ {e}</div>)}
-        </div>
-      ) : null}
-      {store.state.lastError ? (
-        <div class="card errors">
-          <div class="fail">⚠ {store.state.lastError}</div>
-        </div>
-      ) : null}
-      {showWizard ? <SetupWizard store={store} channels={channels} agents={agents} roles={roles} /> : null}
+      <SettingsErrors errors={store.state.config?.errors ?? []} lastError={store.state.lastError} />
+      {showWizard ? <SetupWizard store={store} channels={data.channels} agents={data.agents} roles={data.roles} /> : null}
       <nav class="tabs">
         {SETTINGS_TABS.map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>
@@ -381,7 +415,7 @@ export function SettingsView({ store }: { store: Store }) {
         <span class="spacer" />
         <button class="small" onClick={() => store.setWizardOpen(true)}>Run setup</button>
       </nav>
-      <Fragment key={active}>{TAB_VIEWS[active](tabData)}</Fragment>
+      <Fragment key={active}>{TAB_VIEWS[active]({ store, ...data })}</Fragment>
     </div>
   );
 }

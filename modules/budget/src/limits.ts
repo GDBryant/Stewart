@@ -98,6 +98,17 @@ export function toolOutputCap(maxContextChars: number, profile: BudgetProfile): 
  * speed. `agent.budget` overrides the derived factors; unknown measurements
  * mean factor 1, never 0. `turnBudget: "unlimited"` stays unlimited.
  */
+function limitFactors(agent: AgentBudgetInput | undefined, perf: ModelProfile["perf"] | undefined, modelPrice: ModelProfile["price"] | undefined): { timeoutFactor: number; turnFactor: number } {
+  const timeoutFactor = agent?.budget?.timeoutFactor ?? clamp(REF_TOK_PER_SEC / (perf?.tokPerSec ?? REF_TOK_PER_SEC), 0.5, 4);
+  const reliabilityFactor = perf?.toolReliability !== undefined && perf.toolReliability < 0.67 ? 0.75 : 1;
+  let costFactor = 1;
+  if (agent && isCosting(agent)) {
+    const blended = blendedCost(agent.price) ?? blendedCost(modelPrice);
+    if (blended !== undefined && blended > 0) costFactor = clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
+  }
+  return { timeoutFactor, turnFactor: agent?.budget?.turnFactor ?? costFactor * reliabilityFactor };
+}
+
 export function resolveLimits(opts: {
   /** Role turn budget (`roleTurnBudget(role)`); absent = DEFAULT_LIMITS.maxModelTurns. */
   baseTurns?: number;
@@ -110,15 +121,7 @@ export function resolveLimits(opts: {
 }): LoopLimits {
   const { agent, profile } = opts;
   const perf = opts.model?.perf;
-  const timeoutFactor =
-    agent?.budget?.timeoutFactor ?? clamp(REF_TOK_PER_SEC / (perf?.tokPerSec ?? REF_TOK_PER_SEC), 0.5, 4);
-  const reliabilityFactor = perf?.toolReliability !== undefined && perf.toolReliability < 0.67 ? 0.75 : 1;
-  let costFactor = 1;
-  if (agent && isCosting(agent)) {
-    const blended = blendedCost(agent.price) ?? blendedCost(opts.model?.price);
-    if (blended !== undefined && blended > 0) costFactor = clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
-  }
-  const turnFactor = agent?.budget?.turnFactor ?? costFactor * reliabilityFactor;
+  const { timeoutFactor, turnFactor } = limitFactors(agent, perf, opts.model?.price);
   const baseTurns = opts.baseTurns ?? DEFAULT_LIMITS.maxModelTurns;
   const maxModelTurns =
     baseTurns === Number.MAX_SAFE_INTEGER

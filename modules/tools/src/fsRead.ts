@@ -1,6 +1,6 @@
 import type { Json, ToolSpec } from "@stewart/kernel";
 import { isSourceFile } from "@stewart/code-health";
-import { MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS } from "./projectPaths.js";
+import { MAX_FILE_BYTES, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, type ProjectPaths } from "./projectPaths.js";
 import { arg, optBool, optInt, schema, str, int, bool, ProjectTool } from "./toolBase.js";
 
 function isBinary(text: string): boolean {
@@ -76,6 +76,14 @@ export class ReadFile extends ProjectTool {
   }
 }
 
+function findMatcher(glob: string): RegExp {
+  try {
+    return globToRegex(glob);
+  } catch (e) {
+    throw new Error(`invalid glob: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
 export class FindFiles extends ProjectTool {
   spec: ToolSpec = {
     name: "FindFiles",
@@ -85,26 +93,38 @@ export class FindFiles extends ProjectTool {
   requiresApproval = false;
 
   async execute(args: Json): Promise<string> {
-    let matcher: RegExp;
-    try {
-      matcher = globToRegex(arg(args, "glob"));
-    } catch (e) {
-      throw new Error(`invalid glob: ${e instanceof Error ? e.message : e}`);
-    }
+    const matcher = findMatcher(arg(args, "glob"));
     const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const base = dir === "." ? "" : `${dir.replace(/\/+$/, "")}/`;
     const results: string[] = [];
     let overflow = 0;
     for (const p of await this.paths.list(dir)) {
-      const rel = base && p.startsWith(base) ? p.slice(base.length) : p;
-      if (matcher.test(p) || matcher.test(rel)) {
-        if (results.length < MAX_FIND_RESULTS) results.push(p);
-        else overflow++;
-      }
+      if (findMatch(p, base, matcher, results)) overflow++;
     }
     if (overflow > 0) results.push(`[${overflow} more]`);
     return results.length === 0 ? "no files matched" : results.join("\n");
+  }
+}
+
+function findMatch(p: string, base: string, matcher: RegExp, results: string[]): boolean {
+  const rel = base && p.startsWith(base) ? p.slice(base.length) : p;
+  if (!(matcher.test(p) || matcher.test(rel))) return false;
+  if (results.length < MAX_FIND_RESULTS) {
+    results.push(p);
+    return false;
+  }
+  return true;
+}
+
+async function locEntry(paths: ProjectPaths, rel: string): Promise<{ path: string; loc: number | null }> {
+  try {
+    const st = await paths.stat(rel);
+    if (st.size > MAX_FILE_BYTES) return { path: rel, loc: null };
+    const { content } = await paths.read(rel);
+    return { path: rel, loc: content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0) };
+  } catch {
+    return { path: rel, loc: null };
   }
 }
 
@@ -123,23 +143,34 @@ export class ListCodeFiles extends ProjectTool {
     const entries: { path: string; loc: number | null }[] = [];
     for (const rel of await this.paths.list(dir)) {
       if (!isSourceFile(rel, { includeTests })) continue;
-      try {
-        const st = await this.paths.stat(rel);
-        if (st.size > MAX_FILE_BYTES) {
-          entries.push({ path: rel, loc: null });
-          continue;
-        }
-        const { content } = await this.paths.read(rel);
-        entries.push({ path: rel, loc: content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0) });
-      } catch {
-        entries.push({ path: rel, loc: null });
-      }
+      entries.push(await locEntry(this.paths, rel));
     }
     entries.sort((a, b) => (b.loc ?? -1) - (a.loc ?? -1));
     const shown = entries.slice(0, MAX_FIND_RESULTS).map((e) => `${e.path}\t${e.loc ?? "?"}`);
     if (entries.length > MAX_FIND_RESULTS) shown.push(`[${entries.length - MAX_FIND_RESULTS} more]`);
     return shown.length === 0 ? "no source files" : shown.join("\n");
   }
+}
+
+function queryRegex(query: string, useRegex: boolean): RegExp | null {
+  if (!useRegex) return null;
+  try {
+    return new RegExp(query);
+  } catch (e) {
+    throw new Error(`invalid regex: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+function scanContent(rel: string, content: string, query: string, regex: RegExp | null, max: number, results: string[]): number {
+  let overflow = 0;
+  content.split("\n").forEach((line, i) => {
+    const hit = regex ? regex.test(line) : line.includes(query);
+    if (hit) {
+      if (results.length < max) results.push(`${rel}:${i + 1}: ${line}`);
+      else overflow++;
+    }
+  });
+  return overflow;
 }
 
 export class Search extends ProjectTool {
@@ -152,14 +183,7 @@ export class Search extends ProjectTool {
 
   async execute(args: Json): Promise<string> {
     const query = arg(args, "query");
-    let regex: RegExp | null = null;
-    if (optBool(args, "regex")) {
-      try {
-        regex = new RegExp(query);
-      } catch (e) {
-        throw new Error(`invalid regex: ${e instanceof Error ? e.message : e}`);
-      }
-    }
+    const regex = queryRegex(query, optBool(args, "regex"));
     const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const max = Math.min(Math.max(optInt(args, "max_results") ?? MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
@@ -175,13 +199,7 @@ export class Search extends ProjectTool {
         if (st.size > MAX_FILE_BYTES) continue;
         const { content } = await this.paths.read(rel);
         if (isBinary(content)) continue;
-        content.split("\n").forEach((line, i) => {
-          const hit = regex ? regex.test(line) : line.includes(query);
-          if (hit) {
-            if (results.length < max) results.push(`${rel}:${i + 1}: ${line}`);
-            else overflow++;
-          }
-        });
+        overflow += scanContent(rel, content, query, regex, max, results);
       } catch {
       }
     }

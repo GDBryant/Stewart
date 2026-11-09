@@ -41,6 +41,37 @@ export type SetupEvent =
   | { kind: "usage"; inTokens: number; outTokens: number; costUsd?: number }
   | { kind: "phase"; phase: SetupPhase };
 
+const PHASE_GATES: Partial<Record<SetupPhase, (d: SetupDraft) => string | undefined>> = {
+  channels: (d) => {
+    const ok = d.channels.some((c) => c.tested === "ok" && (c.models?.length ?? 0) > 0) || d.reusedChannels.length > 0;
+    return ok ? undefined : "need at least one channel tested OK with at least one model";
+  },
+  evaluator: (d) => (d.evaluator ? undefined : "choose an evaluator or rules only"),
+  evaluate: (d) => (d.evaluation?.finished ? undefined : "evaluation has not finished"),
+  assign: (d) => (d.assignment !== undefined && d.assignmentValid !== false ? undefined : "assignment is missing or invalid"),
+  approve: () => "use review() then approveAndSave(token)",
+};
+
+async function backupSetupFiles(deps: SetupSessionDeps, base: Record<string, string | undefined>, backupDir: string): Promise<void> {
+  for (const f of SETUP_FILES) {
+    const cur = base[f];
+    if (cur !== undefined) await deps.files.writeAtomic(`${backupDir}/${f}`, cur);
+  }
+}
+
+async function writeSetupFiles(deps: SetupSessionDeps, files: Record<string, string>): Promise<void> {
+  for (const f of SETUP_FILES) {
+    if (files[f] !== undefined) await deps.writeUserFile(f, files[f]);
+  }
+}
+
+async function restoreSetupFiles(deps: SetupSessionDeps, base: Record<string, string | undefined>): Promise<void> {
+  for (const f of SETUP_FILES) {
+    const cur = base[f];
+    if (cur !== undefined) await deps.writeUserFile(f, cur).catch(() => {});
+  }
+}
+
 export interface SetupSessionDeps {
   files: Pick<HostPort["files"], "exists" | "read" | "list" | "writeAtomic" | "delete">;
   stateDir: string;
@@ -149,23 +180,8 @@ export class SetupSession {
 
   /** Gate to leave the current phase; returns the failure reason or undefined when it passes. */
   gateError(): string | undefined {
-    const d = this.draft;
-    switch (d.phase) {
-      case "channels": {
-        const ok = d.channels.some((c) => c.tested === "ok" && (c.models?.length ?? 0) > 0) || d.reusedChannels.length > 0;
-        return ok ? undefined : "need at least one channel tested OK with at least one model";
-      }
-      case "evaluator":
-        return d.evaluator ? undefined : "choose an evaluator or rules only";
-      case "evaluate":
-        return d.evaluation?.finished ? undefined : "evaluation has not finished";
-      case "assign":
-        return d.assignment !== undefined && d.assignmentValid !== false ? undefined : "assignment is missing or invalid";
-      case "approve":
-        return "use review() then approveAndSave(token)";
-      default:
-        return "session is finished";
-    }
+    const gate = PHASE_GATES[this.draft.phase];
+    return gate ? gate(this.draft) : "session is finished";
   }
 
   async advance(): Promise<{ ok: boolean; error?: string }> {
@@ -249,19 +265,11 @@ export class SetupSession {
     if (invalid) return { ok: false, error: invalid };
 
     const backupDir = `${this.deps.stateDir}/setup-backups/${this.now()}`;
-    for (const f of SETUP_FILES) {
-      const cur = base[f];
-      if (cur !== undefined) await this.deps.files.writeAtomic(`${backupDir}/${f}`, cur);
-    }
+    await backupSetupFiles(this.deps, base, backupDir);
     try {
-      for (const f of SETUP_FILES) {
-        if (d.files[f] !== undefined) await this.deps.writeUserFile(f, d.files[f]);
-      }
+      await writeSetupFiles(this.deps, d.files);
     } catch (e) {
-      for (const f of SETUP_FILES) {
-        const cur = base[f];
-        if (cur !== undefined) await this.deps.writeUserFile(f, cur).catch(() => {});
-      }
+      await restoreSetupFiles(this.deps, base);
       return { ok: false, error: `save failed; restored backup: ${e instanceof Error ? e.message : e}` };
     }
     d.phase = "saved";

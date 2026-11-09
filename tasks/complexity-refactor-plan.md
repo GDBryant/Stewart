@@ -170,3 +170,12 @@ All ranked items below were implemented; see the Phase 4 status sections for per
 Also: add `@vitest/coverage-v8` + `test:coverage` to `hosts/vscode` so CI enforces the 90/80 bar there too.
 
 Target met: >15 count 22 → 8 after all Phase-4 items. Scan checkpoint recorded above.
+
+## Complexity pass to 9.5 (2026-11-09)
+
+Scan checkpoint: functions >15 branches 8 → 0; functions >10 branches 61 → 8 (target ≤8 met).
+
+- >15 offenders split via extracted helpers/handler maps: `createAgentSession` (limits+listener wiring), `splitTask` (brief/subtask-run/assemble/fail), `fakeHost` (per-concern file factories), `probeOne` (`runSmokeAttempt`), `Search.execute` (`queryRegex`/`scanContent`), `handleChatSend` (profile/orchestrated/direct), `streamEvent` (delta/block/message handlers), `runSession` (`retryInput`/`sessionError`), `repairNativeCall` (known-call/piece helpers).
+- >10→≤10 across ~45 more functions: parser feed/usage/span/attr scanners, shell scanner `inPlain`, toolLoop `invokeTool`/`executeCalls`, roleRunner `resolveAgent`/`runRoleTask`/`buildSessionDeps`/`compactorFor`, orchestrator `applyTaskResult`/`rerunParkedTasks`-adjacent, recovery `runTaskRecoverable`/`askContinue`, setup `gateError`/`approveAndSave`/`probe run`/`retry`/`scanWorkspace`, run-state `history` image IO, resume `planResume`, channels `rebuild`/`lines`/`chat`/`ollamaDeltas`, webview `ItemCard`/`Composer`/`SettingsView`/`ChannelExtra`/`capBadges`/`unflatten`, budget `resolveLimits`/`classifyTask`, compaction `pruneStale`, models `profileFromChannel`, tools `typeError`/fsRead executes, kernel `testing.ts` factories.
+- Remaining 8 functions >10 (accepted): `probeOne` 13, `useWizardDerived` 12, `rerunParkedTasks`/`assembleFinalFile`/`eligible`/`scoreAssignments`/`validateAssignment`/`App` 11.
+- Verification: every touched package's vitest+tsc clean per batch; full gates re-run at end (see health report).

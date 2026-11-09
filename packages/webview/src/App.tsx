@@ -145,21 +145,54 @@ function clipboardFiles(dt: DataTransfer | null | undefined): File[] {
   return files;
 }
 
-function Composer({ store }: { store: Store }) {
-  const s = store.state;
-  const [draft, setDraft] = useState("");
-  const pickerRef = useRef<HTMLInputElement>(null);
+function useComposerInsert(store: Store, setDraft: (fn: (d: string) => string) => void): void {
+  const ins = store.state.composerInsert;
   const insertSeq = useRef(0);
   useEffect(() => {
-    const ins = s.composerInsert;
     if (ins && ins.seq !== insertSeq.current) {
       insertSeq.current = ins.seq;
       setDraft((d) => (d ? `${d}\n${ins.text}` : ins.text));
     }
-  }, [s.composerInsert]);
+  }, [ins]);
+}
+
+function PendingImages({ images, onRemove }: { images: string[]; onRemove(i: number): void }) {
+  if (!images.length) return null;
+  return (
+    <div class="pending-images">
+      {images.map((src, i) => (
+        <span key={i} class="pending-img">
+          <img src={src} alt={`attach-${i + 1}`} />
+          <button class="deny" onClick={() => onRemove(i)}>×</button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ComposerAction({ busy, canSend, onStop, onSend }: { busy: boolean; canSend: boolean; onStop(): void; onSend(): void }) {
+  if (busy) return <button class="stop" onClick={onStop}>Stop</button>;
+  return <button class="send" disabled={!canSend} onClick={onSend}>Send</button>;
+}
+
+function Composer({ store }: { store: Store }) {
+  const s = store.state;
+  const [draft, setDraft] = useState("");
+  const pickerRef = useRef<HTMLInputElement>(null);
+  useComposerInsert(store, setDraft);
   const send = () => {
     store.send(draft);
     setDraft("");
+  };
+  const onPaste = (e: ClipboardEvent) => {
+    const files = clipboardFiles(e.clipboardData);
+    if (files.length) attachFiles(store, files);
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
   };
   return (
     <div
@@ -170,32 +203,15 @@ function Composer({ store }: { store: Store }) {
         attachFiles(store, e.dataTransfer?.files ?? []);
       }}
     >
-      {s.pendingImages.length ? (
-        <div class="pending-images">
-          {s.pendingImages.map((src, i) => (
-            <span key={i} class="pending-img">
-              <img src={src} alt={`attach-${i + 1}`} />
-              <button class="deny" onClick={() => store.removeImage(i)}>×</button>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
       {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
       <textarea
         value={draft}
         placeholder={s.busyRunId ? "Waiting for reply…" : "Ask Stewart"}
         disabled={!!s.busyRunId}
         onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-        onPaste={(e) => {
-          const files = clipboardFiles(e.clipboardData);
-          if (files.length) attachFiles(store, files);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            send();
-          }
-        }}
+        onPaste={onPaste}
+        onKeyDown={onKeyDown}
       />
       <input
         ref={pickerRef}
@@ -223,15 +239,7 @@ function Composer({ store }: { store: Store }) {
         <option value="normal">normal</option>
         <option value="deep">deep</option>
       </select>
-      {s.busyRunId ? (
-        <button class="stop" onClick={() => store.cancel()}>
-          Stop
-        </button>
-      ) : (
-        <button class="send" disabled={!draft.trim() && !s.pendingImages.length} onClick={send}>
-          Send
-        </button>
-      )}
+      <ComposerAction busy={!!s.busyRunId} canSend={!!draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
     </div>
   );
 }

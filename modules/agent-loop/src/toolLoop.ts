@@ -287,21 +287,12 @@ export class ToolLoop {
     const seen = new Set<string>();
     let i = 0;
     while (i < calls.length) {
-      const call = calls[i];
-      listener.onToolRequested?.(call);
-      const batch = [call];
-      if (this.registry.find(call.name)?.parallel) {
-        while (i + batch.length < calls.length && this.registry.find(calls[i + batch.length].name)?.parallel) {
-          const next = calls[i + batch.length];
-          listener.onToolRequested?.(next);
-          batch.push(next);
-        }
-      }
+      const batch = this.parallelBatch(calls, i, listener);
       const seq = executed;
       executed += batch.length;
       const outcomes =
         batch.length === 1
-          ? [await this.executeCall(call, seen, listener, inFlight, signal, seq)]
+          ? [await this.executeCall(batch[0], seen, listener, inFlight, signal, seq)]
           : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
       for (let k = 0; k < batch.length; k++) {
         const outcome = outcomes[k];
@@ -310,16 +301,32 @@ export class ToolLoop {
           produced.push({ role: "user", content: `[image from ${batch[k].name}]`, images: outcome.images });
         }
       }
-      const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
-      if (terminal >= 0) {
-        for (const rest of calls.slice(i + batch.length)) {
-          produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
-        }
-        return { executed, terminal: true };
-      }
+      if (this.finishTerminalBatch(batch, outcomes, calls, i, produced)) return { executed, terminal: true };
       i += batch.length;
     }
     return { executed, terminal: false };
+  }
+
+  private parallelBatch(calls: ToolCall[], i: number, listener: LoopListener): ToolCall[] {
+    const call = calls[i];
+    listener.onToolRequested?.(call);
+    const batch = [call];
+    if (!this.registry.find(call.name)?.parallel) return batch;
+    while (i + batch.length < calls.length && this.registry.find(calls[i + batch.length].name)?.parallel) {
+      const next = calls[i + batch.length];
+      listener.onToolRequested?.(next);
+      batch.push(next);
+    }
+    return batch;
+  }
+
+  private finishTerminalBatch(batch: ToolCall[], outcomes: ToolOutcome[], calls: ToolCall[], i: number, produced: ChatMessage[]): boolean {
+    const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
+    if (terminal < 0) return false;
+    for (const rest of calls.slice(i + batch.length)) {
+      produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
+    }
+    return true;
   }
 
   private parseFeedback(errors: ParseError[]): string {
@@ -433,34 +440,58 @@ export class ToolLoop {
     else signal.addEventListener("abort", onAbort, { once: true });
     let timer: { cancel(): void } | undefined;
     try {
-      const exec = tool.execute(call.arguments, preview, child.signal);
-      const out = tool.awaitsUser
-        ? await exec
-        : await Promise.race([
-            exec,
-            new Promise<never>((_res, rej) => {
-              timer = (this.clock ?? { setTimeout: (fn: () => void, ms: number) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; } })
-                .setTimeout(() => { child.abort(); rej(new Error("__tool_timeout__")); }, this.limits.toolTimeoutMs);
-            }),
-          ]);
+      const out = await this.execWithTimeout(tool, call, preview, child, (t) => {
+        timer = t;
+      });
       return await this.shapeResult(call, out, key, listener);
     } catch (e) {
-      if (e instanceof Error && e.name === "LeaseCycleError") throw e;
-      if (e instanceof Error && e.message === "__tool_timeout__") {
-        return this.finishOutcome(call, { kind: "uncertain", reason: "timed out; side effects unknown" }, listener);
-      }
-      if (signal.aborted || child.signal.aborted) {
-        const outcome: ToolOutcome = inFlight.awaitsUser
-          ? { kind: "failure", message: NOT_ANSWERED_CANCELLED }
-          : { kind: "uncertain", reason: "cancelled; side effects unknown" };
-        listener.onToolOutcome?.(call, outcome);
-        throw new Error("cancelled");
-      }
-      return this.finishOutcome(call, { kind: "failure", message: e instanceof Error ? e.message : "tool failed" }, listener);
+      return this.invokeCatch(e, call, inFlight, listener, signal, child);
     } finally {
       timer?.cancel();
       signal.removeEventListener("abort", onAbort);
     }
+  }
+
+  private async execWithTimeout(
+    tool: Tool,
+    call: ToolCall,
+    preview: ToolPreview | null,
+    child: AbortController,
+    armTimer: (t: { cancel(): void }) => void,
+  ): Promise<string | { text: string; images?: string[] }> {
+    const exec = tool.execute(call.arguments, preview, child.signal);
+    if (tool.awaitsUser) return exec;
+    return Promise.race([
+      exec,
+      new Promise<never>((_res, rej) => {
+        armTimer(
+          (this.clock ?? { setTimeout: (fn: () => void, ms: number) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; } })
+            .setTimeout(() => { child.abort(); rej(new Error("__tool_timeout__")); }, this.limits.toolTimeoutMs),
+        );
+      }),
+    ]);
+  }
+
+  private invokeCatch(
+    e: unknown,
+    call: ToolCall,
+    inFlight: { id: string | null; awaitsUser: boolean },
+    listener: LoopListener,
+    signal: AbortSignal,
+    child: AbortController,
+  ): ToolOutcome {
+    if (e instanceof Error && e.name === "LeaseCycleError") throw e;
+    if (e instanceof Error && e.message === "__tool_timeout__") {
+      return this.finishOutcome(call, { kind: "uncertain", reason: "timed out; side effects unknown" }, listener);
+    }
+    if (signal.aborted || child.signal.aborted) {
+      const outcome: ToolOutcome = inFlight.awaitsUser
+        ? { kind: "failure", message: NOT_ANSWERED_CANCELLED }
+        : { kind: "uncertain", reason: "cancelled; side effects unknown" };
+      listener.onToolOutcome?.(call, outcome);
+      throw new Error("cancelled");
+    }
+    return this.finishOutcome(call, { kind: "failure", message: e instanceof Error ? e.message : "tool failed" }, listener);
   }
 
   private async shapeResult(

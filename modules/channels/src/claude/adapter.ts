@@ -188,6 +188,30 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     return { tools: "shim", vision: true, reasoning: true, contextTokens: 200_000 };
   }
 
+  private async startClaudeProc(
+    cfg: ChannelConfig,
+    req: ChatRequest,
+    input: ReturnType<typeof prepare>,
+    cwd: string,
+    rec: (direction: "outgoing" | "incoming" | "stderr" | "error", payload: string) => void,
+  ): Promise<{ proc: SpawnedProc; promptDir: string }> {
+    const wf = this.deps.writeTempFile ?? ((c: string) => writeTempFile("stewart-claude-prompt-", c));
+    const promptFile = await wf(input.system);
+    const promptDir = promptFile.slice(0, promptFile.lastIndexOf("/"));
+    const argv = claudeArgv(this.cliPath(cfg), normalizeModel(req.model), promptFile, input.hasImages);
+    let proc: SpawnedProc;
+    try {
+      proc = this.spawn(argv, { cwd, env: this.childEnv(cfg) });
+    } catch (e) {
+      rec("error", `cannot start: ${e instanceof Error ? e.message : e}`);
+      throw new ChannelError(`cannot start Claude CLI at ${this.cliPath(cfg)}: ${e instanceof Error ? e.message : e}`, 0, undefined, "cli_not_found");
+    }
+    const stdin = input.hasImages ? input.streamJsonLine() + "\n" : input.text;
+    rec("outgoing", stdin);
+    proc.stdin(stdin);
+    return { proc, promptDir };
+  }
+
   async *chat(cfg: ChannelConfig, _secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
     if (req.tools?.length) {
       throw new ChannelError("Claude does not support native tools", 0, undefined, "native_tools_unsupported");
@@ -202,20 +226,9 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     let proc: SpawnedProc | undefined;
     let promptDir: string | undefined;
     try {
-      const wf = this.deps.writeTempFile ?? ((c: string) => writeTempFile("stewart-claude-prompt-", c));
-      const promptFile = await wf(input.system);
-      promptDir = promptFile.slice(0, promptFile.lastIndexOf("/"));
-      const argv = claudeArgv(this.cliPath(cfg), normalizeModel(req.model), promptFile, input.hasImages);
-      try {
-        proc = this.spawn(argv, { cwd, env: this.childEnv(cfg) });
-      } catch (e) {
-        rec("error", `cannot start: ${e instanceof Error ? e.message : e}`);
-        throw new ChannelError(`cannot start Claude CLI at ${this.cliPath(cfg)}: ${e instanceof Error ? e.message : e}`, 0, undefined, "cli_not_found");
-      }
-      const stdin = input.hasImages ? input.streamJsonLine() + "\n" : input.text;
-      rec("outgoing", stdin);
-      proc.stdin(stdin);
-
+      const started = await this.startClaudeProc(cfg, req, input, cwd, rec);
+      proc = started.proc;
+      promptDir = started.promptDir;
       const parser = new ClaudeStreamParser();
       const failure = yield* consumeStdout(proc, parser, req, rec);
       if (failure) throw new ChannelError(failure.message, 0, undefined, failure.code);

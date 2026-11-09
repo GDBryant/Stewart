@@ -115,6 +115,21 @@ interface CallAttrScan {
   complete: boolean;
 }
 
+function applyCallAttr(name: string | undefined, args: string | undefined, key: string, raw: string, kind: "sq" | "dq" | "raw"): { name?: string; args?: string } {
+  if (key === "name" && kind !== "raw") return { name: decodeAttrValue(raw, kind), args };
+  if (key === "arguments" || key === "args" || key === "parameters") return { name, args: decodeAttrValue(raw, kind) };
+  return { name, args };
+}
+
+function tagDelimiter(text: string, i: number, scan: CallAttrScan): CallAttrScan | null | "attr" {
+  const c = text[i];
+  if (c === ">") return finishCallAttrTag(text, { ...scan, end: i + 1, complete: true });
+  if (c !== "/") return "attr";
+  if (i + 1 >= text.length) return { ...scan, end: i, complete: false };
+  if (text[i + 1] === ">") return finishCallAttrTag(text, { ...scan, end: i + 2, complete: true });
+  return null;
+}
+
 /** Scan a `<call name="X" arguments={...}>` attribute tag starting at `start` (which points at `<call`). */
 export function scanCallAttrTag(text: string, start: number): CallAttrScan | null {
   let i = start + "<call".length;
@@ -123,13 +138,9 @@ export function scanCallAttrTag(text: string, start: number): CallAttrScan | nul
   for (;;) {
     i = skipWhitespace(text, i);
     if (i >= text.length) return { name, args, end: i, complete: false };
-    const c = text[i];
-    if (c === ">") return finishCallAttrTag(text, { name, args, end: i + 1, complete: true });
-    if (c === "/") {
-      if (i + 1 >= text.length) return { name, args, end: i, complete: false };
-      if (text[i + 1] === ">") return finishCallAttrTag(text, { name, args, end: i + 2, complete: true });
-      return null;
-    }
+    const d = tagDelimiter(text, i, { name, args, end: i, complete: false });
+    if (d === null) return null;
+    if (d !== "attr") return d;
     const km = /^[A-Za-z_][\w-]*/.exec(text.slice(i));
     if (!km) return null;
     const key = km[0];
@@ -139,8 +150,7 @@ export function scanCallAttrTag(text: string, start: number): CallAttrScan | nul
     if (v === null) return { name, args, end: i, complete: false };
     const [raw, vend, kind] = v;
     i = vend;
-    if (key === "name" && kind !== "raw") name = decodeAttrValue(raw, kind);
-    else if (key === "arguments" || key === "args" || key === "parameters") args = decodeAttrValue(raw, kind);
+    ({ name, args } = applyCallAttr(name, args, key, raw, kind));
   }
 }
 
@@ -250,49 +260,62 @@ export function parseToolCalls(text: string, schema: SchemaMap, startInFence = f
  * a line-start code fence, or a bare JSON opener is handled. Tags win over fences that start
  * later, so a fence marker inside a tagged argument never affects the scan.
  */
-function scanSpan(ctx: Scan, from: number, to: number, fences: boolean, tags: boolean): void {
+interface SpanCandidates {
+  jsonIdx: number;
+  tagM: RegExpExecArray | null;
+  tagIdx: number;
+  fence: { index: number; lineEnd: number; lang: string } | null;
+  fenceIdx: number;
+}
+
+function spanCandidates(ctx: Scan, pos: number, to: number, fences: boolean, tags: boolean): SpanCandidates {
   const { text } = ctx;
+  let fence: SpanCandidates["fence"] = null;
+  let fenceIdx = Infinity;
+  if (fences) {
+    FENCE_OPEN_RE.lastIndex = pos;
+    const m = FENCE_OPEN_RE.exec(text);
+    if (m && m.index < to) {
+      fence = { index: m.index, lineEnd: m.index + m[0].length, lang: m[1].trim().toLowerCase() };
+      fenceIdx = m.index;
+    }
+  }
+  let tagM: RegExpExecArray | null = null;
+  let tagIdx = Infinity;
+  if (tags) {
+    TAG_RE.lastIndex = pos;
+    const m = TAG_RE.exec(text);
+    if (m && m.index < to) {
+      tagM = m;
+      tagIdx = m.index;
+    }
+  }
+  const limit = Math.min(fenceIdx, tagIdx, to);
+  let jsonIdx = -1;
+  for (let j = pos; j < limit; j++) {
+    const c = text[j];
+    if (c === "{" || c === "[") {
+      jsonIdx = j;
+      break;
+    }
+  }
+  return { jsonIdx, tagM, tagIdx, fence, fenceIdx };
+}
+
+function scanSpan(ctx: Scan, from: number, to: number, fences: boolean, tags: boolean): void {
   let pos = from;
   while (pos < to) {
-    let fence: { index: number; lineEnd: number; lang: string } | null = null;
-    let fenceIdx = Infinity;
-    if (fences) {
-      FENCE_OPEN_RE.lastIndex = pos;
-      const m = FENCE_OPEN_RE.exec(text);
-      if (m && m.index < to) {
-        fence = { index: m.index, lineEnd: m.index + m[0].length, lang: m[1].trim().toLowerCase() };
-        fenceIdx = m.index;
-      }
-    }
-    let tagM: RegExpExecArray | null = null;
-    let tagIdx = Infinity;
-    if (tags) {
-      TAG_RE.lastIndex = pos;
-      const m = TAG_RE.exec(text);
-      if (m && m.index < to) {
-        tagM = m;
-        tagIdx = m.index;
-      }
-    }
-    const limit = Math.min(fenceIdx, tagIdx, to);
-    let jsonIdx = -1;
-    for (let j = pos; j < limit; j++) {
-      const c = text[j];
-      if (c === "{" || c === "[") {
-        jsonIdx = j;
-        break;
-      }
-    }
-    if (jsonIdx >= 0) {
-      pos = bareAt(ctx, jsonIdx, to);
+    const c = spanCandidates(ctx, pos, to, fences, tags);
+    if (c.jsonIdx >= 0) {
+      pos = bareAt(ctx, c.jsonIdx, to);
       continue;
     }
-    if (tagM && tagIdx < fenceIdx) {
-      pos = tagAt(ctx, tagM, to);
+    if (c.tagM && c.tagIdx < c.fenceIdx) {
+      pos = tagAt(ctx, c.tagM, to);
       continue;
     }
-    if (fence) {
-      pos = fenceAt(ctx, fence, to);
+    if (c.fence) {
+      pos = fenceAt(ctx, c.fence, to);
       continue;
     }
     break;
@@ -434,29 +457,39 @@ export interface RawCall {
   arguments: string;
 }
 
+function repairKnownCall(raw: RawCall, name: string, argsText: string, schema: SchemaMap): ToolCall[] {
+  let args: unknown;
+  try {
+    args = strictDecode(argsText);
+  } catch {
+    throw new ToolCallParseException("TC-ARGS-INVALID");
+  }
+  if (!isObj(args)) throw new ToolCallParseException("TC-ARGS-INVALID");
+  return [{ id: raw.id ?? newCallId(), name, arguments: args }];
+}
+
+function nativeCallText(name: string, argsText: string): string {
+  const trimmedArgs = argsText.trim();
+  return name + (trimmedArgs !== "" && trimmedArgs !== "{}" && !name.includes("{") ? trimmedArgs : "");
+}
+
+function repairNativePiece(piece: string, schema: SchemaMap): ToolCall {
+  const parsed = readCall(piece, schema);
+  if (parsed == null || !known(parsed[0], schema)) throw new ToolCallParseException("TC-NATIVE-INVALID");
+  return { id: newCallId(), name: parsed[0], arguments: parsed[1] };
+}
+
 export function repairNativeCall(raw: RawCall, schema: SchemaMap): ToolCall[] {
   const name = raw.name;
   const argsText = raw.arguments;
   if (name.trim() === "") throw new ToolCallParseException("TC-NATIVE-INVALID");
-  if (known(name, schema)) {
-    let args: unknown;
-    try {
-      args = strictDecode(argsText);
-    } catch {
-      throw new ToolCallParseException("TC-ARGS-INVALID");
-    }
-    if (!isObj(args)) throw new ToolCallParseException("TC-ARGS-INVALID");
-    return [{ id: raw.id ?? newCallId(), name, arguments: args }];
-  }
-  const trimmedArgs = argsText.trim();
-  const text = name + (trimmedArgs !== "" && trimmedArgs !== "{}" && !name.includes("{") ? trimmedArgs : "");
+  if (known(name, schema)) return repairKnownCall(raw, name, argsText, schema);
+  const text = nativeCallText(name, argsText);
   if (!text.includes("{") && !text.includes("<")) throw new ToolCallParseException("TC-NATIVE-INVALID");
   const repaired: ToolCall[] = [];
   for (const piece of text.replace(/<\/tool_call>/g, "").split("<tool_call>")) {
     if (piece.trim() === "") continue;
-    const parsed = readCall(piece, schema);
-    if (parsed == null || !known(parsed[0], schema)) throw new ToolCallParseException("TC-NATIVE-INVALID");
-    repaired.push({ id: newCallId(), name: parsed[0], arguments: parsed[1] });
+    repaired.push(repairNativePiece(piece, schema));
   }
   if (repaired.length === 0) throw new ToolCallParseException("TC-NATIVE-INVALID");
   return repaired;

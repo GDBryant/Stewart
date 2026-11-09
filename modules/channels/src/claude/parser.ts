@@ -8,6 +8,14 @@ export type ClaudeEvent =
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : undefined);
+
+function parseFeedJson(line: string): Obj | undefined {
+  try {
+    return obj(JSON.parse(line));
+  } catch {
+    return undefined;
+  }
+}
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
 const arr = (v: unknown): unknown[] | undefined => (Array.isArray(v) ? v : undefined);
@@ -87,6 +95,10 @@ export class ClaudeStreamParser {
     const usage = obj(src.u);
     if (!usage) return;
     if (this.cutPending && id !== this.toolMessageId) return;
+    this.recordUsageParts(usage, id);
+  }
+
+  private recordUsageParts(usage: Obj, id: string | undefined): void {
     const parts = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].map((k) => num(usage[k])).filter((v): v is number => v !== undefined);
     const slot = this.streamUsage.get(id ?? "") ?? [undefined, undefined] as [number | undefined, number | undefined];
     this.streamUsage.set(id ?? "", slot);
@@ -101,15 +113,17 @@ export class ClaudeStreamParser {
     return { t: "failed", message, code };
   }
 
+  private readonly feedHandlers: Record<string, (j: Obj) => ClaudeEvent[]> = {
+    system: (j) => this.systemEvent(j),
+    stream_event: (j) => this.streamEvent(j),
+    assistant: (j) => this.assistantEvent(j),
+    user: (j) => this.userEvent(j),
+    result: (j) => this.resultEvent(j),
+  };
+
   feed(line: string): ClaudeEvent[] {
     if (this.resultSeen || this.toolTurnEnded) return [];
-    let o: unknown;
-    try {
-      o = JSON.parse(line);
-    } catch {
-      return [];
-    }
-    const j = obj(o);
+    const j = parseFeedJson(line);
     if (!j) return [];
     this.recordUsage(j);
     if (this.cutPending && this.endsToolTurn(j)) {
@@ -117,20 +131,8 @@ export class ClaudeStreamParser {
       this.finishReason = "tool_calls";
       return [];
     }
-    switch (str(j.type)) {
-      case "system":
-        return this.systemEvent(j);
-      case "stream_event":
-        return this.streamEvent(j);
-      case "assistant":
-        return this.assistantEvent(j);
-      case "user":
-        return this.userEvent(j);
-      case "result":
-        return this.resultEvent(j);
-      default:
-        return [];
-    }
+    const h = this.feedHandlers[str(j.type) ?? ""];
+    return h ? h(j) : [];
   }
 
   /** After a rejected tool_use: the tool message is over once it stops or another message begins. */
@@ -162,39 +164,45 @@ export class ClaudeStreamParser {
     return [];
   }
 
+  private deltaText(o: Obj, delta: Obj, field: "text" | "thinking", kind: "text" | "reasoning"): ClaudeEvent[] {
+    const mid = this.eventMessageId(o);
+    if (mid) this.deltaMessageIds.add(mid);
+    const text = str(delta[field]);
+    return text ? [{ t: kind, text }] : [];
+  }
+
+  private streamDelta(o: Obj, event: Obj): ClaudeEvent[] {
+    const delta = obj(event.delta);
+    if (!delta) return [];
+    if (delta.type === "text_delta") return this.deltaText(o, delta, "text", "text");
+    if (delta.type === "thinking_delta") return this.deltaText(o, delta, "thinking", "reasoning");
+    return [];
+  }
+
+  private blockStartEvent(event: Obj): ClaudeEvent[] {
+    const block = obj(event.content_block);
+    if (block?.type === "server_tool_use" && str(block.name) !== "advisor") {
+      return [this.failed("CLI invoked a server tool", "isolation_violation")];
+    }
+    return [];
+  }
+
+  private messageDeltaEvent(event: Obj): ClaudeEvent[] {
+    const sr = str(obj(event.delta)?.stop_reason);
+    if (sr) this.stopReason = sr;
+    return [];
+  }
+
   private streamEvent(o: Obj): ClaudeEvent[] {
     const event = obj(o.event);
     if (!event) return [];
     switch (str(event.type)) {
-      case "content_block_delta": {
-        const delta = obj(event.delta);
-        if (!delta) return [];
-        if (delta.type === "text_delta") {
-          const mid = this.eventMessageId(o);
-          if (mid) this.deltaMessageIds.add(mid);
-          const text = str(delta.text);
-          return text ? [{ t: "text", text }] : [];
-        }
-        if (delta.type === "thinking_delta") {
-          const mid = this.eventMessageId(o);
-          if (mid) this.deltaMessageIds.add(mid);
-          const text = str(delta.thinking);
-          return text ? [{ t: "reasoning", text }] : [];
-        }
-        return [];
-      }
-      case "content_block_start": {
-        const block = obj(event.content_block);
-        if (block?.type === "server_tool_use" && str(block.name) !== "advisor") {
-          return [this.failed("CLI invoked a server tool", "isolation_violation")];
-        }
-        return [];
-      }
-      case "message_delta": {
-        const sr = str(obj(event.delta)?.stop_reason);
-        if (sr) this.stopReason = sr;
-        return [];
-      }
+      case "content_block_delta":
+        return this.streamDelta(o, event);
+      case "content_block_start":
+        return this.blockStartEvent(event);
+      case "message_delta":
+        return this.messageDeltaEvent(event);
       default:
         return [];
     }

@@ -369,6 +369,10 @@ export class SetupProbeRunner {
       this.restPending = true; // keep the ranking visible; retry() awaits the same promise
       return;
     }
+    await this.runRestTail(tail, ctrl, runId, stale);
+  }
+
+  private async runRestTail(tail: SmokeCandidate[], ctrl: AbortController, runId: number, stale: () => boolean): Promise<void> {
     const seen = new Set(this.order.map(key));
     const now = this.deps.now ?? Date.now;
     for (const c of tail) {
@@ -428,6 +432,29 @@ export class SetupProbeRunner {
     this.emit();
   }
 
+  private async runSmokeAttempt(ch: SmokeChannel, c: SmokeCandidate, ctrl: AbortController): Promise<SmokeResult> {
+    let settle!: () => void;
+    const settledP = new Promise<void>((res) => {
+      settle = res;
+    });
+    this.trackSettled(c.channel, settledP);
+    let settleSeen = false;
+    try {
+      return await smokeModel(ch, c.model, {
+        signal: ctrl.signal,
+        timeoutMs: this.deps.timeoutMs,
+        onSettle: (p) => {
+          settleSeen = true;
+          void p.then(settle, settle);
+        },
+      });
+    } catch (error) {
+      return { state: "red", reason: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (!settleSeen) settle();
+    }
+  }
+
   private async probeOne(c: SmokeCandidate, ctrl: AbortController, runId: number): Promise<void> {
     const k = key(c);
     const now = this.deps.now ?? Date.now;
@@ -455,27 +482,7 @@ export class SetupProbeRunner {
     const t0 = now();
     this.results.set(k, { ...base, state: "running", waitMs });
     this.emit();
-    let settle!: () => void;
-    const settledP = new Promise<void>((res) => {
-      settle = res;
-    });
-    this.trackSettled(c.channel, settledP);
-    let settleSeen = false;
-    let r: SmokeResult;
-    try {
-      r = await smokeModel(ch, c.model, {
-        signal: ctrl.signal,
-        timeoutMs: this.deps.timeoutMs,
-        onSettle: (p) => {
-          settleSeen = true;
-          void p.then(settle, settle);
-        },
-      });
-    } catch (error) {
-      r = { state: "red", reason: error instanceof Error ? error.message : String(error) };
-    } finally {
-      if (!settleSeen) settle();
-    }
+    const r = await this.runSmokeAttempt(ch, c, ctrl);
     if (runId !== this.runId) return; // superseded run: discard the late result
     const state: SmokeState = r.state === "aborted" ? "skipped" : r.state;
     this.results.set(k, {
@@ -494,14 +501,7 @@ export class SetupProbeRunner {
     return this.snapshot();
   }
 
-  /**
-   * Re-queue every non-green result up to `maxAttempts` and resume. Explicit only;
-   * prior attempt diagnostics (`lastReason`, `attempts`) are preserved.
-   */
-  retry(): ProbeSnapshot {
-    if (this.status !== "done" && this.status !== "cancelled") return this.snapshot();
-    const max = this.deps.maxAttempts ?? MAX_SMOKE_ATTEMPTS;
-    const now = this.deps.now ?? Date.now;
+  private requeueResults(max: number, now: () => number): boolean {
     let any = false;
     for (const r of this.results.values()) {
       if (r.state !== "green" && (r.attempts ?? 1) < max) {
@@ -512,6 +512,11 @@ export class SetupProbeRunner {
         any = true;
       }
     }
+    return any;
+  }
+
+  private enqueueMissing(now: () => number): boolean {
+    let any = false;
     for (const c of this.order) {
       const k = key(c);
       if (!this.results.has(k)) {
@@ -519,6 +524,18 @@ export class SetupProbeRunner {
         any = true;
       }
     }
+    return any;
+  }
+
+  /**
+   * Re-queue every non-green result up to `maxAttempts` and resume. Explicit only;
+   * prior attempt diagnostics (`lastReason`, `attempts`) are preserved.
+   */
+  retry(): ProbeSnapshot {
+    if (this.status !== "done" && this.status !== "cancelled") return this.snapshot();
+    const max = this.deps.maxAttempts ?? MAX_SMOKE_ATTEMPTS;
+    const now = this.deps.now ?? Date.now;
+    const any = this.requeueResults(max, now) || this.enqueueMissing(now);
     if (!any) return this.snapshot();
     this.ctrl = new AbortController();
     this.runId += 1;

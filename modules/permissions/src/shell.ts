@@ -65,28 +65,32 @@ class ShellScanner {
     return false;
   }
 
+  private enterQuote(state: "single" | "double", c: string): boolean {
+    this.state = state;
+    this.cur += c;
+    return false;
+  }
+
+  private plainOperator(c: string): boolean {
+    this.segments.push(this.cur);
+    this.cur = "";
+    if ((c === "&" || c === "|") && this.command[this.i + 1] === c) this.i++;
+    return false;
+  }
+
+  private isSubshell(c: string): boolean {
+    return c === "`" || (c === "$" && this.command[this.i + 1] === "(");
+  }
+
   private inPlain(c: string): boolean {
-    if (c === "'") {
-      this.state = "single";
-      this.cur += c;
-      return false;
-    }
-    if (c === '"') {
-      this.state = "double";
-      this.cur += c;
-      return false;
-    }
+    if (c === "'") return this.enterQuote("single", c);
+    if (c === '"') return this.enterQuote("double", c);
     if (c === "\\" && this.i + 1 < this.command.length) {
       this.cur += c + this.command[++this.i];
       return false;
     }
-    if (c === "`" || (c === "$" && this.command[this.i + 1] === "(")) return true;
-    if (c === "&" || c === "|" || c === ";" || c === "\n") {
-      this.segments.push(this.cur);
-      this.cur = "";
-      if ((c === "&" || c === "|") && this.command[this.i + 1] === c) this.i++;
-      return false;
-    }
+    if (this.isSubshell(c)) return true;
+    if (c === "&" || c === "|" || c === ";" || c === "\n") return this.plainOperator(c);
     this.cur += c;
     return false;
   }

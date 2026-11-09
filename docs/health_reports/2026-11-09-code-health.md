@@ -12,7 +12,7 @@ Scores are heuristic reviewer estimates based on Stewart’s documented code-hea
 
 | Category | Score | Evidence |
 |---|---:|---|
-| High complexity | 7/10 | Complexity scan: 61 functions >10 branches, 8 >15 (was 79/38 at Phase-2 snapshot; Phase 4 refactored all 22 original >15 targets below 15). Largest remaining: `repairNativeCall`/`streamEvent`/`recordUsage` at 15. |
+| High complexity | 9.5/10 | Complexity scan: 8 functions >10 branches, 0 >15 (was 79/38 at Phase-2 snapshot; Phase 4 + nesting/complexity passes refactored every >15 target). Remaining >10 are accepted orchestration/webview/setup functions at 11-13. |
 | Large units | 8/10 | Five source files exceed 500 lines (`shimParser.ts` 834, `SettingsView.tsx` 736, `probe.ts` 621, `state.ts` 579, `orchestrator.ts` 566); none exceed 1,000. 10 functions exceed 60 lines and 2 exceed 120 (`orchestrationTools` 181, `SetupWizard` 150). |
 | Deep nesting | 8/10 | Post-pass AST scan: 0 functions reach depth ≥5 (was 8), 21 reach ≥4 (was 36), max depth 4 (was 6). Remaining depth-4 functions are mostly recently-refactored or adapter code deferred as risky churn. |
 | Low cohesion | 8.5/10 | Module separation and dependency checks are strong; a full semantic cohesion review was not performed. |
