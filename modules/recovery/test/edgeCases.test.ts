@@ -123,6 +123,15 @@ describe("recoverable layers", () => {
     expect(calls[1].extra).toContain("half as much");
   });
 
+  it("spends the single layer-0 retry on incomplete_stream, then returns a non-writer's truncated fault", async () => {
+    const { rt } = mkRt();
+    const { done, calls } = run([fault("incomplete_stream"), fault("truncated")], rt, { ...role(["ReadFile"]), id: "code-reviewer" });
+    const res = await done;
+    expect(res.fault).toBe("truncated");
+    expect(calls).toHaveLength(2);
+    expect(ensureRecovery(rt).recoveriesUsed).toBe(1);
+  });
+
   it("asks on turn_limit and continues with transcript + idem offset", async () => {
     const { rt } = mkRt();
     const transcript: ChatMessage[] = [{ role: "user", content: "u" }, { role: "assistant", content: "a", toolCalls: [{ id: "1", name: "T", arguments: {} }] }];
@@ -276,6 +285,26 @@ describe("recoverable turn-limit branches", () => {
     const res = await rec.runTask(rt, spec, { role: role() }, { depth: 0, brain });
     expect(res.status).toBe("done");
     expect(res.summary).toContain("split into");
+  });
+
+  it("turn_limit timeout falls through to layer-1 split, and returns the fault without a brain", async () => {
+    const timeoutPrompt = async () => ({ kind: "withdrawn" as const, reason: "timeout" as const });
+    const brain = { channel: new ManagedChannel({ type: "fake", listModels: async () => [], probeCaps: async () => ({}), chat: async function* () {
+      yield { kind: "text", text: '<tool_call>{"name":"submit_recovery","arguments":{"subtasks":[{"description":"a","output_file":"o1"},{"description":"b","output_file":"o2"}]}}</tool_call>' } as ChatEvent;
+      yield { kind: "done" } as ChatEvent;
+    } }, { id: "c", type: "fake", enabled: true, maxParallel: 1 }), agent };
+    const { rt } = mkRt({ prompt: timeoutPrompt });
+    let n = 0;
+    const rec = createRecovery(async () => (n++, n === 1 ? fault("turn_limit", { transcript: [] }) : okRes));
+    const res = await rec.runTask(rt, spec, { role: role() }, { depth: 0, brain });
+    expect(res.status).toBe("done");
+    expect(res.summary).toContain("split into");
+    expect(ensureRecovery(rt).questionsUsed).toBe(1);
+
+    const { rt: rtNoBrain } = mkRt({ prompt: timeoutPrompt });
+    const res2 = await run(rtNoBrain, [fault("turn_limit", { transcript: [] })], { depth: 0 });
+    expect(res2.fault).toBe("turn_limit");
+    expect(ensureRecovery(rtNoBrain).questionsUsed).toBe(1);
   });
 });
 

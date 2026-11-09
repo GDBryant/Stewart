@@ -64,6 +64,45 @@ export async function recommendAssignments(
   managed: { get(id: string): RecommendChannel | undefined },
   opts: RecommendOptions = {},
 ): Promise<RecommendResult> {
+  const channels = await discoverChannels(config, managed);
+  const allModels = new Map(channels.map((c) => [c.id, new Set(c.models)]));
+  if (opts.eligible) {
+    const ok = new Set(opts.eligible.map((e) => `${e.channel}:${e.model}`));
+    for (const c of channels) c.models = c.models.filter((m) => ok.has(`${c.id}:${m}`));
+  }
+  if (!channels.some((c) => c.models.length)) {
+    return {
+      ok: false,
+      error: opts.eligible ? "no models passed the smoke test; retry probes or check channels" : "no models discovered; check channels",
+      channels,
+    };
+  }
+
+  const candidates = await buildCandidates(config, channels, opts);
+  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates, opts.context);
+  if (opts.mode === "rules") {
+    return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
+  }
+  const researcher = pickResearcher(config, channels, allModels, opts);
+  const prompt = buildRecommendPrompt(config, channels, candidates, rules, opts);
+
+  const mc = managed.get(researcher.channel)!;
+  let text = "";
+  try {
+    for await (const ev of mc.chat({ model: researcher.model, messages: [{ role: "user", content: prompt }], signal: AbortSignal.timeout(60_000) })) {
+      if (ev.kind === "text") text += ev.text;
+    }
+  } catch (e) {
+    return { ok: false, error: `researcher failed: ${e instanceof Error ? e.message : String(e)}`, channels };
+  }
+
+  return parseAndValidate(text, config, channels, candidates, researcher, rules.unfilled);
+}
+
+async function discoverChannels(
+  config: Config,
+  managed: { get(id: string): RecommendChannel | undefined },
+): Promise<RecommendChannelInfo[]> {
   const channels: RecommendChannelInfo[] = [];
   for (const c of config.channels) {
     if (!c.enabled) continue;
@@ -79,20 +118,10 @@ export async function recommendAssignments(
       channels.push({ id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: e instanceof Error ? e.message : String(e) });
     }
   }
-  const allModels = new Map(channels.map((c) => [c.id, new Set(c.models)]));
-  if (opts.eligible) {
-    const ok = new Set(opts.eligible.map((e) => `${e.channel}:${e.model}`));
-    for (const c of channels) c.models = c.models.filter((m) => ok.has(`${c.id}:${m}`));
-  }
-  if (!channels.some((c) => c.models.length)) {
-    return {
-      ok: false,
-      error: opts.eligible ? "no models passed the smoke test; retry probes or check channels" : "no models discovered; check channels",
-      channels,
-    };
-  }
+  return channels;
+}
 
-  const byId = new Map(channels.map((c) => [c.id, c]));
+async function buildCandidates(config: Config, channels: RecommendChannelInfo[], opts: RecommendOptions): Promise<Candidate[]> {
   const candidates: Candidate[] = channels.flatMap((c) =>
     c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: resolveModelProfile(config, { channel: c.id, model }).caps })),
   );
@@ -100,7 +129,6 @@ export async function recommendAssignments(
     const rank = new Map(opts.eligible.map((e, i) => [`${e.channel}:${e.model}`, i]));
     candidates.sort((a, b) => (rank.get(`${a.channel}:${a.model}`) ?? Number.MAX_SAFE_INTEGER) - (rank.get(`${b.channel}:${b.model}`) ?? Number.MAX_SAFE_INTEGER));
   }
-  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
   const agentPrice = new Map(config.agents.filter((a) => a.price).map((a) => [`${a.channel}:${a.model}`, a.price!]));
   await Promise.all(
     candidates.map(async (c) => {
@@ -119,10 +147,16 @@ export async function recommendAssignments(
       c.costTier = costTier(c.costBlended);
     }),
   );
-  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates, opts.context);
-  if (opts.mode === "rules") {
-    return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
-  }
+  return candidates;
+}
+
+function pickResearcher(
+  config: Config,
+  channels: RecommendChannelInfo[],
+  allModels: Map<string, Set<string>>,
+  opts: RecommendOptions,
+): { channel: string; model: string } {
+  const byId = new Map(channels.map((c) => [c.id, c]));
   let researcher: { channel: string; model: string } | undefined;
   const hasModel = (channel: string, model: string) =>
     opts.evaluatorAny ? allModels.get(channel)?.has(model) === true : byId.get(channel)?.models.includes(model) === true;
@@ -138,7 +172,17 @@ export async function recommendAssignments(
     const first = channels.find((c) => c.models.length)!;
     researcher = { channel: first.id, model: first.models[0] };
   }
+  return researcher;
+}
 
+function buildRecommendPrompt(
+  config: Config,
+  channels: RecommendChannelInfo[],
+  candidates: Candidate[],
+  rules: ReturnType<typeof scoreAssignments>,
+  opts: RecommendOptions,
+): string {
+  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
   const roleLines = config.roles
     .map((r) => {
       const t = ROLE_PROFILES[r.id]?.typicalTurns;
@@ -163,14 +207,6 @@ export async function recommendAssignments(
       return `- ${c.id} (${c.type})${c.error ? ` [listModels failed: ${c.error}]` : ""}: ${models}`;
     })
     .join("\n");
-  const sc = opts.context;
-  const ctxLines = [
-    sc?.workspace ? `- workspace: ${sc.workspace.sizeClass} (${sc.workspace.files} files, ~${sc.workspace.loc} loc${sc.workspace.monorepo ? ", monorepo" : ""})` : "",
-    sc?.hardware ? `- hardware: ${sc.hardware.os}, ${sc.hardware.ramGb}GB RAM${sc.hardware.gpus?.length ? `, GPU ${sc.hardware.gpus.map((g) => `${g.name} ${g.vramGb}GB`).join("/")}` : ""}` : "",
-    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed}, cost ${sc.priorities.cost}, quality ${sc.priorities.quality}` : "",
-    sc?.typicalWork ? `- typical work: ${sc.typicalWork}` : "",
-  ].filter(Boolean);
-  const ctxBlock = ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";
   const prompt = [
     "You are assigning models to agent roles for a coding assistant.",
     "",
@@ -179,7 +215,7 @@ export async function recommendAssignments(
     "",
     "Available channels and discovered models (known capabilities in parentheses):",
     chanLines,
-    ctxBlock,
+    formatContextBlock(opts.context),
     "",
     'Return ONLY a JSON object {"assignments":[{"role":"roleId","channel":"channelId","model":"model","reason":"short"}]}.',
     "A deterministic scorer proposed this baseline (keep it unless you have a clear reason):",
@@ -188,17 +224,29 @@ export async function recommendAssignments(
     "Choose the best model for each role. Every role must appear; channel and model must come from the candidates above.",
     "Prefer reasoning models for orchestrator, planner, plan-validator, code-reviewer and code-health-reviewer; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
   ].join("\n");
+  return prompt;
+}
 
-  const mc = managed.get(researcher.channel)!;
-  let text = "";
-  try {
-    for await (const ev of mc.chat({ model: researcher.model, messages: [{ role: "user", content: prompt }], signal: AbortSignal.timeout(60_000) })) {
-      if (ev.kind === "text") text += ev.text;
-    }
-  } catch (e) {
-    return { ok: false, error: `researcher failed: ${e instanceof Error ? e.message : String(e)}`, channels };
-  }
+function formatContextBlock(sc: RecommendOptions["context"]): string {
+  const ctxLines = [
+    sc?.workspace ? `- workspace: ${sc.workspace.sizeClass} (${sc.workspace.files} files, ~${sc.workspace.loc} loc${sc.workspace.monorepo ? ", monorepo" : ""})` : "",
+    sc?.hardware ? `- hardware: ${sc.hardware.os}, ${sc.hardware.ramGb}GB RAM${sc.hardware.gpus?.length ? `, GPU ${sc.hardware.gpus.map((g) => `${g.name} ${g.vramGb}GB`).join("/")}` : ""}` : "",
+    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed}, cost ${sc.priorities.cost}, quality ${sc.priorities.quality}` : "",
+    sc?.typicalWork ? `- typical work: ${sc.typicalWork}` : "",
+  ].filter(Boolean);
+  return ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";
+}
 
+function parseAndValidate(
+  text: string,
+  config: Config,
+  channels: RecommendChannelInfo[],
+  candidates: Candidate[],
+  researcher: { channel: string; model: string },
+  unfilled: Unfilled[],
+): RecommendResult {
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   let parsed: { assignments?: unknown } | undefined;
@@ -217,32 +265,31 @@ export async function recommendAssignments(
   const dropped: string[] = [];
   const assignments: Assignment[] = [];
   for (const e of Array.isArray(parsed.assignments) ? parsed.assignments : []) {
-    const a = (e ?? {}) as Record<string, unknown>;
-    const role = typeof a.role === "string" ? a.role : "";
-    const channel = typeof a.channel === "string" ? a.channel : "";
-    const model = typeof a.model === "string" ? a.model : "";
-    if (!roleIds.has(role)) {
-      dropped.push(`${role || "?"}: unknown role`);
-      continue;
-    }
-    const info = byId.get(channel);
-    if (!info) {
-      dropped.push(`${role}: unknown channel '${channel}'`);
-      continue;
-    }
-    if (!info.models.includes(model)) {
-      dropped.push(`${role}: unknown model '${model}' on ${channel}`);
-      continue;
-    }
-    const c = cand.get(`${channel}:${model}`);
-    if (c && !meetsHardRequirements(role, c)) {
-      dropped.push(`${role}: ${channel}:${model} fails hard requirements`);
-      continue;
-    }
-    assignments.push({ role, channel, model, reason: typeof a.reason === "string" ? a.reason : undefined });
+    const result = validateAssignment(e, roleIds, byId, cand);
+    if (result.assignment) assignments.push(result.assignment);
+    else dropped.push(result.dropped);
   }
   if (!assignments.length) {
     return { ok: false, error: "recommendation was empty or invalid", channels, dropped };
   }
-  return { ok: true, assignments, researcher, channels, dropped, unfilled: rules.unfilled };
+  return { ok: true, assignments, researcher, channels, dropped, unfilled };
+}
+
+function validateAssignment(
+  e: unknown,
+  roleIds: Set<string>,
+  byId: Map<string, RecommendChannelInfo>,
+  cand: Map<string, Candidate>,
+): { assignment: Assignment; dropped?: never } | { assignment?: never; dropped: string } {
+  const a = (e ?? {}) as Record<string, unknown>;
+  const role = typeof a.role === "string" ? a.role : "";
+  const channel = typeof a.channel === "string" ? a.channel : "";
+  const model = typeof a.model === "string" ? a.model : "";
+  if (!roleIds.has(role)) return { dropped: `${role || "?"}: unknown role` };
+  const info = byId.get(channel);
+  if (!info) return { dropped: `${role}: unknown channel '${channel}'` };
+  if (!info.models.includes(model)) return { dropped: `${role}: unknown model '${model}' on ${channel}` };
+  const c = cand.get(`${channel}:${model}`);
+  if (c && !meetsHardRequirements(role, c)) return { dropped: `${role}: ${channel}:${model} fails hard requirements` };
+  return { assignment: { role, channel, model, reason: typeof a.reason === "string" ? a.reason : undefined } };
 }

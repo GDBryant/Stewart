@@ -405,3 +405,85 @@ describe("RunService direct continue question", () => {
     expect(manager.get(run.id)!.status).toBe("cancelled");
   });
 });
+
+describe("RunService resume edge cases", () => {
+  it("refuses a missing run and a malformed journal without dispatching work", async () => {
+    const cfg = config();
+    const { channel, calls: seen } = fakeChannel(() => [text("x"), done()]);
+    const fake = fakeHost({});
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const missing = await manager.resume("p", "nope", { config: cfg, channelFor: () => channel });
+    expect(missing.ok).toBe(false);
+    expect(missing.reason).toBe("run not found");
+    fake.files["/tmp/st/scratch/run-bad/run.json"] = "{not json";
+    const bad = await manager.resume("p", "run-bad", { config: cfg, channelFor: () => channel });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toContain("resume unavailable");
+    expect(seen).toHaveLength(0);
+  });
+
+  it("fails a replayed task whose role no longer resolves without calling the channel", async () => {
+    const cfg = config();
+    const { channel, calls: seen } = fakeChannel(() => [text("x"), done()]);
+    const fake = fakeHost({});
+    fake.files["/tmp/st/scratch/run-g/run.json"] = JSON.stringify({
+      id: "run-g",
+      projectId: "p",
+      text: "go",
+      status: "interrupted",
+      startedAt: 1,
+      tasks: [{ id: "t1", roleId: "ghost-role", title: "t", task: "t", files: [], dependsOn: [], status: "failed", error: "x", filesTouched: [] }],
+    });
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
+    const res = await manager.resume("p", "run-g", { config: cfg, channelFor: () => channel });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-g")?.status).toBe("failed"));
+    expect(seen).toHaveLength(0);
+    expect(manager.get("run-g")!.tasks?.[0]).toMatchObject({ status: "failed", summary: "no enabled role for 'ghost-role'" });
+  });
+
+  const interruptedJournal = (id: string) =>
+    JSON.stringify({
+      id,
+      projectId: "p",
+      text: "go",
+      status: "interrupted",
+      startedAt: 1,
+      tasks: [{ id: "t1", roleId: "general-worker", title: "t", task: "t", files: [], dependsOn: [], status: "failed", error: "x", filesTouched: [] }],
+    });
+
+  it("confirmResume decline refuses before dispatch after emitting task.failed", async () => {
+    const cfg = config();
+    const { channel, calls: seen } = fakeChannel(() => [text("x"), done()]);
+    const fake = fakeHost({});
+    fake.files["/tmp/st/scratch/run-c/run.json"] = interruptedJournal("run-c");
+    const events: RunEvent[] = [];
+    const bus = new EventBus((e) => events.push(e), 0);
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    bus.subscribe(async (e) => {
+      if (e.kind === "ask_user") manager.answer(e.questionId, "Cancel");
+    });
+    const res = await manager.resume("p", "run-c", { config: cfg, channelFor: () => channel, confirmResume: true });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("resume declined by user");
+    expect(seen).toHaveLength(0);
+    expect(events.some((e) => e.kind === "task.failed")).toBe(true);
+  });
+
+  it("confirmResume accept replays the interrupted task", async () => {
+    const cfg = config();
+    let sent = 0;
+    const { channel } = fakeChannel(() => (sent++, [text("resumed"), done()]));
+    const fake = fakeHost({});
+    fake.files["/tmp/st/scratch/run-r/run.json"] = interruptedJournal("run-r");
+    const bus = new EventBus(() => {}, 0);
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    bus.subscribe(async (e) => {
+      if (e.kind === "ask_user") manager.answer(e.questionId, "Resume");
+    });
+    const res = await manager.resume("p", "run-r", { config: cfg, channelFor: () => channel, confirmResume: true });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(manager.get("run-r")?.status).toBe("done"));
+    expect(sent).toBe(1);
+  });
+});

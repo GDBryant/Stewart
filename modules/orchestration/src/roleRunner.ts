@@ -37,8 +37,42 @@ export async function runRoleTask(
   deps: RoleTaskDeps,
 ): Promise<TaskResult> {
   const { role } = deps;
+  const resolved = await resolveAgent(rt, spec, role, deps.agent);
+  if ("status" in resolved) return resolved;
+  const { agent, channel } = resolved;
+  for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
+  const { session, state } = await buildSessionDeps(rt, spec, deps, agent, channel);
+
+  const briefingParts = [spec.task];
+  if (spec.files.length) briefingParts.push(`Files: ${spec.files.join(", ")}`);
+  if (spec.expect) briefingParts.push(`Expect: ${spec.expect}`);
+  if (deps.extraBriefing) briefingParts.push(deps.extraBriefing);
+  if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
+  const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: briefingParts.join("\n\n") }];
+
+  let result: LoopResult;
+  try {
+    result = await session.loop.run(agent.model, messages, session.listener, rt.signal);
+  } catch (e) {
+    if (e instanceof LeaseCycleError) {
+      return { status: "cancelled", summary: e.message, filesTouched: state.filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
+    }
+    if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched, transcript: e.transcript };
+    if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched: state.filesTouched };
+    return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched: state.filesTouched };
+  }
+
+  return toTaskResult(result, state, session.limits.maxModelTurns);
+}
+
+async function resolveAgent(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  role: RoleDef,
+  override?: RoleTaskDeps["agent"],
+): Promise<{ agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<OrchestrationRuntime["channelFor"]> } | TaskResult> {
   const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;
-  let agent = deps.agent ?? rt.config.agents.find((a) => a.id === agentId);
+  let agent = override ?? rt.config.agents.find((a) => a.id === agentId);
   if (!agent) return { status: "failed", summary: `role ${role.id}: enabled but no agent bound`, filesTouched: [] };
   let channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) {
@@ -62,7 +96,17 @@ export async function runRoleTask(
   if (rt.cost.reached() && isCosting(agent)) {
     return { status: "parked", summary: `parked: cost limit reached`, filesTouched: [] };
   }
-  for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
+  return { agent, channel };
+}
+
+async function buildSessionDeps(
+  rt: OrchestrationRuntime,
+  spec: TaskSpec,
+  deps: RoleTaskDeps,
+  agent: NonNullable<RoleTaskDeps["agent"]>,
+  channel: ReturnType<OrchestrationRuntime["channelFor"]>,
+) {
+  const { role } = deps;
   const paths = await ProjectPaths.forProject(rt.host);
   const extra = deps.nestedTools ?? [];
   const genChannel = channel;
@@ -85,14 +129,12 @@ export async function runRoleTask(
 
   const prompt = deps.prompt ?? (await buildRolePrompt(rt, role));
   const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
-  const filesTouched: string[] = [];
-  let terminalCallId: string | undefined;
+  const state = { filesTouched: [] as string[], terminalCallId: undefined as string | undefined };
 
-  const activeAgent = agent;
   const { summarize, prune } = compactionFor(rt, spec.id);
   const session = createAgentSession(
     {
-      agent: activeAgent,
+      agent,
       role,
       channel,
       registry,
@@ -107,33 +149,22 @@ export async function runRoleTask(
       events: { bus: rt.bus, runId: rt.runId, taskId: spec.id, roleId: role.id },
       hooks: {
         onToolRequested: (call) => {
-          if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") filesTouched.push(call.arguments.path);
-          if (TERMINAL.has(call.name)) terminalCallId = call.id;
+          if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") state.filesTouched.push(call.arguments.path);
+          if (TERMINAL.has(call.name)) state.terminalCallId = call.id;
         },
       },
     },
     rt.clock,
   );
+  return { session, state };
+}
 
-  const briefingParts = [spec.task];
-  if (spec.files.length) briefingParts.push(`Files: ${spec.files.join(", ")}`);
-  if (spec.expect) briefingParts.push(`Expect: ${spec.expect}`);
-  if (deps.extraBriefing) briefingParts.push(deps.extraBriefing);
-  if (deps.depSummaries?.length) briefingParts.push(`Prior results:\n${deps.depSummaries.join("\n")}`);
-  const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: briefingParts.join("\n\n") }];
-
-  let result: LoopResult;
-  try {
-    result = await session.loop.run(activeAgent.model, messages, session.listener, rt.signal);
-  } catch (e) {
-    if (e instanceof LeaseCycleError) {
-      return { status: "cancelled", summary: e.message, filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
-    }
-    if (e instanceof RunCancelledError) return { status: "cancelled", summary: "cancelled", filesTouched, transcript: e.transcript };
-    if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched };
-    return { status: "failed", summary: e instanceof Error ? e.message : String(e), filesTouched };
-  }
-
+function toTaskResult(
+  result: LoopResult,
+  state: { filesTouched: string[]; terminalCallId?: string },
+  maxModelTurns: number,
+): TaskResult {
+  const { filesTouched, terminalCallId } = state;
   if (result.kind === "failed") {
     return { status: "failed", summary: result.message, filesTouched, fault: classifyFault(result), transcript: [...result.base, ...result.messages] };
   }
@@ -144,7 +175,7 @@ export async function runRoleTask(
       filesTouched,
       fault: "turn_limit",
       transcript: [...result.base, ...result.messages],
-      turnBudget: session.limits.maxModelTurns,
+      turnBudget: maxModelTurns,
     };
   }
   const produced = [...result.base, ...result.messages];

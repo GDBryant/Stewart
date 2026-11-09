@@ -223,6 +223,37 @@ describe("ToolLoop", () => {
     expect(fail).toMatchObject({ kind: "failed", code: "truncated" });
   });
 
+  it("reports protocol_error over a truncation retry and records done usage once", async () => {
+    const ch = fakeChannel([
+      [
+        { kind: "text", text: "part" },
+        { kind: "done", truncated: true, usage: { in: 3, out: 2 }, costUsd: 0.01 },
+        { kind: "text", text: "late" },
+      ],
+    ]);
+    const usages: [unknown, unknown][] = [];
+    const loop = new ToolLoop(ch, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 3 });
+    const r = await loop.run("m", hist, { onUsage: (u, c) => usages.push([u, c]) }, sig());
+    expect(r).toMatchObject({ kind: "failed", code: "protocol_error", message: "provider emitted events after completion" });
+    expect(usages).toEqual([[{ in: 3, out: 2 }, 0.01]]);
+  });
+
+  it("feeds a parse error back, then completes on a valid terminal call", async () => {
+    const ch = fakeChannel([
+      [{ kind: "text", text: '<tool_call>{"name":"Echo","arguments":{oops}}</tool_call>' }, { kind: "done" }],
+      [{ kind: "tool_calls", calls: [{ id: "e1", name: "Echo", arguments: { text: "ok" } }] }, { kind: "done" }],
+    ]);
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(["Echo"]), "native");
+    const r = await loop.run("m", hist, {}, sig());
+    expect(r.kind).toBe("completed");
+    const toolMsgs = r.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(1);
+    expect(toolMsgs[0].content).toBe("echo:ok");
+    const fbIdx = r.messages.findIndex((m) => m.role === "user" && typeof m.content === "string" && m.content.includes("Tool call not executed"));
+    expect(fbIdx).toBeGreaterThanOrEqual(0);
+    expect(fbIdx).toBeLessThan(r.messages.indexOf(toolMsgs[0]));
+  });
+
   it("compacts context when approaching maxContextChars and fails if compaction cannot fit", async () => {
     const ch = fakeChannel([
       [{ kind: "tool_calls", calls: [{ id: "e1", name: "Echo", arguments: { text: "a".repeat(200) } }] }, { kind: "done" }],

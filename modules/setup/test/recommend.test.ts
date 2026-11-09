@@ -161,3 +161,129 @@ describe("recommendAssignments eligible filtering", () => {
     if (r2.ok) expect(r2.researcher).toEqual({ channel: "c1", model: "m1" });
   });
 });
+
+describe("recommendAssignments candidate pricing", () => {
+  const cfgPriced = () =>
+    loadConfig(
+      {
+        "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n",
+        "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n    price: { inPerMTok: 0.5, outPerMTok: 1.5 }\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    tools: [WriteFile]\n  - id: tester\n    enabled: true\n",
+      },
+      {},
+      {},
+      true,
+    );
+
+  it("calls priceFor only for candidates without an agent price, in eligible order", async () => {
+    const seen: string[] = [];
+    const r = await recommendAssignments(cfgPriced(), managed({ c1: mc(["m1", "m2", "m3"]) }), {
+      mode: "rules",
+      eligible: [
+        { channel: "c1", model: "m3" },
+        { channel: "c1", model: "m2" },
+        { channel: "c1", model: "m1" },
+      ],
+      priceFor: async (channel, model) => {
+        seen.push(`${channel}:${model}`);
+        return { inPerMTok: 1, outPerMTok: 2 };
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(seen).toEqual(["c1:m3", "c1:m2"]);
+  });
+});
+
+describe("recommendAssignments channel discovery", () => {
+  const cfgExtra = () =>
+    loadConfig(
+      {
+        "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n    extraModels: [x1, x2]\n  - id: c2\n    type: ollama\n    enabled: true\n",
+        "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    tools: [WriteFile]\n  - id: tester\n    enabled: true\n",
+      },
+      {},
+      {},
+      true,
+    );
+
+  it("keeps extraModels when listModels succeeds and when it throws", async () => {
+    const ok = await recommendAssignments(cfgExtra(), managed({ c1: mc(["m1"]), c2: mc(["n1"]) }), { mode: "rules" });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.channels.find((c) => c.id === "c1")?.models).toEqual(["m1", "x1", "x2"]);
+
+    const failed = await recommendAssignments(cfgExtra(), managed({ c1: mc([], new Error("list fails")), c2: mc(["n1"]) }), { mode: "rules" });
+    expect(failed.ok).toBe(true);
+    if (failed.ok) {
+      const c1 = failed.channels.find((c) => c.id === "c1");
+      expect(c1?.error).toBe("list fails");
+      expect(c1?.models).toEqual(["x1", "x2"]);
+    }
+  });
+});
+
+describe("recommendAssignments prompt and validation", () => {
+  it("sends context, caps and price in the researcher prompt", async () => {
+    const cfgP = loadConfig(
+      {
+        "channels.yaml":
+          "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n    modelCaps:\n      m1:\n        tools: native\n        vision: true\n        contextTokens: 32000\n",
+        "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    tools: [WriteFile]\n  - id: tester\n    enabled: true\n",
+      },
+      {},
+      {},
+      true,
+    );
+    let promptText = "";
+    const probe: RecommendChannel = {
+      listModels: async () => ["m1", "m2"],
+      chat: async function* (req: ChatRequest) {
+        promptText = req.messages.map((m) => m.content).join("\n");
+        yield { kind: "text", text: JSON.stringify({ assignments: [{ role: "general-worker", channel: "c1", model: "m2" }] }) } as ChatEvent;
+        yield { kind: "done" } as ChatEvent;
+      },
+    };
+    const r = await recommendAssignments(cfgP, managed({ c1: probe }), {
+      context: {
+        priorities: { speed: 1, cost: 3, quality: 2 },
+        typicalWork: "refactors",
+        workspace: { sizeClass: "small", files: 10, loc: 100 },
+        hardware: { os: "linux", ramGb: 16, gpus: [{ name: "g", vramGb: 8 }] },
+      },
+      priceFor: async () => ({ inPerMTok: 1, outPerMTok: 2 }),
+    });
+    expect(r.ok).toBe(true);
+    expect(promptText).toContain("- priorities (1-3): speed 1, cost 3, quality 2");
+    expect(promptText).toContain("- typical work: refactors");
+    expect(promptText).toContain("- workspace: small (10 files, ~100 loc)");
+    expect(promptText).toContain("- hardware: linux, 16GB RAM, GPU g 8GB");
+    expect(promptText).toContain("m1 (tools=native, vision=true, contextTokens=32000");
+    expect(promptText).toMatch(/\$[\d.]+\/MTok\(/);
+  });
+
+  it("drops an assignment that fails hard requirements with the original reason", async () => {
+    const cfgV = loadConfig(
+      {
+        "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n",
+        "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    tools: [WriteFile]\n  - id: image-reader\n    enabled: true\n",
+      },
+      {},
+      {},
+      true,
+    );
+    const answer = JSON.stringify({
+      assignments: [
+        { role: "image-reader", channel: "c1", model: "m1" },
+        { role: "general-worker", channel: "c1", model: "m1" },
+      ],
+    });
+    const r = await recommendAssignments(cfgV, managed({ c1: mc(["m1"], answer) }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.assignments.map((a) => a.role)).toEqual(["general-worker"]);
+      expect(r.dropped).toContain("image-reader: c1:m1 fails hard requirements");
+    }
+  });
+});

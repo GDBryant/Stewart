@@ -174,4 +174,27 @@ describe("setup.recommend via dispatch", () => {
     expect(JSON.stringify(uLayer)).toContain("setupPriorities");
     expect(JSON.stringify(uLayer)).toContain("features");
   });
+
+  it("clamps out-of-range priorities to 2, keeps 1/3, writes nothing without context, and falls back to stored settings", async () => {
+    const { core, uLayer } = mk();
+    await attach(core);
+    const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules", context: { priorities: { speed: 9, cost: 1, quality: 3 } } })) as { ok: boolean };
+    expect(r.ok).toBe(true);
+    const yaml = uLayer["settings.yaml"] ?? "";
+    expect(yaml).toContain("speed: 2");
+    expect(yaml).toContain("cost: 1");
+    expect(yaml).toContain("quality: 3");
+
+    const quiet = mk();
+    await attach(quiet.core);
+    const r2 = (await quiet.core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as { ok: boolean };
+    expect(r2.ok).toBe(true);
+    expect(quiet.uLayer["settings.yaml"]).toBeUndefined();
+
+    const seeded = mk({ "settings.yaml": "version: 1\nsetupPriorities: { speed: 1, cost: 3, quality: 2 }\nsetupTypicalWork: refactors\n" });
+    await attach(seeded.core);
+    const r3 = (await seeded.core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as { ok: boolean };
+    expect(r3.ok).toBe(true);
+    expect(seeded.uLayer["settings.yaml"]).toBe("version: 1\nsetupPriorities: { speed: 1, cost: 3, quality: 2 }\nsetupTypicalWork: refactors\n");
+  });
 });

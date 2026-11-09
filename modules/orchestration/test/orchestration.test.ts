@@ -602,6 +602,41 @@ describe("runRoleTask", () => {
     expect(switched.status).toBe("done");
     expect(switched.summary).toBe("from-fallback");
   });
+
+  it("parks on unhealthy channels without prompting when no fallback can serve", async () => {
+    const cfg = config({
+      roles: {
+        investigator: "enabled: true\n    agent: a-free\n    fallbackAgent: a-paid\n    tools: [ReadFile]",
+      },
+    });
+    cfg.agents.find((a) => a.id === "a-paid")!.channel = "c2";
+    cfg.channels.push({ id: "c2", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { tools: "native" } } });
+    const unhealthy = fakeChannel(() => [text("bad"), done()]).channel;
+    unhealthy.unhealthy = true;
+    const prompts: unknown[] = [];
+    const { rt } = await runtime(cfg, unhealthy, {
+      channelFor: () => unhealthy,
+      prompt: async (p: { decode(a: string): unknown }) => {
+        prompts.push(p);
+        return { kind: "answered" as const, value: p.decode("Switch") };
+      },
+    });
+    const noFallback = await runRoleTask(
+      rt,
+      { id: "t1", roleId: "planner", title: "t", task: "x", files: [], dependsOn: [] },
+      { role: cfg.roles.find((r) => r.id === "planner")! },
+    );
+    expect(noFallback.status).toBe("parked");
+    expect(noFallback.summary).toContain("c1");
+    const bothDown = await runRoleTask(
+      rt,
+      { id: "t2", roleId: "investigator", title: "t", task: "x", files: [], dependsOn: [] },
+      { role: cfg.roles.find((r) => r.id === "investigator")! },
+    );
+    expect(bothDown.status).toBe("parked");
+    expect(bothDown.summary).toContain("c2");
+    expect(prompts).toHaveLength(0);
+  });
 });
 
 describe("runOrchestrated", () => {

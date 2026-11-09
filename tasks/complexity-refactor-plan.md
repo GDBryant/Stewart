@@ -2,9 +2,9 @@
 
 Source: `docs/health_reports/2026-11-08-code-health.md` — "High complexity" 5.5/10 (32 TS/TSX functions >10 branches, 20 >15).
 
-Branch counts below come from a TypeScript-AST scan (`temp/complexity-scan.mjs`) counting `if`/`switch`/`case`/ternary/loops/`catch`/`&&`/`||`/`??` per function. **Methodology differs from the report**: the report's heuristic yields 32 functions >10 / 20 >15; this scan yields ~79 >10 / ~38 >15. Use the scan for relative ranking and before/after deltas, not absolute parity with the report.
+Branch counts below come from a TypeScript-AST scan (`scripts/complexity-scan.mjs`) counting `if`/`switch`/`case`/ternary/loops/`catch`/`&&`/`||`/`??` per function. **Methodology differs from the report**: the report's heuristic yields 32 functions >10 / 20 >15; this scan yields ~79 >10 / ~38 >15. Use the scan for relative ranking and before/after deltas, not absolute parity with the report.
 
-## Top offenders
+## Top offenders (pre-refactor snapshot)
 
 | Branches | Location | Function |
 |---:|---|---|
@@ -71,9 +71,9 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 
 ## Phasing
 
-- **Phase 0 — measurement**: promote `temp/complexity-scan.mjs` into `scripts/` as a report (non-blocking).
+- **Phase 0 — measurement: DONE 2026-11-09**: `scripts/complexity-scan.mjs` is a non-blocking report (run with `node scripts/complexity-scan.mjs`).
 - **Phase 1 — pure, low-risk**: `assign.ts score()`, `v1import.ts`, channel stream accumulator. Existing unit tests cover these. **DONE 2026-11-09** — see status below.
-- **Phase 2 — orchestration core**: `recommend.ts`, `roleRunner.ts`, `recover.ts`, `resume.ts`, `toolLoop.ts`, `handleSetupRecommend`.
+- **Phase 2 — orchestration core: DONE 2026-11-09**: `recommend.ts`, `roleRunner.ts`, `recover.ts`, `resume.ts`, `toolLoop.ts`, `handleSetupRecommend`. No behavior changes; see status below.
 - **Phase 3 — UI/host**: SetupWizard split, `state.ts` handler map, `extension.ts` route table, SettingsView/App extraction.
 
 ## Phase 1 status (2026-11-09)
@@ -85,6 +85,19 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - Added `modules/channels/test/stream.test.ts` (10 tests) for `StreamAccumulator`/`postForStream`.
 - Scan totals: >15 branches 43 → 38; >10 branches 81 → 79. All module tests green (channels 89, setup 70, config 20); typecheck clean.
 
+## Phase 2 status (2026-11-09)
+
+- `recommend.ts recommendAssignments()` → `discoverChannels`/`buildCandidates`/`pickResearcher`/`buildRecommendPrompt`/`parseAndValidate` plus `formatContextBlock`/`validateAssignment`. Scan: caller <9; `parseAndValidate` <9, `buildRecommendPrompt` 9, `validateAssignment` 11.
+- `roleRunner.ts runRoleTask()` → `resolveAgent`/`buildSessionDeps`/`toTaskResult`. Scan: 46 → 12.
+- `recover.ts runTaskRecoverable()` → `layer0Retry`/`askContinue`/`trySplit` over shared `RetryState`; retry/continuation/question counters unchanged. Scan: 32 → 12.
+- `resume.ts resumeStrategy()` → `loadPersistedRun`/`replayTask` plus `planResume`/`executeResume`/`confirmInterrupted`/`markInterrupted` over `ResumeState`. Scan: 20 → <9; `planResume` 14.
+- `toolLoop.ts run()` → `prepareTurn`/`handleStreamOutcome`/`finishTurn`. Scan: 33 → 10.
+- `handlers/setup.ts handleSetupRecommend()` → `benchCandidates`/`persistSetupPreferences`/`buildRecommendContext`/`recommendSelection` (`SetupRecommendParams`). Scan: 32 → <9.
+
 ## Verification per phase
 
 `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build`, `check:layers`/`check:boundaries`/`check:cycles`. Re-run complexity scan; target every function <15 branches. Scan >15 count: 43 → 38 after Phase 1; Phase 2/3 should push toward single digits. No behavior change; helpers stay inside their module.
+
+## Scan checkpoint (2026-11-09)
+
+Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. The overall >15 count still includes Phase-3 targets (webview/host) and other untouched functions; the every-function-<15 target is not yet achieved.

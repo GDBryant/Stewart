@@ -143,35 +143,57 @@ export async function handleChannelProbe(core: CoreCtx, params: unknown): Promis
   }
 }
 
+type SetupRecommendParams = {
+  projectId: string;
+  mode?: "rules" | "ai";
+  evaluator?: { channel: string; model: string };
+  evaluatorAny?: boolean;
+  context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
+  bench?: boolean;
+};
+
+const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
+
 export async function handleSetupRecommend(core: CoreCtx, params: unknown): Promise<unknown> {
-  const p = params as {
-    projectId: string;
-    mode?: "rules" | "ai";
-    evaluator?: { channel: string; model: string };
-    evaluatorAny?: boolean;
-    context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
-    bench?: boolean;
-  };
+  const p = params as SetupRecommendParams;
   const ctx = core.ctx(p.projectId);
-  if (p.bench) {
-    for (const c of ctx.config.channels.filter((c) => c.enabled)) {
-      const ch = core.channelService.get(c.id);
-      if (!ch) continue;
-      let models: string[] = [];
-      try {
-        models = [...new Set([...(await ch.listModels()), ...(c.extraModels ?? [])])];
-      } catch {
-        continue;
-      }
-      for (const model of models) {
-        const hit = core.probeCache.get(`${c.id}:${model}`);
-        if (hit?.caps.imageGen === true || c.modelCaps?.[model]?.perf?.benchVersion === BENCH_VERSION) continue;
-        if (hit?.caps.perf?.benchVersion === BENCH_VERSION) continue;
-        await handleChannelProbe(core, { projectId: p.projectId, channelId: c.id, model, bench: true });
-      }
+  if (p.bench) await benchCandidates(core, ctx, p.projectId);
+  await persistSetupPreferences(core, p);
+  const context = await buildRecommendContext(core, ctx, p);
+  const { eligible, evaluator, evaluatorAny } = recommendSelection(core, p);
+  return recommendAssignments(ctx.config, core.channelService, {
+    mode: p.mode,
+    evaluator,
+    eligible,
+    evaluatorAny,
+    context,
+    priceFor: async (channelId, model) => {
+      const ch = core.channelService.get(channelId);
+      return ch ? catalogFor(core, ch, model) : undefined;
+    },
+  });
+}
+
+async function benchCandidates(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<void> {
+  for (const c of ctx.config.channels.filter((c) => c.enabled)) {
+    const ch = core.channelService.get(c.id);
+    if (!ch) continue;
+    let models: string[] = [];
+    try {
+      models = [...new Set([...(await ch.listModels()), ...(c.extraModels ?? [])])];
+    } catch {
+      continue;
+    }
+    for (const model of models) {
+      const hit = core.probeCache.get(`${c.id}:${model}`);
+      if (hit?.caps.imageGen === true || c.modelCaps?.[model]?.perf?.benchVersion === BENCH_VERSION) continue;
+      if (hit?.caps.perf?.benchVersion === BENCH_VERSION) continue;
+      await handleChannelProbe(core, { projectId, channelId: c.id, model, bench: true });
     }
   }
-  const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
+}
+
+async function persistSetupPreferences(core: CoreCtx, p: SetupRecommendParams): Promise<void> {
   if (p.context?.priorities || p.context?.typicalWork) {
     const raw = (await core.deps.userConfig.read())["settings.yaml"] ?? "";
     const doc = (parseYaml(raw.trim() ? raw : "version: 1\n") ?? {}) as Record<string, unknown>;
@@ -188,7 +210,10 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     await core.deps.userConfig.write("settings.yaml", yaml);
     await core.reload(p.projectId);
   }
-  const context: Partial<SetupContext> = {
+}
+
+async function buildRecommendContext(core: CoreCtx, ctx: ProjectCtx, p: SetupRecommendParams): Promise<Partial<SetupContext>> {
+  return {
     ...(p.context?.priorities
       ? { priorities: { speed: clamp(p.context.priorities.speed), cost: clamp(p.context.priorities.cost), quality: clamp(p.context.priorities.quality) } }
       : ctx.config.settings.setupPriorities
@@ -198,6 +223,13 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     workspace: await workspaceInfoFor(core, ctx, p.projectId),
     hardware: await gatherHardware(ctx.host).catch(() => undefined),
   };
+}
+
+function recommendSelection(core: CoreCtx, p: SetupRecommendParams): {
+  eligible?: { channel: string; model: string }[];
+  evaluator?: { channel: string; model: string };
+  evaluatorAny?: true;
+} {
   const probe = core.probeRunners.get(p.projectId)?.snapshot();
   const eligible = probe && probe.status !== "idle" ? probe.green : undefined;
   const evaluator =
@@ -205,15 +237,5 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     (eligible === undefined || p.evaluatorAny === true || eligible.some((g) => g.channel === p.evaluator!.channel && g.model === p.evaluator!.model))
       ? p.evaluator
       : undefined;
-  return recommendAssignments(ctx.config, core.channelService, {
-    mode: p.mode,
-    evaluator,
-    eligible,
-    evaluatorAny: p.evaluatorAny === true && eligible !== undefined ? true : undefined,
-    context,
-    priceFor: async (channelId, model) => {
-      const ch = core.channelService.get(channelId);
-      return ch ? catalogFor(core, ch, model) : undefined;
-    },
-  });
+  return { eligible, evaluator, evaluatorAny: p.evaluatorAny === true && eligible !== undefined ? true : undefined };
 }

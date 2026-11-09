@@ -67,63 +67,24 @@ export class ToolLoop {
     try {
       while (true) {
         if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        const before = measureMessages([...base, ...produced]);
-        let pruned = 0;
-        let summarized = false;
-        if (this.limits.prune && before > this.limits.maxContextChars * (this.limits.pruneAt ?? 0.6)) pruned = pruneStale(produced);
-        if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * (this.limits.summarizeAt ?? 0.8)) {
-          summarized = await summarizeMiddle(produced, this.summarize);
-        }
-        if (pruned > 0 || summarized) {
-          listener.onCompacted?.(Math.ceil(before / 4), Math.ceil(measureMessages([...base, ...produced]) / 4), { pruned, summarized });
-        }
-        if (compactIfOver(base, produced, this.limits.maxContextChars, listener)) {
+        if (await this.prepareTurn(base, produced, listener)) {
           return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
         }
         turns++;
         turn.text = "";
         turn.open = true;
         const s = await this.streamTurn(model, this.outbound(base, produced), listener, signal, turn);
-        if (s.sawDone) await listener.onUsage?.(s.usage, s.costUsd);
-        if (s.postDone) {
-          return { kind: "failed", messages: produced, base, message: "provider emitted events after completion", code: "protocol_error" };
-        }
-        const isStallTruncated = s.failed !== null && (/TRUNCATED|stream stalled/i.test(s.failed.message) || (s.failed as { code?: string }).code === "truncated");
-        if (s.sawTruncated || isStallTruncated) {
-          if (truncRetries < this.limits.maxTruncationRetries) {
-            truncRetries++;
-            turns--;
-            turn.open = false;
-            continue;
-          }
-          return {
-            kind: "failed",
-            messages: produced,
-            base,
-            message: s.failed?.message ?? "response truncated",
-            code: "truncated",
-          };
-        }
-        if (s.failed) return { kind: "failed", messages: produced, base, message: s.failed.message, code: (s.failed as { code?: string }).code };
-        if (!s.sawDone) {
-          return { kind: "failed", messages: produced, base, message: "stream ended before completion", code: "incomplete_stream" };
-        }
-        turn.open = false;
-        const parsed = this.parseCalls(turn.text, s.calls, listener);
-        turn.text = parsed.text;
-        // Held-back call-like text that was not a call: show it after all.
-        if (s.held && parsed.calls.length === 0 && parsed.errors.length === 0) listener.onText?.(s.held);
-        produced.push({ role: "assistant", content: turn.text, toolCalls: parsed.calls.length > 0 ? parsed.calls : undefined });
-        if (parsed.calls.length === 0) {
-          if (parsed.errors.length === 0) return { kind: "completed", messages: produced, base };
-          // Call-like text that failed: tell the model and retry, bounded by maxModelTurns.
-          produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
+        const decision = await this.handleStreamOutcome(s, truncRetries, listener);
+        if (decision.kind === "retry") {
+          truncRetries++;
+          turns--;
+          turn.open = false;
           continue;
         }
-        const batch = await this.executeCalls(parsed.calls, produced, listener, inFlight, signal, executed);
-        executed = batch.executed;
-        if (batch.terminal) return { kind: "completed", messages: produced, base };
-        if (parsed.errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
+        if (decision.kind === "failed") return { kind: "failed", messages: produced, base, message: decision.message, code: decision.code };
+        const handled = await this.finishTurn(s, turn, produced, listener, inFlight, signal, executed);
+        executed = handled.executed;
+        if (handled.completed) return { kind: "completed", messages: produced, base };
       }
     } catch (e) {
       this.closeOpenToolCalls(produced, inFlight);
@@ -131,6 +92,70 @@ export class ToolLoop {
       if (signal.aborted) throw new RunCancelledError(base, produced, e);
       throw e;
     }
+  }
+
+  private async prepareTurn(base: ChatMessage[], produced: ChatMessage[], listener: LoopListener): Promise<boolean> {
+    const before = measureMessages([...base, ...produced]);
+    let pruned = 0;
+    let summarized = false;
+    if (this.limits.prune && before > this.limits.maxContextChars * (this.limits.pruneAt ?? 0.6)) pruned = pruneStale(produced);
+    if (this.summarize && measureMessages([...base, ...produced]) > this.limits.maxContextChars * (this.limits.summarizeAt ?? 0.8)) {
+      summarized = await summarizeMiddle(produced, this.summarize);
+    }
+    if (pruned > 0 || summarized) {
+      listener.onCompacted?.(Math.ceil(before / 4), Math.ceil(measureMessages([...base, ...produced]) / 4), { pruned, summarized });
+    }
+    return compactIfOver(base, produced, this.limits.maxContextChars, listener);
+  }
+
+  private async handleStreamOutcome(
+    s: StreamOutcome,
+    truncRetries: number,
+    listener: LoopListener,
+  ): Promise<{ kind: "retry" } | { kind: "failed"; message: string; code?: string } | { kind: "parse" }> {
+    if (s.sawDone) await listener.onUsage?.(s.usage, s.costUsd);
+    if (s.postDone) {
+      return { kind: "failed", message: "provider emitted events after completion", code: "protocol_error" };
+    }
+    const isStallTruncated = s.failed !== null && (/TRUNCATED|stream stalled/i.test(s.failed.message) || (s.failed as { code?: string }).code === "truncated");
+    if (s.sawTruncated || isStallTruncated) {
+      if (truncRetries < this.limits.maxTruncationRetries) {
+        return { kind: "retry" };
+      }
+      return { kind: "failed", message: s.failed?.message ?? "response truncated", code: "truncated" };
+    }
+    if (s.failed) return { kind: "failed", message: s.failed.message, code: (s.failed as { code?: string }).code };
+    if (!s.sawDone) {
+      return { kind: "failed", message: "stream ended before completion", code: "incomplete_stream" };
+    }
+    return { kind: "parse" };
+  }
+
+  private async finishTurn(
+    s: StreamOutcome,
+    turn: TurnState,
+    produced: ChatMessage[],
+    listener: LoopListener,
+    inFlight: { id: string | null; awaitsUser: boolean },
+    signal: AbortSignal,
+    executed: number,
+  ): Promise<{ completed: boolean; executed: number }> {
+    turn.open = false;
+    const parsed = this.parseCalls(turn.text, s.calls, listener);
+    turn.text = parsed.text;
+    // Held-back call-like text that was not a call: show it after all.
+    if (s.held && parsed.calls.length === 0 && parsed.errors.length === 0) listener.onText?.(s.held);
+    produced.push({ role: "assistant", content: turn.text, toolCalls: parsed.calls.length > 0 ? parsed.calls : undefined });
+    if (parsed.calls.length === 0) {
+      if (parsed.errors.length === 0) return { completed: true, executed };
+      // Call-like text that failed: tell the model and retry, bounded by maxModelTurns.
+      produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
+      return { completed: false, executed };
+    }
+    const batch = await this.executeCalls(parsed.calls, produced, listener, inFlight, signal, executed);
+    if (batch.terminal) return { completed: true, executed: batch.executed };
+    if (parsed.errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
+    return { completed: false, executed: batch.executed };
   }
 
   private outbound(base: ChatMessage[], produced: ChatMessage[]): ChatMessage[] {
