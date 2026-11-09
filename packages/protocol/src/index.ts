@@ -28,6 +28,29 @@ export type HelloResult = z.infer<typeof helloResultSchema>;
 
 export const projectIdSchema = z.string().min(1);
 
+// ---- Setup quick-probe (server-owned smoke-test queue) -----------------------
+
+export type SetupProbeState = "queued" | "running" | "green" | "orange" | "red" | "skipped";
+export interface SetupProbeItem {
+  channel: string;
+  model: string;
+  state: SetupProbeState;
+  reason?: string;
+  lastReason?: string;
+  attempts?: number;
+  waitMs?: number;
+  durationMs?: number;
+}
+export type SetupProbeCounts = Record<SetupProbeState, number>;
+export interface SetupProbeSnapshot {
+  status: "idle" | "running" | "done" | "cancelled";
+  runId: number;
+  ranking: boolean;
+  items: SetupProbeItem[];
+  counts: SetupProbeCounts;
+  green: { channel: string; model: string }[];
+}
+
 // ---- Events: core -> host -> webview ----------------------------------------
 
 const base = { runId: z.string(), taskId: z.string().optional(), roleId: z.string().optional() };
@@ -93,7 +116,11 @@ export interface CoreRequests {
   "config.set": { params: { projectId: string; file: string; yaml: string; layer?: "user" | "project" }; result: { ok: true } };
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
   "channel.probe": { params: { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean }; result: { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: Record<string, unknown>; error?: string } };
-  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
+  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
+  "setup.probe.start": { params: { projectId: string; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string }; retry?: boolean }; result: SetupProbeSnapshot };
+  "setup.probe.status": { params: { projectId: string }; result: SetupProbeSnapshot };
+  "setup.probe.cancel": { params: { projectId: string }; result: SetupProbeSnapshot };
+  "setup.probe.retry": { params: { projectId: string }; result: SetupProbeSnapshot };
   "secret.set": { params: { projectId: string; ref: string; value: string }; result: { ok: true } };
   "secret.delete": { params: { projectId: string; ref: string }; result: { ok: true } };
   "setup.session.start": { params: { projectId: string }; result: unknown };
@@ -124,6 +151,10 @@ export const METHODS = [
   "config.set",
   "channel.test",
   "channel.probe",
+  "setup.probe.start",
+  "setup.probe.status",
+  "setup.probe.cancel",
+  "setup.probe.retry",
   "secret.set",
   "secret.delete",
   "setup.session.start",

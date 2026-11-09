@@ -660,12 +660,28 @@ describe("webview settings", () => {
     act(() => bridge.inbound(configReply));
     fireEvent.click(screen.getByText("Run setup"));
   };
+  const probeDone = {
+    type: "setup.probe.result" as const,
+    status: "done" as const,
+    runId: 1,
+    ranking: false,
+    items: [
+      { channel: "c1", model: "m", state: "green" as const },
+      { channel: "c1", model: "big:32b", state: "green" as const },
+    ],
+    counts: { queued: 0, running: 0, green: 2, orange: 0, red: 0, skipped: 0 },
+    green: [
+      { channel: "c1", model: "m" },
+      { channel: "c1", model: "big:32b" },
+    ],
+  };
   const toStep = (bridge: MockBridge, n: number) => {
     fireEvent.click(screen.getByText("Start"));
     if (n < 2) return;
     act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m", "big:32b"] }));
     fireEvent.click(screen.getByText("Next: discover models"));
     if (n < 3) return;
+    act(() => bridge.inbound(probeDone));
     fireEvent.click(screen.getByText("Next: choose evaluator"));
   };
 
@@ -808,13 +824,103 @@ describe("webview settings", () => {
     expect(screen.getByText("Add this channel")).toBeTruthy();
   });
 
-  it("probes discovered models and shows their abilities", () => {
+  it("starts the smoke queue once and renders queued/running/green/orange/red/skipped states", () => {
     const { bridge } = mk();
     openWizard(bridge);
     toStep(bridge, 2);
-    expect(bridge.sent).toContainEqual({ type: "channel.probe", channelId: "c1", model: "big:32b", force: false });
-    act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c1", model: "big:32b", ok: true, caps: { tools: "native", reasoning: true, contextTokens: 32000 } }));
-    expect(screen.getByText(/tools:native · reasoning · 32k ctx/)).toBeTruthy();
+    const starts = bridge.sent.filter((m: any) => m.type === "setup.probe.start");
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toEqual(
+      expect.objectContaining({
+        candidates: [
+          { channel: "c1", model: "m" },
+          { channel: "c1", model: "big:32b" },
+        ],
+        evaluator: { channel: "c1", model: "m" },
+      }),
+    );
+    expect((screen.getByText("Next: choose evaluator") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByText("queued").length).toBe(2);
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "running",
+        runId: 1,
+        ranking: false,
+        items: [
+          { channel: "c1", model: "m", state: "running" },
+          { channel: "c1", model: "big:32b", state: "queued" },
+        ],
+        counts: { queued: 1, running: 1, green: 0, orange: 0, red: 0, skipped: 0 },
+        green: [],
+      }),
+    );
+    expect(screen.getByText("probing…")).toBeTruthy();
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "done",
+        runId: 1,
+        ranking: false,
+        items: [
+          { channel: "c1", model: "m", state: "green" },
+          { channel: "c1", model: "big:32b", state: "orange", reason: "no response within 30000ms" },
+        ],
+        counts: { queued: 0, running: 0, green: 1, orange: 1, red: 0, skipped: 0 },
+        green: [{ channel: "c1", model: "m" }],
+      }),
+    );
+    expect(screen.getByText(/✓ passed/)).toBeTruthy();
+    expect(screen.getByText(/timed out — no response within 30000ms/)).toBeTruthy();
+    expect((screen.getByText("Next: choose evaluator") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("Retry failed")).toBeTruthy();
+  });
+
+  it("accept and continue cancels the queue and advances with partial results", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    toStep(bridge, 2);
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "running",
+        runId: 1,
+        ranking: false,
+        items: [
+          { channel: "c1", model: "m", state: "running" },
+          { channel: "c1", model: "big:32b", state: "queued" },
+        ],
+        counts: { queued: 1, running: 1, green: 0, orange: 0, red: 0, skipped: 0 },
+        green: [],
+      }),
+    );
+    fireEvent.click(screen.getByText("Accept and continue"));
+    expect(bridge.sent).toContainEqual({ type: "setup.probe.cancel" });
+    expect(screen.getByText(/decide who matches models to roles/)).toBeTruthy();
+  });
+
+  it("retry failed posts setup.probe.retry and does not restart the queue on rerender", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    toStep(bridge, 2);
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "done",
+        runId: 1,
+        ranking: false,
+        items: [
+          { channel: "c1", model: "m", state: "green" },
+          { channel: "c1", model: "big:32b", state: "red", reason: "HTTP 500" },
+        ],
+        counts: { queued: 0, running: 0, green: 1, orange: 0, red: 1, skipped: 0 },
+        green: [{ channel: "c1", model: "m" }],
+      }),
+    );
+    fireEvent.click(screen.getByText("Retry failed"));
+    expect(bridge.sent).toContainEqual({ type: "setup.probe.retry" });
+    expect(bridge.sent.filter((m: any) => m.type === "setup.probe.start")).toHaveLength(1);
+    expect(screen.getByText(/✗ HTTP 500/)).toBeTruthy();
   });
 
   it("builds a rules proposal, lets the user edit a row and applies agents + roles", () => {
@@ -907,7 +1013,7 @@ describe("webview settings", () => {
     openWizard(bridge);
     toStep(bridge, 3);
     fireEvent.click(screen.getByText("Back"));
-    expect(screen.getByText(/checks what each model can do|wait while Stewart checks/i)).toBeTruthy();
+    expect(screen.getByText(/smoke-tests every model/)).toBeTruthy();
     fireEvent.click(screen.getByText("Close"));
     expect(store.state.wizardOpen).toBe(false);
   });

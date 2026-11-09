@@ -119,3 +119,45 @@ describe("recommendAssignments", () => {
     if (r.ok) expect(r.researcher).toEqual({ channel: "c2", model: "m9" });
   });
 });
+
+describe("recommendAssignments eligible filtering", () => {
+  it("restricts candidates to the eligible set and reports an error when none pass", async () => {
+    const r = await recommendAssignments(cfg(), managed({ c1: mc(["m1", "m2"]) }), {
+      mode: "rules",
+      eligible: [{ channel: "c1", model: "m2" }],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.channels[0].models).toEqual(["m2"]);
+      expect(r.assignments.every((a) => a.model === "m2")).toBe(true);
+    }
+    const empty = await recommendAssignments(cfg(), managed({ c1: mc(["m1"]) }), { mode: "rules", eligible: [] });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.error).toContain("smoke test");
+  });
+
+  it("drops an evaluator outside the eligible set unless evaluatorAny is set", async () => {
+    const seen: string[] = [];
+    const probe: RecommendChannel = {
+      listModels: async () => ["m1", "m2"],
+      chat: async function* (req) {
+        seen.push(req.model);
+        yield { kind: "text", text: JSON.stringify({ assignments: [{ role: "general-worker", channel: "c1", model: "m2" }] }) } as ChatEvent;
+        yield { kind: "done" } as ChatEvent;
+      },
+    };
+    const r = await recommendAssignments(cfg(), managed({ c1: probe }), {
+      evaluator: { channel: "c1", model: "m1" },
+      eligible: [{ channel: "c1", model: "m2" }],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.researcher).toEqual({ channel: "c1", model: "m2" });
+    const r2 = await recommendAssignments(cfg(), managed({ c1: probe }), {
+      evaluator: { channel: "c1", model: "m1" },
+      evaluatorAny: true,
+      eligible: [{ channel: "c1", model: "m2" }],
+    });
+    expect(r2.ok).toBe(true);
+    if (r2.ok) expect(r2.researcher).toEqual({ channel: "c1", model: "m1" });
+  });
+});

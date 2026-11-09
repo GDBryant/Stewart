@@ -196,6 +196,14 @@ async function route(core: Core, host: VsCodeHost, panel: vscode.WebviewPanel, m
         await panel.webview.postMessage({ type: "setup.session.result", ...(r as object) });
         return;
       }
+      case "setup.probe.start":
+      case "setup.probe.status":
+      case "setup.probe.cancel":
+      case "setup.probe.retry": {
+        const r = await core.dispatch(m.type, { ...m, projectId: PROJECT_ID });
+        await panel.webview.postMessage({ type: "setup.probe.result", ...(r as object) });
+        return;
+      }
       case "setup.review":
       case "setup.approve":
       case "setup.undo": {

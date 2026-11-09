@@ -24,7 +24,11 @@ export type Outbound =
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
-  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
+  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
+  | { type: "setup.probe.start"; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string } }
+  | { type: "setup.probe.status" }
+  | { type: "setup.probe.cancel" }
+  | { type: "setup.probe.retry" }
   | { type: "setup.session.start" }
   | { type: "setup.session.update"; patch: Record<string, unknown> }
   | { type: "setup.session.advance" }
@@ -91,6 +95,27 @@ export interface CatalogInfo {
   source: string;
 }
 
+export type SetupProbeState = "queued" | "running" | "green" | "orange" | "red" | "skipped";
+export interface SetupProbeItem {
+  channel: string;
+  model: string;
+  state: SetupProbeState;
+  reason?: string;
+  lastReason?: string;
+  attempts?: number;
+  waitMs?: number;
+  durationMs?: number;
+}
+export type SetupProbeCounts = Record<SetupProbeState, number>;
+export interface SetupProbeSnapshot {
+  status: "idle" | "running" | "done" | "cancelled";
+  runId: number;
+  ranking: boolean;
+  items: SetupProbeItem[];
+  counts: SetupProbeCounts;
+  green: { channel: string; model: string }[];
+}
+
 export interface SessionSummary {
   sessionId: string;
   title: string;
@@ -125,6 +150,7 @@ export type Inbound =
       dropped?: string[];
       error?: string;
     }
+  | ({ type: "setup.probe.result" } & SetupProbeSnapshot)
   | { type: "setup.session.result"; phase?: string; draft?: Record<string, unknown>; ok?: boolean; error?: string }
   | { type: "setup.review.result"; token?: string; error?: string }
   | { type: "setup.approve.result"; ok: boolean; error?: string }

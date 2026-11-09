@@ -68,6 +68,10 @@ class WebviewRouter(
                     val r = request(type, withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("$type.result"))))
                 }
+                "setup.probe.start", "setup.probe.status", "setup.probe.cancel", "setup.probe.retry" -> {
+                    val r = request(type, withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("setup.probe.result"))))
+                }
                 "channel.test" -> {
                     val r = request("channel.test", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("channel.test.result")) + ("channelId" to (m["channelId"] ?: JsonPrimitive("")))))

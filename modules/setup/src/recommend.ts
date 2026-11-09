@@ -30,6 +30,10 @@ export interface RecommendOptions {
   context?: Partial<SetupContext>;
   /** Resolves live/catalog price info per model (agent.price always wins over it). */
   priceFor?: (channel: string, model: string) => Promise<ModelInfo | undefined>;
+  /** Restrict candidates to these channel:model pairs (e.g. smoke-tested green), in preference order. */
+  eligible?: { channel: string; model: string }[];
+  /** Allow opts.evaluator even when it is outside `eligible`. */
+  evaluatorAny?: boolean;
 }
 
 export type RecommendResult =
@@ -75,14 +79,27 @@ export async function recommendAssignments(
       channels.push({ id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: e instanceof Error ? e.message : String(e) });
     }
   }
+  const allModels = new Map(channels.map((c) => [c.id, new Set(c.models)]));
+  if (opts.eligible) {
+    const ok = new Set(opts.eligible.map((e) => `${e.channel}:${e.model}`));
+    for (const c of channels) c.models = c.models.filter((m) => ok.has(`${c.id}:${m}`));
+  }
   if (!channels.some((c) => c.models.length)) {
-    return { ok: false, error: "no models discovered; check channels", channels };
+    return {
+      ok: false,
+      error: opts.eligible ? "no models passed the smoke test; retry probes or check channels" : "no models discovered; check channels",
+      channels,
+    };
   }
 
   const byId = new Map(channels.map((c) => [c.id, c]));
   const candidates: Candidate[] = channels.flatMap((c) =>
     c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: resolveModelProfile(config, { channel: c.id, model }).caps })),
   );
+  if (opts.eligible) {
+    const rank = new Map(opts.eligible.map((e, i) => [`${e.channel}:${e.model}`, i]));
+    candidates.sort((a, b) => (rank.get(`${a.channel}:${a.model}`) ?? Number.MAX_SAFE_INTEGER) - (rank.get(`${b.channel}:${b.model}`) ?? Number.MAX_SAFE_INTEGER));
+  }
   const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
   const agentPrice = new Map(config.agents.filter((a) => a.price).map((a) => [`${a.channel}:${a.model}`, a.price!]));
   await Promise.all(
@@ -107,7 +124,9 @@ export async function recommendAssignments(
     return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
   }
   let researcher: { channel: string; model: string } | undefined;
-  if (opts.evaluator && byId.get(opts.evaluator.channel)?.models.includes(opts.evaluator.model)) researcher = opts.evaluator;
+  const hasModel = (channel: string, model: string) =>
+    opts.evaluatorAny ? allModels.get(channel)?.has(model) === true : byId.get(channel)?.models.includes(model) === true;
+  if (opts.evaluator && hasModel(opts.evaluator.channel, opts.evaluator.model)) researcher = opts.evaluator;
   for (const a of researcher ? [] : config.agents) {
     const info = byId.get(a.channel);
     if (info?.models.includes(a.model)) {

@@ -38,6 +38,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Permissions: `docs/ai_docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
 - Releasing: `docs/ai_docs/RELEASING.md` — VSIX packaging, per-OS bundled-Node zips, CI/release workflows, secrets-gated signing/publishing.
 - Setup wizard: `docs/ai_docs/SETUP.md` — steps, assignment engine, protocol, gaps.
+- Health reports: `docs/health_reports/` — dated repository code-health scores and verification results.
 
 `docs/archived_v2/` — superseded v2-era plans:
 - Handoff: `docs/archived_v2/HANDOFF.md` — post-M10 plans for the outstanding items (runIde check, AIF model list, Qwen edits + write verification, Ollama native tools, Visual Studio, Nemotron). Previous handoff text is in git history (`0ee6ce2`).

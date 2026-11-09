@@ -1,5 +1,5 @@
 import type { RunEvent } from "@stewart/protocol";
-import type { Bridge, ConfigReply, Inbound, SessionSummary, StoredMessage } from "./bridge.js";
+import type { Bridge, ConfigReply, Inbound, SessionSummary, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
 
 export interface ChatItem {
   id: string;
@@ -96,6 +96,8 @@ export interface State {
   /** Profile the current/last run used, from run.started. */
   runProfile?: string;
   recommendBusy?: boolean;
+  /** Server-owned setup quick-probe queue snapshot (queued/running/green/orange/red/skipped). */
+  smoke?: SetupProbeSnapshot;
   setupPhase?: string;
   setupSaved?: boolean;
   setupError?: string;
@@ -293,7 +295,16 @@ export class Store {
       this.bridge.post({ type: "setup.session.cancel" });
     }
   }
-  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }): void {
+  startProbe(candidates: { channel: string; model: string }[], evaluator?: { channel: string; model: string }): void {
+    this.bridge.post(evaluator ? { type: "setup.probe.start", candidates, evaluator } : { type: "setup.probe.start", candidates });
+  }
+  cancelProbe(): void {
+    this.bridge.post({ type: "setup.probe.cancel" });
+  }
+  retryProbe(): void {
+    this.bridge.post({ type: "setup.probe.retry" });
+  }
+  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }): void {
     if (this.state.recommendBusy) return;
     this.bridge.post(opts ? { type: "setup.recommend", ...opts } : { type: "setup.recommend" });
     this.patch({ recommendBusy: true, recommendError: undefined });
@@ -350,6 +361,10 @@ export class Store {
     if (m.type === "history.messages") return this.onHistoryMessages(m);
     if (m.type === "v1.draft") return this.onV1Draft(m);
     if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
+    if (m.type === "setup.probe.result") {
+      const { type: _t, ...snap } = m;
+      return this.patch({ smoke: snap });
+    }
     if (m.type === "setup.session.result") return this.patch({ setupPhase: m.phase });
     if (m.type === "setup.review.result") {
       if (m.token) this.bridge.post({ type: "setup.approve", token: m.token });
@@ -453,6 +468,11 @@ export class Store {
             { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
           ],
         });
+      case "setup.event": {
+        const e = (ev as { event?: { kind?: string; snapshot?: SetupProbeSnapshot } }).event;
+        if (e?.kind === "probe.state" && e.snapshot) return this.patch({ smoke: e.snapshot });
+        return;
+      }
       case "run.finished":
         return this.onRunFinished(ev);
       default:

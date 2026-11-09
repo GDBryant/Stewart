@@ -12,11 +12,12 @@ import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
 import { RunService } from "@stewart/runs";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { ChannelDeps } from "@stewart/channels";
-import type { WorkspaceInfo } from "@stewart/setup";
+import type { WorkspaceInfo, SetupProbeRunner } from "@stewart/setup";
 import { DebugLogger, NOOP_DEBUG_SINK, eventEntry, type DebugLevel, type DebugSink } from "@stewart/diagnostics";
 import * as chat from "./handlers/chat.js";
 import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
+import * as setupProbe from "./handlers/setupProbe.js";
 import { createProbeLoop } from "@stewart/agent-loop";
 import { applyProbes } from "./handlers/util.js";
 import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
@@ -33,6 +34,7 @@ export class Core implements CoreCtx {
   priceCache = new Map<string, Record<string, { inPerMTok: number; outPerMTok: number }> | undefined>();
   /** Workspace scan cache, 24h TTL — shared by setup.recommend and the task classifier. */
   wsScan = new Map<string, { info: WorkspaceInfo; at: number }>();
+  readonly probeRunners = new Map<string, SetupProbeRunner>();
   readonly probeLoop: ProbeLoop<ManagedChannel>;
   userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
@@ -101,6 +103,11 @@ export class Core implements CoreCtx {
     const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
     this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
+    const staleProbe = this.probeRunners.get(projectId);
+    if (staleProbe) {
+      staleProbe.cancel();
+      this.probeRunners.delete(projectId);
+    }
     await this.rebuildChannels(config, host);
     return config;
   }
@@ -158,6 +165,10 @@ export class Core implements CoreCtx {
     "channel.test": (p) => setup.handleChannelTest(this, p),
     "channel.probe": (p) => setup.handleChannelProbe(this, p),
     "setup.recommend": (p) => setup.handleSetupRecommend(this, p),
+    "setup.probe.start": (p) => setupProbe.handleSetupProbeStart(this, p),
+    "setup.probe.status": (p) => setupProbe.handleSetupProbeStatus(this, p),
+    "setup.probe.cancel": (p) => setupProbe.handleSetupProbeCancel(this, p),
+    "setup.probe.retry": (p) => setupProbe.handleSetupProbeRetry(this, p),
     "setup.session.start": (p) => setup.handleSetupSessionStart(this, p),
     "setup.session.get": (p) => setup.handleSetupSessionGet(this, p),
     "setup.session.update": (p) => setup.handleSetupSessionUpdate(this, p),

@@ -148,6 +148,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     projectId: string;
     mode?: "rules" | "ai";
     evaluator?: { channel: string; model: string };
+    evaluatorAny?: boolean;
     context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
     bench?: boolean;
   };
@@ -197,9 +198,18 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
     workspace: await workspaceInfoFor(core, ctx, p.projectId),
     hardware: await gatherHardware(ctx.host).catch(() => undefined),
   };
+  const probe = core.probeRunners.get(p.projectId)?.snapshot();
+  const eligible = probe && probe.status !== "idle" ? probe.green : undefined;
+  const evaluator =
+    p.evaluator &&
+    (eligible === undefined || p.evaluatorAny === true || eligible.some((g) => g.channel === p.evaluator!.channel && g.model === p.evaluator!.model))
+      ? p.evaluator
+      : undefined;
   return recommendAssignments(ctx.config, core.channelService, {
     mode: p.mode,
-    evaluator: p.evaluator,
+    evaluator,
+    eligible,
+    evaluatorAny: p.evaluatorAny === true && eligible !== undefined ? true : undefined,
     context,
     priceFor: async (channelId, model) => {
       const ch = core.channelService.get(channelId);

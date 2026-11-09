@@ -74,6 +74,12 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   const enabled = channels.filter((c) => c.enabled);
   const okChannels = enabled.filter((c) => tests[c.id]?.ok);
   const pairs = okChannels.flatMap((c) => channelModels(store, c).map((m) => ({ channel: c.id, model: m })));
+  const smoke = store.state.smoke;
+  const smokeRan = !!smoke && smoke.status !== "idle";
+  const greenKeys = new Set((smoke?.green ?? []).map((g) => key(g.channel, g.model)));
+  const eligiblePairs = smokeRan ? pairs.filter((p) => greenKeys.has(key(p.channel, p.model))) : pairs;
+  const probeBusy = !smokeRan || smoke.status === "running";
+  const retryable = !!smoke?.items.some((i) => i.state === "orange" || i.state === "red" || i.state === "skipped");
 
   // Test every configured channel once it appears (config.set rebuilds the live channels first).
   useEffect(() => {
@@ -92,19 +98,17 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
       : channelModels(store, evalChanObj).map((m) => ({ v: key(evalChan, m), label: m }));
   const evalSel = evalOptions.some((o) => o.v === evaluator) ? evaluator : (evalOptions[0]?.v ?? "");
 
-  const benched = useRef(new Set<string>());
-
-  // Discover: probe each model once; re-probe with bench when the box is ticked (one retry per model).
+  // Discover: start the server-owned smoke queue once per candidate set; the same
+  // signature returns the cached snapshot, so re-renders/back-navigation never re-probe.
+  const probeSig = pairs.map((p) => key(p.channel, p.model)).sort().join("|");
+  const probeSent = useRef("");
   useEffect(() => {
-    if (step !== 2) return;
-    for (const p of pairs) {
-      const k = key(p.channel, p.model);
-      const r = store.state.probeResults[k];
-      const needsBench = bench && !benched.current.has(k);
-      if (needsBench) benched.current.add(k);
-      if (!r || needsBench) store.probeModel(p.channel, p.model, needsBench, bench);
-    }
-  }, [step, bench, pairs.map((p) => key(p.channel, p.model)).join(), Object.keys(store.state.probeResults).length]);
+    if (step !== 2 || !probeSig || probeSent.current === probeSig) return;
+    probeSent.current = probeSig;
+    const i = evalSel.indexOf(":");
+    const ev = evalSel && i > 0 ? { channel: evalSel.slice(0, i), model: evalSel.slice(i + 1) } : undefined;
+    store.startProbe(pairs.map((p) => ({ channel: p.channel, model: p.model })), ev);
+  }, [step, probeSig, evalSel]);
 
   const pickPreset = (label: string) => {
     const p = PRESETS.find((x) => x.label === label) ?? PRESETS[0];
@@ -132,7 +136,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
   };
   const buildProposal = () => {
     setEdits({});
-    const f = evaluator || evalSel || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "");
+    const f = evaluator || evalSel || (eligiblePairs[0] ? key(eligiblePairs[0].channel, eligiblePairs[0].model) : "");
     const i = f.indexOf(":");
     const ev = evalMode === "ai" && f ? { evaluator: { channel: f.slice(0, i), model: f.slice(i + 1) } } : {};
     store.recommend({ mode: evalMode, ...ev, context: { priorities, ...(typicalWork ? { typicalWork } : {}) }, bench });
@@ -297,25 +301,54 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
 
       {step === 2 ? (
         <div class="form">
-          <p><b>What to do:</b> wait while Stewart checks what each model can do (tools, vision, reasoning, context size). Failed checks are fine — those models just get safe defaults.</p>
+          <p><b>What to do:</b> Stewart smoke-tests every model one at a time (local models first, ~30s max each). Only passing models can be assigned to roles.</p>
+          {smoke?.status === "running" ? (
+            <div class="row">
+              <button
+                class="small"
+                onClick={() => {
+                  store.cancelProbe();
+                  setStep(3);
+                }}
+              >
+                Accept and continue
+              </button>
+              <span class="hint">stops probing now; recommendation uses the green results so far</span>
+            </div>
+          ) : null}
           <label class="field">
             <span>
               <input type="checkbox" checked={bench} onChange={(e) => setBench((e.target as HTMLInputElement).checked)} /> Measure speed (up to ~2.5 min per model)
             </span>
-            <span class="hint">Sends a few test requests to each model to measure reply speed, tool-call and edit reliability.</span>
+            <span class="hint">Sends a few test requests to each green model to measure reply speed, tool-call and edit reliability.</span>
           </label>
           {pairs.length === 0 ? <div class="fail">No models found. Go back and check your channels (for Ollama: run <code>ollama pull &lt;model&gt;</code>).</div> : null}
-          {pairs.map((p) => {
-            const r = store.state.probeResults[key(p.channel, p.model)];
-            return (
-              <div key={key(p.channel, p.model)} class="summary">
-                {p.channel}:{p.model} — {r ? (r.ok ? <span>{capBadges(r.caps) || "no special abilities reported"}</span> : <span class="hint">probe failed, using defaults</span>) : <span class="hint">probing…</span>}
-              </div>
-            );
-          })}
+          {smoke?.ranking ? <div class="hint">Ranking remaining models…</div> : null}
+          <div aria-live="polite">
+            {(smokeRan ? smoke.items : pairs.map((p) => ({ channel: p.channel, model: p.model, state: "queued" as const }))).map((it) => {
+              const k = key(it.channel, it.model);
+              const badges = it.state === "green" ? capBadges(store.state.probeResults[k]?.caps) : "";
+              return (
+                <div key={k} class="summary">
+                  {it.channel}:{it.model} —{" "}
+                  {it.state === "queued" ? <span class="hint">queued</span> : null}
+                  {it.state === "running" ? <span class="hint">probing…</span> : null}
+                  {it.state === "green" ? <span>✓ passed{badges ? ` · ${badges}` : ""}</span> : null}
+                  {it.state === "orange" ? <span class="hint">timed out{it.reason ? ` — ${it.reason}` : ""}{(it.attempts ?? 0) > 1 ? ` (try ${it.attempts})` : ""}</span> : null}
+                  {it.state === "red" ? <span class="fail">✗ {it.reason ?? it.lastReason ?? "failed"}{(it.attempts ?? 0) > 1 ? ` (try ${it.attempts})` : ""}</span> : null}
+                  {it.state === "skipped" ? <span class="hint">skipped{it.reason ? ` — ${it.reason}` : ""}</span> : null}
+                </div>
+              );
+            })}
+          </div>
+          {smokeRan && smoke.counts.skipped > 0 && smoke.status !== "running" ? <div class="hint">{smoke.counts.skipped} candidate{smoke.counts.skipped === 1 ? "" : "s"} skipped — retry to probe them.</div> : null}
+          {smokeRan && smoke.status !== "running" && smoke.green.length === 0 ? (
+            <div class="fail">No models passed the smoke test. Check the channels, then retry — or go back and fix the channel setup.</div>
+          ) : null}
           <div class="row">
+            {retryable && smoke?.status !== "running" ? <button class="small" onClick={() => store.retryProbe()}>Retry failed</button> : null}
             <button class="small" onClick={() => setStep(1)}>Back</button>
-            {next("Next: choose evaluator", 3, pairs.length === 0)}
+            {next("Next: choose evaluator", 3, pairs.length === 0 || probeBusy)}
           </div>
         </div>
       ) : null}
@@ -328,8 +361,8 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           {evalMode === "ai" ? (
             <label class="field">
               <span>Evaluator model</span>
-              <select aria-label="evaluator" value={evaluator || evalSel || (pairs[0] ? key(pairs[0].channel, pairs[0].model) : "")} onChange={(e) => setEvaluator((e.target as HTMLSelectElement).value)}>
-                {pairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
+              <select aria-label="evaluator" value={evaluator || evalSel || (eligiblePairs[0] ? key(eligiblePairs[0].channel, eligiblePairs[0].model) : "")} onChange={(e) => setEvaluator((e.target as HTMLSelectElement).value)}>
+                {eligiblePairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
               </select>
             </label>
           ) : null}
@@ -387,7 +420,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
                     <b>{r.id}</b>{" "}
                     <select aria-label={`role ${r.id}`} value={chosen} onChange={(e) => setEdits({ ...edits, [r.id]: (e.target as HTMLSelectElement).value })}>
                       <option value="">(disabled)</option>
-                      {pairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
+                      {eligiblePairs.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
                     </select>
                     {a?.reason ? <span class="hint"> — {a.reason}</span> : null}
                     {info ? (

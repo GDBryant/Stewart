@@ -8,3 +8,5 @@ export { scanWorkspace, gatherHardware, SCAN_FILE_CAP, SCAN_DEADLINE_MS } from "
 export type { WorkspaceInfo, HardwareInfo, SetupContext } from "./setupContext.js";
 export { SetupSession, SETUP_FILES } from "./session.js";
 export type { SetupDraft, SetupEvent, SetupPhase, SetupSessionDeps, Evaluation } from "./session.js";
+export { SMOKE_TIMEOUT_MS, RANK_TIMEOUT_MS, PROBE_DRAIN_MS, MAX_SMOKE_ATTEMPTS, SetupProbeRunner, smokeModel, normalizeReason, orderSmokeCandidates, fallbackOrder, rankCandidates } from "./probe.js";
+export type { ProbeCounts, ProbeItem, ProbeSnapshot, ProbeStatus, ProbeRunnerDeps, RankCandidate, SmokeCandidate, SmokeChannel, SmokeOptions, SmokeResult, SmokeState, SmokeVerdict } from "./probe.js";

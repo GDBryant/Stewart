@@ -129,6 +129,31 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `setup probe routes return shaped snapshots`() {
+        val rig = Rig { m, _ ->
+            if (m.startsWith("setup.probe.")) {
+                Json.parseToJsonElement("""{"status":"running","ranking":false,"items":[],"green":[]}""")
+            } else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"setup.probe.start","candidates":[{"channel":"c1","model":"m"}]}""")
+        rig.router.route("""{"type":"setup.probe.status"}""")
+        rig.router.route("""{"type":"setup.probe.cancel"}""")
+        rig.router.route("""{"type":"setup.probe.retry"}""")
+        repeat(4) {
+            val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+            assertEquals("setup.probe.result", m.type())
+            assertEquals("running", m["status"]!!.jsonPrimitive.content)
+        }
+        assertEquals(
+            listOf("setup.probe.start", "setup.probe.status", "setup.probe.cancel", "setup.probe.retry"),
+            rig.calls.map { it.first },
+        )
+        val p = rig.calls[0].second!!
+        assertEquals("p1", p["projectId"]!!.jsonPrimitive.content)
+        assertEquals("c1", p["candidates"]!!.jsonObject.let { (it as kotlinx.serialization.json.JsonArray)[0].jsonObject["channel"]!!.jsonPrimitive.content })
+    }
+
+    @Test
     fun `channel test shaped result`() {
         val rig = Rig()
         rig.router.route("""{"type":"channel.test","channelId":"c1"}""")
