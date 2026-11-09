@@ -75,7 +75,7 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - **Phase 1 — pure, low-risk**: `assign.ts score()`, `v1import.ts`, channel stream accumulator. Existing unit tests cover these. **DONE 2026-11-09** — see status below.
 - **Phase 2 — orchestration core: DONE 2026-11-09**: `recommend.ts`, `roleRunner.ts`, `recover.ts`, `resume.ts`, `toolLoop.ts`, `handleSetupRecommend`. No behavior changes; see status below.
 - **Phase 3 — UI/host: DONE 2026-11-09**: SetupWizard split, `state.ts` handler maps, VS Code route table, SettingsView/App extraction. No intended behavior changes; see status below.
-- **Phase 4 — items 1–5 DONE 2026-11-09** (6–10 remain): `shell.ts` `ShellScanner`, `toolLoop.ts` `executeCall`/`streamTurn` splits, `direct.ts` `DirectState`+`startRun`/`runTask`/`finishRun`, `bench.ts` `BENCH_STEPS`+`summarizePerf`, `orchestrator.ts` `run`/`answerNestedAskUser` splits; `hosts/vscode` coverage wired. No behavior changes; see status below.
+- **Phase 4 — DONE 2026-11-09** (all 10 items): `shell.ts` `ShellScanner`, `toolLoop.ts` `executeCall`/`streamTurn` splits, `direct.ts` `DirectState`+`startRun`/`runTask`/`finishRun`, `bench.ts` `BENCH_STEPS`+`summarizePerf`, `orchestrator.ts` `run`/`answerNestedAskUser` splits, `shimParser.ts` JSON/tag helpers, `SettingsView` `RoleCard`/`AgentExtra` field components, `claude/parser.ts` block-kind maps, `plan.ts` arg-validator table, `loader.ts` `loadLayerFile`+`mergeSettingsLayers`; `hosts/vscode` coverage wired. No behavior changes; see status below.
 
 ## Phase 1 status (2026-11-09)
 
@@ -115,13 +115,23 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - Verification: vitest + `tsc --noEmit` clean per package (permissions 31, agent-loop 65, runs 63, setup 77, orchestration 90, vscode 33 tests). Coverage ≥90/80 everywhere touched. `check:layers`/`check:boundaries`/`check:cycles`/`check:tsrefs` pass.
 - Scan checkpoint: >10 branches 72 → 68; >15 branches 22 → 15. Every Phase-4 target and helper is <15 (`runSession` exactly 15). The ≤12 target is not reached — the remainder is items 6–10 scope.
 
+## Phase 4 status — items 6–10 (2026-11-09)
+
+- `toolcall-format/shimParser.ts` `firstJsonValueEnd` 23 → `jsonStringEnd`/`jsonCompositeEnd` (14); `tagAt` 19 → 10 via `tagBounds`/`tagRaw`/`parseTagCall`. +4 characterization tests (brackets/escapes inside JSON strings, raw attr values, unterminated string, scalar tail). Sidecar re-bundled (`tsc`+`esbuild`, 768.7kb, clean).
+- `webview/SettingsView.tsx` `RoleCard` 23 → `RoleEditForm` + `RoleAgentField`/`CsvField`/`ToolPicker`/`TurnBudgetField`/`SkillTicks`; `AgentExtra` 21 → `AgentBadges`/`ProbeStatus`. +2 jsdom tests: skill toggle on/off (incl. re-inbound state), turnBudget unlimited/number/blank.
+- `channels/claude/parser.ts` `assistantEvent` 22 → 9 via `toolBlock`/`textBlock` content-block kind handler maps. +1 test: thinking + empty-block skipping for undelta'd assistant messages.
+- `recovery/plan.ts` `parseRecoveryArgs` 22 → `SUBTASK_FIELDS` validator table + `parseSubtask` (callback collapsed; plan.ts was already fully covered — no new tests needed).
+- `config/loader.ts` `loadConfig` 21 → 9 via `loadLayerFile`/`mergedItems`/`mergeSettingsLayers`/`applyRequiredTools`; roles keep the 3-way field-merge, channels/agents keep concat-then-replace semantics.
+- Verification: vitest + `tsc --noEmit` clean per package (toolcall-format 87, webview 94, channels 90, recovery 36, config 20 tests). Coverage ≥90/80 everywhere touched (toolcall-format 94.1/86.2, webview 96.6/87.9, channels 97.1/86.4, recovery 97.6/87.0, config 97.4/88.0). `check:layers`/`check:boundaries`/`check:cycles`/`check:tsrefs` pass. Webview esbuild bundle OK (119.9kb).
+- Scan checkpoint: >10 branches 68 → 61; >15 branches 15 → 8. Every Phase-4 target and helper is <15.
+
 ## Verification per phase
 
 `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build`, `check:layers`/`check:boundaries`/`check:cycles`. Re-run complexity scan; target every function <15 branches. Scan >15 count: 43 → 38 after Phase 1; Phase 2/3 should push toward single digits. No behavior change; helpers stay inside their module.
 
 ## Scan checkpoint (2026-11-09)
 
-Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. After Phase 3: >10 branches 72, >15 branches 22. After Phase 4 items 1–5: >10 branches 68, >15 branches 15. All Phase-3 target functions and their new helpers are below 15; untouched hotspots remain, including `RoleCard` (23) and `AgentExtra` (21). The repository-wide every-function-<15 and single-digit >15 goals are not yet achieved.
+Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. After Phase 3: >10 branches 72, >15 branches 22. After Phase 4 items 1–5: >10 branches 68, >15 branches 15. After Phase 4 items 6–10: >10 branches 61, >15 branches 8. All Phase-3 target functions and their new helpers are below 15; untouched hotspots remain, including `RoleCard` (23) and `AgentExtra` (21). The repository-wide every-function-<15 and single-digit >15 goals are not yet achieved.
 
 ## Gap audit (2026-11-09, post Phase 3)
 
@@ -130,9 +140,9 @@ Full gate run: 30 packages tests + typecheck green (1023 tests), layers/boundari
 - `packages/core` coverage was 78.96% lines (threshold 90) — `handlers/setup.ts` 49% (session handlers, `benchCandidates`), `setupProbe.ts` 64% (live discovery, evaluator ranking, retry), `types.ts` 0% (type-only). Added `test/setupSession.test.ts`, `test/recommendBench.test.ts`, `test/probeDiscovery.test.ts`, one `chat.send` orchestrator case; excluded `handlers/types.ts` from coverage. Now 98.47% lines / 89% branches, 92 tests.
 - `hosts/vscode` has no coverage config (`@vitest/coverage-v8` not a dep) — not a regression, noted for Phase 4.
 
-## Phase 4 — items 6–10 remaining (ranked)
+## Phase 4 — complete (all 10 items done 2026-11-09)
 
-Ranking = branches × blast radius, preferring pure modules with existing tests. Current >15: 15 functions.
+All ranked items below were implemented; see the Phase 4 status sections for per-item detail.
 
 | # | Branches | Location | Function | Approach |
 |---:|---:|---|---|---|
@@ -149,4 +159,4 @@ Ranking = branches × blast radius, preferring pure modules with existing tests.
 
 Also: add `@vitest/coverage-v8` + `test:coverage` to `hosts/vscode` so CI enforces the 90/80 bar there too.
 
-Target after Phase 4 items 6–10: >15 count 15 → single digits. Same verification as other phases; re-run `node scripts/complexity-scan.mjs` and record the checkpoint here.
+Target met: >15 count 22 → 8 after all Phase-4 items. Scan checkpoint recorded above.

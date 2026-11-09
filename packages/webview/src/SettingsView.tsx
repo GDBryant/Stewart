@@ -285,17 +285,11 @@ function ChannelExtra({ item, store }: { item: ChannelSummary; store: Store }) {
   );
 }
 
-function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: ChannelSummary[]; store: Store }) {
-  const ch = channels.find((c) => c.id === item.channel);
-  const probe = store.state.probeResults[`${item.channel}:${item.model}`];
-  const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
-  const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
-  const [pending, setPending] = useState<{ prev: unknown } | null>(null);
-  const waiting = pending !== null && pending.prev === probe;
+function AgentBadges({ item, ch, channels, caps }: { item: AgentSummary; ch: ChannelSummary | undefined; channels: ChannelSummary[]; caps: Record<string, unknown> }) {
   const isUnmetered =
     item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
   return (
-    <span class="extra">
+    <>
       {agentCosts(item, channels) ? <span class="badge warn" title="This agent incurs cost">$ costs</span> : null}
       {isUnmetered ? <span class="badge warn" title="Spend is not visible to cost limit">unmetered</span> : null}
       {typeof caps.tools === "string" ? <span class="badge">tools:{caps.tools}</span> : null}
@@ -303,12 +297,29 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
       {caps.reasoning ? <span class="badge">reasoning</span> : null}
       {caps.imageGen ? <span class="badge">imageGen</span> : null}
       {typeof caps.contextTokens === "number" ? <span class="badge">{Math.round(caps.contextTokens / 1000)}k</span> : null}
-      {waiting ? <span class="hint">probing…</span> : null}
-      {!waiting && probe ? (
-        probe.ok
-          ? <span class="ok" title={probe.probedAt ? new Date(probe.probedAt).toLocaleString() : undefined}>✓ probed{probe.cached ? " (cached)" : ""}</span>
-          : <span class="fail">✗ {probe.error ?? "probe failed"}</span>
-      ) : null}
+    </>
+  );
+}
+
+function ProbeStatus({ probe, waiting }: { probe: { ok: boolean; error?: string; cached?: boolean; probedAt?: number } | undefined; waiting: boolean }) {
+  if (waiting) return <span class="hint">probing…</span>;
+  if (!probe) return null;
+  return probe.ok
+    ? <span class="ok" title={probe.probedAt ? new Date(probe.probedAt).toLocaleString() : undefined}>✓ probed{probe.cached ? " (cached)" : ""}</span>
+    : <span class="fail">✗ {probe.error ?? "probe failed"}</span>;
+}
+
+function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: ChannelSummary[]; store: Store }) {
+  const ch = channels.find((c) => c.id === item.channel);
+  const probe = store.state.probeResults[`${item.channel}:${item.model}`];
+  const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
+  const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
+  const [pending, setPending] = useState<{ prev: unknown } | null>(null);
+  const waiting = pending !== null && pending.prev === probe;
+  return (
+    <span class="extra">
+      <AgentBadges item={item} ch={ch} channels={channels} caps={caps} />
+      <ProbeStatus probe={probe} waiting={waiting} />
       <button class="small" disabled={waiting} onClick={() => { setPending({ prev: probe }); store.probeModel(item.channel, item.model, true); }}>
         {probe ? "Re-probe" : "Probe"}
       </button>
@@ -381,6 +392,97 @@ function agentsForRole(roleId: string, agents: AgentSummary[], channels: Channel
   });
 }
 
+function RoleAgentField({ label, value, candidates, onPick }: {
+  label: string;
+  value: string | undefined;
+  candidates: AgentSummary[];
+  onPick(next: string | undefined): void;
+}) {
+  return (
+    <label class="field">
+      <span>{label}</span>
+      <select value={value ?? ""} onChange={(e) => onPick((e.target as HTMLSelectElement).value || undefined)}>
+        <option value="">—</option>
+        {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function CsvField({ label, values, onSave }: { label: string; values: string[] | undefined; onSave(next: string[]): void }) {
+  return (
+    <label class="field">
+      <span>{label}</span>
+      <input value={(values ?? []).join(", ")} onInput={(e) => onSave((e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean))} />
+    </label>
+  );
+}
+
+function ToolPicker({ tools, onSave }: { tools: string[] | undefined; onSave(next: string[]): void }) {
+  return <CsvField label="tools (csv)" values={tools} onSave={onSave} />;
+}
+
+function TurnBudgetField({ value, onSave }: { value: RoleSummary["turnBudget"]; onSave(next: RoleSummary["turnBudget"]): void }) {
+  return (
+    <label class="field">
+      <span>turnBudget</span>
+      <input value={String(value ?? "")} onInput={(e) => {
+        const v = (e.target as HTMLInputElement).value;
+        onSave(v === "unlimited" ? "unlimited" : Number(v) || undefined);
+      }} />
+    </label>
+  );
+}
+
+function SkillTicks({ skills, allSkills, needsWrite, onToggle }: {
+  skills: string[] | undefined;
+  allSkills: SkillSummary[];
+  needsWrite: boolean;
+  onToggle(id: string): void;
+}) {
+  return (
+    <div class="field">
+      <span>skills</span>
+      <div class="skill-ticks">
+        {allSkills.map((s) => (
+          <label key={s.id} class="field-inline" title={s.description}>
+            <input
+              type="checkbox"
+              checked={(skills ?? []).includes(s.id) || (s.id === "execution-contract" && needsWrite)}
+              disabled={s.id === "execution-contract" && needsWrite}
+              onChange={() => onToggle(s.id)}
+            />
+            {s.id}
+            {s.updateAvailable ? <span class="warn">↑</span> : null}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, toggleSkill }: {
+  role: RoleSummary;
+  candidates: AgentSummary[];
+  cap: "vision" | "imageGen" | undefined;
+  allSkills: SkillSummary[];
+  needsWrite: boolean;
+  save(patch: Partial<RoleSummary>): void;
+  toggleSkill(id: string): void;
+}) {
+  return (
+    <div class="form">
+      <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
+      <RoleAgentField label="fallback agent" value={role.fallbackAgent} candidates={candidates} onPick={(v) => save({ fallbackAgent: v })} />
+      {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
+      <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
+      <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />
+      <CsvField label="writePaths (csv)" values={role.writePaths} onSave={(v) => save({ writePaths: v })} />
+      <SkillTicks skills={role.skills} allSkills={allSkills} needsWrite={needsWrite} onToggle={toggleSkill} />
+    </div>
+  );
+}
+
 function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
   role: RoleSummary;
   agents: AgentSummary[];
@@ -412,55 +514,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
         <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
       </div>
       {open ? (
-        <div class="form">
-          <label class="field">
-            <span>agent</span>
-            <select value={role.agent ?? ""} onChange={(e) => save({ agent: (e.target as HTMLSelectElement).value || undefined })}>
-              <option value="">—</option>
-              {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
-            </select>
-          </label>
-          <label class="field">
-            <span>fallback agent</span>
-            <select value={role.fallbackAgent ?? ""} onChange={(e) => save({ fallbackAgent: (e.target as HTMLSelectElement).value || undefined })}>
-              <option value="">—</option>
-              {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
-            </select>
-          </label>
-          {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
-          <label class="field">
-            <span>turnBudget</span>
-            <input value={String(role.turnBudget ?? "")} onInput={(e) => {
-              const v = (e.target as HTMLInputElement).value;
-              save({ turnBudget: v === "unlimited" ? "unlimited" : Number(v) || undefined });
-            }} />
-          </label>
-          <label class="field">
-            <span>tools (csv)</span>
-            <input value={(role.tools ?? []).join(", ")} onInput={(e) => save({ tools: (e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean) })} />
-          </label>
-          <label class="field">
-            <span>writePaths (csv)</span>
-            <input value={(role.writePaths ?? []).join(", ")} onInput={(e) => save({ writePaths: (e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean) })} />
-          </label>
-          <div class="field">
-            <span>skills</span>
-            <div class="skill-ticks">
-              {allSkills.map((s) => (
-                <label key={s.id} class="field-inline" title={s.description}>
-                  <input
-                    type="checkbox"
-                    checked={(role.skills ?? []).includes(s.id) || (s.id === "execution-contract" && needsWrite)}
-                    disabled={s.id === "execution-contract" && needsWrite}
-                    onChange={() => toggleSkill(s.id)}
-                  />
-                  {s.id}
-                  {s.updateAvailable ? <span class="warn">↑</span> : null}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
+        <RoleEditForm role={role} candidates={candidates} cap={cap} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}
     </div>
   );

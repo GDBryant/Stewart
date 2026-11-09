@@ -33,6 +33,9 @@ importers:
       '@types/vscode':
         specifier: 1.145.0
         version: 1.145.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
       '@vscode/vsce':
         specifier: ^4.1.0
         version: 4.1.0

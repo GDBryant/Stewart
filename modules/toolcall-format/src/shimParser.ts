@@ -331,30 +331,38 @@ function isBlank(text: string, a: number, b: number, spans: [number, number][]):
   return out.trim() === "";
 }
 
+function tagBounds(text: string, opener: string, tagEnd: number, to: number): { closeAt: number; closed: boolean; end: number } {
+  const closer = opener.startsWith("<function=") ? "</function>" : CLOSERS[opener];
+  const found = text.indexOf(closer, tagEnd);
+  const closeAt = found !== -1 && found + closer.length <= to ? found : -1;
+  const closed = closeAt !== -1;
+  return { closeAt, closed, end: closed ? closeAt + closer.length : to };
+}
+
+function tagRaw(text: string, opener: string, start: number, end: number, tagEnd: number, closeAt: number, closed: boolean, to: number): string {
+  if (opener.startsWith("<function=")) return text.slice(start, end);
+  return innermostToolCall(text.slice(tagEnd, closed ? closeAt : to), opener);
+}
+
+function parseTagCall(raw: string, opener: string, schema: SchemaMap): { parsed: [string, Json] | null; code: string } {
+  try {
+    return { parsed: opener === GEMMA_OPEN ? parseGemma(raw) : parseBlock(raw, schema), code: "" };
+  } catch (e) {
+    return { parsed: null, code: e instanceof ToolCallParseException ? e.code : "TC-PARSE" };
+  }
+}
+
 /** Explicit tagged call. Errors are reported only for closed blocks; an unclosed opener is text unless it parses. */
 function tagAt(ctx: Scan, m: RegExpExecArray, to: number): number {
   const { text, schema } = ctx;
   const opener = m[0];
   const start = m.index;
   const tagEnd = start + opener.length;
-  const isFn = opener.startsWith("<function=");
-  const closer = isFn ? "</function>" : CLOSERS[opener];
-  let closeAt = text.indexOf(closer, tagEnd);
-  if (closeAt === -1 || closeAt + closer.length > to) closeAt = -1;
-  const closed = closeAt !== -1;
-  const end = closed ? closeAt + closer.length : to;
+  const { closeAt, closed, end } = tagBounds(text, opener, tagEnd, to);
   // A tag quoted inline as `<tool_call>...</tool_call>` is a mention, not a call.
   if (closed && start > 0 && text[start - 1] === "`" && text[end] === "`") return end;
-  const raw = isFn
-    ? text.slice(start, end)
-    : innermostToolCall(text.slice(tagEnd, closed ? closeAt : to), opener);
-  let parsed: [string, Json] | null = null;
-  let code = "";
-  try {
-    parsed = opener === GEMMA_OPEN ? parseGemma(raw) : parseBlock(raw, schema);
-  } catch (e) {
-    code = e instanceof ToolCallParseException ? e.code : "TC-PARSE";
-  }
+  const raw = tagRaw(text, opener, start, end, tagEnd, closeAt, closed, to);
+  const { parsed, code } = parseTagCall(raw, opener, schema);
   if (!closed) {
     if (parsed === null) return tagEnd;
     const [name, args] = normalizeCall(parsed, schema);
@@ -593,39 +601,43 @@ function cleanJsonBlock(raw0: string): string {
   return raw.replace(CLEAN_FIRSTKEY_RE, (_mm, g1: string, g2: string) => `${g1}"name": "${g2}"`);
 }
 
+function jsonStringEnd(s: string, i: number): number {
+  let j = i + 1;
+  while (j < s.length) {
+    if (s[j] === "\\") j += 2;
+    else if (s[j] === '"') return j + 1;
+    else j++;
+  }
+  return -1;
+}
+
+function jsonCompositeEnd(s: string, i: number, open: string): number {
+  const stack: string[] = [open === "{" ? "}" : "]"];
+  let j = i + 1;
+  let inStr = false;
+  while (j < s.length && stack.length > 0) {
+    const c = s[j];
+    if (inStr) {
+      if (c === "\\") j++;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') {
+      inStr = true;
+    } else if (c === "{" || c === "[") {
+      stack.push(c === "{" ? "}" : "]");
+    } else if (c === "}" || c === "]") {
+      if (stack[stack.length - 1] === c) stack.pop();
+    }
+    j++;
+  }
+  return stack.length === 0 ? j : -1;
+}
+
 function firstJsonValueEnd(s: string): number {
   const i = skipWhitespace(s, 0);
   if (i >= s.length) return -1;
   const open = s[i];
-  if (open === '"') {
-    let j = i + 1;
-    while (j < s.length) {
-      if (s[j] === "\\") j += 2;
-      else if (s[j] === '"') return j + 1;
-      else j++;
-    }
-    return -1;
-  }
-  if (open === "{" || open === "[") {
-    const stack: string[] = [open === "{" ? "}" : "]"];
-    let j = i + 1;
-    let inStr = false;
-    while (j < s.length && stack.length > 0) {
-      const c = s[j];
-      if (inStr) {
-        if (c === "\\") j++;
-        else if (c === '"') inStr = false;
-      } else if (c === '"') {
-        inStr = true;
-      } else if (c === "{" || c === "[") {
-        stack.push(c === "{" ? "}" : "]");
-      } else if (c === "}" || c === "]") {
-        if (stack[stack.length - 1] === c) stack.pop();
-      }
-      j++;
-    }
-    return stack.length === 0 ? j : -1;
-  }
+  if (open === '"') return jsonStringEnd(s, i);
+  if (open === "{" || open === "[") return jsonCompositeEnd(s, i, open);
   const m = /[^,\s}\]]*/.exec(s.slice(i));
   return m && m[0] !== "" ? i + m[0].length : -1;
 }

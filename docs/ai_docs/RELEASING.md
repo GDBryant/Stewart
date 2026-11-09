@@ -55,6 +55,8 @@ Runs `pnpm install --frozen-lockfile`, `pnpm -r build`, packages the VSIX and
 the JetBrains zip, installs the VSIX via `code --install-extension --force`
 when the `code` CLI exists, and unzips the JetBrains plugin into
 `--jetbrains-plugins-dir` (otherwise prints the install-from-disk path).
+Without pnpm it skips install and builds each workspace package individually
+(`tsc -b` for modules/protocol/core, `npm run build` for the rest).
 `--bundle-node` runs `scripts/bundle-node.mjs` first so the zip ships all five
 bundled Node runtimes.
 

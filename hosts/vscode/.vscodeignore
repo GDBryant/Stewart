@@ -1,5 +1,6 @@
 src/**
 test/**
+coverage/**
 tsconfig.json
 vitest.config.ts
 .vscodeignore

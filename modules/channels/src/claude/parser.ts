@@ -209,38 +209,56 @@ export class ClaudeStreamParser {
     return str(obj(obj(o.event)?.message)?.id) ?? str(o.api_message_id);
   }
 
+  private toolBlock(block: Obj | undefined, message: Obj): ClaudeEvent[] | null {
+    if (!block) return null;
+    const handlers: Record<string, (b: Obj) => ClaudeEvent[] | null> = {
+      server_tool_use: (b) =>
+        str(b.name) !== "advisor" ? [this.failed("CLI invoked a server tool", "isolation_violation")] : null,
+      tool_use: (b) => {
+        const name = str(b.name);
+        const callId = str(b.id) ?? null;
+        if (name && (callId === null || !this.seenToolUseIds.has(callId))) {
+          if (callId !== null) this.seenToolUseIds.add(callId);
+          this.toolMessageId = str(message.id);
+          this.nativeCalls.push({ id: callId, name, argumentsJson: JSON.stringify(b.input ?? {}) });
+        }
+        return null;
+      },
+    };
+    const h = handlers[str(block.type) ?? ""];
+    return h ? h(block) : null;
+  }
+
+  private textBlock(block: Obj | undefined): ClaudeEvent | null {
+    if (!block) return null;
+    const handlers: Record<string, (b: Obj) => ClaudeEvent | null> = {
+      text: (b) => {
+        const text = str(b.text);
+        return text ? { t: "text", text } : null;
+      },
+      thinking: (b) => {
+        const text = str(b.thinking);
+        return text ? { t: "reasoning", text } : null;
+      },
+    };
+    const h = handlers[str(block.type) ?? ""];
+    return h ? h(block) : null;
+  }
+
   private assistantEvent(o: Obj): ClaudeEvent[] {
     const message = obj(o.message);
     if (!message) return [];
     const out: ClaudeEvent[] = [];
     const blocks = arr(message.content) ?? [];
     for (const b of blocks) {
-      const block = obj(b);
-      if (!block) continue;
-      if (block.type === "server_tool_use") {
-        if (str(block.name) !== "advisor") return [this.failed("CLI invoked a server tool", "isolation_violation")];
-      } else if (block.type === "tool_use") {
-        const name = str(block.name);
-        const callId = str(block.id) ?? null;
-        if (name && (callId === null || !this.seenToolUseIds.has(callId))) {
-          if (callId !== null) this.seenToolUseIds.add(callId);
-          this.toolMessageId = str(message.id);
-          this.nativeCalls.push({ id: callId, name, argumentsJson: JSON.stringify(block.input ?? {}) });
-        }
-      }
+      const bad = this.toolBlock(obj(b), message);
+      if (bad !== null) return bad;
     }
     const id = str(message.id);
     if (id === undefined || !this.deltaMessageIds.has(id)) {
       for (const b of blocks) {
-        const block = obj(b);
-        if (!block) continue;
-        if (block.type === "text") {
-          const text = str(block.text);
-          if (text) out.push({ t: "text", text });
-        } else if (block.type === "thinking") {
-          const text = str(block.thinking);
-          if (text) out.push({ t: "reasoning", text });
-        }
+        const ev = this.textBlock(obj(b));
+        if (ev !== null) out.push(ev);
       }
     }
     if (this.nativeCalls.length > this.emittedNativeCalls) {

@@ -182,6 +182,12 @@ describe("ClaudeStreamParser", () => {
     expect(ev).toEqual([{ t: "text", text: "late" }]);
   });
 
+  it("emits thinking and skips empty blocks for undelta'd assistant messages", () => {
+    const p = new ClaudeStreamParser();
+    const ev = feed(p, ['{"type":"assistant","message":{"id":"m7","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":""},{"type":"text","text":"late"},{"type":"thinking","thinking":""}]}}']);
+    expect(ev).toEqual([{ t: "reasoning", text: "hmm" }, { t: "text", text: "late" }]);
+  });
+
   it("ends the turn after a refused tool_use (cutPending → toolTurnEnded)", () => {
     const p = new ClaudeStreamParser();
     feed(p, ['{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"bash","input":{"command":"ls"}}]}}']);

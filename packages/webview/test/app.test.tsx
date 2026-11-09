@@ -503,6 +503,49 @@ describe("webview settings", () => {
     expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "a1" });
   });
 
+  it("toggles a role skill on and off", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getAllByText("Edit")[1]);
+    const boxes = document.querySelectorAll(".skill-ticks input[type=checkbox]");
+    fireEvent.click(boxes[1]);
+    let set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).toContain("tdd");
+    act(() =>
+      bridge.inbound({
+        ...configReply,
+        summary: {
+          ...configReply.summary,
+          roles: [
+            configReply.summary.roles[0],
+            { ...configReply.summary.roles[1], skills: ["tdd"] },
+          ],
+        },
+      }),
+    );
+    const boxes2 = document.querySelectorAll(".skill-ticks input[type=checkbox]");
+    expect((boxes2[1] as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(boxes2[1]);
+    set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).not.toContain("tdd");
+  });
+
+  it("edits turnBudget as unlimited, number and blank", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const input = screen.getByText("turnBudget").parentElement!.querySelector("input")!;
+    fireEvent.input(input, { target: { value: "unlimited" } });
+    let set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).toContain("turnBudget: unlimited");
+    fireEvent.input(input, { target: { value: "12" } });
+    set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).toContain("turnBudget: 12");
+    fireEvent.input(input, { target: { value: "" } });
+    set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).not.toContain("turnBudget");
+  });
+
   const openSkills = (bridge: MockBridge) => {
     fireEvent.click(screen.getAllByText("Settings")[0]);
     act(() => bridge.inbound(configReply));

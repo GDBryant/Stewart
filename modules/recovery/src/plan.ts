@@ -7,6 +7,39 @@ export interface RecoveryPlan {
   advice?: string;
 }
 
+const SUBTASK_FIELDS = {
+  description: (o: Record<string, unknown>, i: number): string => {
+    const v = o.description;
+    if (typeof v !== "string" || !v.trim()) throw new Error(`subtask ${i + 1}: 'description' required`);
+    return v.trim();
+  },
+  outputFile: (o: Record<string, unknown>, i: number): string => {
+    const v = o.output_file;
+    if (typeof v !== "string" || !v.trim()) throw new Error(`subtask ${i + 1}: 'output_file' required`);
+    if (/[/\\]/.test(v) || v.includes("..") || v === ".") {
+      throw new Error(`subtask ${i + 1}: 'output_file' must be a bare file name (got '${v}')`);
+    }
+    return v;
+  },
+  maxTurns: (o: Record<string, unknown>, i: number, ceiling: number): number | undefined => {
+    if (o.max_turns === undefined) return undefined;
+    if (typeof o.max_turns !== "number" || !Number.isInteger(o.max_turns) || o.max_turns < 1 || o.max_turns > ceiling) {
+      throw new Error(`subtask ${i + 1}: 'max_turns' must be an integer 1..${ceiling}`);
+    }
+    return o.max_turns;
+  },
+} as const;
+
+function parseSubtask(s: unknown, i: number, ceiling: number): RecoveryPlan["subtasks"][number] {
+  if (typeof s !== "object" || s === null) throw new Error(`subtask ${i + 1}: not an object`);
+  const o = s as Record<string, unknown>;
+  return {
+    description: SUBTASK_FIELDS.description(o, i),
+    outputFile: SUBTASK_FIELDS.outputFile(o, i),
+    maxTurns: SUBTASK_FIELDS.maxTurns(o, i, ceiling),
+  };
+}
+
 /** Validates `submit_recovery` args; throws with a resubmit-able error. */
 export function parseRecoveryArgs(args: Json, limits: { maxSubTasks: number; ceiling: number }): RecoveryPlan {
   const raw = args.subtasks;
@@ -14,25 +47,7 @@ export function parseRecoveryArgs(args: Json, limits: { maxSubTasks: number; cei
   if (raw.length < 2 || raw.length > limits.maxSubTasks) {
     throw new Error(`'subtasks' must have 2..${limits.maxSubTasks} entries (got ${raw.length})`);
   }
-  const subtasks = raw.map((s, i) => {
-    if (typeof s !== "object" || s === null) throw new Error(`subtask ${i + 1}: not an object`);
-    const o = s as Record<string, unknown>;
-    const description = o.description;
-    if (typeof description !== "string" || !description.trim()) throw new Error(`subtask ${i + 1}: 'description' required`);
-    const outputFile = o.output_file;
-    if (typeof outputFile !== "string" || !outputFile.trim()) throw new Error(`subtask ${i + 1}: 'output_file' required`);
-    if (/[/\\]/.test(outputFile) || outputFile.includes("..") || outputFile === ".") {
-      throw new Error(`subtask ${i + 1}: 'output_file' must be a bare file name (got '${outputFile}')`);
-    }
-    let maxTurns: number | undefined;
-    if (o.max_turns !== undefined) {
-      if (typeof o.max_turns !== "number" || !Number.isInteger(o.max_turns) || o.max_turns < 1 || o.max_turns > limits.ceiling) {
-        throw new Error(`subtask ${i + 1}: 'max_turns' must be an integer 1..${limits.ceiling}`);
-      }
-      maxTurns = o.max_turns;
-    }
-    return { description: description.trim(), outputFile, maxTurns };
-  });
+  const subtasks = raw.map((s, i) => parseSubtask(s, i, limits.ceiling));
   const finalFile = args.final_file;
   if (finalFile !== undefined && (typeof finalFile !== "string" || !finalFile.trim())) {
     throw new Error("'final_file' must be a project path");

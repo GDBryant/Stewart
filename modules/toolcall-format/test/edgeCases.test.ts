@@ -191,3 +191,28 @@ describe("ToolCallStreamFilter edge cases", () => {
     expect(run(["a" + ltEnd("call") + "b" + ltEnd("function") + "c"]).shown).toBe("abc");
   });
 });
+
+describe("firstJsonValueEnd characterization via public API", () => {
+  it("keeps brackets and escapes inside JSON strings when scanning a bare call", () => {
+    const r = parseToolCalls('{"name":"ReadFile","arguments":{"path":"a}b[c\\"d]"}} tail', schema);
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0].arguments).toEqual({ path: 'a}b[c"d]' });
+  });
+
+  it("keeps an escaped quote inside a raw arguments attr value", () => {
+    const r = parseToolCalls('<call name="ReadFile" arguments={"path":"a\\"}b"}/>', schema);
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0].arguments).toEqual({ path: 'a"}b' });
+  });
+
+  it("leaves a bare call with an unterminated string as plain text", () => {
+    const r = parseToolCalls('{"name":"ReadFile","arguments":{"path":"a}', schema);
+    expect(r.calls).toHaveLength(0);
+  });
+
+  it("parses a bare scalar-looking tail after a call-shaped object", () => {
+    const r = parseToolCalls('{"name":"ReadFile","arguments":{"path":"a"}}, 42]', schema);
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0].name).toBe("ReadFile");
+  });
+});

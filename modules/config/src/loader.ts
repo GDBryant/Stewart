@@ -59,30 +59,44 @@ export function migrate(name: string, doc: unknown): unknown {
  * roles.yaml + skills (channels/agents/secrets are user-level so a repo
  * cannot redirect agents to a foreign endpoint).
  */
+function loadLayerFile<S extends z.ZodTypeAny>(schema: S, name: string, texts: (string | undefined)[], errors: string[]): (z.infer<S> | undefined)[] {
+  return texts.map((t) => parseFile(schema, name, t, errors));
+}
+
+function mergedItems<T extends Item>(docs: ({ items?: T[] } | undefined)[]): T[] {
+  return mergeById(docs.flatMap((d) => d?.items ?? []), []);
+}
+
+function mergeSettingsLayers(docs: (z.infer<typeof settingsFile> | undefined)[]): Settings {
+  const [d0, d1, d2] = docs;
+  const base = d0 ?? settingsFile.parse({});
+  return {
+    ...base,
+    ...(d1 ?? {}),
+    ...(d2 ?? {}),
+    costLimit: { ...base.costLimit, ...(d1?.costLimit ?? {}), ...(d2?.costLimit ?? {}) },
+  };
+}
+
+function applyRequiredTools(roles: RoleDef[]): void {
+  for (const r of roles) {
+    const required = REQUIRED_ROLE_TOOLS[r.id];
+    if (required && r.tools.length) r.tools = [...new Set([...r.tools, ...required])];
+  }
+}
+
 export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, defaults: ConfigLayer, trusted: boolean): Config {
   const errors: string[] = [];
   const proj = trusted ? project ?? {} : {};
   if (!trusted && project && (project["roles.yaml"] || project["skills/"])) errors.push("untrusted workspace: project .stewart/ config ignored");
 
-  const ch = [parseFile(channelsFile, "channels.yaml", defaults["channels.yaml"], errors), parseFile(channelsFile, "channels.yaml", user["channels.yaml"], errors)];
-  const ag = [parseFile(agentsFile, "agents.yaml", defaults["agents.yaml"], errors), parseFile(agentsFile, "agents.yaml", user["agents.yaml"], errors)];
-  const rl = [
-    parseFile(rolesFile, "roles.yaml", defaults["roles.yaml"], errors),
-    parseFile(rolesFile, "roles.yaml", user["roles.yaml"], errors),
-    parseFile(rolesFile, "roles.yaml", proj["roles.yaml"], errors),
-  ];
-  const st = [parseFile(settingsFile, "settings.yaml", defaults["settings.yaml"], errors), parseFile(settingsFile, "settings.yaml", user["settings.yaml"], errors), parseFile(settingsFile, "settings.yaml", proj["settings.yaml"], errors)];
+  const ch = loadLayerFile(channelsFile, "channels.yaml", [defaults["channels.yaml"], user["channels.yaml"]], errors);
+  const ag = loadLayerFile(agentsFile, "agents.yaml", [defaults["agents.yaml"], user["agents.yaml"]], errors);
+  const rl = loadLayerFile(rolesFile, "roles.yaml", [defaults["roles.yaml"], user["roles.yaml"], proj["roles.yaml"]], errors);
+  const st = loadLayerFile(settingsFile, "settings.yaml", [defaults["settings.yaml"], user["settings.yaml"], proj["settings.yaml"]], errors);
 
-  const channels = mergeById([...(ch[0]?.items ?? []), ...(ch[1]?.items ?? [])], []);
-  const agents = mergeById([...(ag[0]?.items ?? []), ...(ag[1]?.items ?? [])], []);
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
-  for (const r of roles) {
-    const required = REQUIRED_ROLE_TOOLS[r.id];
-    if (required && r.tools.length) r.tools = [...new Set([...r.tools, ...required])];
-  }
+  applyRequiredTools(roles);
 
-  const base = st[0] ?? settingsFile.parse({});
-  const settings: Settings = { ...base, ...(st[1] ?? {}), ...(st[2] ?? {}), costLimit: { ...base.costLimit, ...(st[1]?.costLimit ?? {}), ...(st[2]?.costLimit ?? {}) } };
-
-  return { channels, agents, roles, settings, errors };
+  return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), errors };
 }
