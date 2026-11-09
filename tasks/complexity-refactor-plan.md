@@ -74,7 +74,7 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - **Phase 0 — measurement: DONE 2026-11-09**: `scripts/complexity-scan.mjs` is a non-blocking report (run with `node scripts/complexity-scan.mjs`).
 - **Phase 1 — pure, low-risk**: `assign.ts score()`, `v1import.ts`, channel stream accumulator. Existing unit tests cover these. **DONE 2026-11-09** — see status below.
 - **Phase 2 — orchestration core: DONE 2026-11-09**: `recommend.ts`, `roleRunner.ts`, `recover.ts`, `resume.ts`, `toolLoop.ts`, `handleSetupRecommend`. No behavior changes; see status below.
-- **Phase 3 — UI/host**: SetupWizard split, `state.ts` handler map, `extension.ts` route table, SettingsView/App extraction.
+- **Phase 3 — UI/host: DONE 2026-11-09**: SetupWizard split, `state.ts` handler maps, VS Code route table, SettingsView/App extraction. No intended behavior changes; see status below.
 
 ## Phase 1 status (2026-11-09)
 
@@ -94,10 +94,19 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - `toolLoop.ts run()` → `prepareTurn`/`handleStreamOutcome`/`finishTurn`. Scan: 33 → 10.
 - `handlers/setup.ts handleSetupRecommend()` → `benchCandidates`/`persistSetupPreferences`/`buildRecommendContext`/`recommendSelection` (`SetupRecommendParams`). Scan: 32 → <9.
 
+## Phase 3 status (2026-11-09)
+
+- `SetupWizard` → six step components in `SetupWizardSteps.tsx`/`SetupWizardResult.tsx`, derived lists and parent-lifetime hooks in `wizardDerived.ts`, pure `buildAgentsForRoles` in `wizardApply.ts`, constants/pure helpers in `wizardShared.ts`. Scan: 129 → 10; `useWizardDerived` 12, `DiscoverStep` 9. Channel/evaluator inputs and probe deduplication survive back-navigation.
+- `state.ts` → typed, per-instance reply/event handler maps with own-property dispatch and existing task/plan/cost delegates. Scan: `onReply` 19 → <9; `onEvent` 31 → <9.
+- `App.tsx` → `MessageItem`/`ApprovalCard`/`Composer`, with composer-owned draft/image insertion and chat-owned autoscroll. Scan: `ChatView` 37 → 9; `Composer` 13.
+- `SettingsView.tsx` → `FIELD_CONTROLS` and keyed `TAB_VIEWS` rendering, preserving tab unmount/form-reset behavior; enabled-channel testing stays in an unconditional hook. Scan: `SettingsView` 37 → 13; `ItemCard` 26 → 14.
+- VS Code routing → `routes.ts` route table and `dispatchAndReply`; `extension.ts` retains activation and serialized routing. Scan: `route` 35 → <9. Supported setup groups, dispatch payloads, reply ordering, errors and unknown-method forwarding remain unchanged.
+- Verification: webview 92 tests, VS Code routes 33 tests; both packages typecheck/build clean. Webview coverage: 96.35% lines / 87.59% branches (90/80 thresholds unchanged). Layers, boundaries, cycles and TS references pass. UI exercised through jsdom; live IDE/browser smoke not run.
+
 ## Verification per phase
 
 `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build`, `check:layers`/`check:boundaries`/`check:cycles`. Re-run complexity scan; target every function <15 branches. Scan >15 count: 43 → 38 after Phase 1; Phase 2/3 should push toward single digits. No behavior change; helpers stay inside their module.
 
 ## Scan checkpoint (2026-11-09)
 
-Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. The overall >15 count still includes Phase-3 targets (webview/host) and other untouched functions; the every-function-<15 target is not yet achieved.
+Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. After Phase 3: >10 branches 72, >15 branches 22. All Phase-3 target functions and their new helpers are below 15; untouched hotspots remain, including `RoleCard` (23) and `AgentExtra` (21). The repository-wide every-function-<15 and single-digit >15 goals are not yet achieved.

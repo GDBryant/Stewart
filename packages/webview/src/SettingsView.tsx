@@ -1,4 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
+import { Fragment } from "preact";
+import type { ComponentChildren, FunctionComponent } from "preact";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import { SetupWizard } from "./SetupWizard.js";
@@ -47,6 +49,57 @@ function unflatten(form: Record<string, string>, fields: Field[]): Record<string
   return out;
 }
 
+type FieldControlKind = "select" | "model" | "secret" | "bool" | "text";
+type FieldControlProps = {
+  field: Field;
+  form: Record<string, string>;
+  set: (key: string, value: string) => void;
+  modelsFor?: (channelId: string) => string[];
+};
+
+function controlKind(f: Field): FieldControlKind {
+  return f.kind === "select" || f.kind === "model" || f.kind === "secret" || f.kind === "bool" ? f.kind : "text";
+}
+
+const FIELD_CONTROLS: Record<FieldControlKind, FunctionComponent<FieldControlProps>> = {
+  select: ({ field: f, form, set }) => (
+    <select value={form[f.key] ?? ""} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
+      <option value="">—</option>
+      {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  ),
+  model: ({ field: f, form, set, modelsFor }) => (
+    <select value={form[f.key] ?? ""} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
+      <option value="">—</option>
+      {[...new Set([...(modelsFor?.(form.channel ?? "") ?? []), ...(form[f.key] ? [form[f.key]] : [])])].map((o) => (
+        <option key={o} value={o}>{o}</option>
+      ))}
+    </select>
+  ),
+  secret: ({ field: f, form, set }) => (
+    <input type="password" autocomplete="off" value={form[f.key] ?? ""} placeholder={f.placeholder} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />
+  ),
+  bool: ({ field: f, form, set }) => (
+    <select value={form[f.key] ?? "false"} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
+      <option value="true">true</option>
+      <option value="false">false</option>
+    </select>
+  ),
+  text: ({ field: f, form, set }) => (
+    <input value={form[f.key] ?? ""} placeholder={f.placeholder} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />
+  ),
+};
+
+function FieldRow({ field, form, set, modelsFor }: FieldControlProps) {
+  const Control = FIELD_CONTROLS[controlKind(field)];
+  return (
+    <label class="field">
+      <span>{field.label}</span>
+      <Control field={field} form={form} set={set} modelsFor={modelsFor} />
+    </label>
+  );
+}
+
 function ItemCard<T extends object>({
   item, fields, onSave, onRemove, extra, startEditing, modelsFor,
 }: {
@@ -88,31 +141,7 @@ function ItemCard<T extends object>({
       {editing ? (
         <div class="form">
           {fields.map((f) => (
-            <label key={f.key} class="field">
-              <span>{f.label}</span>
-              {f.kind === "select" ? (
-                <select value={form[f.key] ?? ""} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
-                  <option value="">—</option>
-                  {f.options?.map((o) => <option key={o} value={o}>{o}</option>)}
-                </select>
-              ) : f.kind === "model" ? (
-                <select value={form[f.key] ?? ""} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
-                  <option value="">—</option>
-                  {[...new Set([...(modelsFor?.(form.channel ?? "") ?? []), ...(form[f.key] ? [form[f.key]] : [])])].map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-              ) : f.kind === "secret" ? (
-                <input type="password" autocomplete="off" value={form[f.key] ?? ""} placeholder={f.placeholder} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />
-              ) : f.kind === "bool" ? (
-                <select value={form[f.key] ?? "false"} onChange={(e) => set(f.key, (e.target as HTMLSelectElement).value)}>
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              ) : (
-                <input value={form[f.key] ?? ""} placeholder={f.placeholder} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />
-              )}
-            </label>
+            <FieldRow key={f.key} field={f} form={form} set={set} modelsFor={modelsFor} />
           ))}
         </div>
       ) : (
@@ -288,13 +317,17 @@ function AgentExtra({ item, channels, store }: { item: AgentSummary; channels: C
 }
 
 
-export function SettingsView({ store }: { store: Store }) {
-  const cfg = store.state.config?.summary;
-  const [active, setActive] = useState<"channels" | "agents" | "roles" | "skills" | "settings" | "integrations">("channels");
+function useAgentChannelTests(store: Store, active: SettingsTab, channels: ChannelSummary[] | undefined) {
   useEffect(() => {
     if (active !== "agents") return;
-    for (const c of cfg?.channels ?? []) if (c.enabled && !store.state.channelTest[c.id]) store.testChannel(c.id);
-  }, [active, cfg?.channels]);
+    for (const c of channels ?? []) if (c.enabled && !store.state.channelTest[c.id]) store.testChannel(c.id);
+  }, [active, channels]);
+}
+
+export function SettingsView({ store }: { store: Store }) {
+  const cfg = store.state.config?.summary;
+  const [active, setActive] = useState<SettingsTab>("channels");
+  useAgentChannelTests(store, active, cfg?.channels);
   if (!cfg) {
     return (
       <div class="settings">
@@ -304,8 +337,13 @@ export function SettingsView({ store }: { store: Store }) {
     );
   }
   const errors = store.state.config?.errors ?? [];
-  const s = cfg.settings ?? ({} as SettingsSummary);
-  const showWizard = store.state.wizardOpen ?? ((cfg.channels?.length ?? 0) === 0 && (cfg.agents?.length ?? 0) === 0);
+  const channels = cfg.channels ?? [];
+  const agents = cfg.agents ?? [];
+  const roles = cfg.roles ?? [];
+  const skills = cfg.skills ?? [];
+  const settings = cfg.settings ?? ({} as SettingsSummary);
+  const tabData: TabData = { store, channels, agents, roles, skills, settings };
+  const showWizard = store.state.wizardOpen ?? (channels.length === 0 && agents.length === 0);
   return (
     <div class="settings">
       {errors.length ? (
@@ -318,39 +356,15 @@ export function SettingsView({ store }: { store: Store }) {
           <div class="fail">⚠ {store.state.lastError}</div>
         </div>
       ) : null}
-      {showWizard ? <SetupWizard store={store} channels={cfg.channels ?? []} agents={cfg.agents ?? []} roles={cfg.roles ?? []} /> : null}
+      {showWizard ? <SetupWizard store={store} channels={channels} agents={agents} roles={roles} /> : null}
       <nav class="tabs">
-        {(["channels", "agents", "roles", "skills", "settings", "integrations"] as const).map((t) => (
+        {SETTINGS_TABS.map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>
         ))}
         <span class="spacer" />
         <button class="small" onClick={() => store.setWizardOpen(true)}>Run setup</button>
       </nav>
-      {active === "channels" ? (
-        <ItemsSection<ChannelSummary>
-          title="Channels" file="channels.yaml" items={cfg.channels ?? []} fields={CHANNEL_FIELDS} store={store}
-          empty={{ id: "channel", type: "openai-compatible", enabled: true } as ChannelSummary}
-          renderExtra={(i, st) => <ChannelExtra item={i} store={st} />}
-        />
-      ) : null}
-      {active === "agents" ? (
-        <ItemsSection<AgentSummary>
-          title="Agents" file="agents.yaml" items={cfg.agents ?? []} store={store}
-          fields={AGENT_FIELDS.map((f) => (f.key === "channel" ? { ...f, options: (cfg.channels ?? []).map((c) => c.id) } : f))}
-          modelsFor={(chId) => modelsForChannel(cfg.channels ?? [], store.state.channelTest, chId)}
-          empty={{ id: "agent", channel: cfg.channels?.[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
-          renderExtra={(i, st) => <AgentExtra item={i} channels={cfg.channels ?? []} store={st} />}
-        />
-      ) : null}
-      {active === "roles" ? <RolesSection store={store} roles={cfg.roles ?? []} agents={cfg.agents ?? []} channels={cfg.channels ?? []} skills={cfg.skills ?? []} /> : null}
-      {active === "skills" ? <SkillsSection store={store} skills={cfg.skills ?? []} /> : null}
-      {active === "settings" ? <SettingsEditor store={store} settings={s} /> : null}
-      {active === "integrations" ? (
-        <section>
-          <h3>Integrations</h3>
-          <p class="hint">Task tracker (Jira) and IDE Git workflow connectors will be configured here in a future milestone.</p>
-        </section>
-      ) : null}
+      <Fragment key={active}>{TAB_VIEWS[active](tabData)}</Fragment>
     </div>
   );
 }
@@ -623,3 +637,45 @@ function V1ImportCard({ store }: { store: Store }) {
     </div>
   );
 }
+
+type SettingsTab = "channels" | "agents" | "roles" | "skills" | "settings" | "integrations";
+const SETTINGS_TABS: SettingsTab[] = ["channels", "agents", "roles", "skills", "settings", "integrations"];
+
+interface TabData {
+  store: Store;
+  channels: ChannelSummary[];
+  agents: AgentSummary[];
+  roles: RoleSummary[];
+  skills: SkillSummary[];
+  settings: SettingsSummary;
+}
+
+const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
+  channels: ({ store, channels }) => (
+    <ItemsSection<ChannelSummary>
+      title="Channels" file="channels.yaml" items={channels} fields={CHANNEL_FIELDS} store={store}
+      empty={{ id: "channel", type: "openai-compatible", enabled: true } as ChannelSummary}
+      renderExtra={(i, st) => <ChannelExtra item={i} store={st} />}
+    />
+  ),
+  agents: ({ store, channels, agents }) => (
+    <ItemsSection<AgentSummary>
+      title="Agents" file="agents.yaml" items={agents} store={store}
+      fields={AGENT_FIELDS.map((f) => (f.key === "channel" ? { ...f, options: channels.map((c) => c.id) } : f))}
+      modelsFor={(chId) => modelsForChannel(channels, store.state.channelTest, chId)}
+      empty={{ id: "agent", channel: channels[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
+      renderExtra={(i, st) => <AgentExtra item={i} channels={channels} store={st} />}
+    />
+  ),
+  roles: ({ store, roles, agents, channels, skills }) => (
+    <RolesSection store={store} roles={roles} agents={agents} channels={channels} skills={skills} />
+  ),
+  skills: ({ store, skills }) => <SkillsSection store={store} skills={skills} />,
+  settings: ({ store, settings }) => <SettingsEditor store={store} settings={settings} />,
+  integrations: () => (
+    <section>
+      <h3>Integrations</h3>
+      <p class="hint">Task tracker (Jira) and IDE Git workflow connectors will be configured here in a future milestone.</p>
+    </section>
+  ),
+};

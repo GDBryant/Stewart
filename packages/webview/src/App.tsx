@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Store } from "./state.js";
+import type { ChatItem, PendingApproval, Store } from "./state.js";
 import { SettingsView } from "./SettingsView.js";
 
 export function App({ store }: { store: Store }) {
@@ -42,31 +42,10 @@ function isImageFile(f: File): boolean {
 
 function ChatView({ store }: { store: Store }) {
   const s = store.state;
-  const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
-  const pickerRef = useRef<HTMLInputElement>(null);
-  const insertSeq = useRef(0);
   useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text]);
-  useEffect(() => {
-    const ins = s.composerInsert;
-    if (ins && ins.seq !== insertSeq.current) {
-      insertSeq.current = ins.seq;
-      setDraft((d) => (d ? `${d}\n${ins.text}` : ins.text));
-    }
-  }, [s.composerInsert]);
-  const send = () => {
-    store.send(draft);
-    setDraft("");
-  };
-  const attachFiles = (files: Iterable<File>) => {
-    for (const f of files) {
-      if (!isImageFile(f)) {
-        store.rejectAttachment("only PNG, JPEG, GIF and WebP images can be attached");
-        continue;
-      }
-      dataUriFromFile(f, (uri) => store.addImage(uri));
-    }
-  };
+  const insertIntoEditor = (text: string) => store.insertIntoEditor(text);
+  const approve: Store["approve"] = (approvalId, grant) => store.approve(approvalId, grant);
   const singleDirect = s.tasks.length === 1 && s.tasks[0]!.taskId === "direct";
   return (
     <div class="chat">
@@ -78,134 +57,181 @@ function ChatView({ store }: { store: Store }) {
       {s.historyOpen ? <HistoryPanel store={store} /> : null}
       <div class="items">
         {s.items.map((it) => (
-          <div key={it.id} class={`item ${it.role}`}>
-            {it.reasoning ? <details class="reasoning"><summary>thinking</summary>{it.reasoning}</details> : null}
-            <div class="bubble">
-              {it.images?.length ? (
-                <div class="msg-images">
-                  {it.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
-                </div>
-              ) : null}
-              {it.text || (it.streaming ? "…" : "")}
-            </div>
-            {it.role === "assistant" && !it.streaming && it.text ? (
-              <button class="small insert" onClick={() => store.insertIntoEditor(it.text)}>Insert into editor</button>
-            ) : null}
-            {it.activity.length ? (
-              <div class="activity">
-                {it.activity.map((a, i) => (
-                  <div key={i} class={`act ${a.kind}`}>
-                    {a.kind.startsWith("tool") ? "⚙ " : ""}
-                    {a.text}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <MessageItem key={it.id} item={it} onInsert={insertIntoEditor} />
         ))}
         {s.plan ? <PlanCard plan={s.plan} /> : null}
         {!singleDirect && s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
         {s.tasks.length && !singleDirect ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
-          <div key={a.approvalId} class="card approval">
-            <div class="card-title">
-              Approve <b>{a.tool}</b> <span class="cat">[{a.category}]</span>
-            </div>
-            <pre class="args">{JSON.stringify(a.args, null, 2)}</pre>
-            <div class="row">
-              <button onClick={() => store.approve(a.approvalId, "once")}>Once</button>
-              <button onClick={() => store.approve(a.approvalId, "chat")}>This chat</button>
-              <button onClick={() => store.approve(a.approvalId, "always")}>Always</button>
-              <button class="deny" onClick={() => store.approve(a.approvalId, "deny")}>
-                Deny
-              </button>
-            </div>
-          </div>
+          <ApprovalCard key={a.approvalId} approval={a} onApprove={approve} />
         ))}
         {s.questions.map((q) => (
           <QuestionCard key={q.questionId} q={q} onAnswer={(a) => store.answer(q.questionId, a)} />
         ))}
         <div ref={endRef} />
       </div>
-      <div
-        class="composer"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          attachFiles(e.dataTransfer?.files ?? []);
-        }}
-      >
-        {s.pendingImages.length ? (
-          <div class="pending-images">
-            {s.pendingImages.map((src, i) => (
-              <span key={i} class="pending-img">
-                <img src={src} alt={`attach-${i + 1}`} />
-                <button class="deny" onClick={() => store.removeImage(i)}>×</button>
-              </span>
-            ))}
+      <Composer store={store} />
+    </div>
+  );
+}
+
+function MessageItem({ item, onInsert }: { item: ChatItem; onInsert(text: string): void }) {
+  return (
+    <div class={`item ${item.role}`}>
+      {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
+      <div class="bubble">
+        {item.images?.length ? (
+          <div class="msg-images">
+            {item.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
           </div>
         ) : null}
-        {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
-        <textarea
-          value={draft}
-          placeholder={s.busyRunId ? "Waiting for reply…" : "Ask Stewart"}
-          disabled={!!s.busyRunId}
-          onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-          onPaste={(e) => {
-            const items = e.clipboardData?.items ?? [];
-            const files: File[] = [];
-            for (const it of items) {
-              if (it.kind === "file") {
-                const f = it.getAsFile();
-                if (f) files.push(f);
-              }
-            }
-            if (files.length) attachFiles(files);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-        />
-        <input
-          ref={pickerRef}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          multiple
-          style="display:none"
-          onChange={(e) => {
-            attachFiles((e.target as HTMLInputElement).files ?? []);
-            (e.target as HTMLInputElement).value = "";
-          }}
-        />
-        <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
-          📎
-        </button>
-        <select
-          class="profile-select"
-          aria-label="budget profile"
-          title="Budget profile"
-          value={s.profileChoice}
-          onChange={(e) => store.setProfileChoice((e.target as HTMLSelectElement).value as typeof s.profileChoice)}
-        >
-          <option value="auto">auto</option>
-          <option value="quick">quick</option>
-          <option value="normal">normal</option>
-          <option value="deep">deep</option>
-        </select>
-        {s.busyRunId ? (
-          <button class="stop" onClick={() => store.cancel()}>
-            Stop
-          </button>
-        ) : (
-          <button class="send" disabled={!draft.trim() && !s.pendingImages.length} onClick={send}>
-            Send
-          </button>
-        )}
+        {item.text || (item.streaming ? "…" : "")}
       </div>
+      {item.role === "assistant" && !item.streaming && item.text ? (
+        <button class="small insert" onClick={() => onInsert(item.text)}>Insert into editor</button>
+      ) : null}
+      {item.activity.length ? (
+        <div class="activity">
+          {item.activity.map((a, i) => (
+            <div key={i} class={`act ${a.kind}`}>
+              {a.kind.startsWith("tool") ? "⚙ " : ""}
+              {a.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ApprovalCard({ approval, onApprove }: { approval: PendingApproval; onApprove: Store["approve"] }) {
+  return (
+    <div class="card approval">
+      <div class="card-title">
+        Approve <b>{approval.tool}</b> <span class="cat">[{approval.category}]</span>
+      </div>
+      <pre class="args">{JSON.stringify(approval.args, null, 2)}</pre>
+      <div class="row">
+        <button onClick={() => onApprove(approval.approvalId, "once")}>Once</button>
+        <button onClick={() => onApprove(approval.approvalId, "chat")}>This chat</button>
+        <button onClick={() => onApprove(approval.approvalId, "always")}>Always</button>
+        <button class="deny" onClick={() => onApprove(approval.approvalId, "deny")}>
+          Deny
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function attachFiles(store: Store, files: Iterable<File>): void {
+  for (const f of files) {
+    if (!isImageFile(f)) {
+      store.rejectAttachment("only PNG, JPEG, GIF and WebP images can be attached");
+      continue;
+    }
+    dataUriFromFile(f, (uri) => store.addImage(uri));
+  }
+}
+
+function clipboardFiles(dt: DataTransfer | null | undefined): File[] {
+  const files: File[] = [];
+  for (const it of dt?.items ?? []) {
+    if (it.kind === "file") {
+      const f = it.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  return files;
+}
+
+function Composer({ store }: { store: Store }) {
+  const s = store.state;
+  const [draft, setDraft] = useState("");
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const insertSeq = useRef(0);
+  useEffect(() => {
+    const ins = s.composerInsert;
+    if (ins && ins.seq !== insertSeq.current) {
+      insertSeq.current = ins.seq;
+      setDraft((d) => (d ? `${d}\n${ins.text}` : ins.text));
+    }
+  }, [s.composerInsert]);
+  const send = () => {
+    store.send(draft);
+    setDraft("");
+  };
+  return (
+    <div
+      class="composer"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        attachFiles(store, e.dataTransfer?.files ?? []);
+      }}
+    >
+      {s.pendingImages.length ? (
+        <div class="pending-images">
+          {s.pendingImages.map((src, i) => (
+            <span key={i} class="pending-img">
+              <img src={src} alt={`attach-${i + 1}`} />
+              <button class="deny" onClick={() => store.removeImage(i)}>×</button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
+      <textarea
+        value={draft}
+        placeholder={s.busyRunId ? "Waiting for reply…" : "Ask Stewart"}
+        disabled={!!s.busyRunId}
+        onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+        onPaste={(e) => {
+          const files = clipboardFiles(e.clipboardData);
+          if (files.length) attachFiles(store, files);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
+      />
+      <input
+        ref={pickerRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        style="display:none"
+        onChange={(e) => {
+          attachFiles(store, (e.target as HTMLInputElement).files ?? []);
+          (e.target as HTMLInputElement).value = "";
+        }}
+      />
+      <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
+        📎
+      </button>
+      <select
+        class="profile-select"
+        aria-label="budget profile"
+        title="Budget profile"
+        value={s.profileChoice}
+        onChange={(e) => store.setProfileChoice((e.target as HTMLSelectElement).value as typeof s.profileChoice)}
+      >
+        <option value="auto">auto</option>
+        <option value="quick">quick</option>
+        <option value="normal">normal</option>
+        <option value="deep">deep</option>
+      </select>
+      {s.busyRunId ? (
+        <button class="stop" onClick={() => store.cancel()}>
+          Stop
+        </button>
+      ) : (
+        <button class="send" disabled={!draft.trim() && !s.pendingImages.length} onClick={send}>
+          Send
+        </button>
+      )}
     </div>
   );
 }

@@ -111,6 +111,9 @@ export interface State {
 }
 
 type Listener = () => void;
+type Reply = Exclude<Inbound, { type: "event" }>;
+type ReplyHandlers = { [K in Reply["type"]]: (m: Extract<Reply, { type: K }>) => void };
+type EventHandlers = { [K in RunEvent["kind"]]?: (ev: Extract<RunEvent, { kind: K }>) => void };
 
 /** Minimal observable store; one instance per webview. */
 export class Store {
@@ -131,6 +134,74 @@ export class Store {
   private listeners = new Set<Listener>();
   private itemSeq = 0;
   private insertSeq = 0;
+
+  private replyHandlers: ReplyHandlers = {
+    config: (m) => this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors, secrets: m.secrets }, lastError: undefined }),
+    "channel.test.result": (m) =>
+      this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } }),
+    "channel.probe.result": (m) =>
+      this.patch({
+        probeResults: {
+          ...this.state.probeResults,
+          [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, catalog: m.catalog, error: m.error },
+        },
+      }),
+    "history.sessions": (m) => this.patch({ sessions: m.sessions }),
+    "history.messages": (m) => this.onHistoryMessages(m),
+    "v1.draft": (m) => this.onV1Draft(m),
+    insertText: (m) => this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } }),
+    ready: () => {},
+    "setup.probe.result": (m) => {
+      const { type: _t, ...snap } = m;
+      this.patch({ smoke: snap });
+    },
+    "setup.session.result": (m) => this.patch({ setupPhase: m.phase }),
+    "setup.review.result": (m) => this.onReviewResult(m),
+    "setup.approve.result": (m) => this.patch({ setupSaved: m.ok, setupError: m.error }),
+    "setup.undo.result": (m) => this.patch({ setupSaved: false, setupError: m.error }),
+    "setup.recommend.result": (m) => this.onRecommendResult(m),
+    error: (m) => this.onErrorReply(m),
+  };
+
+  private eventHandlers: EventHandlers = {
+    "run.started": (ev) => this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined, runProfile: ev.profile }),
+    "task.created": (ev) => this.onTaskEvent(ev),
+    "task.started": (ev) => this.onTaskEvent(ev),
+    "task.blocked": (ev) => this.onTaskEvent(ev),
+    "task.done": (ev) => this.onTaskEvent(ev),
+    "task.failed": (ev) => this.onTaskEvent(ev),
+    "plan.created": (ev) => this.onPlanEvent(ev),
+    "plan.validated": (ev) => this.onPlanEvent(ev),
+    "plan.approved": (ev) => this.onPlanEvent(ev),
+    "cost.limit_reached": (ev) => this.onCostEvent(ev),
+    "cost.limit_raised": (ev) => this.onCostEvent(ev),
+    "cost.summary": (ev) => this.onCostEvent(ev),
+    "cost.replaced": (ev) => this.addActivity(ev.runId, "tool-ok", `replaced ${ev.roleId} → ${ev.agentId}`),
+    compaction: (ev) => this.onCompaction(ev),
+    "text_delta": (ev) =>
+      this.mutateAssistant(ev.runId, (it) => {
+        it.text += ev.text;
+      }),
+    "reasoning_delta": (ev) =>
+      this.mutateAssistant(ev.runId, (it) => {
+        it.reasoning = (it.reasoning ?? "") + ev.text;
+      }),
+    "tool.request": (ev) => this.addActivity(ev.runId, "tool", ev.tool),
+    "tool.outcome": (ev) => this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary),
+    ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
+    "question.withdrawn": (ev) => this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) }),
+    "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),
+    "run.reverted": (ev) =>
+      this.patch({
+        revertedRuns: [...this.state.revertedRuns, ev.runId],
+        items: [
+          ...this.state.items,
+          { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
+        ],
+      }),
+    "setup.event": (ev) => this.onSetupEvent(ev),
+    "run.finished": (ev) => this.onRunFinished(ev),
+  };
 
   constructor(private bridge: Bridge) {
     bridge.onMessage((m) => this.onInbound(m));
@@ -346,47 +417,35 @@ export class Store {
     this.onReply(m);
   }
 
-  private onReply(m: Exclude<Inbound, { type: "event" }>): void {
-    if (m.type === "config") return this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors, secrets: m.secrets }, lastError: undefined });
-    if (m.type === "channel.test.result")
-      return this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } });
-    if (m.type === "channel.probe.result")
+  private dispatch<M extends string>(handlers: Partial<Record<M, (m: never) => void>>, type: M, msg: unknown): void {
+    if (!Object.hasOwn(handlers, type)) return;
+    (handlers[type] as ((m: unknown) => void) | undefined)?.(msg);
+  }
+
+  private onReply(m: Reply): void {
+    this.dispatch(this.replyHandlers, m.type, m);
+  }
+
+  private onReviewResult(m: Extract<Reply, { type: "setup.review.result" }>): void {
+    if (m.token) this.bridge.post({ type: "setup.approve", token: m.token });
+    else this.patch({ setupError: m.error ?? "review failed" });
+  }
+
+  private onRecommendResult(m: Extract<Reply, { type: "setup.recommend.result" }>): void {
+    if (m.ok)
       return this.patch({
-        probeResults: {
-          ...this.state.probeResults,
-          [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, catalog: m.catalog, error: m.error },
-        },
+        recommendBusy: false,
+        recommendation: { assignments: m.assignments ?? [], researcher: m.researcher, unfilled: m.unfilled, dropped: m.dropped },
+        recommendError: undefined,
       });
-    if (m.type === "history.sessions") return this.patch({ sessions: m.sessions });
-    if (m.type === "history.messages") return this.onHistoryMessages(m);
-    if (m.type === "v1.draft") return this.onV1Draft(m);
-    if (m.type === "insertText") return this.patch({ composerInsert: { text: m.text, seq: ++this.insertSeq } });
-    if (m.type === "setup.probe.result") {
-      const { type: _t, ...snap } = m;
-      return this.patch({ smoke: snap });
-    }
-    if (m.type === "setup.session.result") return this.patch({ setupPhase: m.phase });
-    if (m.type === "setup.review.result") {
-      if (m.token) this.bridge.post({ type: "setup.approve", token: m.token });
-      else return this.patch({ setupError: m.error ?? "review failed" });
-      return;
-    }
-    if (m.type === "setup.approve.result") return this.patch({ setupSaved: m.ok, setupError: m.error });
-    if (m.type === "setup.undo.result") return this.patch({ setupSaved: false, setupError: m.error });
-    if (m.type === "setup.recommend.result") {
-      if (m.ok)
-        return this.patch({
-          recommendBusy: false,
-          recommendation: { assignments: m.assignments ?? [], researcher: m.researcher, unfilled: m.unfilled, dropped: m.dropped },
-          recommendError: undefined,
-        });
-      return this.patch({ recommendBusy: false, recommendation: undefined, recommendError: m.error ?? "recommendation failed" });
-    }
-    if (m.type === "error")
-      return this.patch({
-        lastError: m.message,
-        items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
-      });
+    this.patch({ recommendBusy: false, recommendation: undefined, recommendError: m.error ?? "recommendation failed" });
+  }
+
+  private onErrorReply(m: Extract<Reply, { type: "error" }>): void {
+    this.patch({
+      lastError: m.message,
+      items: [...this.state.items, { id: `sys${++this.itemSeq}`, role: "system" as const, text: `error: ${m.message}`, activity: [] }],
+    });
   }
 
   private onHistoryMessages(m: { sessionId: string; messages: StoredMessage[] }): void {
@@ -421,63 +480,16 @@ export class Store {
   }
 
   private onEvent(ev: RunEvent): void {
-    switch (ev.kind) {
-      case "run.started":
-        return this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined, runProfile: ev.profile });
-      case "task.created":
-      case "task.started":
-      case "task.blocked":
-      case "task.done":
-      case "task.failed":
-        return this.onTaskEvent(ev);
-      case "plan.created":
-      case "plan.validated":
-      case "plan.approved":
-        return this.onPlanEvent(ev);
-      case "cost.limit_reached":
-      case "cost.limit_raised":
-      case "cost.summary":
-        return this.onCostEvent(ev);
-      case "cost.replaced":
-        return this.addActivity(ev.runId, "tool-ok", `replaced ${ev.roleId} → ${ev.agentId}`);
-      case "compaction":
-        return this.addActivity(ev.runId, "tool-ok", `context compacted: -${ev.droppedTokens} tokens${ev.pruned ? `, ${ev.pruned} pruned` : ""}${ev.summarized ? ", summarized" : ""}`);
-      case "text_delta":
-        return this.mutateAssistant(ev.runId, (it) => {
-          it.text += ev.text;
-        });
-      case "reasoning_delta":
-        return this.mutateAssistant(ev.runId, (it) => {
-          it.reasoning = (it.reasoning ?? "") + ev.text;
-        });
-      case "tool.request":
-        return this.addActivity(ev.runId, "tool", ev.tool);
-      case "tool.outcome":
-        return this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary);
-      case "ask_user":
-        return this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] });
-      case "question.withdrawn":
-        return this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) });
-      case "approval.request":
-        return this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] });
-      case "run.reverted":
-        return this.patch({
-          revertedRuns: [...this.state.revertedRuns, ev.runId],
-          items: [
-            ...this.state.items,
-            { id: `sys${++this.itemSeq}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
-          ],
-        });
-      case "setup.event": {
-        const e = (ev as { event?: { kind?: string; snapshot?: SetupProbeSnapshot } }).event;
-        if (e?.kind === "probe.state" && e.snapshot) return this.patch({ smoke: e.snapshot });
-        return;
-      }
-      case "run.finished":
-        return this.onRunFinished(ev);
-      default:
-        return;
-    }
+    this.dispatch(this.eventHandlers, ev.kind, ev);
+  }
+
+  private onCompaction(ev: Extract<RunEvent, { kind: "compaction" }>): void {
+    this.addActivity(ev.runId, "tool-ok", `context compacted: -${ev.droppedTokens} tokens${ev.pruned ? `, ${ev.pruned} pruned` : ""}${ev.summarized ? ", summarized" : ""}`);
+  }
+
+  private onSetupEvent(ev: Extract<RunEvent, { kind: "setup.event" }>): void {
+    const e = (ev as { event?: { kind?: string; snapshot?: SetupProbeSnapshot } }).event;
+    if (e?.kind === "probe.state" && e.snapshot) this.patch({ smoke: e.snapshot });
   }
 
   private onTaskEvent(ev: Extract<RunEvent, { kind: `task.${string}` }>): void {

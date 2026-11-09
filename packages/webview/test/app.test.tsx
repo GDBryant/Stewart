@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { parse } from "yaml";
 import { cleanup } from "@testing-library/preact";
 import { render, screen, fireEvent, act } from "@testing-library/preact";
 import { App } from "../src/App.js";
@@ -223,6 +224,60 @@ describe("webview chat", () => {
     expect(screen.getByText("Reverted: a.ts, b.ts")).toBeTruthy();
     expect(screen.queryByText("Revert run changes")).toBeNull();
   });
+
+  it("posts the chosen grant for each approval button", () => {
+    const { bridge } = mk();
+    const cases = [
+      ["once", "Once"],
+      ["chat", "This chat"],
+      ["always", "Always"],
+      ["deny", "Deny"],
+    ] as const;
+    for (const [grant, label] of cases) {
+      act(() =>
+        bridge.inbound(ev("approval.request", { approvalId: `a-${grant}`, tool: "RunTerminal", args: {}, category: "COMMANDS" })),
+      );
+      fireEvent.click(screen.getByText(label));
+      expect(bridge.sent).toContainEqual({ type: "chat.approve", approvalId: `a-${grant}`, grant });
+    }
+  });
+
+  it("shows the streaming placeholder until the run finishes", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("tool.request", { callId: "c1", tool: "ReadFile", args: {}, category: "READ" }));
+    });
+    expect(screen.getByText("…")).toBeTruthy();
+    expect(screen.queryByText("Insert into editor")).toBeNull();
+    act(() => bridge.inbound(ev("run.finished", { status: "done" })));
+    expect(screen.queryByText("…")).toBeNull();
+  });
+
+  it("Enter sends the draft, Shift+Enter does not, and empty Enter posts nothing", () => {
+    const { bridge } = mk();
+    const ta = screen.getByPlaceholderText("Ask Stewart") as HTMLTextAreaElement;
+    fireEvent.input(ta, { target: { value: "draft text" } });
+    fireEvent.keyDown(ta, { key: "Enter", shiftKey: true });
+    expect(ta.value).toBe("draft text");
+    expect(bridge.sent.some((m) => m.type === "chat.send")).toBe(false);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(bridge.sent).toContainEqual(expect.objectContaining({ type: "chat.send", text: "draft text" }));
+    expect(ta.value).toBe("");
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(bridge.sent.filter((m) => m.type === "chat.send")).toHaveLength(1);
+  });
+
+  it("keeps the composer draft when inbound events rerender the chat", () => {
+    const { bridge } = mk();
+    const ta = screen.getByPlaceholderText("Ask Stewart") as HTMLTextAreaElement;
+    fireEvent.input(ta, { target: { value: "keep me" } });
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("text_delta", { seq: 0, text: "reply" }));
+    });
+    expect(ta.value).toBe("keep me");
+  });
 });
 
 describe("webview history", () => {
@@ -299,6 +354,30 @@ describe("webview images", () => {
     expect(screen.getByText(/at most 5 images/)).toBeTruthy();
     act(() => store.removeImage(0));
     expect(store.state.pendingImages).toHaveLength(4);
+  });
+
+  it("drop attaches valid images and rejects the rest of a mixed batch", async () => {
+    const { store } = mk();
+    const reject = vi.spyOn(store, "rejectAttachment");
+    const composer = document.querySelector(".composer") as HTMLElement;
+    fireEvent.drop(composer, {
+      dataTransfer: { files: [pngFile(), new File(["x"], "a.txt", { type: "text/plain" })] },
+    });
+    await flush();
+    expect(store.state.pendingImages).toHaveLength(1);
+    expect(reject).toHaveBeenCalledWith("only PNG, JPEG, GIF and WebP images can be attached");
+  });
+
+  it("paste attaches file items from the clipboard", async () => {
+    const { store } = mk();
+    const ta = screen.getByPlaceholderText("Ask Stewart");
+    fireEvent.paste(ta, {
+      clipboardData: {
+        items: [{ kind: "string", type: "text/plain" }, { kind: "file", getAsFile: () => pngFile() }],
+      },
+    });
+    await flush();
+    expect(store.state.pendingImages).toHaveLength(1);
   });
 });
 
@@ -1108,6 +1187,43 @@ describe("webview settings", () => {
     expect(screen.queryByText("✓ probed")).toBeNull();
     expect(btn.disabled).toBe(false);
   });
+
+  it("serializes bool, number, list and select controls to typed YAML values", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const field = (label: string) => screen.getByText(label).parentElement!;
+    fireEvent.change(field("enabled").querySelector("select")!, { target: { value: "false" } });
+    fireEvent.input(field("maxParallel").querySelector("input")!, { target: { value: "4" } });
+    fireEvent.input(field("extraModels (csv)").querySelector("input")!, { target: { value: "a, b" } });
+    fireEvent.change(field("type").querySelector("select")!, { target: { value: "openai-compatible" } });
+    fireEvent.click(screen.getByText("Save"));
+    const set = bridge.sent.find((m) => m.type === "config.set" && m.file === "channels.yaml") as any;
+    const c1 = (parse(set.yaml) as { items: Record<string, unknown>[] }).items.find((c) => c.id === "c1")!;
+    expect(c1.enabled).toBe(false);
+    expect(c1.maxParallel).toBe(4);
+    expect(c1.extraModels).toEqual(["a", "b"]);
+    expect(c1.type).toBe("openai-compatible");
+  });
+
+  it("does not leak an unsaved channel draft across tab switches", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("+ Add"));
+    fireEvent.input(document.querySelector(".form input")!, { target: { value: "draft-ch" } });
+    expect(screen.getByDisplayValue("draft-ch")).toBeTruthy();
+    fireEvent.click(screen.getByText("agents"));
+    expect(screen.queryByDisplayValue("draft-ch")).toBeNull();
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const channelSelect = screen.getByText("channel").parentElement!.querySelector("select") as HTMLSelectElement;
+    expect(channelSelect.value).toBe("c1");
+    expect((screen.getByText("model").parentElement!.querySelector("select") as HTMLSelectElement).value).toBe("m");
+    fireEvent.click(screen.getByText("channels"));
+    expect(screen.queryByDisplayValue("draft-ch")).toBeNull();
+    expect(screen.getAllByText("Remove")).toHaveLength(2);
+  });
 });
 
 describe("modelsForChannel", () => {
@@ -1165,5 +1281,368 @@ describe("agentCosts", () => {
     expect(agentCosts({ id: "a", channel: "cl", model: "m", billing: "free" }, chs)).toBe(false);
     expect(agentCosts({ id: "a", channel: "cl", model: "m", costs: false }, chs)).toBe(false);
     expect(agentCosts(undefined, chs)).toBe(false);
+  });
+});
+
+describe("webview store replies", () => {
+  const mkStore = () => {
+    const bridge = new MockBridge();
+    const store = new Store(bridge);
+    return { bridge, store };
+  };
+
+  it("ready and unknown replies notify no listeners", () => {
+    const { bridge, store } = mkStore();
+    const spy = vi.fn();
+    store.subscribe(spy);
+    bridge.inbound({ type: "ready" });
+    bridge.inbound({ type: "mystery" } as never);
+    expect(spy).not.toHaveBeenCalled();
+    expect(store.state.items).toHaveLength(0);
+  });
+
+  it("insertText replies carry incrementing seq numbers", () => {
+    const { bridge, store } = mkStore();
+    bridge.inbound({ type: "insertText", text: "one" });
+    bridge.inbound({ type: "insertText", text: "two" });
+    expect(store.state.composerInsert).toEqual({ text: "two", seq: 2 });
+  });
+
+  it("error replies append ordered system items and record lastError", () => {
+    const { bridge, store } = mkStore();
+    bridge.inbound({ type: "error", message: "first" });
+    bridge.inbound({ type: "error", message: "second" });
+    expect(store.state.lastError).toBe("second");
+    expect(store.state.items.map((i) => i.text)).toEqual(["error: first", "error: second"]);
+    expect(new Set(store.state.items.map((i) => i.id)).size).toBe(2);
+  });
+
+  it("setup review/approve/undo replies drive the staged-apply flow", () => {
+    const { bridge, store } = mkStore();
+    bridge.inbound({ type: "setup.session.result", phase: "review" });
+    expect(store.state.setupPhase).toBe("review");
+    bridge.inbound({ type: "setup.review.result", token: "tok" });
+    expect(bridge.sent).toContainEqual({ type: "setup.approve", token: "tok" });
+    bridge.inbound({ type: "setup.review.result", error: "no token" });
+    expect(store.state.setupError).toBe("no token");
+    expect(bridge.sent.filter((m) => m.type === "setup.approve")).toHaveLength(1);
+    bridge.inbound({ type: "setup.approve.result", ok: true });
+    expect(store.state.setupSaved).toBe(true);
+    store.setupUndo();
+    expect(bridge.sent).toContainEqual({ type: "setup.undo" });
+    bridge.inbound({ type: "setup.undo.result", ok: false, error: "nope" });
+    expect(store.state.setupSaved).toBe(false);
+    expect(store.state.setupError).toBe("nope");
+  });
+
+  it("a failed recommend clears a previous recommendation", () => {
+    const { bridge, store } = mkStore();
+    bridge.inbound({
+      type: "setup.recommend.result",
+      ok: true,
+      assignments: [{ role: "r", channel: "c", model: "m" }],
+    });
+    expect(store.state.recommendation?.assignments).toHaveLength(1);
+    bridge.inbound({ type: "setup.recommend.result", ok: false, error: "bad" });
+    expect(store.state.recommendation).toBeUndefined();
+    expect(store.state.recommendError).toBe("bad");
+    expect(store.state.recommendBusy).toBe(false);
+  });
+});
+
+describe("wizard apply agent building", () => {
+  type Chan = { id: string; type: string; enabled: boolean };
+  type Ag = { id: string; channel: string; model: string; effort?: string };
+  type Rol = { id: string; enabled: boolean; agent?: string; skills?: string[]; tools?: string[] };
+
+  const reply = (summary: { channels: Chan[]; agents?: Ag[]; roles?: Rol[] }): { type: "config" } & ConfigReply => ({
+    type: "config" as const,
+    files: {},
+    summary: {
+      channels: summary.channels,
+      agents: summary.agents ?? [],
+      roles: summary.roles ?? [],
+      skills: [],
+      settings: {},
+    },
+    errors: [],
+  });
+
+  const openWizard = (bridge: MockBridge, cfg: ReturnType<typeof reply>) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(cfg));
+    fireEvent.click(screen.getByText("Run setup"));
+    fireEvent.click(screen.getByText("Start"));
+  };
+
+  const driveToReview = (
+    bridge: MockBridge,
+    opts: {
+      testModels: Record<string, string[]>;
+      green: { channel: string; model: string }[];
+      catalogs?: Record<string, { inPerMTok?: number; outPerMTok?: number; source: string }>;
+    },
+  ) => {
+    for (const [channelId, models] of Object.entries(opts.testModels)) {
+      act(() => bridge.inbound({ type: "channel.test.result", channelId, ok: true, models }));
+    }
+    fireEvent.click(screen.getByText("Next: discover models"));
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "done",
+        runId: 1,
+        ranking: false,
+        items: opts.green.map((g) => ({ channel: g.channel, model: g.model, state: "green" as const })),
+        counts: { queued: 0, running: 0, green: opts.green.length, orange: 0, red: 0, skipped: 0 },
+        green: opts.green,
+      }),
+    );
+    fireEvent.click(screen.getByText("Next: choose evaluator"));
+    for (const [ref, catalog] of Object.entries(opts.catalogs ?? {})) {
+      const i = ref.indexOf(":");
+      act(() =>
+        bridge.inbound({
+          type: "channel.probe.result",
+          channelId: ref.slice(0, i),
+          model: ref.slice(i + 1),
+          ok: true,
+          caps: {},
+          catalog,
+        }),
+      );
+    }
+    fireEvent.click(screen.getByText("Build proposal"));
+  };
+
+  const applyWith = (
+    bridge: MockBridge,
+    rec: {
+      assignments: { role: string; channel: string; model: string; reason?: string; warnings?: string[] }[];
+      unfilled?: { role: string; reason: string }[];
+    },
+  ) => {
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: rec.assignments, unfilled: rec.unfilled }));
+    fireEvent.click(screen.getByText("Apply"));
+    const upd = bridge.sent.find((m) => m.type === "setup.session.update") as any;
+    return {
+      agents: (parse(upd.patch.files["agents.yaml"]) as { items: Record<string, unknown>[] }).items,
+      roles: (parse(upd.patch.files["roles.yaml"]) as { items: Record<string, unknown>[] }).items,
+    };
+  };
+
+  const agent = (agents: Record<string, unknown>[], channel: string, model: string) =>
+    agents.find((a) => a.channel === channel && a.model === model)!;
+
+  it("reuses one agent when two roles pick the same pair", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }, { id: "r2", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m", "n"] },
+      green: [
+        { channel: "c1", model: "m" },
+        { channel: "c1", model: "n" },
+      ],
+    });
+    const { agents, roles } = applyWith(bridge, {
+      assignments: [
+        { role: "r1", channel: "c1", model: "m" },
+        { role: "r2", channel: "c1", model: "m" },
+      ],
+    });
+    const created = agents.filter((a) => a.channel === "c1" && a.model === "m");
+    expect(created).toHaveLength(1);
+    expect(created[0]!.id).toBe("c1-m");
+    expect(roles.find((r) => r.id === "r1")!.agent).toBe("c1-m");
+    expect(roles.find((r) => r.id === "r2")!.agent).toBe("c1-m");
+  });
+
+  it("splits refs on the first colon and de-collides sanitized agent ids", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }, { id: "r2", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["a:b", "a-b"] },
+      green: [
+        { channel: "c1", model: "a:b" },
+        { channel: "c1", model: "a-b" },
+      ],
+    });
+    const { agents, roles } = applyWith(bridge, {
+      assignments: [
+        { role: "r1", channel: "c1", model: "a:b" },
+        { role: "r2", channel: "c1", model: "a-b" },
+      ],
+    });
+    expect(agent(agents, "c1", "a:b").id).toBe("c1-a-b");
+    expect(agent(agents, "c1", "a-b").id).toBe("c1-a-b-2");
+    expect(roles.find((r) => r.id === "r1")!.agent).toBe("c1-a-b");
+    expect(roles.find((r) => r.id === "r2")!.agent).toBe("c1-a-b-2");
+  });
+
+  it("derives billing from catalog price, zero price, channel type and claude costs", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [
+          { id: "c1", type: "ollama", enabled: true },
+          { id: "c2", type: "openai-compatible", enabled: true },
+          { id: "c3", type: "claude-cli", enabled: true },
+        ],
+        roles: ["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => ({ id, enabled: true })),
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m"], c2: ["v", "w", "x", "z"], c3: ["sonnet"] },
+      green: [
+        { channel: "c1", model: "m" },
+        { channel: "c2", model: "v" },
+        { channel: "c2", model: "w" },
+        { channel: "c2", model: "x" },
+        { channel: "c2", model: "z" },
+        { channel: "c3", model: "sonnet" },
+      ],
+      catalogs: {
+        "c2:v": { inPerMTok: 0, source: "catalog 2026-11" },
+        "c2:w": { inPerMTok: 1.5, source: "catalog 2026-11" },
+        "c2:z": { inPerMTok: 2, outPerMTok: 8, source: "catalog 2026-11" },
+      },
+    });
+    const { agents } = applyWith(bridge, {
+      assignments: [
+        { role: "r1", channel: "c1", model: "m" },
+        { role: "r2", channel: "c2", model: "v" },
+        { role: "r3", channel: "c2", model: "w" },
+        { role: "r4", channel: "c2", model: "x" },
+        { role: "r5", channel: "c3", model: "sonnet" },
+        { role: "r6", channel: "c2", model: "z" },
+      ],
+    });
+    expect(agent(agents, "c1", "m").billing).toBe("free");
+    expect(agent(agents, "c1", "m").costs).toBeUndefined();
+    expect(agent(agents, "c2", "v").billing).toBe("free");
+    const w = agent(agents, "c2", "w");
+    expect(w.billing).toBe("priced");
+    expect(w.price).toEqual({ inPerMTok: 1.5, outPerMTok: 1.5 });
+    expect(agent(agents, "c2", "x").billing).toBe("unmetered");
+    const sonnet = agent(agents, "c3", "sonnet");
+    expect(sonnet.billing).toBe("reported");
+    expect(sonnet.costs).toBe(true);
+    const z = agent(agents, "c2", "z");
+    expect(z.billing).toBe("priced");
+    expect(z.price).toEqual({ inPerMTok: 2, outPerMTok: 8 });
+  });
+
+  it("reuses an existing agent and keeps a disabled role's other fields", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [
+          { id: "c1", type: "ollama", enabled: true },
+          { id: "c2", type: "openai-compatible", enabled: true },
+        ],
+        agents: [{ id: "a1", channel: "c1", model: "m", effort: "low" }],
+        roles: [
+          { id: "worker", enabled: true },
+          { id: "helper", enabled: true, agent: "a1", skills: ["s1"], tools: ["WriteFile"] },
+        ],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m"], c2: ["v"] },
+      green: [
+        { channel: "c1", model: "m" },
+        { channel: "c2", model: "v" },
+      ],
+    });
+    const { agents, roles } = applyWith(bridge, {
+      assignments: [{ role: "worker", channel: "c1", model: "m" }],
+      unfilled: [{ role: "helper", reason: "no fit" }],
+    });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.id).toBe("a1");
+    expect(agents[0]!.effort).toBe("low");
+    const worker = roles.find((r) => r.id === "worker")!;
+    expect(worker.agent).toBe("a1");
+    expect(worker.enabled).toBe(true);
+    const helper = roles.find((r) => r.id === "helper")!;
+    expect(helper.enabled).toBe(false);
+    expect(helper.agent).toBe("a1");
+    expect(helper.skills).toEqual(["s1"]);
+    expect(helper.tools).toEqual(["WriteFile"]);
+  });
+
+  it("does not restart the probe queue after Back and Next again", () => {
+    const { bridge } = mk();
+    openWizard(bridge, reply({ channels: [{ id: "c1", type: "ollama", enabled: true }], roles: [] }));
+    act(() => bridge.inbound({ type: "channel.test.result", channelId: "c1", ok: true, models: ["m"] }));
+    fireEvent.click(screen.getByText("Next: discover models"));
+    const starts = () => bridge.sent.filter((m: any) => m.type === "setup.probe.start").length;
+    expect(starts()).toBe(1);
+    fireEvent.click(screen.getByText("Back"));
+    fireEvent.click(screen.getByText("Next: discover models"));
+    expect(starts()).toBe(1);
+  });
+
+  it("clears the previous recommendation when a rebuild fails", () => {
+    const { bridge, store } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m"] },
+      green: [{ channel: "c1", model: "m" }],
+    });
+    act(() =>
+      bridge.inbound({
+        type: "setup.recommend.result",
+        ok: true,
+        assignments: [{ role: "r1", channel: "c1", model: "m", reason: "best-fit-model" }],
+      }),
+    );
+    expect(screen.getByText(/best-fit-model/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Back"));
+    fireEvent.click(screen.getByText("Build proposal"));
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "ai exploded" }));
+    expect(screen.getByText(/ai exploded/)).toBeTruthy();
+    expect(screen.queryByText(/best-fit-model/)).toBeNull();
+    expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
+    expect(store.state.recommendation).toBeUndefined();
+  });
+
+  it("reports a review failure without a token as setupError", () => {
+    const { bridge, store } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m"] },
+      green: [{ channel: "c1", model: "m" }],
+    });
+    applyWith(bridge, { assignments: [{ role: "r1", channel: "c1", model: "m" }] });
+    act(() => bridge.inbound({ type: "setup.review.result", error: "diff failed" }));
+    expect(store.state.setupError).toBe("diff failed");
+    expect(bridge.sent.filter((m) => m.type === "setup.approve")).toHaveLength(0);
   });
 });
