@@ -1,4 +1,4 @@
-import type { ManagedChannel } from "@stewart/channels";
+import type { ChatEvent, ManagedChannel } from "@stewart/channels";
 import { DEFAULT_LIMITS, type LoopLimits } from "@stewart/budget";
 import type { ToolsMode } from "@stewart/models";
 import type { ChatMessage, IdempotencyHooks, ToolCall } from "@stewart/kernel";
@@ -7,12 +7,16 @@ import type { Clock } from "@stewart/kernel";
 import { parseToolCalls, buildToolsBlock, ToolCallStreamFilter, type ParseError, type SchemaMap } from "@stewart/toolcall-format";
 import { compactIfOver, measureMessages, pruneStale, summarizeMiddle } from "@stewart/compaction";
 import { RunCancelledError, type ApprovalDecision, type ApprovalGate, type LoopListener, type LoopResult } from "./loopTypes.js";
-import { NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry, type ToolOutcome } from "@stewart/tools";
+import { NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stewart/tools";
 
 interface TurnState {
   text: string;
   open: boolean;
 }
+
+type DeltaHandlers = {
+  [K in ChatEvent["kind"]]: (ev: Extract<ChatEvent, { kind: K }>) => void;
+};
 
 interface StreamOutcome {
   calls: ToolCall[];
@@ -181,54 +185,81 @@ export class ToolLoop {
       costUsd: undefined,
     };
     const filter = this.toolsMode === "shim" ? new ToolCallStreamFilter() : undefined;
-    const callTimeoutMs = this.limits.modelCallTimeoutMs ?? 0;
-    const callCtl = callTimeoutMs > 0 ? new AbortController() : undefined;
-    const onAbort = callCtl ? () => callCtl.abort() : undefined;
-    const callTimer = callCtl
-      ? setTimeout(() => callCtl.abort(), callTimeoutMs)
-      : undefined;
-    if (callCtl && onAbort) {
-      if (signal.aborted) callCtl.abort();
-      else signal.addEventListener("abort", onAbort, { once: true });
-    }
+    const call = this.armCallTimeout(signal, this.limits.modelCallTimeoutMs ?? 0);
+    const onDelta = this.streamDeltas(s, turn, listener, filter);
     try {
       for await (const ev of this.channel.chat({
         model,
         messages: outbound,
         tools: this.toolsMode === "native" ? this.registry.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })) : undefined,
-        signal: callCtl?.signal ?? signal,
+        signal: call.signal,
       })) {
-        if (s.sawDone) s.postDone = true;
-        else if (ev.kind === "text") {
-          turn.text += ev.text;
-          const shown = filter ? filter.push(ev.text) : ev.text;
-          if (shown) listener.onText?.(shown);
-        } else if (ev.kind === "reasoning") {
-          listener.onReasoning?.(ev.text);
-        } else if (ev.kind === "tool_calls") {
-          s.calls = ev.calls;
-        } else if (ev.kind === "done") {
-          s.sawDone = true;
-          s.sawTruncated = ev.truncated === true;
-          s.usage = ev.usage;
-          s.costUsd = ev.costUsd;
-        }
+        onDelta(ev);
       }
       s.held = filter?.flush() ?? "";
     } catch (e) {
       if (signal.aborted) throw e;
-      if (callCtl?.signal.aborted) {
-        const err = new Error(`model call timed out after ${callTimeoutMs}ms`);
+      if (call.timedOut()) {
+        const err = new Error(`model call timed out after ${call.timeoutMs}ms`);
         (err as { code?: string }).code = "call_timeout";
         s.failed = err;
       } else {
         s.failed = e instanceof Error ? e : new Error(String(e));
       }
     } finally {
-      if (callTimer) clearTimeout(callTimer);
-      if (callCtl && onAbort) signal.removeEventListener("abort", onAbort);
+      call.done();
     }
     return s;
+  }
+
+  private armCallTimeout(
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): { signal: AbortSignal; timeoutMs: number; timedOut(): boolean; done(): void } {
+    if (timeoutMs <= 0) return { signal, timeoutMs, timedOut: () => false, done: () => {} };
+    const ctl = new AbortController();
+    const onAbort = () => ctl.abort();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    if (signal.aborted) ctl.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    return {
+      signal: ctl.signal,
+      timeoutMs,
+      timedOut: () => ctl.signal.aborted,
+      done: () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+      },
+    };
+  }
+
+  private streamDeltas(
+    s: StreamOutcome,
+    turn: TurnState,
+    listener: LoopListener,
+    filter: ToolCallStreamFilter | undefined,
+  ): (ev: ChatEvent) => void {
+    const handlers: DeltaHandlers = {
+      text: (ev) => {
+        turn.text += ev.text;
+        const shown = filter ? filter.push(ev.text) : ev.text;
+        if (shown) listener.onText?.(shown);
+      },
+      reasoning: (ev) => listener.onReasoning?.(ev.text),
+      tool_calls: (ev) => {
+        s.calls = ev.calls;
+      },
+      done: (ev) => {
+        s.sawDone = true;
+        s.sawTruncated = ev.truncated === true;
+        s.usage = ev.usage;
+        s.costUsd = ev.costUsd;
+      },
+    };
+    return (ev) => {
+      if (s.sawDone) s.postDone = true;
+      else (handlers[ev.kind] as (e: ChatEvent) => void)(ev);
+    };
   }
 
   /** Shim mode always parses text. Native mode parses only when the provider sent no native calls. */
@@ -339,34 +370,61 @@ export class ToolLoop {
   ): Promise<ToolOutcome> {
     if (seen.has(call.id)) return this.finishOutcome(call, { kind: "invalid", reason: "duplicate tool call id" }, listener);
     seen.add(call.id);
-    const tool = this.registry.find(call.name);
-    if (!tool) return this.finishOutcome(call, { kind: "invalid", reason: `unknown tool '${call.name}'` }, listener);
-    const invalid = this.registry.validate(call);
-    if (invalid != null) return this.finishOutcome(call, { kind: "invalid", reason: invalid }, listener);
+    const resolved = this.resolveTool(call);
+    if ("outcome" in resolved) return this.finishOutcome(call, resolved.outcome, listener);
     const key = this.idempotency?.key(call, index);
     const replayed = key ? this.idempotency!.lookup(key) : undefined;
     if (replayed !== undefined) return this.finishOutcome(call, { kind: "success", content: replayed }, listener);
-    let preview: ToolPreview | null = null;
-    if (tool.requiresApproval) {
-      try {
-        preview = (await tool.preview?.(call.arguments)) ?? null;
-      } catch (e) {
-        if (signal.aborted) throw e;
-        return this.finishOutcome(call, { kind: "failure", message: e instanceof Error ? e.message : "preview failed" }, listener);
-      }
-      const decision = signal.aborted
-        ? rejected()
-        : await Promise.race([
-            this.approval(call, preview),
-            new Promise<never>((_r, rej) => {
-              if (signal.aborted) rej(new Error("cancelled"));
-              else signal.addEventListener("abort", () => rej(new Error("cancelled")), { once: true });
-            }),
-          ]);
-      if (decision.kind === "rejected") {
-        return this.finishOutcome(call, { kind: "rejected", reason: decision.reason }, listener);
-      }
+    const gated = await this.gateCall(call, resolved.tool, signal);
+    if ("outcome" in gated) return this.finishOutcome(call, gated.outcome, listener);
+    return this.invokeTool(call, resolved.tool, gated.preview, key, listener, inFlight, signal);
+  }
+
+  private resolveTool(call: ToolCall): { tool: Tool } | { outcome: ToolOutcome } {
+    const tool = this.registry.find(call.name);
+    if (!tool) return { outcome: { kind: "invalid", reason: `unknown tool '${call.name}'` } };
+    const invalid = this.registry.validate(call);
+    if (invalid != null) return { outcome: { kind: "invalid", reason: invalid } };
+    return { tool };
+  }
+
+  private async gateCall(
+    call: ToolCall,
+    tool: Tool,
+    signal: AbortSignal,
+  ): Promise<{ preview: ToolPreview | null } | { outcome: ToolOutcome }> {
+    if (!tool.requiresApproval) return { preview: null };
+    let preview: ToolPreview | null;
+    try {
+      preview = (await tool.preview?.(call.arguments)) ?? null;
+    } catch (e) {
+      if (signal.aborted) throw e;
+      return { outcome: { kind: "failure", message: e instanceof Error ? e.message : "preview failed" } };
     }
+    const decision = signal.aborted
+      ? rejected()
+      : await Promise.race([
+          this.approval(call, preview),
+          new Promise<never>((_r, rej) => {
+            if (signal.aborted) rej(new Error("cancelled"));
+            else signal.addEventListener("abort", () => rej(new Error("cancelled")), { once: true });
+          }),
+        ]);
+    if (decision.kind === "rejected") {
+      return { outcome: { kind: "rejected", reason: decision.reason } };
+    }
+    return { preview };
+  }
+
+  private async invokeTool(
+    call: ToolCall,
+    tool: Tool,
+    preview: ToolPreview | null,
+    key: string | undefined,
+    listener: LoopListener,
+    inFlight: { id: string | null; awaitsUser: boolean },
+    signal: AbortSignal,
+  ): Promise<ToolOutcome> {
     inFlight.id = call.id;
     inFlight.awaitsUser = tool.awaitsUser === true;
     const child = new AbortController();
@@ -385,17 +443,7 @@ export class ToolLoop {
                 .setTimeout(() => { child.abort(); rej(new Error("__tool_timeout__")); }, this.limits.toolTimeoutMs);
             }),
           ]);
-      const raw = typeof out === "string" ? out : out.text;
-      const cap = this.limits.maxToolOutputChars;
-      const s = raw.length > cap
-        ? `${raw.slice(0, Math.ceil(cap * 0.7))}\n[output truncated: ${raw.length - cap} chars omitted]\n${raw.slice(-Math.floor(cap * 0.3))}`
-        : raw;
-      if (key) await this.idempotency!.record(key, s);
-      return this.finishOutcome(
-        call,
-        { kind: "success", content: s, images: typeof out === "string" ? undefined : out.images },
-        listener,
-      );
+      return await this.shapeResult(call, out, key, listener);
     } catch (e) {
       if (e instanceof Error && e.name === "LeaseCycleError") throw e;
       if (e instanceof Error && e.message === "__tool_timeout__") {
@@ -413,5 +461,24 @@ export class ToolLoop {
       timer?.cancel();
       signal.removeEventListener("abort", onAbort);
     }
+  }
+
+  private async shapeResult(
+    call: ToolCall,
+    out: string | { text: string; images?: string[] },
+    key: string | undefined,
+    listener: LoopListener,
+  ): Promise<ToolOutcome> {
+    const raw = typeof out === "string" ? out : out.text;
+    const cap = this.limits.maxToolOutputChars;
+    const s = raw.length > cap
+      ? `${raw.slice(0, Math.ceil(cap * 0.7))}\n[output truncated: ${raw.length - cap} chars omitted]\n${raw.slice(-Math.floor(cap * 0.3))}`
+      : raw;
+    if (key) await this.idempotency!.record(key, s);
+    return this.finishOutcome(
+      call,
+      { kind: "success", content: s, images: typeof out === "string" ? undefined : out.images },
+      listener,
+    );
   }
 }

@@ -25,55 +25,80 @@ function dangerous(name: string): boolean {
   );
 }
 
+type ScanState = "none" | "single" | "double";
+
+class ShellScanner {
+  private readonly segments: string[] = [];
+  private cur = "";
+  private state: ScanState = "none";
+  private i = 0;
+
+  constructor(private readonly command: string) {}
+
+  scan(): string[] | null {
+    while (this.i < this.command.length) {
+      const c = this.command[this.i];
+      const fatal =
+        this.state === "single" ? this.inSingle(c)
+        : this.state === "double" ? this.inDouble(c)
+        : this.inPlain(c);
+      if (fatal) return null;
+      this.i++;
+    }
+    this.segments.push(this.cur);
+    return this.state === "none" ? this.segments : null;
+  }
+
+  private inSingle(c: string): boolean {
+    if (c === "'") this.state = "none";
+    this.cur += c;
+    return false;
+  }
+
+  private inDouble(c: string): boolean {
+    if (c === "\\" && this.i + 1 < this.command.length) {
+      this.cur += c + this.command[++this.i];
+      return false;
+    }
+    if (c === '"') this.state = "none";
+    this.cur += c;
+    return false;
+  }
+
+  private inPlain(c: string): boolean {
+    if (c === "'") {
+      this.state = "single";
+      this.cur += c;
+      return false;
+    }
+    if (c === '"') {
+      this.state = "double";
+      this.cur += c;
+      return false;
+    }
+    if (c === "\\" && this.i + 1 < this.command.length) {
+      this.cur += c + this.command[++this.i];
+      return false;
+    }
+    if (c === "`" || (c === "$" && this.command[this.i + 1] === "(")) return true;
+    if (c === "&" || c === "|" || c === ";" || c === "\n") {
+      this.segments.push(this.cur);
+      this.cur = "";
+      if ((c === "&" || c === "|") && this.command[this.i + 1] === c) this.i++;
+      return false;
+    }
+    this.cur += c;
+    return false;
+  }
+}
+
 /**
  * Splits a shell command line into the program tokens each sub-command launches.
  * Returns null when anything is unparseable or dangerous — the caller must prompt.
  */
 export function splitShellPrograms(command: string): string[] | null {
-  const segments: string[] = [];
-  let cur = "";
-  let state: " " | "'" | '"' = " ";
-  for (let i = 0; i < command.length; i++) {
-    const c = command[i];
-    if (state === "'") {
-      if (c === "'") state = " ";
-      cur += c;
-      continue;
-    }
-    if (state === '"') {
-      if (c === "\\" && i + 1 < command.length) {
-        cur += c + command[++i];
-        continue;
-      }
-      if (c === '"') state = " ";
-      cur += c;
-      continue;
-    }
-    if (c === "'") {
-      state = "'";
-      cur += c;
-      continue;
-    }
-    if (c === '"') {
-      state = '"';
-      cur += c;
-      continue;
-    }
-    if (c === "\\" && i + 1 < command.length) {
-      cur += c + command[++i];
-      continue;
-    }
-    if (c === "`" || (c === "$" && command[i + 1] === "(")) return null;
-    if (c === "&" || c === "|" || c === ";" || c === "\n") {
-      segments.push(cur);
-      cur = "";
-      if ((c === "&" || c === "|") && command[i + 1] === c) i++;
-      continue;
-    }
-    cur += c;
-  }
-  segments.push(cur);
-  if (state !== " ") return null;
+  const segments = new ShellScanner(command).scan();
+  if (segments === null) return null;
   const programs: string[] = [];
   for (const seg of segments) {
     const words = seg.trim().split(/\s+/).filter(Boolean);

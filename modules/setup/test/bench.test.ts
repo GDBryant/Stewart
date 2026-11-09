@@ -146,6 +146,42 @@ describe("benchModel", () => {
     expect(perf.editOk).toBeUndefined();
     expect(perf.jsonOk).toBe(false);
   });
+
+  it("estimates tokens from characters when done carries no usage", async () => {
+    let t = 0;
+    const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };
+    const { channel } = fakeChannel([[text("abcd"), text("efgh"), done()]], { onEvent: (ev) => { if (ev.kind === "text") t += 50; if (ev.kind === "done") t += 500; } });
+    const perf = await benchModel(channel, "m", clock, fakeProbe([{ kind: "ok", toolOk: true }]).fn);
+    expect(perf.ttftMs).toBe(50);
+    expect(perf.tokPerSec).toBe(3.64);
+  });
+
+  it("leaves jsonOk undefined when only the json leg fails", async () => {
+    let n = 0;
+    const adapter: ChannelAdapter = {
+      type: "fake",
+      listModels: async () => ["m"],
+      probeCaps: async () => ({}),
+      chat: async function* () {
+        n++;
+        if (n === 2) throw new Error("json boom");
+        yield text("abcd");
+        yield done(8);
+      },
+    };
+    const channel = new ManagedChannel(adapter, { id: "c", type: "fake", enabled: true, maxParallel: 1 });
+    const perf = await benchModel(channel, "m", systemClock, fakeProbe([{ kind: "ok", toolOk: true }]).fn);
+    expect(perf.ttftMs).toBeDefined();
+    expect(perf.toolReliability).toBe(1);
+    expect(perf.editOk).toBe(true);
+    expect(perf.jsonOk).toBeUndefined();
+  });
+
+  it("reports jsonOk false for braces that do not parse", async () => {
+    const { channel } = fakeChannel([[text("x"), done(5)], [text("{not json}"), done()]]);
+    const perf = await benchModel(channel, "m", systemClock, fakeProbe([{ kind: "ok", toolOk: true }]).fn);
+    expect(perf.jsonOk).toBe(false);
+  });
 });
 
 

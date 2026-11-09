@@ -276,3 +276,65 @@ describe("ToolLoop call execution edge cases", () => {
     expect(msgs.some((m) => m.content.includes("Not answered"))).toBe(true);
   });
 });
+
+describe("ToolLoop characterization gaps", () => {
+  it("forwards reasoning events to onReasoning without touching the reply text", async () => {
+    const ch = fakeChannel([[{ kind: "reasoning", text: "thinking" }, { kind: "text", text: "answer" }, { kind: "done" }]]);
+    const seen: string[] = [];
+    const r = await new ToolLoop(ch, new ToolRegistry([]), approve).run("m", hist, { onReasoning: (t) => seen.push(t) }, sig());
+    expect(r.kind).toBe("completed");
+    expect(seen).toEqual(["thinking"]);
+    expect(r.messages[0]).toMatchObject({ role: "assistant", content: "answer" });
+  });
+
+  it("reports a non-Error tool throw as 'tool failed'", async () => {
+    const t = { ...echoTool, execute: async () => Promise.reject("boom-string") };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }],
+      [{ kind: "done" }],
+    ]);
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    expect(r.messages.find((m) => m.role === "tool")?.content).toBe("Error: tool failed");
+  });
+
+  it("passes a null preview to the gate when an approval tool has no preview", async () => {
+    const previews: unknown[] = [];
+    const t = {
+      spec: { name: "Gate", description: "g", parameters: { type: "object", properties: {}, additionalProperties: false } },
+      requiresApproval: true,
+      execute: async () => "ran",
+    };
+    const gate = async (_c: never, p: unknown): Promise<ApprovalDecision> => {
+      previews.push(p);
+      return { kind: "approved" };
+    };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "1", name: "Gate", arguments: {} }] }, { kind: "done" }],
+      [{ kind: "done" }],
+    ]);
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate as never, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    expect(previews).toEqual([null]);
+    expect(r.messages.find((m) => m.role === "tool")?.content).toBe("ran");
+  });
+
+  it("rejects a gated call without consulting the gate when the signal is already aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    let gateCalls = 0;
+    const gate = async (): Promise<ApprovalDecision> => {
+      gateCalls++;
+      return { kind: "approved" };
+    };
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Gate", arguments: {} }] }, { kind: "done" }]]);
+    const t = {
+      spec: { name: "Gate", description: "g", parameters: { type: "object", properties: {}, additionalProperties: false } },
+      requiresApproval: true,
+      preview: async () => ({ kind: "other" as const }),
+      execute: async () => "never",
+    };
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate, { ...DEFAULT_LIMITS, maxModelTurns: 1 }, clock, undefined, undefined, "native").run("m", hist, {}, ac.signal);
+    expect(gateCalls).toBe(0);
+    expect(r.kind).toBe("turn_limit");
+    expect(r.messages.find((m) => m.role === "tool")?.content).toBe("Rejected by user: denied");
+  });
+});

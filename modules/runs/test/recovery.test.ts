@@ -406,6 +406,118 @@ describe("RunService direct continue question", () => {
   });
 });
 
+describe("RunService direct outcomes", () => {
+  const paidAgent = (cfg: Config) => cfg.agents.find((a) => a.id === "a-paid")!;
+  const freeAgent = (cfg: Config) => cfg.agents.find((a) => a.id === "a-free")!;
+  const baseBudget = (cfg: Config) => ({
+    config: cfg,
+    profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
+  });
+
+  it("ends failed when the model call throws", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => {
+      throw new Error("provider exploded");
+    });
+    const fake = fakeHost({});
+    const events: RunEvent[] = [];
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, baseBudget(cfg));
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("failed"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "failed" });
+    expect(fake.files[`/tmp/st/scratch/${run.id}/run.json`]).toContain('"status":"failed"');
+  });
+
+  it("ends interrupted when the turn limit stops the run without a recovery budget", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
+    const fake = fakeHost({ "a.ts": "a" });
+    const events: RunEvent[] = [];
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const role = cfg.roles.find((r) => r.id === "general-worker")!;
+    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, baseBudget(cfg));
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped" });
+  });
+
+  it("stops on a Stop answer to the continue question", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    const { channel } = fakeChannel(() => [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()]);
+    const fake = fakeHost({ "a.ts": "a" });
+    const events: RunEvent[] = [];
+    const bus = new EventBus((e) => events.push(e), 0);
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    bus.subscribe(async (e) => {
+      if (e.kind === "ask_user") manager.answer(e.questionId, "Stop this task");
+    });
+    const role = cfg.roles.find((r) => r.id === "general-worker")!;
+    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+      ...baseBudget(cfg),
+      recovery: recoveryState(cfg.settings),
+    });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped" });
+  });
+
+  it("feeds a free-text continue answer back as a user message", async () => {
+    const cfg = config({ roles: { "general-worker": TURNS_1 } });
+    let sawGuidance = false;
+    const { channel } = fakeChannel((_role, n, req) => {
+      if (n === 2) sawGuidance = req.messages.some((m) => m.role === "user" && m.content === "try b.ts instead");
+      return n === 1 ? [calls({ id: "c1", name: "ReadFile", arguments: { path: "a.ts" } }), done()] : [text("done"), done()];
+    });
+    const fake = fakeHost({ "a.ts": "a" });
+    const bus = new EventBus(() => {}, 0);
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    bus.subscribe(async (e) => {
+      if (e.kind === "ask_user") manager.answer(e.questionId, "try b.ts instead");
+    });
+    const role = cfg.roles.find((r) => r.id === "general-worker")!;
+    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+      ...baseBudget(cfg),
+      recovery: recoveryState(cfg.settings),
+    });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    expect(sawGuidance).toBe(true);
+  });
+
+  it("emits cost.summary when a paid direct run accrues cost", async () => {
+    const cfg = config();
+    const { channel } = fakeChannel(() => [text("hi"), done({ in: 100, out: 50 }, 0.05)]);
+    const fake = fakeHost({});
+    const events: RunEvent[] = [];
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.direct("p", channel, paidAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, baseBudget(cfg));
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
+    const summary = events.find((e) => e.kind === "cost.summary") as Extract<RunEvent, { kind: "cost.summary" }> | undefined;
+    expect(summary).toMatchObject({ runId: run.id, accruedUsd: 0.05 });
+  });
+
+  it("ends interrupted with the time-cap message when the cap fires mid-call", async () => {
+    const cfg = config();
+    const hanging: ChannelAdapter = {
+      type: "fake",
+      listModels: async () => [],
+      probeCaps: async () => ({}),
+      chat: async function* (_c, _s, req) {
+        await new Promise<void>((_res, rej) => req.signal.addEventListener("abort", () => rej(new Error("aborted"))));
+        yield text("never");
+        yield done();
+      },
+    };
+    const channel = new ManagedChannel(hanging, { id: "c1", type: "fake", enabled: true, maxParallel: 1, modelCaps: { m: { tools: "native" as const } } });
+    const fake = fakeHost({});
+    const events: RunEvent[] = [];
+    const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
+    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, {
+      ...baseBudget(cfg),
+      profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0.005 },
+    });
+    await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
+    expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped", error: expect.stringContaining("time limit") });
+  });
+});
+
 describe("RunService resume edge cases", () => {
   it("refuses a missing run and a malformed journal without dispatching work", async () => {
     const cfg = config();

@@ -50,6 +50,7 @@
     "build": "node -e \"require('node:fs').cpSync('../../packages/webview/dist','webview',{recursive:true})\" && esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "typecheck": "tsc -p tsconfig.json --composite false --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
     "package": "vsce package --no-dependencies --skip-license --out stewart.vsix"
   },
   "dependencies": {
@@ -60,6 +61,7 @@
   "devDependencies": {
     "@types/node": "22.19.0",
     "@types/vscode": "1.145.0",
+    "@vitest/coverage-v8": "3.2.4",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "0.25.12",
     "typescript": "5.9.3",

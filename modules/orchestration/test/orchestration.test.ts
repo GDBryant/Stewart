@@ -1270,6 +1270,115 @@ describe("health verbs", () => {
   });
 });
 
+describe("nested ask_user and run loop edge branches", () => {
+  const writerCfg = () =>
+    config({
+      roles: {
+        "code-writer": "enabled: true\n    agent: a-free\n    tools: [ask_user, WriteFile]",
+      },
+    });
+  const setup = (selfAnswer: (req: { messages: { role: string; content: string }[] }) => ChatEvent[]) => {
+    const cfg = writerCfg();
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role === "orchestrator") {
+        const lastUser = [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+        if (lastUser.includes("Role 'code-writer' asks:")) return selfAnswer(req as never);
+        return n === 1
+          ? [calls({ id: "d1", name: "dispatch", arguments: { role: "code-writer", task: "implement" } }), done()]
+          : [text("done"), done()];
+      }
+      if (role === "code-writer") {
+        if (n === 1) return [calls({ id: "q1", name: "ask_user", arguments: { question: "Which file?", options: ["a.ts", "b.ts"] } }), done()];
+        return [text("implemented"), done()];
+      }
+      return [text("ok"), done()];
+    });
+    return { cfg, channel };
+  };
+  const toolAnswers = (events: RunEvent[]) =>
+    events.filter((e) => e.kind === "question.answered") as Extract<RunEvent, { kind: "question.answered" }>[];
+
+  it("falls back to the user when the orchestrator self-answer stream throws", async () => {
+    const { cfg, channel } = setup(() => {
+      throw new Error("self-answer down");
+    });
+    let uiAsked = 0;
+    const { rt, events } = await runtime(cfg, channel, {
+      prompt: async (p: { decode(a: string): unknown }) => {
+        uiAsked++;
+        return { kind: "answered" as const, value: p.decode("user-answer") };
+      },
+    });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    expect(uiAsked).toBe(1);
+    const answered = toolAnswers(events);
+    expect(answered).toHaveLength(1);
+    expect(answered[0]).toMatchObject({ answeredBy: "user", answer: "user-answer" });
+  });
+
+  it("falls back to the user when the self-answer emits an ask_user tool call", async () => {
+    const { cfg, channel } = setup(() => [
+      calls({ id: "x", name: "ask_user", arguments: { question: "q" } }),
+      text("maybe"),
+      done(),
+    ]);
+    let uiAsked = 0;
+    const { rt, events } = await runtime(cfg, channel, {
+      prompt: async (p: { decode(a: string): unknown }) => {
+        uiAsked++;
+        return { kind: "answered" as const, value: p.decode("user-answer") };
+      },
+    });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    expect(uiAsked).toBe(1);
+    const answered = toolAnswers(events);
+    expect(answered).toHaveLength(1);
+    expect(answered[0]).toMatchObject({ answeredBy: "user", answer: "user-answer" });
+  });
+
+  it("falls back to the user when the self-answer text is empty", async () => {
+    const { cfg, channel } = setup(() => [done()]);
+    let uiAsked = 0;
+    const { rt } = await runtime(cfg, channel, {
+      prompt: async (p: { decode(a: string): unknown }) => {
+        uiAsked++;
+        return { kind: "answered" as const, value: p.decode("user-answer") };
+      },
+    });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    expect(uiAsked).toBe(1);
+  });
+
+  it("returns NO_ANSWER when the user prompt is withdrawn", async () => {
+    const { cfg, channel } = setup(() => [text("DELEGATE_TO_USER"), done()]);
+    const { rt } = await runtime(cfg, channel, { prompt: async () => ({ kind: "withdrawn" as const, reason: "cancel" as const }) });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+  });
+
+  it("retries the orchestrator loop once on an incomplete_stream fault", async () => {
+    const cfg = config();
+    let n = 0;
+    const { channel, calls: seen } = fakeChannel((role) => {
+      if (role === "orchestrator") {
+        n++;
+        if (n === 1) return [text("partial")];
+        if (n === 2) return [calls({ id: "d1", name: "dispatch", arguments: { role: "general-worker", task: "t" } }), done()];
+        return [text("done"), done()];
+      }
+      return [text("ok"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "go");
+    expect(n).toBe(3);
+    expect(out.status).toBe("done");
+    expect(seen.filter((s) => s.startsWith("orchestrator"))).toHaveLength(3);
+  });
+});
+
 describe("orchestrator edge branches", () => {
   it("no_dispatch when the model never calls a tool", async () => {
     const cfg = config();

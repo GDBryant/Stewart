@@ -1,8 +1,8 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage } from "@stewart/kernel";
-import type { ManagedChannel } from "@stewart/channels";
+import type { ChatEvent, ManagedChannel } from "@stewart/channels";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
-import { createAgentSession } from "@stewart/agent-loop";
+import { createAgentSession, type AgentSession } from "@stewart/agent-loop";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { RunCancelledError, type LoopResult } from "@stewart/agent-loop";
@@ -113,6 +113,13 @@ class OrchestratedRun {
   }
 
   async run(): Promise<OrchestrationOutcome> {
+    const session = await this.buildSession();
+    const ran = await this.runSession(session);
+    if ("status" in ran) return ran;
+    return this.finalize(ran);
+  }
+
+  private async buildSession(): Promise<AgentSession> {
     const rt = this.rt;
     const paths = await ProjectPaths.forProject(rt.host);
     const tools = [...projectTools(rt.host, paths).tools, ...orchestrationTools(this.handlers)];
@@ -120,7 +127,7 @@ class OrchestratedRun {
     const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
     const prompt = await buildRolePrompt(rt, this.orchestrator);
     const { prune, summarize } = compactionFor(rt);
-    const session = createAgentSession(
+    return createAgentSession(
       {
         agent: this.agent,
         role: this.orchestrator,
@@ -138,15 +145,17 @@ class OrchestratedRun {
       },
       rt.clock,
     );
+  }
 
-    let result: LoopResult;
+  private async runSession(session: AgentSession): Promise<LoopResult | OrchestrationOutcome> {
+    const rt = this.rt;
     try {
       const R = rt.recoveryService.state(rt);
       let retried = false;
       let nudged = false;
       let input: ChatMessage[] = [{ role: "user", content: this.userText }];
       while (true) {
-        result = await session.loop.run(this.agent.model, input, session.listener, rt.signal);
+        const result = await session.loop.run(this.agent.model, input, session.listener, rt.signal);
         const fault = classifyFault(result);
         if (fault && !retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
           retried = true;
@@ -161,7 +170,7 @@ class OrchestratedRun {
           input = [{ role: "user", content: `${this.userText}\n\n${CALL_NUDGE}` }];
           continue;
         }
-        break;
+        return result;
       }
     } catch (e) {
       rt.leases.releaseAll();
@@ -169,7 +178,10 @@ class OrchestratedRun {
       if (e instanceof LeaseCycleError) return { status: "failed", error: e.message, suggestions: this.suggestions };
       return { status: "failed", error: e instanceof Error ? e.message : String(e), suggestions: this.suggestions };
     }
+  }
 
+  private async finalize(result: LoopResult): Promise<OrchestrationOutcome> {
+    const rt = this.rt;
     const early = await this.resolveCostLimit();
     if (early) return early;
 
@@ -198,57 +210,76 @@ class OrchestratedRun {
   private async answerNestedAskUser(roleId: string, taskId: string, question: string, options?: string[]): Promise<string> {
     const rt = this.rt;
     const qId = rt.ids.next("q");
-    if (!this.channel.unhealthy && (!rt.cost.reached() || !isCosting(this.agent))) {
-      try {
-        const prior = [...this.results.entries()].map(([id, r]) => `${id}: ${r.summary}`).join("\n");
-        const promptText = [
-          `User request: ${this.userText}`,
-          prior ? `Completed tasks:\n${prior}` : "",
-          `Role '${roleId}' asks: ${question}${options?.length ? ` (options: ${options.join(", ")})` : ""}`,
-          "If the user request, plan, or completed tasks already answer this, reply with the direct answer. Otherwise reply with DELEGATE_TO_USER.",
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-        let reply = "";
-        let delegated = false;
-        for await (const ev of this.channel.chat({
-          model: this.agent.model,
-          messages: [
-            { role: "system", content: await buildRolePrompt(rt, this.orchestrator) },
-            { role: "user", content: promptText },
-          ],
-          signal: rt.signal,
-        })) {
-          if (ev.kind === "text") reply += ev.text;
-          if (ev.kind === "tool_calls" && ev.calls.some((c) => c.name === "ask_user")) delegated = true;
-          if (ev.kind === "done") {
-            const costUsd = costOfCall(this.agent, ev.usage, ev.costUsd);
-            await rt.ledger.record({
-              runId: rt.runId,
-              roleId: this.orchestrator.id,
-              agentId: this.agent.id,
-              model: this.agent.model,
-              billing: this.agent.billing ?? "reported",
-              inTokens: ev.usage?.in ?? 0,
-              outTokens: ev.usage?.out ?? 0,
-              costUsd,
-            });
-            rt.cost.accrued += costUsd;
-          }
-        }
-        const trimmed = reply.trim();
-        if (!delegated && trimmed && !trimmed.includes("DELEGATE_TO_USER")) {
-          rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: trimmed, answeredBy: "orchestrator" });
-          return trimmed;
-        }
-      } catch {
-        /* fall through to user */
-      }
-    }
+    const self = await this.selfAnswer(question, options, qId, roleId, taskId);
+    if (self !== null) return self;
     const o = await rt.prompt(questionPrompt("ask_user", question, options), { roleId, taskId });
     if (o.kind !== "answered") return NO_ANSWER;
     rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: o.value, answeredBy: "user" });
     return o.value;
+  }
+
+  private async selfAnswer(question: string, options: string[] | undefined, qId: string, roleId: string, taskId: string): Promise<string | null> {
+    const rt = this.rt;
+    if (this.channel.unhealthy || (rt.cost.reached() && isCosting(this.agent))) return null;
+    try {
+      const { text, delegated } = await this.askOrchestrator(question, options, roleId);
+      const trimmed = text.trim();
+      if (!delegated && trimmed && !trimmed.includes("DELEGATE_TO_USER")) {
+        rt.bus.emit({ kind: "question.answered", runId: rt.runId, taskId, roleId, questionId: qId, answer: trimmed, answeredBy: "orchestrator" });
+        return trimmed;
+      }
+    } catch {
+      /* fall through to user */
+    }
+    return null;
+  }
+
+  private async askOrchestrator(question: string, options: string[] | undefined, roleId: string): Promise<{ text: string; delegated: boolean }> {
+    const rt = this.rt;
+    const prior = [...this.results.entries()].map(([id, r]) => `${id}: ${r.summary}`).join("\n");
+    const promptText = [
+      `User request: ${this.userText}`,
+      prior ? `Completed tasks:\n${prior}` : "",
+      `Role '${roleId}' asks: ${question}${options?.length ? ` (options: ${options.join(", ")})` : ""}`,
+      "If the user request, plan, or completed tasks already answer this, reply with the direct answer. Otherwise reply with DELEGATE_TO_USER.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const acc = { text: "", delegated: false };
+    const handlers: { [K in ChatEvent["kind"]]: (ev: Extract<ChatEvent, { kind: K }>) => void | Promise<void> } = {
+      text: (ev) => {
+        acc.text += ev.text;
+      },
+      reasoning: () => {},
+      tool_calls: (ev) => {
+        if (ev.calls.some((c) => c.name === "ask_user")) acc.delegated = true;
+      },
+      done: async (ev) => {
+        const costUsd = costOfCall(this.agent, ev.usage, ev.costUsd);
+        await rt.ledger.record({
+          runId: rt.runId,
+          roleId: this.orchestrator.id,
+          agentId: this.agent.id,
+          model: this.agent.model,
+          billing: this.agent.billing ?? "reported",
+          inTokens: ev.usage?.in ?? 0,
+          outTokens: ev.usage?.out ?? 0,
+          costUsd,
+        });
+        rt.cost.accrued += costUsd;
+      },
+    };
+    for await (const ev of this.channel.chat({
+      model: this.agent.model,
+      messages: [
+        { role: "system", content: await buildRolePrompt(rt, this.orchestrator) },
+        { role: "user", content: promptText },
+      ],
+      signal: rt.signal,
+    })) {
+      await (handlers[ev.kind] as (e: ChatEvent) => void | Promise<void>)(ev);
+    }
+    return acc;
   }
 
   private dispatchAt(spec: TaskSpec, depth: number): Promise<TaskResult> {
