@@ -82,19 +82,7 @@ export class ChatHistoryStore {
       if (m.role === "assistant" && m.toolCalls?.length) msg.toolCalls = m.toolCalls;
       if (m.role === "tool") msg.toolCallId = m.toolCallId;
       if (m.role === "user" && m.images?.length) {
-        msg.images = [];
-        for (let i = 0; i < m.images.length; i++) {
-          const parsed = /^data:([^;]+);base64,(.*)$/s.exec(m.images[i]);
-          const mediaType = parsed?.[1] ?? "image/png";
-          const b64 = parsed?.[2] ?? m.images[i];
-          const hash = await sha256Hex(b64ToBytes(b64));
-          const file = `${hash}.${extFor(mediaType)}`;
-          keep.add(file);
-          if (!(await this.host.files.exists(`${this.imagesDir(sessionId)}/${file}`))) {
-            await this.host.files.writeBinary(`${this.imagesDir(sessionId)}/${file}`, b64);
-          }
-          msg.images.push({ file, mediaType, name: `image-${i + 1}` });
-        }
+        msg.images = await this.storeImages(sessionId, m.images, keep);
       }
       stored.push(msg);
     }
@@ -103,6 +91,23 @@ export class ChatHistoryStore {
     const chat: StoredChat = { version: VERSION, sessionId, title, savedAt, messages: stored };
     await this.host.files.writeAtomic(this.file(sessionId), JSON.stringify(chat));
     await this.sweepImages(sessionId, keep);
+  }
+
+  private async storeImages(sessionId: string, images: string[], keep: Set<string>): Promise<NonNullable<StoredMessage["images"]>> {
+    const out: NonNullable<StoredMessage["images"]> = [];
+    for (let i = 0; i < images.length; i++) {
+      const parsed = /^data:([^;]+);base64,(.*)$/s.exec(images[i]);
+      const mediaType = parsed?.[1] ?? "image/png";
+      const b64 = parsed?.[2] ?? images[i];
+      const hash = await sha256Hex(b64ToBytes(b64));
+      const file = `${hash}.${extFor(mediaType)}`;
+      keep.add(file);
+      if (!(await this.host.files.exists(`${this.imagesDir(sessionId)}/${file}`))) {
+        await this.host.files.writeBinary(`${this.imagesDir(sessionId)}/${file}`, b64);
+      }
+      out.push({ file, mediaType, name: `image-${i + 1}` });
+    }
+    return out;
   }
 
   private async sweepImages(sessionId: string, keep: Set<string>): Promise<void> {
@@ -131,20 +136,25 @@ export class ChatHistoryStore {
         out.push({ role: "tool", toolCallId: m.toolCallId ?? "", content: m.content });
         continue;
       }
-      const images: string[] = [];
-      for (const img of m.images ?? []) {
-        if (!SAFE_IMAGE.test(img.file)) continue;
-        try {
-          const { base64 } = await this.host.files.readBinary(`${this.imagesDir(sessionId)}/${img.file}`);
-          images.push(`data:${img.mediaType};base64,${base64}`);
-        } catch {
-          /* missing image file: keep the placeholder name */
-        }
-      }
+      const images = await this.restoreImages(sessionId, m.images);
       if (m.role === "assistant") {
         out.push({ role: "assistant", content: m.content, toolCalls: m.toolCalls });
       } else {
         out.push({ role: m.role, content: m.content, images: images.length ? images : undefined });
+      }
+    }
+    return out;
+  }
+
+  private async restoreImages(sessionId: string, images: StoredMessage["images"]): Promise<string[]> {
+    const out: string[] = [];
+    for (const img of images ?? []) {
+      if (!SAFE_IMAGE.test(img.file)) continue;
+      try {
+        const { base64 } = await this.host.files.readBinary(`${this.imagesDir(sessionId)}/${img.file}`);
+        out.push(`data:${img.mediaType};base64,${base64}`);
+      } catch {
+        /* missing image file: keep the placeholder name */
       }
     }
     return out;

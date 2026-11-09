@@ -7,42 +7,46 @@ function isBinary(text: string): boolean {
   return text.slice(0, 8192).includes("\0");
 }
 
+function globStar(glob: string, i: number): { re: string; next: number } {
+  if (glob[i + 1] === "*") {
+    if (glob[i + 2] === "/") return { re: "(?:[^/]+/)*", next: i + 3 };
+    return { re: ".*", next: i + 2 };
+  }
+  return { re: "[^/]*", next: i + 1 };
+}
+
+function globClass(glob: string, i: number): { re: string; next: number } {
+  const j = glob.indexOf("]", i + 1);
+  if (j === -1) throw new Error("invalid glob: unterminated [");
+  return { re: glob.slice(i, j + 1), next: j + 1 };
+}
+
+function globBrace(glob: string, i: number): { re: string; next: number } {
+  const j = glob.indexOf("}", i + 1);
+  if (j === -1) throw new Error("invalid glob: unterminated {");
+  const alts = glob.slice(i + 1, j).split(",").map((a) => a.replace(/[.+^$()|\\]/g, "\\$&"));
+  return { re: `(?:${alts.join("|")})`, next: j + 1 };
+}
+
+function globLiteral(glob: string, i: number): { re: string; next: number } {
+  return { re: glob[i].replace(/[.+^$()|\\]/g, "\\$&"), next: i + 1 };
+}
+
+const GLOB_ATOMS: Record<string, (glob: string, i: number) => { re: string; next: number }> = {
+  "*": globStar,
+  "?": (_glob, i) => ({ re: "[^/]", next: i + 1 }),
+  "[": globClass,
+  "{": globBrace,
+};
+
 function globToRegex(glob: string): RegExp {
   let re = "";
   let i = 0;
   while (i < glob.length) {
-    const c = glob[i];
-    if (c === "*") {
-      if (glob[i + 1] === "*") {
-        if (glob[i + 2] === "/") {
-          re += "(?:[^/]+/)*";
-          i += 3;
-        } else {
-          re += ".*";
-          i += 2;
-        }
-      } else {
-        re += "[^/]*";
-        i++;
-      }
-    } else if (c === "?") {
-      re += "[^/]";
-      i++;
-    } else if (c === "[") {
-      const j = glob.indexOf("]", i + 1);
-      if (j === -1) throw new Error("invalid glob: unterminated [");
-      re += glob.slice(i, j + 1);
-      i = j + 1;
-    } else if (c === "{") {
-      const j = glob.indexOf("}", i + 1);
-      if (j === -1) throw new Error("invalid glob: unterminated {");
-      const alts = glob.slice(i + 1, j).split(",").map((a) => a.replace(/[.+^$()|\\]/g, "\\$&"));
-      re += `(?:${alts.join("|")})`;
-      i = j + 1;
-    } else {
-      re += c.replace(/[.+^$()|\\]/g, "\\$&");
-      i++;
-    }
+    const h = GLOB_ATOMS[glob[i]] ?? ((_g: string, j: number) => globLiteral(_g, j));
+    const r = h(glob, i);
+    re += r.re;
+    i = r.next;
   }
   return new RegExp(`^${re}$`);
 }

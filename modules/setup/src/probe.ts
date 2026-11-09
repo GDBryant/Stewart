@@ -129,6 +129,37 @@ export interface SmokeOptions {
   onSettle?(settled: Promise<void>): void;
 }
 
+type ProbeAccum = { text: string; sawDone: boolean; sawTool: boolean };
+type ProbeFinish = (r: SmokeResult) => SmokeResult;
+
+function probeStepOutcome(
+  s: Step<ChatEvent>,
+  acc: ProbeAccum,
+  finish: ProbeFinish,
+  opts: SmokeOptions,
+  b: { signal: AbortSignal },
+  timeoutMs: number,
+): SmokeResult | "cont" | "done" {
+  if (s.kind === "stop") return finish(s.why === "timeout" ? { state: "orange", reason: `no response within ${timeoutMs}ms` } : { state: "aborted" });
+  if (s.kind === "error") {
+    if (opts.signal.aborted) return finish({ state: "aborted" });
+    if (b.signal.aborted) return finish({ state: "orange", reason: `no response within ${timeoutMs}ms` });
+    return finish({ state: "red", reason: s.error instanceof Error ? s.error.message : String(s.error) });
+  }
+  if (s.kind === "done") return "done";
+  const ev = s.value;
+  if (ev.kind === "text") acc.text += ev.text;
+  else if (ev.kind === "tool_calls") acc.sawTool = true;
+  else if (ev.kind === "done") acc.sawDone = true;
+  return "cont";
+}
+
+function probeVerdict(acc: ProbeAccum, finish: ProbeFinish): SmokeResult {
+  if (!acc.sawDone) return finish({ state: "red", reason: "stream ended without completion" });
+  if (!acc.text.trim()) return finish({ state: "red", reason: acc.sawTool ? "tool calls but no text" : "empty response" });
+  return finish({ state: "green" });
+}
+
 /**
  * One bounded liveness probe: a tiny prompt, no tools, hard `timeoutMs` deadline
  * covering queue admission, the request and stream completion. Timeout → orange,
@@ -176,29 +207,15 @@ export async function smokeModel(channel: SmokeChannel, model: string, opts: Smo
     void Promise.allSettled([ret, pend]).then(() => settle());
     return r;
   };
-  let text = "";
-  let sawDone = false;
-  let sawTool = false;
+  const acc = { text: "", sawDone: false, sawTool: false };
   try {
     for (;;) {
       const s = await step(next, b.stop);
-      if (s.kind === "stop") {
-        return finish(s.why === "timeout" ? { state: "orange", reason: `no response within ${timeoutMs}ms` } : { state: "aborted" });
-      }
-      if (s.kind === "error") {
-        if (opts.signal.aborted) return finish({ state: "aborted" });
-        if (b.signal.aborted) return finish({ state: "orange", reason: `no response within ${timeoutMs}ms` });
-        return finish({ state: "red", reason: s.error instanceof Error ? s.error.message : String(s.error) });
-      }
-      if (s.kind === "done") break;
-      const ev = s.value;
-      if (ev.kind === "text") text += ev.text;
-      else if (ev.kind === "tool_calls") sawTool = true;
-      else if (ev.kind === "done") sawDone = true;
+      const r = probeStepOutcome(s, acc, finish, opts, b, timeoutMs);
+      if (typeof r !== "string") return r;
+      if (r === "done") break;
     }
-    if (!sawDone) return finish({ state: "red", reason: "stream ended without completion" });
-    if (!text.trim()) return finish({ state: "red", reason: sawTool ? "tool calls but no text" : "empty response" });
-    return finish({ state: "green" });
+    return probeVerdict(acc, finish);
   } finally {
     b.cleanup();
   }

@@ -22,6 +22,18 @@ export type ChannelSpec = {
   [k: string]: unknown;
 };
 
+async function loadChannelSecret(
+  c: ChannelSpec,
+  host: { secrets: { get(ref: string): Promise<string | undefined> } },
+  mc: ManagedChannel,
+): Promise<{ ref: string; secret: string } | undefined> {
+  if (!c.secretRef) return undefined;
+  const secret = await host.secrets.get(c.secretRef);
+  if (secret === undefined) return undefined;
+  mc.setSecret(secret);
+  return { ref: c.secretRef, secret };
+}
+
 /** The one channel surface other modules see: builds ManagedChannels from config, looks them up, reports breaker health, applies secrets. */
 export class ChannelService {
   private managed = new Map<string, ManagedChannel>();
@@ -38,13 +50,8 @@ export class ChannelService {
         const adapter = this.deps.registry.create(c.type, this.deps.adapterDeps);
         const maxParallel = c.maxParallel ?? (c.type === "ollama" ? 1 : 4);
         const mc = new ManagedChannel(adapter, { ...c, maxParallel });
-        if (c.secretRef) {
-          const secret = await host.secrets.get(c.secretRef);
-          if (secret !== undefined) {
-            mc.setSecret(secret);
-            secrets.set(c.secretRef, secret);
-          }
-        }
+        const s = await loadChannelSecret(c, host, mc);
+        if (s) secrets.set(s.ref, s.secret);
         this.managed.set(c.id, mc);
       } catch (e) {
         host.log(`channel ${c.id}: ${e instanceof Error ? e.message : e}`);

@@ -4,27 +4,39 @@ import { ChannelError } from "./types.js";
 
 const decoder = new TextDecoder();
 
+function nextChunk(reader: ReadableStreamDefaultReader<Uint8Array>, stallMs: number): ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    reader.read(),
+    new Promise<never>((_, rej) => {
+      timer = setTimeout(() => rej(new Error("stream stall timeout")), stallMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+function drainBuffer(buf: string): { lines: string[]; rest: string } {
+  const out: string[] = [];
+  let i: number;
+  while ((i = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, i).trim();
+    buf = buf.slice(i + 1);
+    if (line) out.push(line);
+  }
+  return { lines: out, rest: buf };
+}
+
 /** Iterate complete lines from a byte stream. Enforces stall timeout between chunks. */
 export async function* lines(body: ReadableStream<Uint8Array>, signal: AbortSignal, stallMs: number): AsyncGenerator<string> {
   const reader = body.getReader();
   let buf = "";
   try {
     for (;;) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const result = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, rej) => {
-          timer = setTimeout(() => rej(new Error("stream stall timeout")), stallMs);
-        }),
-      ]).finally(() => clearTimeout(timer));
+      const result = await nextChunk(reader, stallMs);
       if (result.done) break;
       buf += decoder.decode(result.value, { stream: true });
-      let i: number;
-      while ((i = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, i).trim();
-        buf = buf.slice(i + 1);
-        if (line) yield line;
-      }
+      const d = drainBuffer(buf);
+      buf = d.rest;
+      yield* d.lines;
       if (signal.aborted) return;
     }
     const tail = buf.trim();

@@ -78,10 +78,30 @@ export class EditFile extends EditTool {
   }
 }
 
-export function applyUnifiedPatch(before: string, patch: string, rel: string): string {
-  const lines = patch.replace(/\r\n/g, "\n").split("\n");
-  const hunks: { oldLines: string[]; newLines: string[] }[] = [];
-  let current: { oldLines: string[]; newLines: string[] } | null = null;
+type PatchHunk = { oldLines: string[]; newLines: string[] };
+
+function addPatchLine(h: PatchHunk, line: string): void {
+  if (line.startsWith("-")) {
+    h.oldLines.push(line.slice(1));
+    return;
+  }
+  if (line.startsWith("+")) {
+    h.newLines.push(line.slice(1));
+    return;
+  }
+  if (line.startsWith(" ")) {
+    h.oldLines.push(line.slice(1));
+    h.newLines.push(line.slice(1));
+    return;
+  }
+  if (line === "\\ No newline at end of file" || line === "") return;
+  h.oldLines.push(line);
+  h.newLines.push(line);
+}
+
+function parsePatchHunks(lines: string[]): PatchHunk[] {
+  const hunks: PatchHunk[] = [];
+  let current: PatchHunk | null = null;
   for (const line of lines) {
     if (line.startsWith("---") || line.startsWith("+++")) continue;
     if (line.startsWith("@@")) {
@@ -90,32 +110,27 @@ export function applyUnifiedPatch(before: string, patch: string, rel: string): s
       continue;
     }
     if (!current) continue;
-    if (line.startsWith("-")) current.oldLines.push(line.slice(1));
-    else if (line.startsWith("+")) current.newLines.push(line.slice(1));
-    else if (line.startsWith(" ")) {
-      current.oldLines.push(line.slice(1));
-      current.newLines.push(line.slice(1));
-    } else if (line === "\\ No newline at end of file") {
-      continue;
-    } else if (line !== "") {
-      current.oldLines.push(line);
-      current.newLines.push(line);
-    }
+    addPatchLine(current, line);
   }
   if (current) hunks.push(current);
+  return hunks;
+}
+
+function applyHunk(out: string, h: PatchHunk, rel: string): string {
+  const target = h.oldLines.join("\n");
+  const replacement = h.newLines.join("\n");
+  if (target === "") return out ? `${out}\n${replacement}` : replacement;
+  const idx = out.indexOf(target);
+  if (idx < 0) throw new Error(`patch hunk failed to apply in ${rel}`);
+  return out.slice(0, idx) + replacement + out.slice(idx + target.length);
+}
+
+export function applyUnifiedPatch(before: string, patch: string, rel: string): string {
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+  const hunks = parsePatchHunks(lines);
   if (hunks.length === 0) throw new Error(`invalid patch for ${rel}: no hunks found`);
   let out = before.replace(/\r\n/g, "\n");
-  for (const h of hunks) {
-    const target = h.oldLines.join("\n");
-    const replacement = h.newLines.join("\n");
-    if (target === "") {
-      out = out ? `${out}\n${replacement}` : replacement;
-      continue;
-    }
-    const idx = out.indexOf(target);
-    if (idx < 0) throw new Error(`patch hunk failed to apply in ${rel}`);
-    out = out.slice(0, idx) + replacement + out.slice(idx + target.length);
-  }
+  for (const h of hunks) out = applyHunk(out, h, rel);
   return out;
 }
 

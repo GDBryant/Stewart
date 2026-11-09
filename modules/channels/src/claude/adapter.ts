@@ -3,7 +3,7 @@ import type { ModelCaps } from "@stewart/models";
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "../types.js";
 import { ChannelError } from "../types.js";
 import type { DebugSink } from "@stewart/diagnostics";
-import { ClaudeStreamParser, classify, type ClaudeRawCall } from "./parser.js";
+import { ClaudeStreamParser, classify, type ClaudeEvent, type ClaudeRawCall } from "./parser.js";
 import { normalizeModel } from "@stewart/catalog";
 import { argv as claudeArgv, prepare } from "./transcript.js";
 import { nodeSpawn, makeTempDir, rmDir, writeTempFile, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
@@ -44,6 +44,14 @@ function toToolCalls(calls: ClaudeRawCall[], parser: ClaudeStreamParser): ToolCa
   });
 }
 
+function dispatchParserEvent(ev: ClaudeEvent, parser: ClaudeStreamParser): { events: ChatEvent[]; failure?: { message: string; code: string } } {
+  if (ev.t === "text") return { events: [{ kind: "text", text: ev.text }] };
+  if (ev.t === "reasoning") return { events: [{ kind: "reasoning", text: ev.text }] };
+  if (ev.t === "calls") return { events: [{ kind: "tool_calls", calls: toToolCalls(ev.calls, parser) }] };
+  if (ev.t === "failed") return { events: [], failure: { message: ev.message, code: ev.code } };
+  return { events: [] };
+}
+
 /** Consume CLI stdout lines into ChatEvents; returns the parser's failure event if one was emitted. */
 async function* consumeStdout(
   proc: SpawnedProc,
@@ -59,10 +67,9 @@ async function* consumeStdout(
       throw abortError();
     }
     for (const ev of parser.feed(line)) {
-      if (ev.t === "text") yield { kind: "text", text: ev.text };
-      else if (ev.t === "reasoning") yield { kind: "reasoning", text: ev.text };
-      else if (ev.t === "calls") yield { kind: "tool_calls", calls: toToolCalls(ev.calls, parser) };
-      else if (ev.t === "failed") failure = { message: ev.message, code: ev.code };
+      const d = dispatchParserEvent(ev, parser);
+      if (d.failure) failure = d.failure;
+      yield* d.events;
     }
     if (parser.failedEmitted || parser.toolTurnEnded) {
       await proc.kill();

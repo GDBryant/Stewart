@@ -155,21 +155,24 @@ export function callAttrTagEnd(text: string, start: number): number {
   return gt === -1 ? -1 : gt + 1;
 }
 
+function quotedAttrValue(text: string, i: number, q: string): [string, number, "sq" | "dq"] | null {
+  let j = i + 1;
+  while (j < text.length) {
+    if (text[j] === "\\") {
+      j += 2;
+      continue;
+    }
+    if (text[j] === q) return [text.slice(i + 1, j), j + 1, q === '"' ? "dq" : "sq"];
+    j++;
+  }
+  return null;
+}
+
 function readAttrValue(text: string, i: number): [string, number, "sq" | "dq" | "raw"] | null {
   if (i >= text.length) return null;
   const c = text[i];
   if (c === '"' || c === "'") {
-    const q = c;
-    let j = i + 1;
-    while (j < text.length) {
-      if (text[j] === "\\") {
-        j += 2;
-        continue;
-      }
-      if (text[j] === q) return [text.slice(i + 1, j), j + 1, q === '"' ? "dq" : "sq"];
-      j++;
-    }
-    return null;
+    return quotedAttrValue(text, i, c);
   }
   if (c === "{" || c === "[") {
     const endRel = firstJsonValueEnd(text.slice(i));
@@ -544,6 +547,24 @@ function quoteBareValue(s: string, i0: number): [string, number] {
   return [emitted, i];
 }
 
+function repairPlain(s: string, i: number, stack: string[]): { inStr: boolean; text: string; next: number } {
+  const c = s[i];
+  if (c === '"') return { inStr: true, text: c, next: i + 1 };
+  if (c === ":") {
+    const [emitted, ni] = quoteBareValue(s, i + 1);
+    return { inStr: false, text: c + emitted, next: ni };
+  }
+  if (c === "{" || c === "[") {
+    stack.push(c === "{" ? "}" : "]");
+    return { inStr: false, text: c, next: i + 1 };
+  }
+  if ((c === "}" || c === "]") && stack.length > 0) {
+    stack.pop();
+    return { inStr: false, text: c, next: i + 1 };
+  }
+  return { inStr: false, text: c, next: i + 1 };
+}
+
 function repairJson(s: string): string {
   let out = "";
   const stack: string[] = [];
@@ -551,33 +572,28 @@ function repairJson(s: string): string {
   let i = 0;
   while (i < s.length) {
     const c = s[i];
-    if (inStr) {
-      if (c === "\\" && i + 1 < s.length) {
-        out += s.slice(i, i + 2);
-        i += 2;
-        continue;
-      }
-      if (c === '"') {
-        if (closesString(s, i)) {
-          inStr = false;
-        } else {
-          out += '\\"';
-          i += 1;
-          continue;
-        }
-      }
-    } else if (c === '"') {
-      inStr = true;
-    } else if (c === ":") {
-      out += c;
-      const [emitted, ni] = quoteBareValue(s, i + 1);
-      out += emitted;
-      i = ni;
+    if (!inStr) {
+      const r = repairPlain(s, i, stack);
+      inStr = r.inStr;
+      out += r.text;
+      i = r.next;
       continue;
-    } else if (c === "{" || c === "[") {
-      stack.push(c === "{" ? "}" : "]");
-    } else if ((c === "}" || c === "]") && stack.length > 0) {
-      stack.pop();
+    }
+    if (c === "\\" && i + 1 < s.length) {
+      out += s.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (c === '"') {
+      if (closesString(s, i)) {
+        inStr = false;
+        out += c;
+        i += 1;
+      } else {
+        out += '\\"';
+        i += 1;
+      }
+      continue;
     }
     out += c;
     i += 1;
@@ -611,6 +627,18 @@ function jsonStringEnd(s: string, i: number): number {
   return -1;
 }
 
+function compositePlain(c: string, stack: string[]): boolean {
+  if (c === '"') return true;
+  if (c === "{" || c === "[") {
+    stack.push(c === "{" ? "}" : "]");
+    return false;
+  }
+  if (c === "}" || c === "]") {
+    if (stack[stack.length - 1] === c) stack.pop();
+  }
+  return false;
+}
+
 function jsonCompositeEnd(s: string, i: number, open: string): number {
   const stack: string[] = [open === "{" ? "}" : "]"];
   let j = i + 1;
@@ -620,12 +648,8 @@ function jsonCompositeEnd(s: string, i: number, open: string): number {
     if (inStr) {
       if (c === "\\") j++;
       else if (c === '"') inStr = false;
-    } else if (c === '"') {
-      inStr = true;
-    } else if (c === "{" || c === "[") {
-      stack.push(c === "{" ? "}" : "]");
-    } else if (c === "}" || c === "]") {
-      if (stack[stack.length - 1] === c) stack.pop();
+    } else {
+      inStr = compositePlain(c, stack);
     }
     j++;
   }

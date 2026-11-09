@@ -38,27 +38,42 @@ export function successfulOutcome(content: string): boolean {
  * edit/write/terminal call. Never blocks a decision; only sets the
  * recommended option.
  */
-export function detectStuck(messages: ChatMessage[]): { stuck: boolean; reason?: string } {
-  const seen = new Map<string, number>();
+function collectOutcomes(messages: ChatMessage[]): Map<string, string> {
   const outcomes = new Map<string, string>();
   for (const m of messages) {
     if (m.role === "tool" && m.toolCallId) outcomes.set(m.toolCallId, m.content);
   }
+  return outcomes;
+}
+
+function scanAssistantTurn(
+  m: ChatMessage,
+  seen: Map<string, number>,
+  outcomes: Map<string, string>,
+): { turn?: { name: string; progress: boolean }; stuck?: string } {
+  if (m.role !== "assistant" || !m.toolCalls) return {};
+  let progress = false;
+  for (const c of m.toolCalls) {
+    const key = `${c.name}\n${JSON.stringify(c.arguments)}`;
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    if (n >= 3) return { stuck: `same call repeated ${n}x: ${c.name}` };
+    if (PROGRESS_TOOLS.has(c.name)) {
+      const out = outcomes.get(c.id);
+      if (out !== undefined && successfulOutcome(out)) progress = true;
+    }
+  }
+  return { turn: { name: m.toolCalls[0].name, progress } };
+}
+
+export function detectStuck(messages: ChatMessage[]): { stuck: boolean; reason?: string } {
+  const seen = new Map<string, number>();
+  const outcomes = collectOutcomes(messages);
   const turns: { name: string; progress: boolean }[] = [];
   for (const m of messages) {
-    if (m.role !== "assistant" || !m.toolCalls) continue;
-    let progress = false;
-    for (const c of m.toolCalls) {
-      const key = `${c.name}\n${JSON.stringify(c.arguments)}`;
-      const n = (seen.get(key) ?? 0) + 1;
-      seen.set(key, n);
-      if (n >= 3) return { stuck: true, reason: `same call repeated ${n}x: ${c.name}` };
-      if (PROGRESS_TOOLS.has(c.name)) {
-        const out = outcomes.get(c.id);
-        if (out !== undefined && successfulOutcome(out)) progress = true;
-      }
-    }
-    turns.push({ name: m.toolCalls[0].name, progress });
+    const r = scanAssistantTurn(m, seen, outcomes);
+    if (r.stuck) return { stuck: true, reason: r.stuck };
+    if (r.turn) turns.push(r.turn);
   }
   const last = turns.slice(-5);
   if (last.length >= 5 && !last.some((t) => t.progress)) {

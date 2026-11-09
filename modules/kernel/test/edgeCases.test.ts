@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { createServer, type AddressInfo } from "node:http";
 import { EventBus } from "../src/events.js";
 import { mediaTypeFor } from "../src/mime.js";
+import { err, fromThrowable, isErr, ok, StewartError } from "../src/result.js";
 import { counterIds, nodeFetch, systemClock } from "../src/ports.js";
 import { collect, fakeFetcher, fakeHost, streamOf } from "../src/testing.js";
 import type { RunEvent } from "@stewart/protocol";
@@ -77,6 +79,59 @@ describe("systemClock / counterIds / nodeFetch", () => {
 
   it("nodeFetch rejects on unreachable hosts and resolves on real servers", async () => {
     await expect(nodeFetch("http://127.0.0.1:1/", {})).rejects.toThrow();
+    const srv = createServer((_req, res) => {
+      res.writeHead(200, { "X-Test": "yes", "Content-Type": "text/plain" });
+      res.end("hello");
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    try {
+      const port = (srv.address() as AddressInfo).port;
+      const r = await nodeFetch(`http://127.0.0.1:${port}/`, { method: "GET" });
+      expect(r.status).toBe(200);
+      expect(r.headers["x-test"]).toBe("yes");
+      expect(r.headers["content-type"]).toContain("text/plain");
+      expect(await new Response(r.body).text()).toBe("hello");
+    } finally {
+      srv.close();
+    }
+  });
+});
+
+describe("result helpers", () => {
+  it("ok/err/isErr round-trip with StewartError fields", () => {
+    const good = ok(42);
+    expect(good).toEqual({ ok: true, value: 42 });
+    expect(isErr(good)).toBe(false);
+    const bad = err("E_TEST", "boom", new Error("why"));
+    expect(isErr(bad)).toBe(true);
+    if (!bad.ok) {
+      expect(bad.error).toBeInstanceOf(StewartError);
+      expect(bad.error.name).toBe("StewartError");
+      expect(bad.error.code).toBe("E_TEST");
+      expect(bad.error.message).toBe("boom");
+      expect(bad.error.cause).toBeInstanceOf(Error);
+    }
+  });
+
+  it("fromThrowable returns ok or wraps Error and non-Error throws", () => {
+    expect(fromThrowable("E", () => "v")).toEqual({ ok: true, value: "v" });
+    const wrapped = fromThrowable("E_WRAP", () => {
+      throw new Error("inner");
+    });
+    expect(isErr(wrapped)).toBe(true);
+    if (!wrapped.ok) {
+      expect(wrapped.error.code).toBe("E_WRAP");
+      expect(wrapped.error.message).toBe("inner");
+      expect(wrapped.error.cause).toBeInstanceOf(Error);
+    }
+    const plain = fromThrowable("E_STR", () => {
+      throw "plain";
+    });
+    expect(isErr(plain)).toBe(true);
+    if (!plain.ok) {
+      expect(plain.error.message).toBe("plain");
+      expect(plain.error.cause).toBe("plain");
+    }
   });
 });
 

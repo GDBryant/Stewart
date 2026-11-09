@@ -39,11 +39,15 @@ export async function recoveryCall(rt: OrchestrationRuntime, brain: RecoveryBrai
       return undefined;
     }
   } catch (e) {
-    if (e instanceof RunCancelledError || rt.signal.aborted) throw e instanceof Error ? e : new Error("cancelled");
-    logRecovery(rt, `layer 1: recovery call failed (${e instanceof Error ? e.message : e})`);
-    return undefined;
+    return recoveryCallError(e, rt);
   }
   return plan;
+}
+
+function recoveryCallError(e: unknown, rt: OrchestrationRuntime): undefined {
+  if (e instanceof RunCancelledError || rt.signal.aborted) throw e instanceof Error ? e : new Error("cancelled");
+  logRecovery(rt, `layer 1: recovery call failed (${e instanceof Error ? e.message : e})`);
+  return undefined;
 }
 
 /** Read the sub-task outputs in order and write them to `final_file` through the normal edit path. */

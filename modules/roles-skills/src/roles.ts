@@ -57,22 +57,29 @@ export function agentServesRole(agent: AgentDef, channels: ChannelDef[], roleId:
  * silent fallback), the Orchestrator must be enabled once another role is, and
  * capability roles must point at a capable agent.
  */
+function roleAgentErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: ChannelDef[]): string[] {
+  if (!r.agent) return [`role ${r.id}: enabled but no agent bound`];
+  const agent = byId.get(r.agent);
+  if (!agent) return [`role ${r.id}: unknown agent '${r.agent}'`];
+  if (!agentServesRole(agent, channels, r.id)) return [`role ${r.id}: agent '${r.agent}' lacks ${roleCapability(r.id)}`];
+  return [];
+}
+
+function roleFallbackErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: ChannelDef[]): string[] {
+  if (!r.fallbackAgent) return [];
+  const fb = byId.get(r.fallbackAgent);
+  if (!fb) return [`role ${r.id}: unknown fallbackAgent '${r.fallbackAgent}'`];
+  if (!agentServesRole(fb, channels, r.id)) return [`role ${r.id}: fallbackAgent '${r.fallbackAgent}' lacks ${roleCapability(r.id)}`];
+  return [];
+}
+
 export function validateRoles(roles: RoleDef[], agents: AgentDef[], channels: ChannelDef[]): string[] {
   const errors: string[] = [];
   const byId = new Map(agents.map((a) => [a.id, a]));
   const enabled = roles.filter((r) => r.enabled);
   for (const r of enabled) {
-    if (!r.agent) errors.push(`role ${r.id}: enabled but no agent bound`);
-    else {
-      const agent = byId.get(r.agent);
-      if (!agent) errors.push(`role ${r.id}: unknown agent '${r.agent}'`);
-      else if (!agentServesRole(agent, channels, r.id)) errors.push(`role ${r.id}: agent '${r.agent}' lacks ${roleCapability(r.id)}`);
-    }
-    if (r.fallbackAgent) {
-      const fb = byId.get(r.fallbackAgent);
-      if (!fb) errors.push(`role ${r.id}: unknown fallbackAgent '${r.fallbackAgent}'`);
-      else if (!agentServesRole(fb, channels, r.id)) errors.push(`role ${r.id}: fallbackAgent '${r.fallbackAgent}' lacks ${roleCapability(r.id)}`);
-    }
+    errors.push(...roleAgentErrors(r, byId, channels));
+    errors.push(...roleFallbackErrors(r, byId, channels));
   }
   const orchestrator = roles.find((r) => r.id === "orchestrator");
   if (enabled.some((r) => r.id !== "orchestrator") && !orchestrator?.enabled) {

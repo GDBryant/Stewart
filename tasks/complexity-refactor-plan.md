@@ -125,6 +125,16 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 - Verification: vitest + `tsc --noEmit` clean per package (toolcall-format 87, webview 94, channels 90, recovery 36, config 20 tests). Coverage ≥90/80 everywhere touched (toolcall-format 94.1/86.2, webview 96.6/87.9, channels 97.1/86.4, recovery 97.6/87.0, config 97.4/88.0). `check:layers`/`check:boundaries`/`check:cycles`/`check:tsrefs` pass. Webview esbuild bundle OK (119.9kb).
 - Scan checkpoint: >10 branches 68 → 61; >15 branches 15 → 8. Every Phase-4 target and helper is <15.
 
+## Nesting pass (2026-11-09)
+
+AST nesting scan (`if`/loops/`switch`/`try`/`catch`/ternary depth per function) before → after: functions at depth ≥5: 8 → 0; depth ≥4: 36 → 21; max depth 6 → 4.
+
+- Depth 6→≤3: `consumeStdout` (parser-event dispatch), `globToRegex`/`applyUnifiedPatch` (`GLOB_ATOMS`/`addPatchLine`+`applyHunk`), `repairJson`/`jsonCompositeEnd` (`repairPlain`/`compositePlain`), `expandMentions` (`MENTION_HANDLERS`), `smokeModel` (`probeStepOutcome`/`probeVerdict`), `unflatten` (`coerceField`).
+- Depth 5→≤3: same set (three of the eight were depth 5).
+- Depth 4→≤3 (8 functions): `lines` (`nextChunk`/`drainBuffer`), `rebuild` (`loadChannelSecret`), `detectStuck` (`collectOutcomes`/`scanAssistantTurn`), `recoveryCall` (`recoveryCallError`), `validateRoles` (`roleAgentErrors`/`roleFallbackErrors`), `history.save`/`load` (`storeImages`/`restoreImages`), `recordUsage` (`usageSource`), `readAttrValue` (`quotedAttrValue`).
+- Skipped as risky/recently-refactored: `orchestrator.runSession`, `toolLoop.streamTurn`/`invokeCall`, channel `chat` adapters, `assembleFinalFile`/`splitTask`, `decodeJsonObject`, `fsRead.execute` ×2, setup `sessionDeps`/`approveAndSave`/`measureSpeed`/`discoverChannels`, `snapshots.revertRunSnapshots`, core `handlers/setup`.
+- Verification: all touched-package vitest+tsc clean; full `pnpm -r test`/`typecheck`/`build`/`test:coverage` + structural checks re-run (see health report update).
+
 ## Verification per phase
 
 `pnpm -r test`, `pnpm -r typecheck`, `pnpm -r build`, `check:layers`/`check:boundaries`/`check:cycles`. Re-run complexity scan; target every function <15 branches. Scan >15 count: 43 → 38 after Phase 1; Phase 2/3 should push toward single digits. No behavior change; helpers stay inside their module.

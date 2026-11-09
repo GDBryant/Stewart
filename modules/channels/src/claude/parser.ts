@@ -66,30 +66,25 @@ export class ClaudeStreamParser {
     return { in: sum(0), out: sum(1) };
   }
 
-  private recordUsage(o: Obj): void {
-    let id: string | undefined;
-    let u: unknown;
+  private usageSource(o: Obj): { id: string | undefined; u: unknown } | null {
     const type = str(o.type);
     if (type === "assistant") {
       const m = obj(o.message);
-      id = str(m?.id);
-      u = m?.usage;
-    } else if (type === "stream_event") {
-      const event = obj(o.event);
-      if (!event) return;
-      if (event.type === "message_start") {
-        id = this.eventMessageId(o);
-        u = obj(event.message)?.usage;
-      } else if (event.type === "message_delta") {
-        id = this.eventMessageId(o);
-        u = event.usage;
-      } else {
-        return;
-      }
-    } else {
-      return;
+      return { id: str(m?.id), u: m?.usage };
     }
-    const usage = obj(u);
+    if (type !== "stream_event") return null;
+    const event = obj(o.event);
+    if (!event) return null;
+    if (event.type === "message_start") return { id: this.eventMessageId(o), u: obj(event.message)?.usage };
+    if (event.type === "message_delta") return { id: this.eventMessageId(o), u: event.usage };
+    return null;
+  }
+
+  private recordUsage(o: Obj): void {
+    const src = this.usageSource(o);
+    if (!src) return;
+    const id = src.id;
+    const usage = obj(src.u);
     if (!usage) return;
     if (this.cutPending && id !== this.toolMessageId) return;
     const parts = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].map((k) => num(usage[k])).filter((v): v is number => v !== undefined);

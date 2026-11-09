@@ -32,6 +32,14 @@ function flatten(obj: object, prefix = ""): Record<string, string> {
   return out;
 }
 
+function coerceField(f: Field, raw: string): { has: boolean; value?: unknown } {
+  if (f.kind === "bool") return { has: true, value: raw === "true" };
+  if (f.kind === "number") return { has: true, value: Number(raw) };
+  if (f.kind === "list") return { has: true, value: raw.split(",").map((s) => s.trim()).filter(Boolean) };
+  if (f.kind === "select" || f.kind === "model" || !f.kind) return { has: true, value: raw };
+  return { has: false };
+}
+
 function unflatten(form: Record<string, string>, fields: Field[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of fields) {
@@ -41,10 +49,8 @@ function unflatten(form: Record<string, string>, fields: Field[]): Record<string
     let node = out;
     for (let i = 0; i < parts.length - 1; i++) node = (node[parts[i]] ??= {}) as Record<string, unknown>;
     const leaf = parts[parts.length - 1];
-    if (f.kind === "bool") node[leaf] = raw === "true";
-    else if (f.kind === "number") node[leaf] = Number(raw);
-    else if (f.kind === "list") node[leaf] = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    else if (f.kind === "select" || f.kind === "model" || !f.kind) node[leaf] = raw;
+    const c = coerceField(f, raw);
+    if (c.has) node[leaf] = c.value;
   }
   return out;
 }
