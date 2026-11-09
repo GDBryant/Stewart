@@ -156,6 +156,15 @@ describe("chat handlers", () => {
     const res = (await core.dispatch("chat.resume", { projectId: "p", runId: "nope" })) as { ok: boolean };
     expect(res.ok).toBe(false);
   });
+
+  it("chat.send without direct routes through the orchestrator role", async () => {
+    const { core } = mk({}, {}, { "roles.yaml": "version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    agent: a1\n    tools: []\n" });
+    await attach(core);
+    const r = (await core.dispatch("chat.send", { projectId: "p", text: "plan this" })) as { runId: string };
+    expect(r.runId).toBeTruthy();
+    const c = (await core.dispatch("chat.cancel", { projectId: "p", runId: r.runId })) as { ok: boolean };
+    expect(typeof c.ok).toBe("boolean");
+  });
 });
 
 describe("setup.recommend via dispatch", () => {

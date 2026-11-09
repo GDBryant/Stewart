@@ -110,3 +110,31 @@ Extract `layer0Retry()`, `askContinue()`, `trySplit()`; loop becomes a dispatche
 ## Scan checkpoint (2026-11-09)
 
 Snapshot before Phase 2: >10 branches 79, >15 branches 38. After Phase 2: >10 branches 78, >15 branches 31. After Phase 3: >10 branches 72, >15 branches 22. All Phase-3 target functions and their new helpers are below 15; untouched hotspots remain, including `RoleCard` (23) and `AgentExtra` (21). The repository-wide every-function-<15 and single-digit >15 goals are not yet achieved.
+
+## Gap audit (2026-11-09, post Phase 3)
+
+Full gate run: 30 packages tests + typecheck green (1023 tests), layers/boundaries/cycles/tsrefs pass. One gap found and fixed:
+
+- `packages/core` coverage was 78.96% lines (threshold 90) — `handlers/setup.ts` 49% (session handlers, `benchCandidates`), `setupProbe.ts` 64% (live discovery, evaluator ranking, retry), `types.ts` 0% (type-only). Added `test/setupSession.test.ts`, `test/recommendBench.test.ts`, `test/probeDiscovery.test.ts`, one `chat.send` orchestrator case; excluded `handlers/types.ts` from coverage. Now 98.47% lines / 89% branches, 92 tests.
+- `hosts/vscode` has no coverage config (`@vitest/coverage-v8` not a dep) — not a regression, noted for Phase 4.
+
+## Phase 4 — next best gains (ranked; none started)
+
+Ranking = branches × blast radius, preferring pure modules with existing tests. Current >15: 22 functions.
+
+| # | Branches | Location | Function | Approach |
+|---:|---:|---|---|---|
+| 1 | 30 | `modules/permissions/src/shell.ts:32` | `splitShellPrograms` | Tokenizer state machine → `ShellScanner` with per-char handlers (quote/escape/operator/subshell); keep fixture tests verbatim. Pure, security-adjacent: must bracket with existing negative tests. |
+| 2 | 29 | `modules/agent-loop/src/toolLoop.ts:332` | `executeCall` | Split permission check / tool resolve / invoke / result shaping into `resolveTool`, `gateCall`, `invokeTool`, `shapeResult`; pairs with `streamTurn` (26) → extract `onDelta` handler map and `closeOpenToolCalls` already exists. |
+| 3 | 28 | `modules/runs/src/direct.ts:47` | `execute` | Mirror `resume.ts`: `DirectState` + `startRun`/`runTask`/`finishRun`; direct = single-task run (aligns with `ARCHITECTURE_REFACTORING.md` R2). |
+| 4 | 27 | `modules/setup/src/bench.ts:38` | `benchModel` | `runBenchStep(kind)` table for the prompt/tool/vision legs; `summarizePerf` for scoring. |
+| 5 | 24 / 18 | `modules/orchestration/src/orchestrator.ts:115,198` | `run`, `answerNestedAskUser` | `dispatchReady`/`collectResults`/`finalize`; `answerNestedAskUser` → question-kind handler map. |
+| 6 | 23 / 19 | `modules/toolcall-format/src/shimParser.ts:596,335` | `firstJsonValueEnd`, `tagAt` | Lower priority: parser hot path with verbatim fixtures; only touch if coverage stays identical. |
+| 7 | 23 / 21 | `packages/webview/src/SettingsView.tsx:384,288` | `RoleCard`, `AgentExtra` | Per-field subcomponents reusing `FIELD_CONTROLS`; `RoleCard` tool-picker → `ToolPicker`. |
+| 8 | 22 | `modules/channels/src/claude/parser.ts:212` | `assistantEvent` | Content-block kind → handler map (`text`/`thinking`/`tool_use`). |
+| 9 | 22 / 14 | `modules/recovery/src/plan.ts:11,17` | `parseRecoveryArgs` | Arg validators table; collapse callback. |
+| 10 | 21 | `modules/config/src/loader.ts:62` | `loadConfig` | Per-file `loadLayerFile` + `mergeLayers`. |
+
+Also: add `@vitest/coverage-v8` + `test:coverage` to `hosts/vscode` so CI enforces the 90/80 bar there too.
+
+Target after Phase 4 items 1–5: >15 count 22 → ≤12. Same verification as other phases; re-run `node scripts/complexity-scan.mjs` and record the checkpoint here.
