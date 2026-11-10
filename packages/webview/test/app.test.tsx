@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { cleanup } from "@testing-library/preact";
-import { render, screen, fireEvent, act } from "@testing-library/preact";
+import { render, screen, fireEvent, act, within } from "@testing-library/preact";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
 import { MockBridge, agentCosts, type ConfigReply } from "../src/bridge.js";
@@ -277,6 +277,23 @@ describe("webview chat", () => {
       bridge.inbound(ev("text_delta", { seq: 0, text: "reply" }));
     });
     expect(ta.value).toBe("keep me");
+  });
+
+  it("sets the budget profile when a profile button is clicked", () => {
+    const { store } = mk();
+    const group = screen.getByRole("group", { name: "budget profile" });
+    const deep = within(group).getByRole("button", { name: "deep" });
+    fireEvent.click(deep);
+    expect(store.state.profileChoice).toBe("deep");
+    expect(deep.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("presses auto by default and leaves the other profile buttons unpressed", () => {
+    mk();
+    const group = screen.getByRole("group", { name: "budget profile" });
+    for (const [name, pressed] of [["auto", "true"], ["quick", "false"], ["normal", "false"], ["deep", "false"]] as const) {
+      expect(within(group).getByRole("button", { name }).getAttribute("aria-pressed")).toBe(pressed);
+    }
   });
 });
 

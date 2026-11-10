@@ -179,3 +179,18 @@ Scan checkpoint: functions >15 branches 8 → 0; functions >10 branches 61 → 8
 - >10→≤10 across ~45 more functions: parser feed/usage/span/attr scanners, shell scanner `inPlain`, toolLoop `invokeTool`/`executeCalls`, roleRunner `resolveAgent`/`runRoleTask`/`buildSessionDeps`/`compactorFor`, orchestrator `applyTaskResult`/`rerunParkedTasks`-adjacent, recovery `runTaskRecoverable`/`askContinue`, setup `gateError`/`approveAndSave`/`probe run`/`retry`/`scanWorkspace`, run-state `history` image IO, resume `planResume`, channels `rebuild`/`lines`/`chat`/`ollamaDeltas`, webview `ItemCard`/`Composer`/`SettingsView`/`ChannelExtra`/`capBadges`/`unflatten`, budget `resolveLimits`/`classifyTask`, compaction `pruneStale`, models `profileFromChannel`, tools `typeError`/fsRead executes, kernel `testing.ts` factories.
 - Remaining 8 functions >10 (accepted): `probeOne` 13, `useWizardDerived` 12, `rerunParkedTasks`/`assembleFinalFile`/`eligible`/`scoreAssignments`/`validateAssignment`/`App` 11.
 - Verification: every touched package's vitest+tsc clean per batch; full gates re-run at end (see health report).
+
+## Large-unit split (done)
+
+All six >500-line source files split into cohesive per-concern files; public exports/imports unchanged (re-exports kept where external paths required), no behavior change, all files now <400 lines.
+
+| Original | Before | After (lines) |
+|---|---:|---|
+| `modules/toolcall-format/src/shimParser.ts` | 890 | `shimParser.ts` 277 (parseToolCalls + span scan), `types.ts` 48, `jsonRepair.ts` 211, `callAttr.ts` 134, `tagParsers.ts` 195, `repairNative.ts` 48 |
+| `packages/webview/src/SettingsView.tsx` | 775 | `SettingsView.tsx` 151 (tab shell + TAB_VIEWS), `fields.tsx` 106, `items.tsx` 121, `channelExtra.tsx` 48, `agentExtra.tsx` 46, `rolesSection.tsx` 178, `skillsSection.tsx` 88, `settingsEditor.tsx` 71 |
+| `modules/setup/src/probe.ts` | 654 | `probe.ts` 351 (`SetupProbeRunner`), `probeTypes.ts` 99, `smoke.ts` 146, `rank.ts` 104 |
+| `packages/webview/src/state.ts` | 578 | `state.ts` 259 (`Store`), `stateTypes.ts` 110, `stateHandlers.ts` 275 (reply/event maps via `HandlerHost`) |
+| `modules/orchestration/src/orchestrator.ts` | 580 | `orchestrator.ts` 23 (types/consts/`resolveRole`), `orchestratedRun.ts` 329 (`runOrchestrated`/`OrchestratedRun`), `runSupport.ts` 182 (session/run/finalize/cost-limit), `askUser.ts` 92 (nested ask_user) |
+| `modules/agent-loop/src/toolLoop.ts` | 515 | `toolLoop.ts` 202 (`ToolLoop`), `callExecutor.ts` 226 (`CallExecutor`), `toolStream.ts` 130 (stream/delta/timeout) |
+
+Verification: per-package vitest+tsc green, coverage ≥90/80 in all five packages, `check-layers`/`check-boundaries`/`check-cycles`/`check-tsrefs` clean, sidecar + webview bundles rebuilt.

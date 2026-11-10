@@ -75,6 +75,8 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .session-meta { opacity: 0.6; font-size: 11px; white-space: nowrap; }
 
 .composer { flex-wrap: wrap; }
+.profile-select { display: flex; gap: 2px; }
+.profile-opt.active { background: var(--vscode-button-background, #3574f0); color: var(--vscode-button-foreground, #fff); }
 .pending-images { display: flex; gap: 6px; flex-basis: 100%; }
 .pending-img { position: relative; display: inline-block; }
 .pending-img img { max-height: 64px; max-width: 96px; border-radius: 6px; border: 1px solid #8885; display: block; }

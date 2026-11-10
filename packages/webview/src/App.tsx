@@ -227,18 +227,18 @@ function Composer({ store }: { store: Store }) {
       <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
         📎
       </button>
-      <select
-        class="profile-select"
-        aria-label="budget profile"
-        title="Budget profile"
-        value={s.profileChoice}
-        onChange={(e) => store.setProfileChoice((e.target as HTMLSelectElement).value as typeof s.profileChoice)}
-      >
-        <option value="auto">auto</option>
-        <option value="quick">quick</option>
-        <option value="normal">normal</option>
-        <option value="deep">deep</option>
-      </select>
+      <div class="profile-select" role="group" aria-label="budget profile" title="Budget profile">
+        {(["auto", "quick", "normal", "deep"] as const).map((p) => (
+          <button
+            key={p}
+            class={`small profile-opt ${s.profileChoice === p ? "active" : ""}`}
+            aria-pressed={s.profileChoice === p}
+            onClick={() => store.setProfileChoice(p)}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
       <ComposerAction busy={!!s.busyRunId} canSend={!!draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
     </div>
   );

@@ -1,0 +1,178 @@
+import { useState } from "preact/hooks";
+import { stringify } from "yaml";
+import type { Store } from "./state.js";
+import type { AgentSummary, ChannelSummary, RoleSummary, SkillSummary } from "./bridge.js";
+import { agentCosts } from "./bridge.js";
+
+const SIDE_EFFECT_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]);
+const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = { "image-reader": "vision", "image-writer": "imageGen" };
+
+function agentsForRole(roleId: string, agents: AgentSummary[], channels: ChannelSummary[]): AgentSummary[] {
+  const cap = ROLE_CAPABILITY[roleId];
+  if (!cap) return agents;
+  return agents.filter((a) => {
+    const caps = channels.find((c) => c.id === a.channel)?.modelCaps?.[a.model] as Record<string, unknown> | undefined;
+    return caps?.[cap] === true;
+  });
+}
+
+function RoleAgentField({ label, value, candidates, onPick }: {
+  label: string;
+  value: string | undefined;
+  candidates: AgentSummary[];
+  onPick(next: string | undefined): void;
+}) {
+  return (
+    <label class="field">
+      <span>{label}</span>
+      <select value={value ?? ""} onChange={(e) => onPick((e.target as HTMLSelectElement).value || undefined)}>
+        <option value="">—</option>
+        {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function CsvField({ label, values, onSave }: { label: string; values: string[] | undefined; onSave(next: string[]): void }) {
+  return (
+    <label class="field">
+      <span>{label}</span>
+      <input value={(values ?? []).join(", ")} onInput={(e) => onSave((e.target as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean))} />
+    </label>
+  );
+}
+
+function ToolPicker({ tools, onSave }: { tools: string[] | undefined; onSave(next: string[]): void }) {
+  return <CsvField label="tools (csv)" values={tools} onSave={onSave} />;
+}
+
+function TurnBudgetField({ value, onSave }: { value: RoleSummary["turnBudget"]; onSave(next: RoleSummary["turnBudget"]): void }) {
+  return (
+    <label class="field">
+      <span>turnBudget</span>
+      <input value={String(value ?? "")} onInput={(e) => {
+        const v = (e.target as HTMLInputElement).value;
+        onSave(v === "unlimited" ? "unlimited" : Number(v) || undefined);
+      }} />
+    </label>
+  );
+}
+
+function SkillTicks({ skills, allSkills, needsWrite, onToggle }: {
+  skills: string[] | undefined;
+  allSkills: SkillSummary[];
+  needsWrite: boolean;
+  onToggle(id: string): void;
+}) {
+  return (
+    <div class="field">
+      <span>skills</span>
+      <div class="skill-ticks">
+        {allSkills.map((s) => (
+          <label key={s.id} class="field-inline" title={s.description}>
+            <input
+              type="checkbox"
+              checked={(skills ?? []).includes(s.id) || (s.id === "execution-contract" && needsWrite)}
+              disabled={s.id === "execution-contract" && needsWrite}
+              onChange={() => onToggle(s.id)}
+            />
+            {s.id}
+            {s.updateAvailable ? <span class="warn">↑</span> : null}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, toggleSkill }: {
+  role: RoleSummary;
+  candidates: AgentSummary[];
+  cap: "vision" | "imageGen" | undefined;
+  allSkills: SkillSummary[];
+  needsWrite: boolean;
+  save(patch: Partial<RoleSummary>): void;
+  toggleSkill(id: string): void;
+}) {
+  return (
+    <div class="form">
+      <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
+      <RoleAgentField label="fallback agent" value={role.fallbackAgent} candidates={candidates} onPick={(v) => save({ fallbackAgent: v })} />
+      {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
+      <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
+      <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />
+      <CsvField label="writePaths (csv)" values={role.writePaths} onSave={(v) => save({ writePaths: v })} />
+      <SkillTicks skills={role.skills} allSkills={allSkills} needsWrite={needsWrite} onToggle={toggleSkill} />
+    </div>
+  );
+}
+
+function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
+  role: RoleSummary;
+  agents: AgentSummary[];
+  channels: ChannelSummary[];
+  allSkills: SkillSummary[];
+  onSave(next: RoleSummary): void;
+  onReset(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const save = (patch: Partial<RoleSummary>) => onSave({ ...role, ...patch });
+  const toggleSkill = (id: string) => {
+    const cur = role.skills ?? [];
+    save({ skills: cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id] });
+  };
+  const candidates = agentsForRole(role.id, agents, channels);
+  const cap = ROLE_CAPABILITY[role.id];
+  const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
+  return (
+    <div class="card">
+      <div class="card-title">
+        <label class="field-inline">
+          <input type="checkbox" checked={role.enabled} onChange={(e) => save({ enabled: (e.target as HTMLInputElement).checked })} />
+          <b>{role.id}</b>
+        </label>
+        <span class="summary">{(role.skills ?? []).join(", ")}</span>
+        {agentCosts(agents.find((a) => a.id === role.agent), channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
+        <span class="spacer" />
+        <button class="small" onClick={onReset}>Reset</button>
+        <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
+      </div>
+      {open ? (
+        <RoleEditForm role={role} candidates={candidates} cap={cap} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
+      ) : null}
+    </div>
+  );
+}
+
+export function RolesSection({ store, roles, agents, channels, skills }: {
+  store: Store; roles: RoleSummary[]; agents: AgentSummary[]; channels: ChannelSummary[]; skills: SkillSummary[];
+}) {
+  const [assignee, setAssignee] = useState("");
+  const save = (next: RoleSummary[]) => store.saveFile("roles.yaml", stringify({ version: 1, items: next }, null, 2));
+  return (
+    <section>
+      <h3>
+        Roles
+        <span class="spacer" />
+        <select value={assignee} onChange={(e) => setAssignee((e.target as HTMLSelectElement).value)}>
+          <option value="">assign agent…</option>
+          {agents.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+        </select>
+        <button class="small" disabled={!assignee} onClick={() => store.assignAgentToAll(assignee)}>Assign to all</button>
+        <button class="small deny" onClick={() => store.resetRole()}>Reset all</button>
+      </h3>
+      {roles.map((r) => (
+        <RoleCard
+          key={r.id}
+          role={r}
+          agents={agents}
+          channels={channels}
+          allSkills={skills}
+          onSave={(next) => save(roles.map((x) => (x.id === r.id ? next : x)))}
+          onReset={() => store.resetRole(r.id)}
+        />
+      ))}
+      {!roles.length ? <p class="hint">No roles configured.</p> : null}
+    </section>
+  );
+}
