@@ -87,7 +87,7 @@ function findMatcher(glob: string): RegExp {
 export class FindFiles extends ProjectTool {
   spec: ToolSpec = {
     name: "FindFiles",
-    description: "Find project files matching a glob",
+    description: "Find/list project files matching a glob — any file type; '**/*' lists everything under path",
     parameters: schema({ glob: str, path: str }, ["glob"]),
   };
   requiresApproval = false;
@@ -131,7 +131,7 @@ async function locEntry(paths: ProjectPaths, rel: string): Promise<{ path: strin
 export class ListCodeFiles extends ProjectTool {
   spec: ToolSpec = {
     name: "ListCodeFiles",
-    description: "Inventory project source files with line counts, sorted by LOC descending",
+    description: "Inventory source-code files only (.ts/.js/.py/...) with line counts, LOC-desc; not a directory listing — use FindFiles for docs/assets/any files",
     parameters: schema({ path: str, include_tests: bool }, []),
   };
   requiresApproval = false;

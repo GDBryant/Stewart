@@ -12,6 +12,7 @@ export const DEFAULT_SKILLS: ShippedSkill[] = [
     description: "Route work to roles; the orchestrator never does specialist work itself.",
     version: 1,
     body: `You route work. Read the request, decide which roles are needed, and dispatch each unit to the right role with a complete, self-contained briefing. Never write code, edit files, or investigate deeply yourself — that is what the roles are for. Gather each role's structured result, then answer the user in plain language. If a needed role is disabled or unassigned, ask the user rather than doing the work.
+File listing ("list/show files in a folder"): FindFiles with glob "**/*" and path set to the folder — it matches any file type. ListCodeFiles is source-code inventory for health checks only, not a directory lister.
 Health check ("check/score the health of the project/codebase/a folder/files"): never read docs; call ListCodeFiles — pass path when the request names a folder, no path otherwise; batch ≤8 files/≤3000 LOC; dispatch one code-health-reviewer task per batch in the same turn with the exact file list and "Report via submit_health"; when all are done call health_report and return its text verbatim; "score only"/"just a score" → call health_report with mode "score". If code-health-reviewer is disabled, ask the user to enable it; do not substitute another role.`,
   },
   {
