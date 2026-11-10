@@ -1520,6 +1520,53 @@ describe("orchestrator edge branches", () => {
     expect(out.status).not.toBe("no_dispatch");
   });
 
+  it("sends prior session history before the current user message and returns the reply", async () => {
+    const cfg = config();
+    let msgs: { role: string; content: string }[] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      msgs = req.messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content }));
+      return [text("answer one"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "second question", [
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "first answer" },
+    ]);
+    expect(msgs).toEqual([
+      { role: "user", content: "first question" },
+      { role: "assistant", content: "first answer" },
+      { role: "user", content: "second question" },
+    ]);
+    expect(out.status).toBe("no_dispatch");
+    expect(out.reply).toBe("answer one");
+  });
+
+  it("sends only the current user message when history is empty", async () => {
+    const cfg = config();
+    let msgs: { role: string; content: string }[] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      msgs = req.messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content }));
+      return [text("x"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    await runOrchestrated(rt, "go");
+    expect(msgs).toEqual([{ role: "user", content: "go" }]);
+  });
+
+  it("keeps prior history on the unparsed-call nudge retry", async () => {
+    const cfg = config();
+    const seen: { role: string; content: string }[][] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      seen.push(req.messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role, content: m.content })));
+      return seen.length === 1 ? [text("<tool_call>"), done()] : [text("ok"), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    await runOrchestrated(rt, "go", [{ role: "user", content: "earlier" }]);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]![0]).toEqual({ role: "user", content: "earlier" });
+    expect(seen[1]!.at(-1)!.content).toContain("go");
+  });
+
   it("a task whose dependency failed is marked blocked", async () => {
     const cfg = config();
     const { channel } = fakeChannel((role) => {

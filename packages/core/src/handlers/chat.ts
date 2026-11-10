@@ -3,6 +3,7 @@ import { composeRolePrompt } from "@stewart/roles-skills";
 import { budgetProfile, classifyTask } from "@stewart/budget";
 import { recoveryState } from "@stewart/agent-loop";
 import { parseChatCommand } from "@stewart/runs";
+import type { ChatMessage } from "@stewart/kernel";
 import type { CoreCtx } from "./types.js";
 import { pickChatAgent, workspaceInfoFor } from "./util.js";
 
@@ -15,11 +16,13 @@ async function chatProfileName(core: CoreCtx, ctx: ReturnType<CoreCtx["ctx"]>, p
 }
 
 async function orchestratedChat(core: CoreCtx, ctx: ReturnType<CoreCtx["ctx"]>, p: ChatParams, mentionText: string, sessionId: string | undefined, profile: ReturnType<typeof budgetProfile>, profileName: string): Promise<unknown> {
+  const history: ChatMessage[] = sessionId ? ((await (await ctx.runs.historyStore()).load(sessionId)) ?? []) : [];
   const run = await ctx.runs.orchestrated(p.projectId, {
     config: ctx.config,
     channelFor: (id) => core.channelService.require(id),
     text: mentionText,
     sessionId,
+    history,
     profile,
     profileName,
   });

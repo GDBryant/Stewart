@@ -5,6 +5,7 @@ import type { Replacement } from "./replacements.js";
 export interface OrchestrationOutcome {
   status: "done" | "failed" | "cancelled" | "stopped" | "no_dispatch";
   error?: string;
+  reply?: string;
   suggestions: Replacement[];
 }
 

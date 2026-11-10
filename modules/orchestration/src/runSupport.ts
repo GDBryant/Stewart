@@ -35,6 +35,7 @@ export interface RunHost {
   readonly agent: AgentDef;
   readonly channel: ManagedChannel;
   readonly userText: string;
+  readonly history: ChatMessage[];
   readonly handlers: OrchestrationHandlers;
   dispatchCalls: number;
   suggestions: Replacement[];
@@ -82,12 +83,12 @@ function retryInput(host: RunHost, result: LoopResult, flags: { retried: boolean
     flags.retried = true;
     R.recoveriesUsed++;
     rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
-    return fault === "incomplete_stream" ? input : [{ role: "user", content: `${host.userText}\n\n${rt.recoveryService.sizeHint}` }];
+    return fault === "incomplete_stream" ? input : [...host.history, { role: "user", content: `${host.userText}\n\n${rt.recoveryService.sizeHint}` }];
   }
   if (result.kind !== "failed" && !flags.nudged && host.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
     flags.nudged = true;
     rt.recoveryService.log(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
-    return [{ role: "user", content: `${host.userText}\n\n${CALL_NUDGE}` }];
+    return [...host.history, { role: "user", content: `${host.userText}\n\n${CALL_NUDGE}` }];
   }
   return "return";
 }
@@ -105,7 +106,7 @@ export async function runSession(host: RunHost, session: AgentSession): Promise<
   try {
     const R = rt.recoveryService.state(rt);
     const flags = { retried: false, nudged: false };
-    let input: ChatMessage[] = [{ role: "user", content: host.userText }];
+    let input: ChatMessage[] = [...host.history, { role: "user", content: host.userText }];
     while (true) {
       const result = await session.loop.run(host.agent.model, input, session.listener, rt.signal);
       const next = retryInput(host, result, flags, R, input);
@@ -123,13 +124,15 @@ export async function finalize(host: RunHost, result: LoopResult): Promise<Orche
   if (early) return early;
 
   rt.leases.releaseAll();
+  const reply = [...result.messages].reverse().find((m) => m.role === "assistant" && m.content.trim() !== "")?.content;
   if (result.kind === "failed") return { status: "failed", error: result.message, suggestions: host.suggestions };
-  if (result.kind === "turn_limit") return { status: "stopped", error: "turn limit reached", suggestions: host.suggestions };
+  if (result.kind === "turn_limit") return { status: "stopped", error: "turn limit reached", reply, suggestions: host.suggestions };
   if (rt.signal.aborted) return { status: "cancelled", suggestions: host.suggestions };
   // Simple rule by design: any completed run with zero valid dispatches is flagged, including
   // direct answers that never routed work. The reply is included so the answer is not lost.
-  if (host.dispatchCalls === 0) return { status: "no_dispatch", error: noDispatchMessage(result.messages), suggestions: host.suggestions };
-  return { status: "done", suggestions: host.suggestions };
+  if (host.dispatchCalls === 0)
+    return { status: "no_dispatch", error: noDispatchMessage(result.messages), reply, suggestions: host.suggestions };
+  return { status: "done", reply, suggestions: host.suggestions };
 }
 
 /** Cost-cap resolution after the Orchestrator loop ends; returns an early outcome or null to continue. */

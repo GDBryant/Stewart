@@ -1,3 +1,4 @@
+import type { ChatMessage } from "@stewart/kernel";
 import type { Config } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
@@ -13,6 +14,7 @@ export interface OrchestratedRequest {
   text: string;
   runId?: string;
   sessionId?: string;
+  history?: ChatMessage[];
   profile?: BudgetProfile;
   profileName?: string;
 }
@@ -26,7 +28,12 @@ export const orchestratedStrategy: RunStrategy<OrchestratedRequest> = {
       status: "running",
       controller: new AbortController(),
       startedAt: svc.deps.clock.now(),
-      messages: [{ role: "user", content: req.text }],
+      messages: [
+        ...(req.history ?? [])
+          .filter((m) => m.role === "user" || (m.role === "assistant" && !m.toolCalls?.length && !!m.content.trim()))
+          .map((m): ChatMessage => (m.role === "assistant" ? { role: "assistant", content: m.content } : m)),
+        { role: "user", content: req.text },
+      ],
       costUsd: 0,
       sessionId: req.sessionId,
     };
@@ -45,7 +52,8 @@ export const orchestratedStrategy: RunStrategy<OrchestratedRequest> = {
   },
 
   async execute(svc: RunHost, run: Run, rt: RunRuntime, req: OrchestratedRequest): Promise<RunOutcome> {
-    const outcome = await runOrchestrated(rt, req.text);
+    const outcome = await runOrchestrated(rt, req.text, run.messages.slice(0, -1));
+    if (outcome.reply) run.messages.push({ role: "assistant", content: outcome.reply });
     if (run.status === "cancelled") return { status: "cancelled", event: "cancelled" };
     if (rt.timeCap?.hit) return { status: "interrupted", event: "stopped", error: timeCapMessage(rt.timeCap.ms) };
     if (outcome.status === "failed") return { status: "failed", event: "failed", error: outcome.error };

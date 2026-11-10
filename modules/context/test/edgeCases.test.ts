@@ -34,8 +34,35 @@ describe("loadProjectContext", () => {
     expect(out).toContain("A".repeat(4000));
   });
 
-  it("returns empty when files are absent", async () => {
+  it("names the real workspace root and warns against the Claude CLI temp cwd", async () => {
+    const { host } = fakeHost({}, { roots: ["/real/project"] });
+    const out = await loadProjectContext(host);
+    expect(out).toContain("Project root: /real/project");
+    expect(out).toContain("workspace-relative");
+    expect(out).toContain("/tmp/stewart-claude-");
+  });
+
+  it("reports an unavailable root instead of inferring one", async () => {
+    const { host } = fakeHost({}, { roots: [] });
+    const out = await loadProjectContext(host);
+    expect(out).toContain("Project root unavailable");
+    expect(out).not.toContain("Project root: .");
+  });
+
+  it("keeps AGENTS.md when the root lookup rejects", async () => {
+    const { host } = fakeHost({ "AGENTS.md": "instr" });
+    host.workspace.roots = async () => {
+      throw new Error("unavailable");
+    };
+    const out = await loadProjectContext(host);
+    expect(out).toContain("Project root unavailable");
+    expect(out).toContain("# Project instructions (AGENTS.md)");
+  });
+
+  it("returns only the workspace section when files are absent", async () => {
     const { host } = fakeHost();
-    expect(await loadProjectContext(host)).toBe("");
+    const out = await loadProjectContext(host);
+    expect(out).not.toContain("AGENTS.md");
+    expect(out).toContain("Project root: /p");
   });
 });

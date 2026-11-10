@@ -1,4 +1,5 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
+import type { ChatMessage } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
@@ -29,7 +30,7 @@ function taskOutcomeEvent(rt: OrchestrationRuntime, rec: TaskRecord, role: RoleD
  * schedules the tasks (parallel where independent), the ledger meters cost and
  * the cap parks costing work.
  */
-export async function runOrchestrated(rt: OrchestrationRuntime, userText: string): Promise<OrchestrationOutcome> {
+export async function runOrchestrated(rt: OrchestrationRuntime, userText: string, history: ChatMessage[] = []): Promise<OrchestrationOutcome> {
   const orchestrator = rt.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
   if (!orchestrator) return { status: "failed", error: "orchestrator role is not enabled", suggestions: [] };
   const agent = rt.config.agents.find((a) => a.id === orchestrator.agent);
@@ -37,7 +38,7 @@ export async function runOrchestrated(rt: OrchestrationRuntime, userText: string
   if (isHealthCheckRequest(userText) && !resolveRole(rt, "code-health-reviewer")) {
     return { status: "failed", error: "code-health-reviewer is not enabled; enable it in roles.yaml or rerun setup", suggestions: [] };
   }
-  return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText).run();
+  return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText, history).run();
 }
 
 export class OrchestratedRun implements RunHost {
@@ -64,6 +65,7 @@ export class OrchestratedRun implements RunHost {
     readonly agent: AgentDef,
     readonly channel: ManagedChannel,
     readonly userText: string,
+    readonly history: ChatMessage[] = [],
   ) {
     this.overrides = (rt.roleAgentOverrides ??= new Map<string, string>());
     this.handlers = {

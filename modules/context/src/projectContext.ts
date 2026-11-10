@@ -3,8 +3,12 @@ import type { HostPort } from "@stewart/kernel";
 const CONTEXT_LIMIT = 4000;
 
 /** Bounded `AGENTS.md` + `MEMORY.md` blocks appended to role prompts, in deterministic prefix order. */
-export async function loadProjectContext(host: Pick<HostPort, "files">): Promise<string> {
+export async function loadProjectContext(host: Pick<HostPort, "files" | "workspace">): Promise<string> {
   let out = "";
+  const roots = await host.workspace.roots().catch(() => [] as string[]);
+  out += roots.length
+    ? `\n\n# Workspace\nProject root: ${roots[0]}\nUse workspace-relative paths with project tools; RunTerminal and GetDiff execute in the project root. The Claude CLI runs from an isolated temporary directory; never treat its cwd or /tmp/stewart-claude-* as this project root.`
+    : `\n\n# Workspace\nProject root unavailable from host; do not infer it from the Claude CLI temporary working directory.`;
   try {
     if (await host.files.exists("AGENTS.md")) {
       const md = (await host.files.read("AGENTS.md")).content;
