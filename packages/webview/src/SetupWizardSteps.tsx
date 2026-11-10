@@ -4,6 +4,7 @@ import type { Store, State } from "./state.js";
 import { BusyNote, Spinner } from "./Busy.js";
 import type { AgentSummary, ChannelSummary, SetupProbeItem, SetupProbeSnapshot, SetupProbeState } from "./bridge.js";
 import { PRESETS, capBadges, friendlyError, key, type Preset, type WizardPriorities } from "./wizardShared.js";
+import { ChannelDot, channelColor } from "./channelColors.js";
 
 export function WelcomeStep({ onStart }: { onStart(): void }) {
   return (
@@ -65,6 +66,7 @@ function ChannelStatusRow({ channel, test, onRetest }: { channel: ChannelSummary
   useEffect(() => setRetesting(false), [test]);
   return (
     <div class="summary">
+      <ChannelDot channel={channel.id} title={`Channel colour ${channelColor(channel.id)}`} />
       <b>{channel.id}</b> ({channel.type}) {test ? (test.ok ? <span>✓ {test.models?.length ?? 0} models</span> : <span class="fail">✗ {friendlyError(channel.type, test.error)}</span>) : <span class="hint"><Spinner /> testing…</span>}
       <button
         class="small"

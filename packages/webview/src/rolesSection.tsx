@@ -3,6 +3,7 @@ import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import type { AgentSummary, ChannelSummary, RoleSummary, SkillSummary } from "./bridge.js";
 import { agentCosts } from "./bridge.js";
+import { ChannelDot } from "./channelColors.js";
 
 const SIDE_EFFECT_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]);
 const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = { "image-reader": "vision", "image-writer": "imageGen" };
@@ -124,6 +125,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
   const candidates = agentsForRole(role.id, agents, channels);
   const cap = ROLE_CAPABILITY[role.id];
   const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
+  const agent = agents.find((a) => a.id === role.agent);
   return (
     <div class="card">
       <div class="card-title">
@@ -131,12 +133,14 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
           <input type="checkbox" checked={role.enabled} onChange={(e) => save({ enabled: (e.target as HTMLInputElement).checked })} />
           <b>{role.id}</b>
         </label>
+        {agent ? <ChannelDot channel={agent.channel} title={`agent ${agent.id} runs on channel ${agent.channel}`} /> : null}
         <span class="summary">{(role.skills ?? []).join(", ")}</span>
-        {agentCosts(agents.find((a) => a.id === role.agent), channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
+        {agentCosts(agent, channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
         <span class="spacer" />
         <button class="small" onClick={onReset}>Reset</button>
         <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
       </div>
+      <div class="role-agent">{role.agent ? `agent: ${role.agent}` : "no agent"}</div>
       {open ? (
         <RoleEditForm role={role} candidates={candidates} cap={cap} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}

@@ -8,6 +8,7 @@ import type { Field } from "./fields.js";
 import { looksLikeKey } from "./fields.js";
 import { ItemsSection } from "./items.js";
 import { ChannelExtra } from "./channelExtra.js";
+import { ChannelDot, channelColor } from "./channelColors.js";
 import { AgentExtra } from "./agentExtra.js";
 import { RolesSection } from "./rolesSection.js";
 import { SkillsSection } from "./skillsSection.js";
@@ -126,6 +127,7 @@ const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
       title="Channels" file="channels.yaml" items={channels} fields={CHANNEL_FIELDS} store={store}
       empty={{ id: "channel", type: "openai-compatible", enabled: true } as ChannelSummary}
       renderExtra={(i, st) => <ChannelExtra item={i} store={st} />}
+      lead={(i) => <ChannelDot channel={i.id} title={`Channel colour ${channelColor(i.id)}`} />}
     />
   ),
   agents: ({ store, channels, agents }) => (

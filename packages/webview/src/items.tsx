@@ -17,13 +17,14 @@ function itemSummary(fields: Field[], form: Record<string, string>): string {
 }
 
 function ItemCard<T extends object>({
-  item, fields, onSave, onRemove, extra, startEditing, modelsFor,
+  item, fields, onSave, onRemove, extra, lead, startEditing, modelsFor,
 }: {
   item: T;
   fields: Field[];
   onSave(next: T, secrets: Record<string, string>): void;
   onRemove?(): void;
   extra?: (item: T) => unknown;
+  lead?: (item: T) => unknown;
   startEditing?: boolean;
   modelsFor?: (channelId: string) => string[];
 }) {
@@ -39,6 +40,7 @@ function ItemCard<T extends object>({
   return (
     <div class="card">
       <div class="card-title">
+        {lead ? lead(item) : null}
         <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
         <span class="spacer" />
         {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
@@ -63,7 +65,7 @@ function ItemCard<T extends object>({
 }
 
 export function ItemsSection<T extends { id: string }>({
-  title, file, items, fields, store, empty, renderExtra, modelsFor,
+  title, file, items, fields, store, empty, renderExtra, lead, modelsFor,
 }: {
   title: string;
   file: string;
@@ -72,6 +74,7 @@ export function ItemsSection<T extends { id: string }>({
   store: Store;
   empty: T;
   renderExtra?: (item: T, store: Store) => unknown;
+  lead?: (item: T) => unknown;
   modelsFor?: (channelId: string) => string[];
 }) {
   const save = (next: T[]) => store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
@@ -97,6 +100,7 @@ export function ItemsSection<T extends { id: string }>({
           fields={fields}
           modelsFor={modelsFor}
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
+          lead={lead ? (i) => lead(i) : undefined}
           onSave={(next, sec) => save(items.map((x) => (x.id === it.id ? withSecret(next, sec) : x)))}
           onRemove={() => save(items.filter((x) => x.id !== it.id))}
         />
@@ -108,6 +112,7 @@ export function ItemsSection<T extends { id: string }>({
           modelsFor={modelsFor}
           startEditing
           extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
+          lead={lead ? (i) => lead(i) : undefined}
           onSave={(next, sec) => {
             save([...items, withSecret(next, sec)]);
             setDraft(undefined);

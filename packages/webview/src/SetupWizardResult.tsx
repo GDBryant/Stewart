@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import type { State } from "./state.js";
 import type { CatalogInfo, RoleSummary } from "./bridge.js";
 import { key } from "./wizardShared.js";
+import { ChannelDot } from "./channelColors.js";
 import { BusyNote, Spinner } from "./Busy.js";
 
 type Assignment = NonNullable<State["recommendation"]>["assignments"][number];
@@ -18,8 +19,11 @@ function ReviewRoleRow({
   options: { channel: string; model: string }[];
   onChange(ref: string): void;
 }) {
+  const ci = chosen.indexOf(":");
+  const chId = ci > 0 ? chosen.slice(0, ci) : "";
   return (
     <div class="summary" title={assignment?.reason}>
+      {chId ? <ChannelDot channel={chId} title={`channel ${chId}`} /> : null}
       <b>{role.id}</b>{" "}
       <select aria-label={`role ${role.id}`} value={chosen} onChange={(e) => onChange((e.target as HTMLSelectElement).value)}>
         <option value="">(disabled)</option>
