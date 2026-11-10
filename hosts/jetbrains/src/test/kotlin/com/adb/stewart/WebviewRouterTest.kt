@@ -23,7 +23,6 @@ class WebviewRouterTest {
         val sent = LinkedBlockingQueue<JsonObject>()
         val calls = mutableListOf<Pair<String, JsonObject?>>()
         val opened = LinkedBlockingQueue<File>()
-        val inserted = mutableListOf<String>()
         val configDir = File(System.getProperty("java.io.tmpdir"), "stewart-router-test-${System.nanoTime()}")
         val router = WebviewRouter(
             projectId = { "p1" },
@@ -35,7 +34,6 @@ class WebviewRouterTest {
             userConfigDir = { configDir },
             openInEditor = { opened.add(it) },
             pickV1Xml = pickV1Xml,
-            insertIntoEditor = { inserted.add(it) },
         )
     }
 
@@ -438,21 +436,6 @@ class WebviewRouterTest {
     }
 
     @Test
-    fun `editor insert invokes the callback without a core call`() {
-        val rig = Rig()
-        rig.router.route("""{"type":"editor.insert","text":"hello"}""")
-        assertEquals(listOf("hello"), rig.inserted)
-        assertTrue(rig.calls.isEmpty())
-    }
-
-    @Test
-    fun `editor insert missing text errors`() {
-        val rig = Rig()
-        rig.router.route("""{"type":"editor.insert"}""")
-        assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
-    }
-
-    @Test
     fun `shaped replies tolerate a null core response`() {
         val rig = Rig { _, _ -> null }
         rig.router.route("""{"type":"config.get"}""")
@@ -516,13 +499,6 @@ class WebviewRouterTest {
         val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
         assertEquals("error", m.type())
         assertEquals("root cause", m["message"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `editor insert non string text errors`() {
-        val rig = Rig()
-        rig.router.route("""{"type":"editor.insert","text":{"x":1}}""")
-        assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
     }
 
     @Test

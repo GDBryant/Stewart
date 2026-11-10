@@ -44,7 +44,6 @@ function ChatView({ store }: { store: Store }) {
   const s = store.state;
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text]);
-  const insertIntoEditor = (text: string) => store.insertIntoEditor(text);
   const approve: Store["approve"] = (approvalId, grant) => store.approve(approvalId, grant);
   const singleDirect = s.tasks.length === 1 && s.tasks[0]!.taskId === "direct";
   return (
@@ -57,7 +56,7 @@ function ChatView({ store }: { store: Store }) {
       {s.historyOpen ? <HistoryPanel store={store} /> : null}
       <div class="items">
         {s.items.map((it) => (
-          <MessageItem key={it.id} item={it} onInsert={insertIntoEditor} />
+          <MessageItem key={it.id} item={it} />
         ))}
         {s.plan ? <PlanCard plan={s.plan} /> : null}
         {!singleDirect && s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
@@ -76,7 +75,7 @@ function ChatView({ store }: { store: Store }) {
   );
 }
 
-function MessageItem({ item, onInsert }: { item: ChatItem; onInsert(text: string): void }) {
+function MessageItem({ item }: { item: ChatItem }) {
   return (
     <div class={`item ${item.role}`}>
       {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
@@ -88,9 +87,6 @@ function MessageItem({ item, onInsert }: { item: ChatItem; onInsert(text: string
         ) : null}
         {item.text || (item.streaming ? "…" : "")}
       </div>
-      {item.role === "assistant" && !item.streaming && item.text ? (
-        <button class="small insert" onClick={() => onInsert(item.text)}>Insert into editor</button>
-      ) : null}
       {item.activity.length ? (
         <div class="activity">
           {item.activity.map((a, i) => (

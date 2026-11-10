@@ -22,7 +22,6 @@ class WebviewRouter(
     private val userConfigDir: () -> File,
     private val openInEditor: (File) -> Unit = {},
     private val pickV1Xml: () -> String? = { null },
-    private val insertIntoEditor: (String) -> Unit = {},
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val routeLock = Any()
@@ -112,9 +111,6 @@ class WebviewRouter(
                         withProject(buildJsonObject { put("xml", JsonPrimitive(xml)) }),
                     ).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("v1.draft")) + ("xml" to JsonPrimitive(xml))))
-                }
-                "editor.insert" -> {
-                    insertIntoEditor(m["text"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("missing text"))
                 }
                 "skills.open" -> openSkill(m["id"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("missing skill id"))
                 else -> {

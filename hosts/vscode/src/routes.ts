@@ -91,15 +91,6 @@ const ROUTES: Record<string, Handler> = {
   "setup.review": setupStaged,
   "setup.approve": setupStaged,
   "setup.undo": setupStaged,
-  "editor.insert": async (ctx, m) => {
-    const ed = ctx.api.window.activeTextEditor;
-    if (!ed) throw new Error("no active editor");
-    const text = String(m.text ?? "");
-    await ed.edit((b) => {
-      if (ed.selection.isEmpty) b.insert(ed.selection.active, text);
-      else b.replace(ed.selection, text);
-    });
-  },
   "skills.open": async (ctx, m) => {
     const file = path.join(await ctx.host.userConfigDir(), "skills", `${String(m.id)}.md`);
     try {

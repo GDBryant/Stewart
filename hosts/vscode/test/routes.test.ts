@@ -30,7 +30,6 @@ function setup() {
   const api = {
     window: {
       showOpenDialog: vi.fn(async () => undefined as { fsPath: string }[] | undefined),
-      activeTextEditor: undefined as unknown,
       showTextDocument: vi.fn(async () => ({}) as unknown),
     },
     workspace: { openTextDocument: vi.fn(async () => ({ uri: "doc" }) as unknown) },
@@ -47,22 +46,6 @@ function setup() {
     core: { dispatch },
     run: (m: Record<string, unknown>) => route({ dispatch } as never, host as never, panel as never, m as never, api as never),
   };
-}
-
-function fakeEditor(isEmpty: boolean) {
-  const calls: { op: string; args: unknown[] }[] = [];
-  const editor = {
-    selection: { isEmpty, active: { line: 3, character: 0 }, start: {}, end: {} },
-    edit: vi.fn(async (fn: (b: unknown) => void) => {
-      const b = {
-        insert: (...a: unknown[]) => calls.push({ op: "insert", args: a }),
-        replace: (...a: unknown[]) => calls.push({ op: "replace", args: a }),
-      };
-      fn(b);
-      return true;
-    }),
-  };
-  return { editor, calls };
 }
 
 beforeEach(() => {
@@ -216,31 +199,6 @@ describe("routes", () => {
       expect(s.posted[0]).toEqual({ type: `${t}.result`, ok: true });
     });
   }
-
-  it("editor.insert with empty selection inserts at cursor", async () => {
-    const s = setup();
-    const { editor, calls } = fakeEditor(true);
-    s.api.window.activeTextEditor = editor;
-    await s.run({ type: "editor.insert", text: 42 });
-    expect(calls).toEqual([{ op: "insert", args: [{ line: 3, character: 0 }, "42"] }]);
-    expect(s.posted).toHaveLength(0);
-  });
-
-  it("editor.insert with non-empty selection replaces it", async () => {
-    const s = setup();
-    const { editor, calls } = fakeEditor(false);
-    s.api.window.activeTextEditor = editor;
-    await s.run({ type: "editor.insert", text: "hi" });
-    expect(calls[0]!.op).toBe("replace");
-    expect(calls[0]!.args[1]).toBe("hi");
-  });
-
-  it("editor.insert with no active editor posts error", async () => {
-    const s = setup();
-    await s.run({ type: "editor.insert", text: "x" });
-    expect(s.dispatchCalls).toHaveLength(0);
-    expect(s.posted).toEqual([{ type: "error", message: "no active editor" }]);
-  });
 
   it("skills.open uses existing file without config fallback", async () => {
     const s = setup();

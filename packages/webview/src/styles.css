@@ -84,6 +84,4 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .msg-images { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-images img { max-height: 160px; max-width: 240px; border-radius: 6px; }
 .attach-error { flex-basis: 100%; font-size: 11px; }
-.item.assistant .insert { margin-left: 8px; opacity: 0.6; }
-.item.assistant:hover .insert { opacity: 1; }
 .warn { color: #a15c00; font-size: 12px; }

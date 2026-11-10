@@ -399,15 +399,15 @@ describe("webview images", () => {
 });
 
 describe("webview editor insert", () => {
-  it("posts editor.insert from an assistant message", () => {
+  it("does not offer editor insert on assistant messages", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
       bridge.inbound(ev("text_delta", { seq: 0, text: "use this" }));
       bridge.inbound(ev("run.finished", { status: "done" }));
     });
-    fireEvent.click(screen.getByText("Insert into editor"));
-    expect(bridge.sent).toContainEqual({ type: "editor.insert", text: "use this" });
+    expect(screen.queryByText("Insert into editor")).toBeNull();
+    expect(bridge.sent).toEqual([{ type: "ready" }]);
   });
 
   it("fills the composer from an insertText inbound message", () => {

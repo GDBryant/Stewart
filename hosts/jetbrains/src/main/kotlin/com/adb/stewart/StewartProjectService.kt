@@ -104,7 +104,6 @@ class StewartProjectService(private val project: Project) : Disposable {
                 }
             },
             pickV1Xml = { pickV1Xml() },
-            insertIntoEditor = { text -> insertIntoEditor(text) },
         )
         panel = StewartPanel({ bridge -> WebviewResources.webviewHtml(bridge, themeCss = ThemeCss.css(ThemeCss.current())) }) { raw -> router.route(raw) }
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(
@@ -130,18 +129,6 @@ class StewartProjectService(private val project: Project) : Disposable {
             null,
         ) ?: return null
         return String(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(vf.path)))
-    }
-
-    private fun insertIntoEditor(text: String) {
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
-        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
-            val sel = editor.selectionModel
-            if (sel.hasSelection()) {
-                editor.document.replaceString(sel.selectionStart, sel.selectionEnd, text)
-            } else {
-                editor.document.insertString(editor.caretModel.offset, text)
-            }
-        }
     }
 
     internal var inboundObserver: ((JsonObject) -> Unit)? = null

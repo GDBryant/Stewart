@@ -11,7 +11,6 @@ export type Outbound =
   | { type: "config.set"; file: string; yaml: string; layer?: "user" | "project" }
   | { type: "config.importV1"; xml: string; apply?: boolean }
   | { type: "v1.import" }
-  | { type: "editor.insert"; text: string }
   | { type: "history.list" }
   | { type: "history.load"; sessionId: string }
   | { type: "history.delete"; sessionId: string }

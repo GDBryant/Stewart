@@ -107,9 +107,6 @@ export class Store {
   removeImage(index: number): void {
     this.patch({ pendingImages: this.state.pendingImages.filter((_, i) => i !== index) });
   }
-  insertIntoEditor(text: string): void {
-    if (text.trim()) this.bridge.post({ type: "editor.insert", text });
-  }
   toggleHistory(): void {
     const historyOpen = !this.state.historyOpen;
     this.patch({ historyOpen });
