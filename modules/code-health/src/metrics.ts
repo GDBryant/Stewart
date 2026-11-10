@@ -1,41 +1,5 @@
+import type { FileMetrics, MetricsSummary, Suppression } from "./types.js";
 import { measuredFamily, scanBrace, scanIndent } from "./scan.js";
-
-export interface FunctionMetric {
-  name: string;
-  line: number;
-  lines: number;
-  branches: number;
-  depth: number;
-}
-
-export interface Suppression {
-  line: number;
-  text: string;
-}
-
-export interface FileMetrics {
-  path: string;
-  loc: number;
-  measured: boolean;
-  functions: FunctionMetric[];
-  suppressions: Suppression[];
-}
-
-export interface MetricsSummary {
-  files: number;
-  loc: number;
-  notMeasured: number;
-  functions: number;
-  branchesOver10: number;
-  branchesOver15: number;
-  linesOver60: number;
-  linesOver120: number;
-  depth4: number;
-  depth5: number;
-  filesOver500: number;
-  filesOver1000: number;
-  suppressions: number;
-}
 
 const SUPPRESSION_RES = [
   /@ts-ignore/, /@ts-expect-error/, /@ts-nocheck/, /eslint-disable/,

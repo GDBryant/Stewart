@@ -126,6 +126,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           typicalWork={typicalWork}
           onTypicalWork={setTypicalWork}
           onBuild={buildProposal}
+          busy={store.state.recommendBusy}
           onBack={() => setStep(2)}
         />
       ) : null}
@@ -135,6 +136,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           recommendBusy={store.state.recommendBusy}
           recommendError={store.state.recommendError}
           evalMode={evalMode}
+          bench={bench}
           roles={roles}
           eligiblePairs={eligiblePairs}
           rowFor={row}

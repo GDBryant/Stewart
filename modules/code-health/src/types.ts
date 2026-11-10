@@ -45,6 +45,43 @@ export interface Aggregate {
   notChecked: string[];
 }
 
+export interface FunctionMetric {
+  name: string;
+  line: number;
+  lines: number;
+  branches: number;
+  depth: number;
+}
+
+export interface Suppression {
+  line: number;
+  text: string;
+}
+
+export interface FileMetrics {
+  path: string;
+  loc: number;
+  measured: boolean;
+  functions: FunctionMetric[];
+  suppressions: Suppression[];
+}
+
+export interface MetricsSummary {
+  files: number;
+  loc: number;
+  notMeasured: number;
+  functions: number;
+  branchesOver10: number;
+  branchesOver15: number;
+  linesOver60: number;
+  linesOver120: number;
+  depth4: number;
+  depth5: number;
+  filesOver500: number;
+  filesOver1000: number;
+  suppressions: number;
+}
+
 export function bandFor(score: number): Band {
   if (score >= 9.5) return "Green";
   if (score >= 7.0) return "Yellow";

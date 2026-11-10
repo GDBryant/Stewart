@@ -1,5 +1,7 @@
 import type { ComponentChildren } from "preact";
+import { useEffect, useState } from "preact/hooks";
 import type { Store, State } from "./state.js";
+import { BusyNote, Spinner } from "./Busy.js";
 import type { AgentSummary, ChannelSummary, SetupProbeItem, SetupProbeSnapshot, SetupProbeState } from "./bridge.js";
 import { PRESETS, capBadges, friendlyError, key, type Preset, type WizardPriorities } from "./wizardShared.js";
 
@@ -19,8 +21,9 @@ export function WelcomeStep({ onStart }: { onStart(): void }) {
 }
 
 function NewChannelForm({
-  preset, chId, baseUrl, apiKey, onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel,
+  preset, chId, baseUrl, apiKey, onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel, adding,
 }: {
+  adding: boolean;
   preset: Preset;
   chId: string;
   baseUrl: string;
@@ -52,16 +55,28 @@ function NewChannelForm({
           <span class="hint">Stored in your IDE's secret storage, not in config files.</span>
         </label>
       ) : null}
-      <div class="row"><button class="small" disabled={!chId.trim()} onClick={onAddChannel}>Add this channel</button></div>
+      <div class="row"><button class="small" disabled={!chId.trim() || adding} aria-busy={adding ? "true" : undefined} onClick={onAddChannel}>{adding ? <><Spinner /> Adding…</> : "Add this channel"}</button></div>
     </div>
   );
 }
 
 function ChannelStatusRow({ channel, test, onRetest }: { channel: ChannelSummary; test: State["channelTest"][string] | undefined; onRetest(): void }) {
+  const [retesting, setRetesting] = useState(false);
+  useEffect(() => setRetesting(false), [test]);
   return (
     <div class="summary">
-      <b>{channel.id}</b> ({channel.type}) {test ? (test.ok ? <span>✓ {test.models?.length ?? 0} models</span> : <span class="fail">✗ {friendlyError(channel.type, test.error)}</span>) : <span class="hint">testing…</span>}
-      <button class="small" onClick={onRetest}>Retest</button>
+      <b>{channel.id}</b> ({channel.type}) {test ? (test.ok ? <span>✓ {test.models?.length ?? 0} models</span> : <span class="fail">✗ {friendlyError(channel.type, test.error)}</span>) : <span class="hint"><Spinner /> testing…</span>}
+      <button
+        class="small"
+        disabled={retesting}
+        aria-busy={retesting ? "true" : undefined}
+        onClick={() => {
+          setRetesting(true);
+          onRetest();
+        }}
+      >
+        {retesting ? <><Spinner /> Retesting…</> : "Retest"}
+      </button>
     </div>
   );
 }
@@ -141,6 +156,12 @@ export function ChannelsStep({
   onBack(): void;
   onNext(): void;
 }) {
+  const [addingId, setAddingId] = useState("");
+  const addedVisible = !!addingId && statusChannels.some((c) => c.id === addingId);
+  useEffect(() => {
+    if (addedVisible) setAddingId("");
+  }, [addedVisible]);
+  const adding = !!addingId && !addedVisible;
   return (
     <div class="form">
       <p><b>What to do:</b> pick the channel and agent that will run the evaluation of all available models.</p>
@@ -160,7 +181,11 @@ export function ChannelsStep({
           onChId={onChId}
           onBaseUrl={onBaseUrl}
           onApiKey={onApiKey}
-          onAddChannel={onAddChannel}
+          onAddChannel={() => {
+            setAddingId(chId);
+            onAddChannel();
+          }}
+          adding={adding}
         />
       ) : null}
       {statusChannels.map((c) => (
@@ -189,7 +214,7 @@ export function ChannelsStep({
 
 const PROBE_STATE_VIEWS: Record<SetupProbeState, (item: SetupProbeItem, badges: string) => ComponentChildren> = {
   queued: () => <span class="hint">queued</span>,
-  running: () => <span class="hint">probing…</span>,
+  running: () => <span class="hint"><Spinner /> probing…</span>,
   green: (_item, badges) => <span>✓ passed{badges ? ` · ${badges}` : ""}</span>,
   orange: (item) => <span class="hint">timed out{item.reason ? ` — ${item.reason}` : ""}{(item.attempts ?? 0) > 1 ? ` (try ${item.attempts})` : ""}</span>,
   red: (item) => <span class="fail">✗ {item.reason ?? item.lastReason ?? "failed"}{(item.attempts ?? 0) > 1 ? ` (try ${item.attempts})` : ""}</span>,
@@ -232,7 +257,13 @@ export function DiscoverStep({
   onBack(): void;
   onNext(): void;
 }) {
+  const [retrying, setRetrying] = useState(false);
+  const smokeRunKey = smoke?.status === "running" ? smoke.runId : 0;
+  useEffect(() => {
+    if (smokeRunKey) setRetrying(false);
+  }, [smokeRunKey]);
   const smokeRan = !!smoke && smoke.status !== "idle";
+  const smokeDone = smoke?.status === "running" ? smoke.items.filter((it) => it.state === "green" || it.state === "orange" || it.state === "red" || it.state === "skipped").length : 0;
   return (
     <div class="form">
       <p><b>What to do:</b> Stewart smoke-tests every model one at a time (local models first, ~30s max each). Only passing models can be assigned to roles.</p>
@@ -251,7 +282,9 @@ export function DiscoverStep({
         <span class="hint">Sends a few test requests to each green model to measure reply speed, tool-call and edit reliability.</span>
       </label>
       {pairs.length === 0 ? <div class="fail">No models found. Go back and check your channels (for Ollama: run <code>ollama pull &lt;model&gt;</code>).</div> : null}
-      {smoke?.ranking ? <div class="hint">Ranking remaining models…</div> : null}
+      {probeBusy && smoke?.status !== "running" && pairs.length > 0 ? <BusyNote label="Starting model discovery…" /> : null}
+      {smoke?.status === "running" ? <BusyNote label={`Smoke-testing models (${smokeDone} of ${smoke.items.length} done)…`} /> : null}
+      {smoke?.ranking ? <BusyNote label="Ranking remaining models…" /> : null}
       <div aria-live="polite">
         {(smokeRan ? smoke.items : pairs.map((p) => ({ channel: p.channel, model: p.model, state: "queued" as const }))).map((it) => {
           const k = key(it.channel, it.model);
@@ -261,7 +294,19 @@ export function DiscoverStep({
       </div>
       <ProbeSummary smoke={smoke} />
       <div class="row">
-        {retryable && smoke?.status !== "running" ? <button class="small" onClick={onRetry}>Retry failed</button> : null}
+        {retryable && smoke?.status !== "running" ? (
+          <button
+            class="small"
+            disabled={retrying}
+            aria-busy={retrying ? "true" : undefined}
+            onClick={() => {
+              setRetrying(true);
+              onRetry();
+            }}
+          >
+            {retrying ? <><Spinner /> Retrying…</> : "Retry failed"}
+          </button>
+        ) : null}
         <button class="small" onClick={onBack}>Back</button>
         <button class="send" disabled={pairs.length === 0 || probeBusy} onClick={onNext}>Next: choose evaluator</button>
       </div>
@@ -270,8 +315,9 @@ export function DiscoverStep({
 }
 
 export function EvaluatorStep({
-  evalMode, onEvalMode, eligiblePairs, evaluator, evalSel, onEvaluator, priorities, onPriorities, typicalWork, onTypicalWork, onBuild, onBack,
+  evalMode, onEvalMode, eligiblePairs, evaluator, evalSel, onEvaluator, priorities, onPriorities, typicalWork, onTypicalWork, onBuild, onBack, busy,
 }: {
+  busy?: boolean;
   evalMode: "rules" | "ai";
   onEvalMode(mode: "rules" | "ai"): void;
   eligiblePairs: { channel: string; model: string }[];
@@ -325,7 +371,7 @@ export function EvaluatorStep({
       </label>
       <div class="row">
         <button class="small" onClick={onBack}>Back</button>
-        <button class="send" onClick={onBuild}>Build proposal</button>
+        <button class="send" disabled={busy} aria-busy={busy ? "true" : undefined} onClick={onBuild}>{busy ? <><Spinner /> Building…</> : "Build proposal"}</button>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { FunctionMetric } from "./metrics.js";
+import type { FunctionMetric } from "./types.js";
 
 const BRACE_EXTS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".kt", ".java", ".go", ".rs",
