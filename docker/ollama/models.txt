@@ -1,0 +1,7 @@
+qwen3.5:4b
+gemma4:e4b
+# gemma4:12b
+# qwen3.5:9b
+# qwen2.5-coder:14b
+# qwen2.5-coder:7b
+# north-mini-code-1.0

@@ -1,256 +1,214 @@
 # Stewart
 
-**An AI coding assistant inside your JetBrains IDE — local or enterprise models, file edits and terminal commands, with configurable approval controls.**
+**A cross-IDE AI coding assistant — a shared TypeScript core with VS Code and JetBrains hosts, talking to Ollama, OpenAI-compatible providers (including AI Factory), or the Claude Code CLI.**
 
-Stewart adds a chat tool window to IntelliJ IDEA, PyCharm and other 2026.1+ JetBrains IDEs. It talks to **Ollama** (local), **AI Factory** (OpenAI-compatible proxy) and **Claude** (enterprise, via the Claude Code CLI and SSO), can read, search and edit your files, and can run shell commands — with reads and searches running automatically when tools are enabled. Edits and commands require approval unless covered by an existing grant. Approvals can be scoped to a single call, a chat, or a project.
+Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. It can read, search and edit project files, run shell commands, attach images, and orchestrate multi-role work — with configurable channels, agents, roles and skills. File edits and commands require approval unless covered by a grant.
 
-[![Build](https://github.com/GDBryant/Stewart/actions/workflows/build.yml/badge.svg)](https://github.com/GDBryant/Stewart/actions/workflows/build.yml)
-![Platform](https://img.shields.io/badge/platform-2026.1%2B-blue)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
-![Java](https://img.shields.io/badge/Java-21-orange)
+[![CI](https://github.com/GDBryant/Stewart/actions/workflows/ci.yml/badge.svg)](https://github.com/GDBryant/Stewart/actions/workflows/ci.yml)
+![Platform](https://img.shields.io/badge/platform-JetBrains%202026.1%2B%20%C2%B7%20VS%20Code-blue)
 
 ---
-
-## Why another AI plugin
-
-- **Your models, your machine.** Local Ollama models work fully offline; remote providers are optional and configured per IDE.
-- **Approval controls.** File writes and commands prompt unless already granted. Program-based grants require parseable shell commands; category-wide Commands grants bypass that restriction.
-- **Mixed-model economics.** Run a strong model as planner/executor and a fast local model as the worker, so cheap models do the bulk of the work.
-- **Auditable.** Auto-approved calls are logged when debug logging is on; grants are visible and revocable from chat or settings.
 
 ## Features
 
 ### Chat and models
 
-- Right-side **Stewart** tool window with markdown replies, model picker and streaming with cancel.
-- **Ollama** models listed live from `/api/tags`; **AI Factory** models configured by ID; **Claude** models via the Claude Code CLI with enterprise SSO (no API key stored in the IDE).
-- **Single-model mode** — one model for the whole conversation.
-- **Multi-model mode** — a three-level orchestrator: *Planner* → *Executor* → *Worker*, each bound to its own model. `/model <role> <provider/model>` switches a role mid-session.
+- Chat UI (Preact webview shared by both hosts) with markdown replies, streaming, cancel, image attachments (picker/paste/drop), history, and a first-run **setup wizard**.
+- Channels are configurable YAML instances, not hardcoded providers:
+  - **Ollama** — local or remote; models listed live from `/api/tags`.
+  - **OpenAI-compatible** — any endpoint (AI Factory, OpenRouter, LM Studio, …); API keys live in the IDE secret store.
+  - **Claude CLI** — enterprise SSO via the `claude` binary; no API key stored in the IDE.
+- Multiple **agents** bind a channel+model pair with price/billing and capability metadata; the model picker shows tested/green candidates.
+
+### Run modes
+
+- **Direct** — a single agent loop on your message (default for ordinary chat).
+- **Orchestrated** — an Orchestrator role dispatches tasks to worker roles on a task graph, with leases, a ledger, cost caps, plan gates and nested `ask_user`.
+- **Resume** — interrupted runs replay from a durable journal (`run.json`), skipping already-executed tool calls.
+- Prefixes: `/direct`, `/quick`, `/deep` select mode/budget profile per message.
 
 ### Tools
 
 | Tool | What it does | Approval |
 |------|--------------|----------|
-| `ReadFile` | Read a file in the project | automatic |
-| `FindFiles` | Glob for files by name | automatic |
-| `Search` | Search file contents | automatic |
-| `WriteFile` | Create or overwrite a file | gated |
-| `EditFile` | Apply an edit / patch | gated |
-| `RunTerminal` | Run a shell command in the project | gated |
+| `ReadFile`, `FindFiles`, `Search`, `ListCodeFiles` | Read/inventory/search project files | automatic |
+| `GetDiff`, `GetProblems`, `ReadImage` | Diffs, diagnostics, image reads | automatic |
+| `WriteFile`, `EditFile`, `ApplyPatch` | Create/edit files | gated |
+| `RunTerminal` | Shell commands in the project | gated |
+| `GenerateImage` | Image generation where the channel supports it | gated |
 
-File tools are confined to the project roots (symlinks resolved). Native tool calls are the default; a deprecated text `<tool_call>` shim remains as a per-model fallback for providers that cannot emit native calls.
+File tools are confined to project roots (symlinks resolved); role `writePaths` further restrict writes. Native tool calls are the default; a text `<tool_call>` shim parser remains as a fallback for providers that cannot emit native calls.
 
 ### Approvals and permissions
 
-When no existing grant covers an action, its preview dialog offers three scopes:
+Approval prompts offer three scopes: **once**, **this chat** (run grant), **always** (session grant). Command grants can be scoped to parsed program names; unparseable commands cannot receive program grants and always prompt unless a category-wide grant is active. Grants live in memory per run/session — they are not persisted to the repository.
 
-- **Just once**
-- **Allow for this chat**
-- **Always allow in this project**
+### Recovery, budgets and compaction
 
-Grants can be per **category** (edits / commands / other) or per **program** (`git`, `gradle`, `ls`, …). Command grants match parsed program names, not arguments — so "allow `git`" also covers `git push`, by design. Unparseable commands cannot receive a program grant. They prompt unless a category-wide Commands grant is active.
+- **Fault recovery**: classified faults (truncated stream, turn limit, incomplete stream) trigger layer-0 retries, a continue question, or layer-1 task splitting with scratch state.
+- **Budgets**: `quick`/`normal`/`deep` profiles scale turn budgets, timeouts and compaction thresholds by model speed/cost; per-run cost caps park paid work while free agents continue.
+- **Compaction**: automatic context management — stale tool-result pruning and middle-message summarization via a `compactor` role, with thresholds from the budget profile.
 
-Manage grants from three places:
+### Setup wizard, health check, observability
 
-- the **Bypass** button in the chat header (per-category ticks, chat-grant counter, "Clear chat grants");
-- **Settings → Stewart** (project section): ticks, always-allowed program list, stored project path, reset-all-projects;
-- the **`/permissions`** slash command: list, `clear`, `revoke <target>`, `reset`, `revoke all`.
+- **Setup wizard**: channels → quick-probe discovery (green/orange/red per model) → evaluator-ranked assignment of agents/roles → review → staged apply with undo.
+- **Health check**: ask for a repo health report; the `code-health-reviewer` role inventories files and submits structured reports (`submit_health`/`health_report` verbs).
+- **Debug logging**: optional JSONL call log with redaction and retention (`settings.log`).
 
-Permissions are stored per project (`locationHash`) in application-level state, deliberately excluded from Settings Sync, and never written into the repository. Chat grants are in-memory and disappear when the chat is cleared or the IDE restarts.
+### Images
 
-### Context, cost and observability
+Attach images to chat (paste/drop/picker); providers that support vision receive them inline. `ReadImage`/`GenerateImage` tools expose image I/O to agents; vision/image-gen capabilities are gated per model.
 
-- Auto-compaction at a configurable token threshold, plus `/compact`.
-- Chat history retention with a configurable day limit.
-- `/cost` reports token use and cost for the chat.
-- Optional debug logging: JSONL record of every model call (with redaction) and of auto-approved tool calls.
+## Configuration
 
-### Slash commands
+Shared config lives in one directory for every IDE and project (`$STEWART_CONFIG_DIR` > `$XDG_CONFIG_HOME/stewart` > `%APPDATA%\stewart` > `~/.config/stewart`):
 
-| Command | Purpose |
-|---------|---------|
-| `/help` | List commands |
-| `/clear` | Clear conversation and saved history |
-| `/cost` | Token use and cost for this chat |
-| `/compact [focus]` | Compact now, optionally keeping a focus |
-| `/init` | Prepare `AGENTS.md` and `docs/ai_docs`, then investigate |
-| `/review [focus]` | Review uncommitted changes (`git diff HEAD`) |
-| `/model [role] [provider/model]` | Show or switch model (per role in multi-model mode) |
-| `/config` | Open plugin settings |
-| `/permissions [clear\|reset\|revoke <target>]` | List or change approval permissions |
+```
+~/.config/stewart/
+  channels.yaml   channel instances (type, baseUrl, modelCaps, secretRef)
+  agents.yaml     agent defs (channel+model, price, billing, budget)
+  roles.yaml      role defs (prompt, agent, tools, writePaths, turnBudget)
+  settings.yaml   global settings (profiles, compaction, logging, …)
+  skills/         SKILL.md skill bodies (shipped < user < project merge)
+```
 
-Type `//` to send a literal `/`.
+Per-project overrides: `.stewart/roles.yaml`, `.stewart/skills/`, `.stewart/scratch/` (trusted workspaces). Secrets are referenced by `secretRef` and stored in the IDE secret store — never in YAML. Legacy v1 `stewart.xml` config can be imported via the webview.
+
+## Repository layout
+
+```
+packages/
+  protocol/    JSON-RPC types + capability negotiation
+  core/        all logic; no host imports (handlers/, channels wiring, runs)
+  sidecar/     Node stdio JSON-RPC server for the JetBrains host
+  webview/     Preact chat + settings + setup wizard (one bundle, both hosts)
+  conformance/ golden fixtures replayed through parsers
+modules/       23 @stewart/* packages in layers: kernel (ports/types), config,
+               channels, tools, agent-loop, orchestration, recovery, runs,
+               run-state, scheduling, permissions, roles-skills, context,
+               compaction, budget, models, ledger, interaction, diagnostics,
+               catalog, code-health, setup, toolcall-format
+hosts/
+  vscode/      VS Code extension (extension.ts, webview host, routes)
+  jetbrains/   IntelliJ platform plugin (Kotlin): tool window, JCEF webview,
+               HostPort impls, sidecar supervisor
+docs/          ai_docs/ (living), building/ (plans), health_reports/, archived_*/
+scripts/       build-install.sh, ollama-local.sh, checks (layers/boundaries/cycles/tsrefs), tests
+```
 
 ## Requirements
 
-- Declared platform support: **2026.1 or newer** (build 261+). Plugin Verifier targets **IntelliJ IDEA Community 2026.1** and **PyCharm Professional 2026.2**; other products and newer versions are not automatically verified. See [compatibility notes](docs/ai_docs/COMPATIBILITY.md) for the recorded results and verification caveats.
-- **JDK 21** to build from source; not needed to run the plugin.
-- At least one provider:
-  - **Ollama** running locally (default `http://localhost:11434`), or
-  - an **AI Factory** base URL and API key, or
-  - the **`claude` CLI** installed and logged in with your enterprise account.
+- **VS Code** `^1.145.0`, or a **JetBrains IDE 2026.1+** (since-build 261; verified on IntelliJ IDEA Community 2026.1 and PyCharm Professional 2026.2).
+- **JDK 21** and Node to build from source; the JetBrains plugin bundles its own Node for the sidecar.
+- At least one provider: Ollama running locally, an OpenAI-compatible endpoint + API key, or the `claude` CLI logged in.
 
-## Installation
+### Local Ollama via Docker
 
-### Build from source
+`docker/ollama/` runs Ollama in Docker with the two smallest models (`qwen3.5:4b`, `gemma4:e4b`; larger ones are commented out in `docker/ollama/models.txt`). Then add an `ollama` channel at `http://localhost:11434`.
 
 ```bash
-git clone https://github.com/GDBryant/Stewart.git
-cd Stewart
-./gradlew buildPlugin
+./scripts/ollama-local.sh up [cpu|gpu]   # start Ollama (GPU needs NVIDIA Container Toolkit)
+./scripts/ollama-local.sh pull           # pull models from models.txt
+./scripts/ollama-local.sh webui          # optional Open WebUI on :3000
+./scripts/ollama-local.sh down
 ```
 
-The plugin zip is written to `build/distributions/`. In the IDE, open **Settings → Plugins → Install Plugin from Disk…** from the settings menu, select the zip and restart.
-
-On Windows, use `gradlew.bat` instead of `./gradlew`. The helper script below requires a Unix-style shell.
-
-### Download a CI build
-
-Open the [Build workflow](https://github.com/GDBryant/Stewart/actions/workflows/build.yml), select a successful run for the revision you want, and download its `stewart-plugin` artifact. Extract the artifact archive, then install the plugin zip inside it using **Install Plugin from Disk…**. Artifact downloads require GitHub sign-in and are subject to retention limits.
-
-To install into every locally detected IDE in one step:
+## Build, test, install
 
 ```bash
-scripts/install-plugin.sh              # build and install
-scripts/install-plugin.sh --no-build   # reuse the existing build
+pnpm install
+pnpm -r build          # all packages (sidecar + webview bundles included)
+pnpm -r test           # vitest per package
+pnpm -r typecheck
+pnpm test:coverage     # per-package gate: >=90% lines, >=80% branches
+pnpm check:layers      # module manifest layers + single "." export
+pnpm check:boundaries  # core file-size limits
+pnpm check:cycles      # dependency-cruiser
+pnpm check:tsrefs      # tsconfig project references in sync
+pnpm test:scripts      # node:test for scripts/*
 ```
 
-### Development sandbox
+If pnpm is unavailable, build per package: `cd modules/<name>` then `./node_modules/.bin/vitest run`, `./node_modules/.bin/tsc -p tsconfig.json --composite false --noEmit`, `./node_modules/.bin/tsc -p tsconfig.json`.
+
+### Install
 
 ```bash
-./gradlew runIde
+./scripts/build-install.sh                # build + install both hosts
+./scripts/build-install.sh --skip-vscode  # JetBrains only
+./scripts/build-install.sh --skip-jetbrains
+./scripts/build-install.sh --bundle-node  # bundle Node into the JB zip
+./scripts/build-install.sh --jetbrains-plugins-dir <path>
 ```
 
-launches a disposable IDE with the plugin installed.
+JetBrains only:
 
-## Getting started
+```bash
+./gradlew buildPlugin   # zip in build/distributions/
+./gradlew test          # Kotlin tests (koverVerify enforces the same 90/80 gate)
+./gradlew runIde        # disposable IDE with the plugin
+```
 
-### Quick start with local Ollama
+VS Code produces `hosts/vscode/stewart.vsix`; install via `code --install-extension` or the Extensions view. CI (`.github/workflows/ci.yml`) runs build/typecheck/test/coverage plus VSIX and Gradle packaging; releases are tag-driven (`release.yml`).
 
-1. Install Ollama and download a model suitable for your machine using `ollama pull <model-name>`. Start its server with `ollama serve` if it is not already running.
-2. Check that `ollama list` shows the downloaded model.
-3. In **Settings → Tools → Stewart**, set **Ollama URL** to `http://localhost:11434` and apply. For the first chat, leave tools disabled.
-4. Open the **Stewart** tool window, select your downloaded model and send: **“Explain the difference between a unit test and an integration test.”** A streamed response confirms the connection.
-5. Enable tools in settings and try: **“Find the project's build configuration and summarize how to run its tests. Do not edit files or run commands.”** Use a tool-capable model for this step.
-6. To exercise approval safely, keep bypass grants off and ask: **“Run git status and summarize the result.”** Review the command and working directory, then approve **Just once**.
+After changing `modules/toolcall-format` (or any sidecar dep), re-bundle the sidecar before Gradle packaging:
 
-Local use needs no AIF or Claude credentials. Downloading models requires network access; once downloaded, local inference does not require a remote provider.
-
-### Provider and session settings
-
-1. **Configure a provider** — **Settings → Tools → Stewart**:
-
-   | Setting | Notes |
-   |---------|-------|
-   | Ollama URL | Defaults to `http://localhost:11434` |
-   | AIF base URL / API key | OpenAI-compatible endpoint; the key is stored in the IDE password store |
-   | AIF extra models | One model ID per line |
-   | Claude CLI path | Path to `claude`; the login status check verifies SSO |
-   | Claude models | One CLI alias or model ID per line |
-   | Tool path overrides | Per-model `NATIVE`/`SHIM` tool-call path |
-   | Enable tools | Master switch for read/search/edit/run |
-   | Auto-compact context at (tokens) | Compaction threshold |
-   | Keep chat history (days, 0 = don't save) | Retention |
-   | Debug log / folder / retention | Call logging |
-
-2. **Open the Stewart tool window** on the right edge, pick a model in the header and start chatting. `/help` lists the commands.
-3. **Approve as you go.** File edits and commands open a preview dialog. Choose a scope, or grant the specific programs shown for a command.
-4. **Review what you granted.** The header shows the active bypass state and a `+N` chat-grant count; `/permissions` prints the full picture.
+```bash
+cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && \
+  ./node_modules/.bin/esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs
+```
 
 ## Security model
 
-Stewart is a coding agent, not a sandbox. Its intended protections are:
+Stewart is a coding agent, not a sandbox. Its protections:
 
-- File tools validate paths against project roots, including resolved symlinks.
+- File tools validate paths against project roots, including resolved symlinks; role `writePaths` narrow writes further.
 - Edits and commands require approval or a matching grant; reads and searches run automatically when tools are enabled.
-- Program-based command grants require successful parsing and coverage of **every** parsed program. A category-wide Commands grant bypasses this restriction, including for unparseable commands.
-- Permission lookup or parsing errors fall back to prompting. Unknown tool names are rejected; unknown approval previews are not bypassed.
+- Program-based command grants require successful shell parsing; unparseable commands always prompt.
+- Permission/parse errors fail closed to prompting; secrets stay in the IDE secret store and are redacted from logs.
 
-Program grants cover all arguments and any working directory allowed by the command tool, including destructive invocations of an allowed program. Commands start within project roots but run with your user privileges and **can access files outside the project or contact the network**. Review previews, keep grants narrow, and use version control or backups.
-
-Revoke grants with `/permissions revoke <target>` or `/permissions reset`. Revocation affects subsequent approval checks; it does not undo actions or stop an already-running command.
-
-See [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) for the full rule set, parser rejections and storage details.
+Commands run with your user privileges and can reach outside the project or the network. Keep grants narrow, review previews, and use version control.
 
 ## Privacy and data handling
 
-- **Local Ollama:** model requests go to your configured Ollama endpoint. A local endpoint keeps inference on your machine; a remote Ollama URL sends requests to that host.
-- **Remote providers:** supplied conversation content and tool results, including file contents read by the assistant, may be sent to AIF or Claude. Check your provider's retention policies and your organization's rules before using private code.
-- **History and logs:** saved conversations and optional debug logs may contain source code, prompts and command output. Redaction is not a guarantee that every secret is removed. Review retention settings and inspect logs before sharing them.
-- **Credentials:** keep API keys out of prompts, source files and issue reports. AIF credentials use the IDE password store; Claude authentication is handled through the CLI login.
+- **Local Ollama:** inference stays on your machine (unless the URL is remote).
+- **Remote providers:** conversation content and tool results (including file contents) are sent to the configured endpoint. Check provider retention and organizational policy.
+- **History/logs:** saved chats and optional debug logs may contain source code and prompts. Redaction is best-effort; review retention settings before sharing.
+- **Credentials:** API keys go to the IDE secret store; Claude auth is handled by the CLI login.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 |---------|---------------|
-| Ollama model list is empty | Confirm the server is running, check `ollama list`, and verify the Ollama URL. If Ollama runs in a container or on another host, `localhost` may not reach it from the IDE. |
-| Connection refused or timeout | Check the endpoint, port, proxy and firewall. Test reachability from the machine running the IDE. |
-| Claude login or executable error | Confirm the configured CLI path, verify the CLI works outside the IDE, and use the settings login check. See [Claude transport notes](docs/archived_v2/CLAUDE_FEASIBILITY.md) for supported CLI assumptions. |
-| The model describes actions but does not call tools | Check **Enable tools**, select a tool-capable model, and review its native/shim override. Do not blindly retry if an action may already have executed. |
-| Commands unexpectedly skip approval | Run `/permissions` and inspect category, chat and program grants. Use `/permissions revoke all` to remove this project's active grants. |
-| Plugin does not appear | Confirm the IDE build is 261+, install the plugin zip rather than its enclosing artifact archive, and restart the IDE. |
+| Model list empty | Provider reachable? Ollama `ollama list` / correct base URL; re-test the channel in Settings. |
+| Connection refused/timeout | Endpoint, port, proxy, firewall from the IDE's machine. |
+| Claude login/executable error | `claude` on PATH or configured path; `auth status` works outside the IDE. |
+| Model describes actions but doesn't call tools | Channel `modelCaps.tools` mode (native vs shim); pick a tool-capable model. |
+| Commands skip approval unexpectedly | Approval cards show the grant scope chosen; grants are per-run/per-session only. |
+| Plugin missing (JetBrains) | IDE ≥2026.1, install the zip from `build/distributions/`, restart. |
 
-For a bug report, include your IDE version, Stewart version, provider/model, steps to reproduce and a sanitized error. Never attach raw credentials or unreviewed debug logs.
+For bug reports include IDE/host version, provider/model, steps and sanitized errors — never raw credentials or unreviewed logs.
 
-## Architecture
+## Code health
 
-```
-Tool window (chat UI, model picker, mode toggle, approval dialogs)
-      │
-  Orchestrator — Planner / Executor / Worker (one ModelRef each)
-      │
-  ToolLoop — conversation, bounded model↔tool cycles, cancellation
-    ├── ModelProvider ─ Ollama · AI Factory · Claude CLI
-    └── ToolRegistry → validate → approve → execute → correlated result
-```
-
-Kotlin throughout, Swing UI, coroutines for I/O, no bundled Node runtime. Full design, execution contract and provider details: [`docs/archived_v1/PLAN.md`](docs/archived_v1/PLAN.md).
-
-## Building and testing
-
-```bash
-./gradlew test          # unit + integration tests (live tests skipped by default)
-./gradlew koverVerify   # coverage gate: ≥90% line, ≥80% branch
-./gradlew buildPlugin   # plugin zip
-./gradlew verifyPlugin  # IntelliJ Plugin Verifier against IC 2026.1 and PyCharm 2026.2
-```
-
-Optional live tests (need credentials/services):
-
-```bash
-OLLAMA_LIVE=1 ./gradlew test --tests '*OllamaLiveTest*'
-AIF_LIVE=1 AIF_BASE_URL=... AIF_API_KEY=... AIF_MODEL=... ./gradlew test --tests '*AifLiveTest*'
-CLAUDE_LIVE=1 ./gradlew test --tests '*ClaudeLiveTest*'
-```
-
-CI (`.github/workflows/build.yml`) runs `buildPlugin check verifyPlugin koverXmlReport` on every push and pull request and uploads the plugin zip and coverage report.
-
-### Project layout
-
-```
-src/main/kotlin/com/adb/stewart/
-  ui/            chat panel, tool window, approval dialogs
-  tools/         tool registry, project tools, tool loop
-    permissions/ categories, grants, shell splitter, project permissions
-  provider/      Ollama, AI Factory, Claude CLI, shim
-  orchestrator/  planner/executor/worker, role routing
-  chat/          chat session, slash commands
-  settings/      settings state, configurables
-docs/            design, permissions, compatibility, roadmap
-scripts/         install-plugin.sh, claude-feasibility.sh
-```
+Latest report: [`docs/health_reports/2026-11-09-code-health.md`](docs/health_reports/2026-11-09-code-health.md). All gates green: tests, typecheck, build, coverage (≥90/80 per package), layer/boundary/cycle/tsref checks. Complexity scan: 0 functions >15 branches, 8 >10.
 
 ## Documentation
 
 | Doc | Contents |
 |-----|----------|
-| [`docs/archived_v1/PLAN.md`](docs/archived_v1/PLAN.md) | Architecture, providers, execution contract, milestones |
-| [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) | Approval categories, grants, parser rules, storage |
-| [`docs/archived_v2/PHASE2.md`](docs/archived_v2/PHASE2.md) | Phase 2 roadmap (orchestration, sessions) |
-| [`docs/ai_docs/COMPATIBILITY.md`](docs/ai_docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |
-| [`docs/ai_docs/DEBUG_LOGGING.md`](docs/ai_docs/DEBUG_LOGGING.md) | Log format, redaction, retention |
-| [`docs/ai_docs/PROGRESS.md`](docs/ai_docs/PROGRESS.md) | Milestone status |
 | [`AGENTS.md`](AGENTS.md) | Contributor commands and conventions |
+| [`docs/ai_docs/ARCHITECTURE_NOW.md`](docs/ai_docs/ARCHITECTURE_NOW.md) | Living as-built architecture (modules, run paths, config) |
+| [`docs/ai_docs/PROGRESS.md`](docs/ai_docs/PROGRESS.md) | Milestone status |
+| [`docs/ai_docs/SETUP.md`](docs/ai_docs/SETUP.md) | Setup wizard steps, probe queue, assignment |
+| [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) | Approval categories, grants, shell parsing, storage |
+| [`docs/ai_docs/IMAGES.md`](docs/ai_docs/IMAGES.md) | Image attachments, provider wire formats, vision gating |
+| [`docs/ai_docs/FAULT_RECOVERY.md`](docs/ai_docs/FAULT_RECOVERY.md) | Fault kinds, recovery layers, continue question |
+| [`docs/ai_docs/DEBUG_LOGGING.md`](docs/ai_docs/DEBUG_LOGGING.md) | Log format, redaction, retention |
+| [`docs/ai_docs/COMPATIBILITY.md`](docs/ai_docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |
+| [`docs/ai_docs/RELEASING.md`](docs/ai_docs/RELEASING.md) | VSIX/zip packaging, signing, release workflows |
+| [`docs/building/`](docs/building/) | Design and migration plans (MODULAR_DESIGN, REFACTORING, health check) |
+| [`docs/health_reports/`](docs/health_reports/) | Dated code-health reports |
+| `docs/archived_v1/`, `docs/archived_v2/` | Superseded plans, kept for history |
 
 ## Contributing
 
@@ -258,7 +216,8 @@ Issues and pull requests are welcome. Please:
 
 - keep changes small and focused;
 - add tests for both positive and negative behaviour — every change ships tests;
-- make sure `./gradlew test` and `./gradlew koverVerify` pass locally before opening a PR.
+- keep `pnpm -r test`, `pnpm -r typecheck`, `pnpm test:coverage` and the `check:*` scripts green;
+- update `docs/ai_docs/ARCHITECTURE_NOW.md` in the same change when modules, run paths, protocol, config or host wiring change.
 
 ## License
 

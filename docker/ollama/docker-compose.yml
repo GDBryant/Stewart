@@ -1,0 +1,58 @@
+x-ollama-base: &ollama-base
+  image: ollama/ollama
+  container_name: ollama
+  restart: unless-stopped
+  networks:
+    ai_net:
+      aliases:
+        - ollama
+  ports:
+    - "11434:11434"
+  dns:
+    - 1.1.1.1
+    - 8.8.8.8
+  volumes:
+    - ollama_data:/root/.ollama
+  environment:
+    - OLLAMA_HOST=0.0.0.0
+
+services:
+  ollama:
+    <<: *ollama-base
+    profiles: [cpu]
+
+  ollama-gpu:
+    <<: *ollama-base
+    profiles: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.3
+    container_name: open-webui
+    profiles: [webui]
+    restart: unless-stopped
+    networks:
+      - ai_net
+    ports:
+      - "3000:8080"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    volumes:
+      - openwebui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-change-me}
+
+networks:
+  ai_net:
+
+volumes:
+  ollama_data:
+  openwebui_data:
