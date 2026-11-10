@@ -44,7 +44,7 @@ function parseFile<S extends z.ZodTypeAny>(schema: S, name: string, text: string
  */
 export const REQUIRED_ROLE_TOOLS: Record<string, string[]> = {
   orchestrator: ["ListCodeFiles", "health_report"],
-  "code-health-reviewer": ["ListCodeFiles", "submit_health"],
+  "code-health-reviewer": ["ListCodeFiles", "submit_health", "CodeMetrics", "RunTerminal"],
 };
 
 /** Per-version migrations; v1 is current, older docs get upgraded key-by-key. */

@@ -58,10 +58,26 @@ export function validateArgs(args: Json, schema: Json, name: string): string | n
       if (schema.additionalProperties === false) return `unexpected argument '${key}' for ${name}`;
       continue;
     }
-    const typeErr = typeError(value, prop);
-    if (typeErr) return `argument '${key}' for ${name}: ${typeErr}`;
-    const en = prop.enum as unknown[] | undefined;
-    if (en && !en.some((e) => JSON.stringify(e) === JSON.stringify(value))) return `argument '${key}' for ${name}: value not in enum`;
+    const err = validateValue(value, prop, `argument '${key}' for ${name}`);
+    if (err) return err;
+  }
+  return null;
+}
+
+function validateValue(value: unknown, schema: Json, label: string): string | null {
+  const typeErr = typeError(value, schema);
+  if (typeErr) return `${label}: ${typeErr}`;
+  const en = schema.enum as unknown[] | undefined;
+  if (en && !en.some((e) => JSON.stringify(e) === JSON.stringify(value))) return `${label}: value not in enum`;
+  const items = schema.items as Json | undefined;
+  if (Array.isArray(value) && items && typeof items === "object") {
+    for (const el of value) {
+      const err = validateValue(el, items, label);
+      if (err) return err;
+    }
+  }
+  if (typeMatches("object", value) && (schema.properties || schema.required)) {
+    return validateArgs(value as Json, schema, label.replace(/^argument '([^']+)' for (.*)$/, "$2"));
   }
   return null;
 }

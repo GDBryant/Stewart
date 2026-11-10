@@ -15,10 +15,18 @@ export interface Finding {
   refactor: string;
 }
 
+export interface ProjectCheck {
+  name: string;
+  command: string;
+  status: "pass" | "fail" | "not run";
+  detail: string;
+}
+
 export interface HealthReport {
   files: FileHealth[];
   findings: Finding[];
   notChecked: string[];
+  checks?: ProjectCheck[];
 }
 
 export interface InventoryEntry {
@@ -64,12 +72,14 @@ export function mergeReports(reports: HealthReport[]): HealthReport {
   const files = new Map<string, FileHealth>();
   const findings = new Map<string, Finding>();
   const notChecked = new Set<string>();
+  const checks = new Map<string, ProjectCheck>();
   for (const r of reports) {
     for (const f of r.files ?? []) files.set(f.path, f);
     for (const f of r.findings ?? []) findings.set(`${f.path}:${f.line ?? ""}:${f.smell}:${f.severity}`, f);
     for (const p of r.notChecked ?? []) notChecked.add(p);
+    for (const c of r.checks ?? []) checks.set(`${c.name}|${c.command}`, c);
   }
-  return { files: [...files.values()], findings: [...findings.values()], notChecked: [...notChecked] };
+  return { files: [...files.values()], findings: [...findings.values()], notChecked: [...notChecked], checks: [...checks.values()] };
 }
 
 export function aggregate(report: HealthReport): Aggregate {
@@ -85,12 +95,17 @@ export function aggregate(report: HealthReport): Aggregate {
 
 const SEVERITY_ORDER: Record<Finding["severity"], number> = { high: 0, med: 1, low: 2 };
 
-export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "issues"): string {
+export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "issues", measured?: string): string {
   const lines: string[] = [];
   lines.push(
     `Scope: project · Mode: ${mode} · Checked: ${a.files} files / ${a.loc} LOC · Not checked: ${a.notChecked.length}`,
   );
   lines.push(`Overall: ${a.score}/10 (${a.band})`);
+  if (measured) lines.push(measured);
+  if (r.checks && r.checks.length > 0) {
+    lines.push("Project checks:");
+    for (const c of r.checks) lines.push(`- ${c.name}: ${c.status} — \`${c.command}\` — ${c.detail}`);
+  }
   if (a.red.length > 0) {
     lines.push("Red files:");
     for (const f of a.red) lines.push(`- ${f.path} ${f.score}/10 (${f.loc} LOC)`);

@@ -6,14 +6,15 @@ import type { RoleDef } from "@stewart/config";
 describe("shipped skill routing text", () => {
   it("orchestrate states the health-check procedure and never mentions phases", () => {
     const body = shippedSkill("orchestrate")!.body;
-    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "path", `mode "score"`]) expect(body).toContain(x);
+    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "path", `mode "score"`, "Project checks"]) expect(body).toContain(x);
     expect(body).not.toContain("phase");
   });
 
-  it("code-health covers every listed file and submit_health", () => {
+  it("code-health covers every listed file, submit_health and CodeMetrics", () => {
     const body = shippedSkill("code-health")!.body;
     expect(body).toContain("every listed file");
     expect(body).toContain("submit_health");
+    expect(body).toContain("CodeMetrics");
   });
 
   it("the orchestrator prompt is not truncated at the default skill budget", () => {

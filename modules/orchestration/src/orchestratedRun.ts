@@ -7,7 +7,7 @@ import { NO_ANSWER, planGatePrompt } from "./prompts.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
 import type { Tool } from "@stewart/tools";
-import { aggregate, isHealthCheckRequest, mergeReports, renderReport, type HealthReport } from "@stewart/code-health";
+import { aggregate, isHealthCheckRequest, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthReport } from "@stewart/code-health";
 import { freeCandidates, parseReplacements, validateReplacements, type Replacement } from "./replacements.js";
 import { isCosting } from "@stewart/models";
 import { answerNestedAskUser } from "./askUser.js";
@@ -295,9 +295,11 @@ export class OrchestratedRun implements RunHost {
 
   private submitHealth(taskId: string, report: HealthReport): string {
     this.healthReports.set(taskId, report);
+    if (report.files.length === 0 && report.checks?.length) return `Project checks recorded: ${report.checks.length}`;
     const a = aggregate(mergeReports([report]));
     const worst = a.worst ? `, worst ${a.worst.path} ${a.worst.score}/10` : "";
-    return `Health report recorded: ${a.files} files, mean ${a.score}/10${worst}`;
+    const checks = report.checks?.length ? `, checks ${report.checks.length}` : "";
+    return `Health report recorded: ${a.files} files, mean ${a.score}/10${worst}${checks}`;
   }
 
   private async healthReport(args: { mode?: "score" | "issues" }): Promise<string> {
@@ -308,12 +310,23 @@ export class OrchestratedRun implements RunHost {
       .filter((t) => t.roleId === "code-health-reviewer" && !this.healthReports.has(t.id))
       .map((t) => t.title);
     const report: HealthReport = { ...merged, notChecked: [...merged.notChecked, ...missing] };
-    const rendered = renderReport(aggregate(report), report, args.mode ?? "issues");
+    const measured = await this.measureReportFiles(report);
+    const rendered = renderReport(aggregate(report), report, args.mode ?? "issues", measured);
     const path = `.stewart/scratch/health/${this.rt.runId}.md`;
     await this.rt.host.files.writeAtomic(path, rendered);
     if (rendered.length <= ORCHESTRATOR_MAX_TOOL_OUTPUT) return rendered;
     const tail = `\n… truncated, see ${path}`;
     return rendered.slice(0, ORCHESTRATOR_MAX_TOOL_OUTPUT - tail.length) + tail;
+  }
+
+  private async measureReportFiles(report: HealthReport): Promise<string | undefined> {
+    const metrics: FileMetrics[] = [];
+    for (const f of report.files) {
+      try {
+        metrics.push(scanMetrics(f.path, (await this.rt.host.files.read(f.path)).content));
+      } catch {}
+    }
+    return metrics.length ? renderMetricsSummary(summarizeMetrics(metrics)) : undefined;
   }
 
   async stopParkedTasks(): Promise<void> {

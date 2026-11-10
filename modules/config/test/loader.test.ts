@@ -30,7 +30,7 @@ describe("REQUIRED_ROLE_TOOLS union", () => {
     const o = c.roles.find((r) => r.id === "orchestrator")!;
     expect(o.tools).toEqual(["dispatch", "ask_user", "ReadFile", "FindFiles", "ListCodeFiles", "health_report"]);
     const h = c.roles.find((r) => r.id === "code-health-reviewer")!;
-    expect(h.tools).toEqual(["ReadFile", "Search", "ListCodeFiles", "submit_health"]);
+    expect(h.tools).toEqual(["ReadFile", "Search", "ListCodeFiles", "submit_health", "CodeMetrics", "RunTerminal"]);
     expect(c.roles.find((r) => r.id === "investigator")!.tools).toEqual(["ReadFile"]);
   });
 

@@ -52,6 +52,31 @@ describe("ToolRegistry + validateArgs + outcomeMessage", () => {
     expect(validateArgs({ u: "v" }, { type: "object", properties: { u: {} } }, "T")).toBeNull();
   });
 
+  it("validates nested array items: type, required, enum and additionalProperties", () => {
+    const schema: Json = {
+      type: "object",
+      properties: {
+        checks: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: { name: { type: "string" }, status: { type: "string", enum: ["pass", "fail", "not run"] } },
+            required: ["name", "status"],
+          },
+        },
+        tags: { type: "array", items: { type: "string" } },
+      },
+    };
+    const ok = { checks: [{ name: "t", status: "pass" }], tags: ["a"] };
+    expect(validateArgs(ok, schema, "T")).toBeNull();
+    expect(validateArgs({ checks: [{ name: "t", status: "bogus" }] }, schema, "T")).toContain("value not in enum");
+    expect(validateArgs({ checks: [{ name: "t" }] }, schema, "T")).toContain("missing required argument 'status'");
+    expect(validateArgs({ checks: [{ name: "t", status: "pass", extra: 1 }] }, schema, "T")).toContain("unexpected argument 'extra'");
+    expect(validateArgs({ tags: [1] }, schema, "T")).toContain("expected type string");
+    expect(validateArgs({ checks: "x" }, schema, "T")).toContain("expected type array");
+  });
+
   it("registerProvider wraps tools with provider category and a default preview", async () => {
     const reg = new ToolRegistry([]);
     const raw: Tool = {

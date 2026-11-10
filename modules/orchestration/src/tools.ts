@@ -173,6 +173,20 @@ export function orchestrationTools(h: OrchestrationHandlers): Tool[] {
               },
             },
             notChecked: { type: "array", items: { type: "string" } },
+            checks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  name: { type: "string" },
+                  command: { type: "string" },
+                  status: { type: "string", enum: ["pass", "fail", "not run"] },
+                  detail: { type: "string" },
+                },
+                required: ["name", "command", "status", "detail"],
+              },
+            },
           },
           required: ["files"],
         },

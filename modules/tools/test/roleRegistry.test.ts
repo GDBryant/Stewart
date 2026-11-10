@@ -3,6 +3,8 @@ import { ToolRegistry } from "../src/types.js";
 import { projectTools } from "../src/builtins.js";
 import { ProjectPaths } from "../src/projectPaths.js";
 import { fakeHost } from "@stewart/kernel";
+import { loadConfig } from "@stewart/config";
+import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -26,6 +28,15 @@ describe("ToolRegistry.for", () => {
     const all = await mk();
     const reg = all.for(role({ tools: [] }));
     expect(reg.tools.length).toBe(all.tools.length);
+  });
+
+  it("the shipped code-health-reviewer registry exposes CodeMetrics and RunTerminal", async () => {
+    const cfg = loadConfig({}, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, false);
+    const reviewer = cfg.roles.find((r) => r.id === "code-health-reviewer")!;
+    const reg = (await mk()).for(reviewer);
+    const names = reg.tools.map((t) => t.spec.name);
+    expect(names).toContain("CodeMetrics");
+    expect(names).toContain("RunTerminal");
   });
 
   it("enforces the investigator read-only program allow-list on RunTerminal", async () => {

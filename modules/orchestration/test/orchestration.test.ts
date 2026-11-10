@@ -1176,6 +1176,47 @@ describe("health verbs", () => {
     expect(res.summary).toContain("Health report recorded");
   });
 
+  it("submit_health accepts checks and counts them in the summary", async () => {
+    const cfg = reviewerCfg();
+    const args = {
+      files: [],
+      checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10/10" }],
+    };
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "code-health-reviewer") return [calls({ id: "h1", name: "submit_health", arguments: args }), done()];
+      if (role === "orchestrator" && n === 1) {
+        return [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "Project checks" } }), done()];
+      }
+      return [text("done"), done()];
+    });
+    const { rt, events } = await runtime(cfg, channel);
+    const out = await runOrchestrated(rt, "check the health of this project");
+    expect(out.status).toBe("done");
+    const doneEv = events.find((e) => e.kind === "task.done") as Extract<RunEvent, { kind: "task.done" }> | undefined;
+    expect(doneEv?.summary).toBe("Project checks recorded: 1");
+  });
+
+  it("a check with a bad status is rejected by schema and the loop continues", async () => {
+    const cfg = reviewerCfg();
+    let n = 0;
+    const bad = { files: [], checks: [{ name: "t", command: "x", status: "bogus", detail: "" }] };
+    const { channel } = fakeChannel((role) => {
+      if (role !== "code-health-reviewer") return [text("x"), done()];
+      n++;
+      return n === 1
+        ? [calls({ id: "h1", name: "submit_health", arguments: bad }), done()]
+        : [calls({ id: "h2", name: "submit_health", arguments: healthArgs }), done()];
+    });
+    const { rt } = await runtime(cfg, channel);
+    const res = await runRoleTask(rt, { id: "t1", roleId: "code-health-reviewer", title: "t", task: "review", files: [], dependsOn: [] }, {
+      role: cfg.roles.find((r) => r.id === "code-health-reviewer")!,
+      nestedTools: verbs(),
+    });
+    expect(n).toBe(2);
+    expect(res.status).toBe("done");
+    expect(res.summary).toContain("Health report recorded");
+  });
+
   it("health_report merges two recorded reports, returns weighted overall and writes scratch", async () => {
     const cfg = reviewerCfg();
     const { channel } = fakeChannel((role, n, req) => {
@@ -1205,6 +1246,57 @@ describe("health verbs", () => {
     expect(report).toBeDefined();
     expect(report).toContain("Overall: 5.5/10 (Red)");
     expect(report).toContain("Checked: 2 files / 1000 LOC");
+  });
+
+  it("health_report adds the lexical Measured line and project checks section", async () => {
+    const cfg = reviewerCfg();
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role === "code-health-reviewer") {
+        const user = req.messages.find((m) => m.role === "user")?.content ?? "";
+        const report = user.includes("checks")
+          ? { files: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10/10" }] }
+          : { files: [{ path: "a.ts", loc: 100, score: 10, band: "Green" }], findings: [], notChecked: [] };
+        return [calls({ id: `h${n}`, name: "submit_health", arguments: report }), done()];
+      }
+      if (n === 1) {
+        return [
+          calls(
+            { id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } },
+            { id: "d2", name: "dispatch", arguments: { role: "code-health-reviewer", task: "checks" } },
+          ),
+          done(),
+        ];
+      }
+      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: {} }), done()];
+      return [text("done"), done()];
+    });
+    const { rt, files } = await runtime(cfg, channel, { files: { "a.ts": "function f() {\n  if (x) return 1\n}" } });
+    const out = await runOrchestrated(rt, "check the health of this project");
+    expect(out.status).toBe("done");
+    const report = files[".stewart/scratch/health/run-1.md"];
+    const lines = report.split("\n");
+    expect(lines[2]).toContain("Measured (lexical scan, approximate): 1 files / 3 LOC");
+    expect(report).toContain("Project checks:");
+    expect(report).toContain("- unit: pass — `npm test` — 10/10");
+  });
+
+  it("health_report omits the Measured line when no file can be read", async () => {
+    const cfg = reviewerCfg();
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "code-health-reviewer") {
+        return [calls({ id: `h${n}`, name: "submit_health", arguments: { files: [{ path: "missing.ts", loc: 5, score: 9, band: "Yellow" }], findings: [], notChecked: [] } }), done()];
+      }
+      if (n === 1) {
+        return [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } }), done()];
+      }
+      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: {} }), done()];
+      return [text("done"), done()];
+    });
+    const { rt, files } = await runtime(cfg, channel, { files: { "a.ts": "x" } });
+    const out = await runOrchestrated(rt, "check the health of this project");
+    expect(out.status).toBe("done");
+    const report = files[".stewart/scratch/health/run-1.md"];
+    expect(report).not.toContain("Measured (lexical scan");
   });
 
   it("health_report with no recorded reports returns the empty message", async () => {

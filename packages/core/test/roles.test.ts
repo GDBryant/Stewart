@@ -186,10 +186,10 @@ describe("code-health-reviewer role", () => {
     expect(r()).toBeDefined();
     expect(r().enabled).toBe(false);
     expect(r().skills).toContain("code-health");
-    for (const t of ["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]) expect(r().tools).not.toContain(t);
+    for (const t of ["WriteFile", "EditFile", "ApplyPatch"]) expect(r().tools).not.toContain(t);
   });
-  it("has the read tools its input scopes need", () => {
-    for (const t of ["ReadFile", "FindFiles", "Search"]) expect(r().tools).toContain(t);
+  it("has the read tools its input scopes need plus CodeMetrics and RunTerminal for project checks", () => {
+    for (const t of ["ReadFile", "FindFiles", "Search", "CodeMetrics", "RunTerminal"]) expect(r().tools).toContain(t);
   });
   it("every shipped role references only shipped skills", () => {
     const ids = new Set(DEFAULT_SKILLS.map((s) => s.id));

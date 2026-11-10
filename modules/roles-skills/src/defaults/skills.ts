@@ -10,10 +10,10 @@ export const DEFAULT_SKILLS: ShippedSkill[] = [
   {
     id: "orchestrate",
     description: "Route work to roles; the orchestrator never does specialist work itself.",
-    version: 1,
+    version: 2,
     body: `You route work. Read the request, decide which roles are needed, and dispatch each unit to the right role with a complete, self-contained briefing. Never write code, edit files, or investigate deeply yourself — that is what the roles are for. Gather each role's structured result, then answer the user in plain language. If a needed role is disabled or unassigned, ask the user rather than doing the work.
 File listing ("list/show files in a folder"): FindFiles with glob "**/*" and path set to the folder — it matches any file type. ListCodeFiles is source-code inventory for health checks only, not a directory lister.
-Health check ("check/score the health of the project/codebase/a folder/files"): never read docs; call ListCodeFiles — pass path when the request names a folder, no path otherwise; batch ≤8 files/≤3000 LOC; dispatch one code-health-reviewer task per batch in the same turn with the exact file list and "Report via submit_health"; when all are done call health_report and return its text verbatim; "score only"/"just a score" → call health_report with mode "score". If code-health-reviewer is disabled, ask the user to enable it; do not substitute another role.`,
+Health check ("check/score the health of the project/codebase/a folder/files"): never read docs; call ListCodeFiles — pass path when the request names a folder, no path otherwise; batch ≤8 files/≤3000 LOC; dispatch one code-health-reviewer task per batch in the same turn with the exact file list and "Report via submit_health", plus one code-health-reviewer task titled 'Project checks' (briefing: 'Project checks: run the project's tests/coverage once; Report via submit_health') — skip it for 'score only' or when the request names specific files; when all are done call health_report and return its text verbatim; "score only"/"just a score" → call health_report with mode "score". If code-health-reviewer is disabled, ask the user to enable it; do not substitute another role.`,
   },
   {
     id: "delegate-briefing",
@@ -132,13 +132,15 @@ Health check ("check/score the health of the project/codebase/a folder/files"): 
   {
     id: "code-health",
     description: "Score code health (0-10) and list maintainability issues for files, a folder, lines, a function or a code block.",
-    version: 1,
-    body: `Score the health of existing code (not a diff's correctness). Approximates CodeScene Code Health; it is a heuristic, say so once.
+    version: 2,
+    body: `Score the health of existing code (not a diff's correctness). Approximates CodeScene Code Health; a heuristic, say so once.
 Scope: resolve from the request — file(s) via ReadFile; folder via FindFiles (max 20 files, skip node_modules/dist/generated; state what was skipped); file + lines via ReadFile start_line/end_line; function via Search then ReadFile; a pasted code block as given. State the resolved scope. When the briefing lists files, score every listed file — the max-20 cap applies only to folders you resolve yourself; if told to Report via submit_health, submit the structured report instead of text.
+Measure first: call CodeMetrics on the files (or folder) in scope; cite its numbers as evidence for complexity, size, nesting and suppression findings; a lexical approximation — confirm with ReadFile if a number looks wrong; still read for cohesion, duplication, dead code. Scores remain your judgement.
 Mode: "score" if asked for score only; otherwise "issues" (score + findings).
 Scoring: each unit starts at 10.0; deduct per finding (high -2.0, med -1.0, low -0.3; max -4.0 per category); clamp 1.0-10.0. Bands: Green >=9.5, Yellow 7.0-9.4, Red <7.0. Folder: LOC-weighted mean, plus worst file and Red-file count. Lines/function/block: label "unit score, not file health".
 Smells (with path:line evidence): high complexity (>10 med, >15 high branches), large functions (>60 / >120 lines) and files (>500 / >1000), deep nesting (4 / >=5), low cohesion, duplicated logic, closure-captured mutable state (>4 / >7 vars), dead code, suppressions or skipped/weakened tests, cross-package coupling. Coverage only if a report is readable; hotspots/history not checked.
-Output: line 1 "Scope · Mode · Checked · Not checked". Score: "<unit> — <n>/10 (<band>)". Issues: one per line "path:line | smell | high/med/low | refactor", most severe first; name a docs/building/REFACTORING.md strategy when one fits. Judge only what you opened; snippets cannot show coupling or cross-file duplication. Do not edit files. If healthy, say so.`,
+Project checks task (briefing says 'Project checks'): do not score files. Detect the test/coverage command from build files (package.json, Makefile, build.gradle(.kts), pom.xml, pyproject.toml, Cargo.toml, go.mod, *.sln); prefer coverage; run it once with RunTerminal; submit_health with files [] and checks [{name, command, status, detail}]; detail = pass/fail + coverage % if printed; none found, denied or timed out → 'not run' with the reason. RunTerminal only inside a Project checks task; never install dependencies or modify files.
+Output: line 1 "Scope · Mode · Checked · Not checked". Score: "<unit> — <n>/10 (<band>)". Issues: one per line "path:line | smell | high/med/low | refactor", most severe first; name a refactoring (extract function, guard clauses, split file) when one fits. Judge only what you opened; snippets cannot show coupling or cross-file duplication. Do not edit files. If healthy, say so.`,
   },
   {
     id: "docs-writing",

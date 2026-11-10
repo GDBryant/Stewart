@@ -25,6 +25,7 @@ export function schema(props: Record<string, Json>, required: string[]): Json {
 export const str: Json = { type: "string" };
 export const int: Json = { type: "integer" };
 export const bool: Json = { type: "boolean" };
+export const strArr: Json = { type: "array", items: { type: "string" } };
 
 export abstract class ProjectTool implements Tool {
   constructor(protected host: Pick<HostPort, "diag" | "files" | "proc">, protected paths: ProjectPaths) {}

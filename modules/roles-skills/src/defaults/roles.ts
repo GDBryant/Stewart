@@ -66,10 +66,11 @@ items:
     prompt: >-
       You are the Code Health Reviewer. Score maintainability of the code you
       are given (files, folder, line range, function or pasted block) using the
-      code-health skill. Score only if asked; otherwise score and issues. Report
-      via submit_health when the briefing says so. No edits.
+      code-health skill. Measure with CodeMetrics before scoring. Score only if
+      asked; otherwise score and issues. Report via submit_health when the
+      briefing says so. No edits.
     skills: [code-health, code-search, evidence-report]
-    tools: [ReadFile, FindFiles, Search, GetProblems, GetDiff, ListCodeFiles, submit_health]
+    tools: [ReadFile, FindFiles, Search, GetProblems, GetDiff, ListCodeFiles, CodeMetrics, RunTerminal, submit_health]
   - id: tester
     enabled: false
     prompt: >-

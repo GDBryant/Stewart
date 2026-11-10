@@ -109,3 +109,7 @@ export function isSourceFile(path: string, opts?: { includeTests?: boolean }): b
 - Should `health_report` also be written under `docs/` (committable) or stay in `.stewart/scratch`? Plan assumes scratch.
 - Include test files by default? Plan assumes no unless the request says "including tests".
 - Kotlin (`hosts/jetbrains`) counted as source by default? Plan assumes yes (`.kt`, `.java`).
+
+## Generic metrics + project checks (built)
+
+`@stewart/code-health` now ships `metrics.ts`/`scan.ts`: a dependency-free lexical scanner (brace-family + Python/Ruby indent) reporting LOC, per-function branches/length/nesting and suppressions for any project language, exported as `scanMetrics`/`summarizeMetrics`/`renderMetricsSummary`/`renderMetrics`. The `CodeMetrics` tool (`@stewart/tools`) exposes it to roles; `code-health-reviewer` holds it plus `RunTerminal` (restricted to the 'Project checks' task, which detects the project's test/coverage command and submits `checks` via `submit_health`). `health_report` adds a `Measured (lexical scan, approximate)` line computed from the merged file paths and a `Project checks:` section. Metrics are evidence only — the reviewer still judges scores — and the scan is a lexical approximation (no AST), so numbers can differ slightly from `scripts/complexity-scan.mjs`.

@@ -50,6 +50,22 @@ describe("mergeReports", () => {
   });
 });
 
+describe("mergeReports checks", () => {
+  it("concatenates checks deduped by name+command, last wins, and always returns checks", () => {
+    const a: HealthReport = { files: [], findings: [], notChecked: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10 ok" }] };
+    const b: HealthReport = { files: [], findings: [], notChecked: [], checks: [
+      { name: "unit", command: "npm test", status: "fail", detail: "9/10" },
+      { name: "e2e", command: "npm run e2e", status: "not run", detail: "denied" },
+    ] };
+    const m = mergeReports([a, b]);
+    expect(m.checks).toEqual([
+      { name: "unit", command: "npm test", status: "fail", detail: "9/10" },
+      { name: "e2e", command: "npm run e2e", status: "not run", detail: "denied" },
+    ]);
+    expect(mergeReports([{ files: [], findings: [], notChecked: [] }])).toMatchObject({ checks: [] });
+  });
+});
+
 describe("aggregate", () => {
   it("computes the LOC-weighted mean rounded to 0.1", () => {
     const a = aggregate({ files: [fh("a.ts", 100, 10), fh("b.ts", 900, 5)], findings: [], notChecked: [] });
@@ -107,6 +123,35 @@ describe("renderReport", () => {
     const out = renderReport(aggregate(report), report, "issues");
     expect(out).toContain("src/big.ts:3\tgod-class | high | split");
     expect(out.indexOf("high | split")).toBeLessThan(out.indexOf("low | extract"));
+  });
+
+  it("places the measured line right after Overall and renders the checks section", () => {
+    const r: HealthReport = {
+      ...report,
+      checks: [{ name: "unit", command: "npm test", status: "pass", detail: "42/42" }],
+    };
+    const out = renderReport(aggregate(r), r, "score", "Measured (lexical scan, approximate): 2 files / 1000 LOC");
+    const lines = out.split("\n");
+    expect(lines[1]).toBe("Overall: 5.5/10 (Red)");
+    expect(lines[2]).toBe("Measured (lexical scan, approximate): 2 files / 1000 LOC");
+    expect(lines[3]).toBe("Project checks:");
+    expect(lines[4]).toBe("- unit: pass — `npm test` — 42/42");
+  });
+
+  it("omits measured and checks sections when absent", () => {
+    const out = renderReport(aggregate(report), report, "score");
+    expect(out.split("\n")[2]).not.toContain("Measured");
+    expect(out).not.toContain("Project checks:");
+  });
+
+  it("handles a checks-only report (no files)", () => {
+    const r: HealthReport = {
+      files: [], findings: [], notChecked: [],
+      checks: [{ name: "pytest", command: "pytest -q", status: "fail", detail: "2 failed" }],
+    };
+    const out = renderReport(aggregate(r), r, "score");
+    expect(out).toContain("Overall: 0/10 (Red)");
+    expect(out).toContain("- pytest: fail — `pytest -q` — 2 failed");
   });
 });
 

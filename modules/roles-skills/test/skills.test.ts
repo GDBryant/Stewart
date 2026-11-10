@@ -110,7 +110,7 @@ describe("composeRolePrompt", () => {
 describe("orchestrate skill", () => {
   const body = () => shippedSkill("orchestrate")!.body;
   it("states the project health-check procedure", () => {
-    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs"]) expect(body()).toContain(x);
+    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "Project checks"]) expect(body()).toContain(x);
   });
   it("covers folder-scoped checks and score-only mode", () => {
     expect(body()).toContain("path");
@@ -146,10 +146,23 @@ describe("code-health skill", () => {
     expect(body().toLowerCase()).toContain("approximat");
     expect(body().toLowerCase()).toContain("do not edit");
   });
-  it("does not instruct running tools or editing", () => {
-    expect(body()).not.toMatch(/run (the )?(tests|terminal|coverage|lint)/i);
-    expect(body()).not.toContain("RunTerminal");
+  it("measures with CodeMetrics and restricts RunTerminal to the Project checks task", () => {
+    expect(body()).toContain("CodeMetrics");
+    expect(body()).toContain("Project checks");
+    expect(body()).toContain("RunTerminal only inside a Project checks task");
     expect(body()).not.toContain("edit the file");
+  });
+
+  it("is project-agnostic", () => {
+    expect(body()).not.toContain("REFACTORING.md");
+    expect(body()).not.toContain("Stewart");
+  });
+
+  it("the shipped reviewer prompt is not truncated at the default budget", () => {
+    const skills = resolveSkills({}, undefined);
+    const reviewer = (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items.find((r) => r.id === "code-health-reviewer")!;
+    const { truncated } = composeRolePrompt(reviewer, skills, 8000);
+    expect(truncated).toBe(false);
   });
   it("contains the exact output line formats", () => {
     expect(body()).toContain("path:line | smell | high/med/low | refactor");
