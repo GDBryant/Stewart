@@ -21,7 +21,8 @@
     "typescript": "5.9.3",
     "vitest": "3.2.4",
     "@stewart/tools": "workspace:*",
-    "@stewart/models": "workspace:*"
+    "@stewart/models": "workspace:*",
+    "@stewart/health-check": "workspace:*"
   },
   "dependencies": {
     "@stewart/kernel": "workspace:*",

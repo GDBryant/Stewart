@@ -20,6 +20,7 @@
     "@stewart/config": "workspace:*",
     "@stewart/context": "workspace:*",
     "@stewart/diagnostics": "workspace:*",
+    "@stewart/health-check": "workspace:*",
     "@stewart/kernel": "workspace:*",
     "@stewart/ledger": "workspace:*",
     "@stewart/models": "workspace:*",

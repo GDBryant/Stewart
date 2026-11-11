@@ -1,4 +1,4 @@
-import type { RunRuntime } from "@stewart/run-contract";
+import type { RunFeature, RunRuntime } from "@stewart/run-contract";
 import type { ChatMessage, Clock, EventBus, HostPort, IdGen } from "@stewart/kernel";
 import type { RunHandle } from "./handle.js";
 import type { TaskRecord } from "@stewart/scheduling";
@@ -29,6 +29,8 @@ export interface RunDeps {
   clock: Clock;
   ids: IdGen;
   bus: EventBus;
+  /** Product features plugged into orchestrated runs; passed through to each `RunRuntime`. */
+  features?: readonly RunFeature[];
 }
 
 /** The RunService members the run strategies and runtime builder use; keeps them off the concrete class. */

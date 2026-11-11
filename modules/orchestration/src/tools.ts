@@ -1,6 +1,5 @@
 import type { Json } from "@stewart/kernel";
 import type { Tool } from "@stewart/tools";
-import type { HealthReport } from "@stewart/code-health";
 
 /** Core-provided implementations of the orchestration verbs. */
 export interface OrchestrationHandlers {
@@ -9,8 +8,6 @@ export interface OrchestrationHandlers {
   submitPlan(args: { milestones: { title: string; acceptance?: string }[] }): string;
   submitVerdict(args: { verdict: "approve" | "revise"; reasons?: string[] }): string | Promise<string>;
   submitReplacements(args: { replacements: { role: string; agent: string; reason: string }[] }): string;
-  submitHealth(args: HealthReport): string;
-  healthReport(args: { mode?: "score" | "issues" }): string | Promise<string>;
 }
 
 /**
@@ -134,82 +131,6 @@ export function orchestrationTools(h: OrchestrationHandlers): Tool[] {
       requiresApproval: false,
       coreHandled: true,
       execute: async (args: Json) => h.submitReplacements(args as never),
-    },
-    {
-      spec: {
-        name: "submit_health",
-        description: "Submit the structured code-health report for the reviewed files. Ends the turn.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            files: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  path: { type: "string" },
-                  loc: { type: "integer" },
-                  score: { type: "number" },
-                  band: { type: "string", enum: ["Green", "Yellow", "Red"] },
-                },
-                required: ["path", "loc", "score", "band"],
-              },
-            },
-            findings: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  path: { type: "string" },
-                  line: { type: "integer" },
-                  smell: { type: "string" },
-                  severity: { type: "string", enum: ["high", "med", "low"] },
-                  refactor: { type: "string" },
-                },
-                required: ["path", "smell", "severity", "refactor"],
-              },
-            },
-            notChecked: { type: "array", items: { type: "string" } },
-            checks: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  name: { type: "string" },
-                  command: { type: "string" },
-                  status: { type: "string", enum: ["pass", "fail", "not run"] },
-                  detail: { type: "string" },
-                },
-                required: ["name", "command", "status", "detail"],
-              },
-            },
-          },
-          required: ["files"],
-        },
-      },
-      requiresApproval: false,
-      coreHandled: true,
-      execute: async (args: Json) => h.submitHealth(args as never),
-    },
-    {
-      spec: {
-        name: "health_report",
-        description: "Merge all submitted health reports, write the report to scratch and return the rendered text. Orchestrator only.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            mode: { type: "string", enum: ["score", "issues"] },
-          },
-        },
-      },
-      requiresApproval: false,
-      coreHandled: true,
-      execute: async (args: Json) => h.healthReport(args as never),
     },
   ];
 }

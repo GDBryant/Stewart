@@ -28,6 +28,9 @@
       "path": "../context"
     },
     {
+      "path": "../health-check"
+    },
+    {
       "path": "../interaction"
     },
     {

@@ -11,7 +11,7 @@ export interface OrchestrationOutcome {
 
 const ORCHESTRATION_ROLES = new Set(["orchestrator"]);
 /** Used when the orchestrator role lists no tools: routing only, never project tools. */
-export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements", "health_report"];
+export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan", "submit_verdict", "submit_replacements"];
 export const ORCHESTRATOR_MAX_TOOL_OUTPUT = 4_000;
 
 /** Resolve an enabled role by id. Unknown or disabled ids return undefined; there is no silent fallback. */

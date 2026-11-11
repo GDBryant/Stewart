@@ -11,7 +11,7 @@ import { RunCancelledError, type LoopResult } from "@stewart/agent-loop";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "@stewart/agent-loop";
 import { classifyFault } from "@stewart/agent-loop";
-import { type RunRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/run-contract";
+import { terminalToolNames, type RunRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/run-contract";
 import { ToolRegistry } from "@stewart/tools";
 import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
@@ -20,7 +20,7 @@ import { loadProjectContext } from "@stewart/context";
 import type { TaskSpec } from "@stewart/scheduling";
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
-const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements", "submit_health"]);
+const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements"]);
 
 /** Deterministic prefix order: role prompt + skills, bounded AGENTS.md + memory, then the briefing. */
 export async function buildRolePrompt(rt: RunRuntime, role: RoleDef): Promise<string> {
@@ -153,7 +153,8 @@ async function buildSessionDeps(
   const registry = leasedRegistry(rt, spec, role, base);
 
   const prompt = deps.prompt ?? (await buildRolePrompt(rt, role));
-  const terminal = new Set([...TERMINAL].filter((t) => registry.find(t)));
+  const terminalNames = new Set([...TERMINAL, ...terminalToolNames(rt.features)]);
+  const terminal = new Set([...terminalNames].filter((t) => registry.find(t)));
   const state = { filesTouched: [] as string[], terminalCallId: undefined as string | undefined };
 
   const { summarize, prune } = compactionFor(rt, spec.id);
@@ -175,7 +176,7 @@ async function buildSessionDeps(
       hooks: {
         onToolRequested: (call) => {
           if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") state.filesTouched.push(call.arguments.path);
-          if (TERMINAL.has(call.name)) state.terminalCallId = call.id;
+          if (terminalNames.has(call.name)) state.terminalCallId = call.id;
         },
       },
     },

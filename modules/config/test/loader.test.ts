@@ -21,12 +21,13 @@ describe("loadConfig", () => {
   });
 });
 
-describe("REQUIRED_ROLE_TOOLS union", () => {
+describe("required role tools union", () => {
+  const REQUIRED = { orchestrator: ["ListCodeFiles", "health_report"], "code-health-reviewer": ["ListCodeFiles", "submit_health", "CodeMetrics", "RunTerminal"] };
   const shipped = (tools: string) => `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [${tools}]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, submit_health]\n  - id: investigator\n    enabled: true\n    tools: [ReadFile]\n`;
 
   it("appends required tools to a stale user roles.yaml and leaves other roles untouched", () => {
     const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, Search]\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true, REQUIRED);
     const o = c.roles.find((r) => r.id === "orchestrator")!;
     expect(o.tools).toEqual(["dispatch", "ask_user", "ReadFile", "FindFiles", "ListCodeFiles", "health_report"]);
     const h = c.roles.find((r) => r.id === "code-health-reviewer")!;
@@ -34,20 +35,26 @@ describe("REQUIRED_ROLE_TOOLS union", () => {
     expect(c.roles.find((r) => r.id === "investigator")!.tools).toEqual(["ReadFile"]);
   });
 
+  it("adds nothing when no required tools are supplied", () => {
+    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ask_user]\n`;
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual(["dispatch", "ask_user"]);
+  });
+
   it("does not duplicate tools already present", () => {
     const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ListCodeFiles, health_report]\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true, REQUIRED);
     expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual(["dispatch", "ListCodeFiles", "health_report"]);
   });
 
   it("leaves a role with an empty tools list empty", () => {
     const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: []\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true);
+    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, true, REQUIRED);
     expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual([]);
   });
 
   it("does not add the shipped ids when absent from all layers", () => {
-    const c = loadConfig({ "roles.yaml": "version: 1\nitems:\n  - id: custom\n    enabled: true\n    tools: [ReadFile, ListCodeFiles, submit_health]\n" }, undefined, {}, true);
+    const c = loadConfig({ "roles.yaml": "version: 1\nitems:\n  - id: custom\n    enabled: true\n    tools: [ReadFile, ListCodeFiles, submit_health]\n" }, undefined, {}, true, REQUIRED);
     expect(c.roles).toHaveLength(1);
     expect(c.roles[0].tools).toEqual(["ReadFile", "ListCodeFiles", "submit_health"]);
   });

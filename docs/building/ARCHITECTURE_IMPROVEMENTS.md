@@ -140,14 +140,14 @@ interface FeatureRunCtx { tasks(): { id: string; roleId: string }[] }
    - Move into it: `submit_health`/`health_report`, the reports map, aggregation and the scratch write, `measureReportFiles`, the preflight gate, and `CodeMetrics`.
    - Remove all `HealthReport` and `code-health` imports from orchestration. orchestration drops its `code-health` dependency.
    - Core registers `healthCheckFeature`.
-3. Move `isSourceFile` → `kernel`. `ListCodeFiles` stays in `tools`, which is generic inventory; tools drops its `code-health` dependency.
+3. **Deviation (as built):** `ListCodeFiles` and `CodeMetrics` stay in `tools`. They are generic source inventory and measurement tools used by roles directly, and `tools` (L5) depending on `code-health` (L3) is a legal downward edge, so `isSourceFile` is not moved to `kernel`.
 4. Replace the `REQUIRED_ROLE_TOOLS` constant in `config` with a `loadConfig(…, required)` parameter. Core passes the union of each feature's `requiredRoleTools`, so existing user `roles.yaml` files keep their health tools.
 
 **Tests**
 - Positive: a health run produces the same report and scratch file as today (existing tests move to `health-check`); a fake feature's tool and terminal verb are dispatched and end the turn; preflight refuses the run when the reviewer role is missing.
-- Negative: with no features, the orchestrator tool list is the generic list and `health_report` is unknown; a feature tool scoped `"task"` never reaches the orchestrator; `required` is empty when there are no features.
+- Negative (as built in `orchestration`/`health-check` tests): with no features, the orchestrator tool list is the generic list and `health_report` is unknown; a feature tool scoped `"task"` never reaches the orchestrator; `required` is empty when there are no features.
 
-**Done when:** `grep -r "health" modules/orchestration/src` finds no matches, `orchestratedRun.ts` is under 300 lines, and neither orchestration nor tools depends on `code-health`.
+**Done when:** `grep -ri "health" modules/orchestration/src` finds no matches, `orchestratedRun.ts` is under 300 lines, and orchestration no longer depends on `code-health` (`tools` still does, see step 3).
 
 ## M. Model caps read only through `models` (#4)
 

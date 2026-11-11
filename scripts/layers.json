@@ -23,5 +23,6 @@
   "setup": 7,
   "runs": 8,
   "run-contract": 6,
-  "v1-import": 2
+  "v1-import": 2,
+  "health-check": 7
 }

@@ -7,6 +7,7 @@ import { OllamaAdapter } from "@stewart/channels";
 import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
 import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
+import { FEATURE_ROLE_TOOLS, RUN_FEATURES } from "./features.js";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
 import { RunService } from "@stewart/runs";
@@ -98,9 +99,9 @@ export class Core implements CoreCtx {
     this.userGuard.syncLayer(userLayer);
     const projectGuard = new SelfWriteGuard();
     projectGuard.syncLayer(projectLayer);
-    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, trusted));
+    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, trusted, FEATURE_ROLE_TOOLS));
     this.applyDebug(config);
-    const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus });
+    const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus, features: RUN_FEATURES });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
     this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
     const staleProbe = this.probeRunners.get(projectId);
@@ -134,7 +135,7 @@ export class Core implements CoreCtx {
     ctx.projectLayer = nextProj;
     this.userGuard.syncLayer(nextUser);
     ctx.projectGuard.syncLayer(nextProj);
-    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted));
+    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted, FEATURE_ROLE_TOOLS));
     const fatalParse = nextConfig.errors.some((e) => /^(channels|agents|roles|settings)\.yaml:/.test(e));
     if (fatalParse && fromWatcher) {
       ctx.config = { ...ctx.config, errors: nextConfig.errors };

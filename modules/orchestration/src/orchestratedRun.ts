@@ -2,28 +2,18 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
-import type { RunRuntime, TaskResult } from "@stewart/run-contract";
+import { runPreflight, type FeatureRun, type RunRuntime, type TaskResult } from "@stewart/run-contract";
 import { questionPrompt } from "@stewart/interaction";
 import { NO_ANSWER, planGatePrompt } from "./prompts.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
 import type { Tool } from "@stewart/tools";
-import { aggregate, isHealthCheckRequest, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthReport } from "@stewart/code-health";
 import { freeCandidates, parseReplacements, validateReplacements, type Replacement } from "./replacements.js";
 import { isCosting } from "@stewart/models";
 import { answerNestedAskUser } from "./askUser.js";
 import { buildSession, finalize, runSession, type RunHost } from "./runSupport.js";
 import { ORCHESTRATOR_MAX_TOOL_OUTPUT, resolveRole, type OrchestrationOutcome } from "./orchestrator.js";
-
-function taskRecordStatus(result: TaskResult): TaskRecord["status"] {
-  return result.status === "done" ? "done" : result.status === "failed" ? "failed" : result.status === "parked" ? "parked" : "stopped";
-}
-
-function taskOutcomeEvent(rt: RunRuntime, rec: TaskRecord, role: RoleDef, result: TaskResult): Parameters<RunRuntime["bus"]["emit"]>[0] {
-  return result.status === "done"
-    ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: result.summary.slice(0, 400) }
-    : { kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: result.summary.slice(0, 400) };
-}
+import { taskOutcomeEvent, taskRecordStatus } from "./taskEvents.js";
 
 /**
  * One orchestrated run: the Orchestrator routes work through `dispatch`, core
@@ -35,9 +25,8 @@ export async function runOrchestrated(rt: RunRuntime, userText: string, history:
   if (!orchestrator) return { status: "failed", error: "orchestrator role is not enabled", suggestions: [] };
   const agent = rt.config.agents.find((a) => a.id === orchestrator.agent);
   if (!agent) return { status: "failed", error: `role orchestrator: enabled but no agent bound`, suggestions: [] };
-  if (isHealthCheckRequest(userText) && !resolveRole(rt, "code-health-reviewer")) {
-    return { status: "failed", error: "code-health-reviewer is not enabled; enable it in roles.yaml or rerun setup", suggestions: [] };
-  }
+  const refused = runPreflight(rt.features, userText, rt);
+  if (refused) return { status: "failed", error: refused, suggestions: [] };
   return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText, history).run();
 }
 
@@ -56,8 +45,9 @@ export class OrchestratedRun implements RunHost {
   private milestoneCount = 0;
   limitAnnounced = false;
   private planApproved = false;
-  private readonly healthReports = new Map<string, HealthReport>();
   readonly handlers: OrchestrationHandlers;
+  /** Per-run state of each plugged-in feature (tools offered to the Orchestrator and to dispatched tasks). */
+  readonly featureRuns: readonly FeatureRun[];
 
   constructor(
     readonly rt: RunRuntime,
@@ -68,6 +58,7 @@ export class OrchestratedRun implements RunHost {
     readonly history: ChatMessage[] = [],
   ) {
     this.overrides = (rt.roleAgentOverrides ??= new Map<string, string>());
+    this.featureRuns = (rt.features ?? []).map((f) => f.createRun(rt, { tasks: () => this.graph.all(), maxOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT }));
     this.handlers = {
       dispatch: async (args, signal) => {
         if (signal.aborted) return "Cancelled.";
@@ -81,8 +72,6 @@ export class OrchestratedRun implements RunHost {
       submitPlan: (args) => this.submitPlan(args),
       submitVerdict: (args) => this.submitVerdict(args),
       submitReplacements: (args) => this.submitReplacements(args),
-      submitHealth: () => "Health reports are submitted by dispatched reviewer tasks.",
-      healthReport: (args) => this.healthReport(args),
     };
   }
 
@@ -250,7 +239,7 @@ export class OrchestratedRun implements RunHost {
     const rt = this.rt;
     const wanted = role.tools.length ? role.tools : ["dispatch", "submit_plan", "submit_verdict"];
     const canDispatch = depth < 2 && wanted.includes("dispatch");
-    return orchestrationTools({
+    const verbs = orchestrationTools({
       dispatch: async (args, signal) => {
         if (signal.aborted) return "Cancelled.";
         const used = this.nestedUsed.get(parentId) ?? 0;
@@ -262,9 +251,9 @@ export class OrchestratedRun implements RunHost {
       submitPlan: (args) => this.handlers.submitPlan(args),
       submitVerdict: (args) => this.handlers.submitVerdict(args),
       submitReplacements: () => "Replacements are submitted by the Orchestrator.",
-      submitHealth: (args) => this.submitHealth(parentId, args),
-      healthReport: () => "Reports are aggregated by the Orchestrator.",
     }).filter((t) => (t.spec.name === "dispatch" ? canDispatch : wanted.includes(t.spec.name)));
+    const featureTools = this.featureRuns.flatMap((f) => f.taskTools(parentId)).filter((t) => wanted.includes(t.spec.name));
+    return [...verbs, ...featureTools];
   }
 
   private submitPlan(args: { milestones: { title: string; acceptance?: string }[] }): string {
@@ -293,42 +282,6 @@ export class OrchestratedRun implements RunHost {
     this.suggestions = validateReplacements(parseReplacements(args), candidates);
     for (const s of this.suggestions) rt.bus.emit({ kind: "cost.replaced", runId: rt.runId, roleId: s.role, agentId: s.agent, reason: s.reason });
     return `Replacements recorded: ${this.suggestions.map((s) => `${s.role}→${s.agent}`).join(", ") || "none valid"}`;
-  }
-
-  private submitHealth(taskId: string, report: HealthReport): string {
-    this.healthReports.set(taskId, report);
-    if (report.files.length === 0 && report.checks?.length) return `Project checks recorded: ${report.checks.length}`;
-    const a = aggregate(mergeReports([report]));
-    const worst = a.worst ? `, worst ${a.worst.path} ${a.worst.score}/10` : "";
-    const checks = report.checks?.length ? `, checks ${report.checks.length}` : "";
-    return `Health report recorded: ${a.files} files, mean ${a.score}/10${worst}${checks}`;
-  }
-
-  private async healthReport(args: { mode?: "score" | "issues" }): Promise<string> {
-    if (this.healthReports.size === 0) return "No health reports recorded.";
-    const merged = mergeReports([...this.healthReports.values()]);
-    const missing = this.graph
-      .all()
-      .filter((t) => t.roleId === "code-health-reviewer" && !this.healthReports.has(t.id))
-      .map((t) => t.title);
-    const report: HealthReport = { ...merged, notChecked: [...merged.notChecked, ...missing] };
-    const measured = await this.measureReportFiles(report);
-    const rendered = renderReport(aggregate(report), report, args.mode ?? "issues", measured);
-    const path = `.stewart/scratch/health/${this.rt.runId}.md`;
-    await this.rt.host.files.writeAtomic(path, rendered);
-    if (rendered.length <= ORCHESTRATOR_MAX_TOOL_OUTPUT) return rendered;
-    const tail = `\n… truncated, see ${path}`;
-    return rendered.slice(0, ORCHESTRATOR_MAX_TOOL_OUTPUT - tail.length) + tail;
-  }
-
-  private async measureReportFiles(report: HealthReport): Promise<string | undefined> {
-    const metrics: FileMetrics[] = [];
-    for (const f of report.files) {
-      try {
-        metrics.push(scanMetrics(f.path, (await this.rt.host.files.read(f.path)).content));
-      } catch {}
-    }
-    return metrics.length ? renderMetricsSummary(summarizeMetrics(metrics)) : undefined;
   }
 
   async stopParkedTasks(): Promise<void> {

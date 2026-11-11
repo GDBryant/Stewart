@@ -11,6 +11,7 @@ import type { RoleDef } from "@stewart/config";
 import type { Tool } from "@stewart/tools";
 import type { RunEvent } from "@stewart/protocol";
 import type { Prompt, PromptOutcome } from "@stewart/interaction";
+import type { RunFeature } from "./feature.js";
 
 /** Per-run recovery limits (from settings) plus live counters. */
 export interface RecoveryState {
@@ -106,6 +107,8 @@ export interface RunRuntime {
   /** Resolved budget profile for this run (quick/normal/deep multipliers + cap); absent = normal. */
   budgetProfile?: BudgetProfile;
   planGate: boolean;
+  /** Product features plugged into orchestrated runs (tools, terminal verbs, preflight); absent = none. */
+  features?: readonly RunFeature[];
   roleAgentOverrides?: Map<string, string>;
   /** Per-run recovery limits and counters; created from settings by the run owner. */
   recovery?: RecoveryState;

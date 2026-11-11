@@ -260,6 +260,34 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  modules/health-check:
+    dependencies:
+      '@stewart/code-health':
+        specifier: workspace:*
+        version: link:../code-health
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/run-contract':
+        specifier: workspace:*
+        version: link:../run-contract
+      '@stewart/tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   modules/interaction:
     dependencies:
       '@stewart/kernel':
@@ -353,9 +381,6 @@ importers:
       '@stewart/channels':
         specifier: workspace:*
         version: link:../channels
-      '@stewart/code-health':
-        specifier: workspace:*
-        version: link:../code-health
       '@stewart/compaction':
         specifier: workspace:*
         version: link:../compaction
@@ -627,6 +652,9 @@ importers:
         specifier: workspace:*
         version: link:../scheduling
     devDependencies:
+      '@stewart/health-check':
+        specifier: workspace:*
+        version: link:../health-check
       '@stewart/models':
         specifier: workspace:*
         version: link:../models
@@ -828,6 +856,9 @@ importers:
       '@stewart/diagnostics':
         specifier: workspace:*
         version: link:../../modules/diagnostics
+      '@stewart/health-check':
+        specifier: workspace:*
+        version: link:../../modules/health-check
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel

@@ -26,7 +26,7 @@ import { runRoleTask } from "../src/api.js";
 import { costLimitPrompt, fallbackPrompt, planGatePrompt } from "../src/prompts.js";
 import { runOrchestrated } from "../src/api.js";
 import { orchestrationTools, type OrchestrationHandlers } from "../src/api.js";
-import type { RunRuntime } from "@stewart/run-contract";
+import type { RunFeature, RunRuntime } from "@stewart/run-contract";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { ToolLoop } from "@stewart/agent-loop";
@@ -448,8 +448,6 @@ const verbs = (over: Partial<OrchestrationHandlers> = {}) =>
     submitPlan: () => "Plan recorded with 2 milestone(s).",
     submitVerdict: () => "Verdict recorded: approved. Proceed with implementation dispatches.",
     submitReplacements: () => "none",
-    submitHealth: () => "Health report recorded: 1 files, mean 9/10, worst a.ts 9/10",
-    healthReport: () => "No health reports recorded.",
     ...over,
   });
 
@@ -1129,240 +1127,6 @@ describe("runOrchestrated", () => {
 });
 
 
-describe("health verbs", () => {
-  const reviewerCfg = () =>
-    config({
-      roles: {
-        "code-health-reviewer": "enabled: true\n    agent: a-free\n    tools: [ReadFile, submit_health]",
-        orchestrator: "enabled: true\n    agent: a-paid\n    tools: [dispatch, ask_user, health_report]",
-      },
-    });
-  const healthArgs = {
-    files: [{ path: "a.ts", loc: 100, score: 10, band: "Green" }, { path: "b.ts", loc: 900, score: 5, band: "Red" }],
-    findings: [{ path: "b.ts", line: 3, smell: "god-class", severity: "high", refactor: "split" }],
-    notChecked: [],
-  };
-
-  it("a reviewer task calling submit_health ends the turn with the short summary", async () => {
-    const cfg = reviewerCfg();
-    const { channel } = fakeChannel((role) =>
-      role === "code-health-reviewer" ? [calls({ id: "h1", name: "submit_health", arguments: healthArgs }), done()] : [text("x"), done()],
-    );
-    const { rt } = await runtime(cfg, channel);
-    const res = await runRoleTask(rt, { id: "t1", roleId: "code-health-reviewer", title: "t", task: "review", files: [], dependsOn: [] }, {
-      role: cfg.roles.find((r) => r.id === "code-health-reviewer")!,
-      nestedTools: verbs(),
-    });
-    expect(res.status).toBe("done");
-    expect(res.summary).toContain("Health report recorded");
-  });
-
-  it("a malformed submit_health is rejected by schema and the loop continues", async () => {
-    const cfg = reviewerCfg();
-    let n = 0;
-    const { channel } = fakeChannel((role) => {
-      if (role !== "code-health-reviewer") return [text("x"), done()];
-      n++;
-      return n === 1
-        ? [calls({ id: "h1", name: "submit_health", arguments: { findings: [] } }), done()]
-        : [calls({ id: "h2", name: "submit_health", arguments: healthArgs }), done()];
-    });
-    const { rt } = await runtime(cfg, channel);
-    const res = await runRoleTask(rt, { id: "t1", roleId: "code-health-reviewer", title: "t", task: "review", files: [], dependsOn: [] }, {
-      role: cfg.roles.find((r) => r.id === "code-health-reviewer")!,
-      nestedTools: verbs(),
-    });
-    expect(n).toBe(2);
-    expect(res.status).toBe("done");
-    expect(res.summary).toContain("Health report recorded");
-  });
-
-  it("submit_health accepts checks and counts them in the summary", async () => {
-    const cfg = reviewerCfg();
-    const args = {
-      files: [],
-      checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10/10" }],
-    };
-    const { channel } = fakeChannel((role, n) => {
-      if (role === "code-health-reviewer") return [calls({ id: "h1", name: "submit_health", arguments: args }), done()];
-      if (role === "orchestrator" && n === 1) {
-        return [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "Project checks" } }), done()];
-      }
-      return [text("done"), done()];
-    });
-    const { rt, events } = await runtime(cfg, channel);
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("done");
-    const doneEv = events.find((e) => e.kind === "task.done") as Extract<RunEvent, { kind: "task.done" }> | undefined;
-    expect(doneEv?.summary).toBe("Project checks recorded: 1");
-  });
-
-  it("a check with a bad status is rejected by schema and the loop continues", async () => {
-    const cfg = reviewerCfg();
-    let n = 0;
-    const bad = { files: [], checks: [{ name: "t", command: "x", status: "bogus", detail: "" }] };
-    const { channel } = fakeChannel((role) => {
-      if (role !== "code-health-reviewer") return [text("x"), done()];
-      n++;
-      return n === 1
-        ? [calls({ id: "h1", name: "submit_health", arguments: bad }), done()]
-        : [calls({ id: "h2", name: "submit_health", arguments: healthArgs }), done()];
-    });
-    const { rt } = await runtime(cfg, channel);
-    const res = await runRoleTask(rt, { id: "t1", roleId: "code-health-reviewer", title: "t", task: "review", files: [], dependsOn: [] }, {
-      role: cfg.roles.find((r) => r.id === "code-health-reviewer")!,
-      nestedTools: verbs(),
-    });
-    expect(n).toBe(2);
-    expect(res.status).toBe("done");
-    expect(res.summary).toContain("Health report recorded");
-  });
-
-  it("health_report merges two recorded reports, returns weighted overall and writes scratch", async () => {
-    const cfg = reviewerCfg();
-    const { channel } = fakeChannel((role, n, req) => {
-      if (role === "code-health-reviewer") {
-        const user = req.messages.find((m) => m.role === "user")?.content ?? "";
-        const report = user.includes("batch-b")
-          ? { files: [{ path: "b.ts", loc: 900, score: 5, band: "Red" }], findings: [], notChecked: [] }
-          : { files: [{ path: "a.ts", loc: 100, score: 10, band: "Green" }], findings: [], notChecked: [] };
-        return [calls({ id: `h${n}`, name: "submit_health", arguments: report }), done()];
-      }
-      if (n === 1) {
-        return [
-          calls(
-            { id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch-a" } },
-            { id: "d2", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch-b" } },
-          ),
-          done(),
-        ];
-      }
-      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: { mode: "score" } }), done()];
-      return [text("done"), done()];
-    });
-    const { rt, files } = await runtime(cfg, channel);
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("done");
-    const report = files[".stewart/scratch/health/run-1.md"];
-    expect(report).toBeDefined();
-    expect(report).toContain("Overall: 5.5/10 (Red)");
-    expect(report).toContain("Checked: 2 files / 1000 LOC");
-  });
-
-  it("health_report adds the lexical Measured line and project checks section", async () => {
-    const cfg = reviewerCfg();
-    const { channel } = fakeChannel((role, n, req) => {
-      if (role === "code-health-reviewer") {
-        const user = req.messages.find((m) => m.role === "user")?.content ?? "";
-        const report = user.includes("checks")
-          ? { files: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10/10" }] }
-          : { files: [{ path: "a.ts", loc: 100, score: 10, band: "Green" }], findings: [], notChecked: [] };
-        return [calls({ id: `h${n}`, name: "submit_health", arguments: report }), done()];
-      }
-      if (n === 1) {
-        return [
-          calls(
-            { id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } },
-            { id: "d2", name: "dispatch", arguments: { role: "code-health-reviewer", task: "checks" } },
-          ),
-          done(),
-        ];
-      }
-      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: {} }), done()];
-      return [text("done"), done()];
-    });
-    const { rt, files } = await runtime(cfg, channel, { files: { "a.ts": "function f() {\n  if (x) return 1\n}" } });
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("done");
-    const report = files[".stewart/scratch/health/run-1.md"];
-    const lines = report.split("\n");
-    expect(lines[2]).toContain("Measured (lexical scan, approximate): 1 files / 3 LOC");
-    expect(report).toContain("Project checks:");
-    expect(report).toContain("- unit: pass — `npm test` — 10/10");
-  });
-
-  it("health_report omits the Measured line when no file can be read", async () => {
-    const cfg = reviewerCfg();
-    const { channel } = fakeChannel((role, n) => {
-      if (role === "code-health-reviewer") {
-        return [calls({ id: `h${n}`, name: "submit_health", arguments: { files: [{ path: "missing.ts", loc: 5, score: 9, band: "Yellow" }], findings: [], notChecked: [] } }), done()];
-      }
-      if (n === 1) {
-        return [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } }), done()];
-      }
-      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: {} }), done()];
-      return [text("done"), done()];
-    });
-    const { rt, files } = await runtime(cfg, channel, { files: { "a.ts": "x" } });
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("done");
-    const report = files[".stewart/scratch/health/run-1.md"];
-    expect(report).not.toContain("Measured (lexical scan");
-  });
-
-  it("health_report with no recorded reports returns the empty message", async () => {
-    const cfg = reviewerCfg();
-    let reply = "";
-    const { channel } = fakeChannel((role, n, req) => {
-      if (role !== "orchestrator") return [text("x"), done()];
-      if (n === 1) return [calls({ id: "d0", name: "dispatch", arguments: { role: "general-worker", task: "noop" } }), done()];
-      if (n === 2) return [calls({ id: "r1", name: "health_report", arguments: {} }), done()];
-      reply = [...req.messages].reverse().find((m) => m.role === "tool")?.content as string;
-      return [text("done"), done()];
-    });
-    const { rt } = await runtime(cfg, channel);
-    await runOrchestrated(rt, "go");
-    expect(reply).toBe("No health reports recorded.");
-  });
-
-  it("a non-orchestrator role cannot call health_report", async () => {
-    const cfg = reviewerCfg();
-    let toolNames: string[] = [];
-    const { channel } = fakeChannel((role, n, req) => {
-      if (role === "code-health-reviewer") {
-        toolNames = (req.tools ?? []).map((t) => t.name);
-        return [text("reviewed"), done()];
-      }
-      return n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } }), done()] : [text("done"), done()];
-    });
-    const { rt } = await runtime(cfg, channel);
-    await runOrchestrated(rt, "go");
-    expect(toolNames).not.toContain("health_report");
-    expect(toolNames).toContain("submit_health");
-  });
-
-  it("fails a project health request when code-health-reviewer is not enabled", async () => {
-    const cfg = reviewerCfg();
-    cfg.roles.find((r) => r.id === "code-health-reviewer")!.enabled = false;
-    const { channel } = fakeChannel(() => [text("x"), done()]);
-    const { rt } = await runtime(cfg, channel);
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("failed");
-    expect(out.error).toContain("code-health-reviewer is not enabled");
-  });
-
-  it("proceeds on a health request when the reviewer is enabled", async () => {
-    const cfg = reviewerCfg();
-    const { channel } = fakeChannel((role, n) =>
-      role === "orchestrator" ? (n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "code-health-reviewer", task: "batch" } }), done()] : [text("done"), done()]) : [text("ok"), done()],
-    );
-    const { rt } = await runtime(cfg, channel);
-    const out = await runOrchestrated(rt, "check the health of this project");
-    expect(out.status).toBe("done");
-  });
-
-  it("proceeds on a non-health request even when the reviewer is disabled", async () => {
-    const cfg = reviewerCfg();
-    cfg.roles.find((r) => r.id === "code-health-reviewer")!.enabled = false;
-    const { channel } = fakeChannel((role, n) =>
-      role === "orchestrator" ? (n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "general-worker", task: "x" } }), done()] : [text("done"), done()]) : [text("ok"), done()],
-    );
-    const { rt } = await runtime(cfg, channel);
-    const out = await runOrchestrated(rt, "rename a variable");
-    expect(out.status).toBe("done");
-  });
-});
-
 describe("nested ask_user and run loop edge branches", () => {
   const writerCfg = () =>
     config({
@@ -1621,5 +1385,93 @@ describe("prompt builders", () => {
       expect(p.decode("Switch")).toBe("switch");
       expect(p.decode("Park")).toBe("park");
     }
+  });
+});
+
+describe("run features", () => {
+  const tool = (name: string, result: string) => ({
+    spec: { name, description: name, parameters: { type: "object" as const, additionalProperties: false, properties: {} } },
+    requiresApproval: false,
+    coreHandled: true,
+    execute: async () => result,
+  });
+  const feature = (over: Partial<RunFeature> = {}): RunFeature => ({
+    id: "demo",
+    terminalTools: ["demo_submit"],
+    orchestratorDefaultTools: ["demo_report"],
+    createRun: () => ({
+      orchestratorTools: () => [tool("demo_report", "orch-report"), tool("demo_submit", "orch-stub")],
+      taskTools: (taskId) => [tool("demo_submit", `submitted:${taskId}`)],
+    }),
+    ...over,
+  });
+  const names = (cfgRoles: Record<string, string>, features: RunFeature[] | undefined) => async () => {
+    let orch: string[] = [];
+    const { channel } = fakeChannel((_r, _n, req) => {
+      orch = (req.tools ?? []).map((t) => t.name);
+      return [text("x"), done()];
+    });
+    const { rt } = await runtime(config({ roles: cfgRoles }), channel, { features });
+    await runOrchestrated(rt, "go");
+    return orch;
+  };
+
+  it("offers a feature's default orchestrator tool when the role lists no tools", async () => {
+    expect(await names({ orchestrator: "enabled: true\n    agent: a-paid\n    tools: []" }, [feature()])()).toContain("demo_report");
+  });
+
+  it("offers nothing extra without features", async () => {
+    const got = await names({ orchestrator: "enabled: true\n    agent: a-paid\n    tools: []" }, undefined)();
+    expect(got).not.toContain("demo_report");
+    expect(got).toContain("dispatch");
+  });
+
+  it("an explicit orchestrator tool list excludes feature tools it does not name", async () => {
+    const got = await names({ orchestrator: "enabled: true\n    agent: a-paid\n    tools: [dispatch]" }, [feature()])();
+    expect(got).not.toContain("demo_report");
+  });
+
+  it("a dispatched role gets the feature task tool, which is terminal and receives its task id", async () => {
+    const cfg = config({ roles: { investigator: "enabled: true\n    agent: a-free\n    tools: [ReadFile, demo_submit]" } });
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "orchestrator") return n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "investigator", task: "look" } }), done()] : [text("done"), done()];
+      return [calls({ id: "s1", name: "demo_submit", arguments: {} }), done()];
+    });
+    const { rt, events } = await runtime(cfg, channel, { features: [feature()] });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    const done1 = events.find((e) => e.kind === "task.done") as Extract<RunEvent, { kind: "task.done" }> | undefined;
+    expect(done1?.summary).toMatch(/^submitted:task-/);
+  });
+
+  it("a task role that does not list the feature tool does not get it", async () => {
+    let seen: string[] = [];
+    const cfg = config({ roles: { investigator: "enabled: true\n    agent: a-free\n    tools: [ReadFile]" } });
+    const { channel } = fakeChannel((role, n, req) => {
+      if (role === "investigator") {
+        seen = (req.tools ?? []).map((t) => t.name);
+        return [text("ok"), done()];
+      }
+      return n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "investigator", task: "look" } }), done()] : [text("done"), done()];
+    });
+    const { rt } = await runtime(cfg, channel, { features: [feature()] });
+    await runOrchestrated(rt, "go");
+    expect(seen).not.toContain("demo_submit");
+  });
+
+  it("a preflight refusal fails the run before any model call", async () => {
+    const { channel, calls: seen } = fakeChannel(() => [text("x"), done()]);
+    const { rt } = await runtime(config(), channel, { features: [feature({ preflight: () => "demo feature says no" })] });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("failed");
+    expect(out.error).toBe("demo feature says no");
+    expect(seen).toEqual([]);
+  });
+
+  it("a preflight that allows the run lets it proceed", async () => {
+    const { channel, calls: seen } = fakeChannel(() => [text("x"), done()]);
+    const { rt } = await runtime(config(), channel, { features: [feature({ preflight: () => undefined })] });
+    await runOrchestrated(rt, "go");
+    expect(seen.length).toBeGreaterThan(0);
   });
 });

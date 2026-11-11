@@ -34,6 +34,9 @@
       "path": "../../modules/diagnostics"
     },
     {
+      "path": "../../modules/health-check"
+    },
+    {
       "path": "../../modules/kernel"
     },
     {

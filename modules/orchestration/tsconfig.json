@@ -19,9 +19,6 @@
       "path": "../channels"
     },
     {
-      "path": "../code-health"
-    },
-    {
       "path": "../compaction"
     },
     {

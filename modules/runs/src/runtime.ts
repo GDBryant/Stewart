@@ -47,6 +47,7 @@ export function buildRunRuntime(
     ids: svc.deps.ids,
     bus: svc.deps.bus,
     recoveryService: svc.recoveryService,
+    features: svc.deps.features,
     config: opts.config,
     stateDir: opts.stateDir,
     channelFor: opts.channelFor,

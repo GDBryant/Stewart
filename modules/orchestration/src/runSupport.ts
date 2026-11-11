@@ -8,7 +8,7 @@ import { ProjectPaths } from "@stewart/tools";
 import { RunCancelledError, classifyFault } from "@stewart/agent-loop";
 import { LeaseCycleError } from "@stewart/run-state";
 import { TaskGraph } from "@stewart/scheduling";
-import type { RunRuntime, TaskResult } from "@stewart/run-contract";
+import { orchestratorDefaultToolNames, type FeatureRun, type RunRuntime, type TaskResult } from "@stewart/run-contract";
 import { costLimitPrompt } from "./prompts.js";
 import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
@@ -43,6 +43,7 @@ export interface RunHost {
   readonly parked: string[];
   readonly freeFinished: string[];
   readonly overrides: Map<string, string>;
+  readonly featureRuns: readonly FeatureRun[];
   limitAnnounced: boolean;
   rerunParkedTasks(onlyReplaced: boolean): Promise<void>;
   stopParkedTasks(): Promise<void>;
@@ -51,8 +52,8 @@ export interface RunHost {
 export async function buildSession(host: RunHost): Promise<AgentSession> {
   const rt = host.rt;
   const paths = await ProjectPaths.forProject(rt.host);
-  const tools = [...projectTools(rt.host, paths).tools, ...orchestrationTools(host.handlers)];
-  const allowed = host.orchestrator.tools.length ? host.orchestrator.tools : ORCHESTRATOR_DEFAULT_TOOLS;
+  const tools = [...projectTools(rt.host, paths).tools, ...orchestrationTools(host.handlers), ...host.featureRuns.flatMap((f) => f.orchestratorTools())];
+  const allowed = host.orchestrator.tools.length ? host.orchestrator.tools : [...ORCHESTRATOR_DEFAULT_TOOLS, ...orchestratorDefaultToolNames(rt.features)];
   const registry = new ToolRegistry(tools.filter((t) => allowed.includes(t.spec.name)));
   const prompt = await buildRolePrompt(rt, host.orchestrator);
   const { prune, summarize } = compactionFor(rt);
