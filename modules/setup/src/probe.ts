@@ -1,17 +1,15 @@
-import { abortWait, smokeModel } from "./smoke.js";
+import { ChannelDrain } from "./probeDrain.js";
+import { abortWait } from "./smoke.js";
 import {
   key,
   MAX_SMOKE_ATTEMPTS,
   normalizeReason,
-  PROBE_DRAIN_MS,
   type ProbeCounts,
   type ProbeItem,
   type ProbeRunnerDeps,
   type ProbeSnapshot,
   type ProbeStatus,
   type SmokeCandidate,
-  type SmokeChannel,
-  type SmokeResult,
   type SmokeState,
 } from "./probeTypes.js";
 
@@ -64,12 +62,11 @@ export class SetupProbeRunner {
   private loop: Promise<void> | undefined;
   private rest: Promise<SmokeCandidate[]> = Promise.resolve([]);
   private restPending = false;
-  /** channel -> promise resolving when that channel's last probe iterator fully terminates. */
-  private inflight = new Map<string, Promise<void>>();
-  /** channels whose previous probe iterator did not terminate within drainMs. */
-  private wedged = new Set<string>();
+  private readonly busy: ChannelDrain;
 
-  constructor(private readonly deps: ProbeRunnerDeps) {}
+  constructor(private readonly deps: ProbeRunnerDeps) {
+    this.busy = new ChannelDrain(deps);
+  }
 
   snapshot(): ProbeSnapshot {
     const items = this.order.map((c) => {
@@ -193,37 +190,6 @@ export class SetupProbeRunner {
     this.emit();
   }
 
-  /** Bounded wait for a channel's previous probe iterator to terminate. */
-  private async drain(channel: string, ctrl: AbortController): Promise<"settled" | "aborted" | "slow"> {
-    const prev = this.inflight.get(channel);
-    if (!prev) return "settled";
-    const drainMs = this.deps.drainMs ?? PROBE_DRAIN_MS;
-    if (ctrl.signal.aborted) return "aborted";
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve("slow"), drainMs);
-      void prev.then(() => {
-        clearTimeout(timer);
-        resolve("settled");
-      });
-      ctrl.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          resolve("aborted");
-        },
-        { once: true },
-      );
-    });
-  }
-
-  private trackSettled(channel: string, settledP: Promise<void>): void {
-    this.inflight.set(channel, settledP);
-    void settledP.then(() => {
-      if (this.inflight.get(channel) === settledP) this.inflight.delete(channel);
-      this.wedged.delete(channel);
-    });
-  }
-
   private putSkipped(c: SmokeCandidate, reason: string, prior: ProbeItem | undefined): void {
     this.results.set(key(c), {
       channel: c.channel,
@@ -237,35 +203,12 @@ export class SetupProbeRunner {
     this.emit();
   }
 
-  private async runSmokeAttempt(ch: SmokeChannel, c: SmokeCandidate, ctrl: AbortController): Promise<SmokeResult> {
-    let settle!: () => void;
-    const settledP = new Promise<void>((res) => {
-      settle = res;
-    });
-    this.trackSettled(c.channel, settledP);
-    let settleSeen = false;
-    try {
-      return await smokeModel(ch, c.model, {
-        signal: ctrl.signal,
-        timeoutMs: this.deps.timeoutMs,
-        onSettle: (p) => {
-          settleSeen = true;
-          void p.then(settle, settle);
-        },
-      });
-    } catch (error) {
-      return { state: "red", reason: error instanceof Error ? error.message : String(error) };
-    } finally {
-      if (!settleSeen) settle();
-    }
-  }
-
   private async probeOne(c: SmokeCandidate, ctrl: AbortController, runId: number): Promise<void> {
     const k = key(c);
     const now = this.deps.now ?? Date.now;
     const prior = this.results.get(k);
     const base = { channel: c.channel, model: c.model, attempts: (prior?.attempts ?? 0) + 1, lastReason: prior?.lastReason ?? prior?.reason };
-    if (this.wedged.has(c.channel)) {
+    if (this.busy.isWedged(c.channel)) {
       this.putSkipped(c, "channel did not release the previous probe", prior);
       return;
     }
@@ -275,10 +218,10 @@ export class SetupProbeRunner {
       this.emit();
       return;
     }
-    const drained = await this.drain(c.channel, ctrl);
+    const drained = await this.busy.drain(c.channel, ctrl);
     if (drained === "aborted" || runId !== this.runId) return;
     if (drained === "slow") {
-      this.wedged.add(c.channel);
+      this.busy.markWedged(c.channel);
       this.putSkipped(c, "previous probe on this channel did not terminate", prior);
       return;
     }
@@ -287,7 +230,7 @@ export class SetupProbeRunner {
     const t0 = now();
     this.results.set(k, { ...base, state: "running", waitMs });
     this.emit();
-    const r = await this.runSmokeAttempt(ch, c, ctrl);
+    const r = await this.busy.attempt(ch, c, ctrl);
     if (runId !== this.runId) return; // superseded run: discard the late result
     const state: SmokeState = r.state === "aborted" ? "skipped" : r.state;
     this.results.set(k, {

@@ -1,13 +1,7 @@
-export type ClaudeRawCall = { id: string | null; name: string; argumentsJson: string };
+import { obj, str, textBlock, toolBlock } from "./parserBlocks.js";
+import type { ClaudeEvent, ClaudeRawCall, Obj, ToolBlockCtx } from "./parserBlocks.js";
 
-export type ClaudeEvent =
-  | { t: "text"; text: string }
-  | { t: "reasoning"; text: string }
-  | { t: "calls"; calls: ClaudeRawCall[] }
-  | { t: "failed"; message: string; code: string };
-
-type Obj = Record<string, unknown>;
-const obj = (v: unknown): Obj | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : undefined);
+export type { ClaudeEvent, ClaudeRawCall } from "./parserBlocks.js";
 
 function parseFeedJson(line: string): Obj | undefined {
   try {
@@ -16,7 +10,6 @@ function parseFeedJson(line: string): Obj | undefined {
     return undefined;
   }
 }
-const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
 const arr = (v: unknown): unknown[] | undefined => (Array.isArray(v) ? v : undefined);
 
@@ -212,40 +205,15 @@ export class ClaudeStreamParser {
     return str(obj(obj(o.event)?.message)?.id) ?? str(o.api_message_id);
   }
 
-  private toolBlock(block: Obj | undefined, message: Obj): ClaudeEvent[] | null {
-    if (!block) return null;
-    const handlers: Record<string, (b: Obj) => ClaudeEvent[] | null> = {
-      server_tool_use: (b) =>
-        str(b.name) !== "advisor" ? [this.failed("CLI invoked a server tool", "isolation_violation")] : null,
-      tool_use: (b) => {
-        const name = str(b.name);
-        const callId = str(b.id) ?? null;
-        if (name && (callId === null || !this.seenToolUseIds.has(callId))) {
-          if (callId !== null) this.seenToolUseIds.add(callId);
-          this.toolMessageId = str(message.id);
-          this.nativeCalls.push({ id: callId, name, argumentsJson: JSON.stringify(b.input ?? {}) });
-        }
-        return null;
+  private toolCtx(): ToolBlockCtx {
+    return {
+      seenToolUseIds: this.seenToolUseIds,
+      nativeCalls: this.nativeCalls,
+      setToolMessageId: (id) => {
+        this.toolMessageId = id;
       },
+      failed: (message, code) => this.failed(message, code),
     };
-    const h = handlers[str(block.type) ?? ""];
-    return h ? h(block) : null;
-  }
-
-  private textBlock(block: Obj | undefined): ClaudeEvent | null {
-    if (!block) return null;
-    const handlers: Record<string, (b: Obj) => ClaudeEvent | null> = {
-      text: (b) => {
-        const text = str(b.text);
-        return text ? { t: "text", text } : null;
-      },
-      thinking: (b) => {
-        const text = str(b.thinking);
-        return text ? { t: "reasoning", text } : null;
-      },
-    };
-    const h = handlers[str(block.type) ?? ""];
-    return h ? h(block) : null;
   }
 
   private assistantEvent(o: Obj): ClaudeEvent[] {
@@ -253,14 +221,15 @@ export class ClaudeStreamParser {
     if (!message) return [];
     const out: ClaudeEvent[] = [];
     const blocks = arr(message.content) ?? [];
+    const ctx = this.toolCtx();
     for (const b of blocks) {
-      const bad = this.toolBlock(obj(b), message);
+      const bad = toolBlock(obj(b), message, ctx);
       if (bad !== null) return bad;
     }
     const id = str(message.id);
     if (id === undefined || !this.deltaMessageIds.has(id)) {
       for (const b of blocks) {
-        const ev = this.textBlock(obj(b));
+        const ev = textBlock(obj(b));
         if (ev !== null) out.push(ev);
       }
     }
