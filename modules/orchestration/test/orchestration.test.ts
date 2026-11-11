@@ -100,7 +100,7 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
     { "channels.yaml": CHANNELS, "agents.yaml": AGENTS, "roles.yaml": rolesYaml(opts.roles), "settings.yaml": opts.settings },
     {},
     {},
-    true,
+    { trusted: true },
   );
 }
 
@@ -334,17 +334,7 @@ describe("IdempotencyLog", () => {
     );
     const log = new IdempotencyLog(host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
     await log.record("run-1:t1:0", "wrote a.ts (1 lines)");
-    const loop = new ToolLoop(
-      channel,
-      new ToolRegistry(projectTools(host, paths).tools),
-      async () => ({ kind: "approved" }),
-      undefined,
-      systemClock,
-      undefined,
-      new Set(),
-      "native",
-      log.hooks("t1"),
-    );
+    const loop = new ToolLoop(channel, new ToolRegistry(projectTools(host, paths).tools), async () => ({ kind: "approved" }), { clock: systemClock, terminalTools: new Set(), toolsMode: "native", idempotency: log.hooks("t1") });
     const res = await loop.run("m", [{ role: "user", content: "go" }], {}, new AbortController().signal);
     expect(res.kind).toBe("completed");
     expect(files["a.ts"]).toBe("one");

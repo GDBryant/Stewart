@@ -96,7 +96,7 @@ describe("streamTurn", () => {
 
 describe("ToolLoop truncation and failure classification", () => {
   const loopWith = (ch: ManagedChannel, maxTruncationRetries: number) =>
-    new ToolLoop(ch, new ToolRegistry([]), approve, { ...DEFAULT_LIMITS, maxTruncationRetries });
+    new ToolLoop(ch, new ToolRegistry([]), approve, { limits: { ...DEFAULT_LIMITS, maxTruncationRetries } });
 
   it("treats a stalled stream as truncated and retries", async () => {
     const ch = scripted([new Error("stream stalled"), [{ kind: "text", text: "ok" }, { kind: "done" }]]);

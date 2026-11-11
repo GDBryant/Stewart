@@ -28,13 +28,48 @@ function SkillCard({ skill, store }: { skill: SkillSummary; store: Store }) {
   );
 }
 
+type SkillDraft = { id: string; description: string; body: string };
+const EMPTY_SKILL_DRAFT: SkillDraft = { id: "", description: "", body: "" };
+
+function NewSkillForm({ draft, clean, clash, onPatch, onCreate }: {
+  draft: SkillDraft;
+  clean: string;
+  clash: boolean;
+  onPatch(p: Partial<SkillDraft>): void;
+  onCreate(): void;
+}) {
+  return (
+    <div class="form">
+      <label class="field">
+        <span>id</span>
+        <input value={draft.id} placeholder="my-skill" onInput={(e) => onPatch({ id: (e.target as HTMLInputElement).value })} />
+      </label>
+      <label class="field">
+        <span>description</span>
+        <input value={draft.description} onInput={(e) => onPatch({ description: (e.target as HTMLInputElement).value })} />
+      </label>
+      <label class="field">
+        <span>body</span>
+        <textarea rows={8} value={draft.body} onInput={(e) => onPatch({ body: (e.target as HTMLTextAreaElement).value })} />
+      </label>
+      {clash ? <p class="fail">skill '{clean}' already exists</p> : null}
+      <button class="send" disabled={!clean || clash} onClick={onCreate}>
+        Create
+      </button>
+    </div>
+  );
+}
+
 function NewSkill({ store, existing }: { store: Store; existing: string[] }) {
   const [open, setOpen] = useState(false);
-  const [id, setId] = useState("");
-  const [description, setDescription] = useState("");
-  const [body, setBody] = useState("");
-  const clean = id.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  const [draft, setDraft] = useState(EMPTY_SKILL_DRAFT);
+  const clean = draft.id.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
   const clash = existing.includes(clean);
+  const create = () => {
+    store.saveSkill(clean, draft.body, draft.description);
+    setOpen(false);
+    setDraft(EMPTY_SKILL_DRAFT);
+  };
   return (
     <div class="card">
       <div class="card-title">
@@ -43,34 +78,13 @@ function NewSkill({ store, existing }: { store: Store; existing: string[] }) {
         <button class="small" onClick={() => setOpen(!open)}>{open ? "Cancel" : "+ New"}</button>
       </div>
       {open ? (
-        <div class="form">
-          <label class="field">
-            <span>id</span>
-            <input value={id} placeholder="my-skill" onInput={(e) => setId((e.target as HTMLInputElement).value)} />
-          </label>
-          <label class="field">
-            <span>description</span>
-            <input value={description} onInput={(e) => setDescription((e.target as HTMLInputElement).value)} />
-          </label>
-          <label class="field">
-            <span>body</span>
-            <textarea rows={8} value={body} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} />
-          </label>
-          {clash ? <p class="fail">skill '{clean}' already exists</p> : null}
-          <button
-            class="send"
-            disabled={!clean || clash}
-            onClick={() => {
-              store.saveSkill(clean, body, description);
-              setOpen(false);
-              setId("");
-              setDescription("");
-              setBody("");
-            }}
-          >
-            Create
-          </button>
-        </div>
+        <NewSkillForm
+          draft={draft}
+          clean={clean}
+          clash={clash}
+          onPatch={(p) => setDraft((d) => ({ ...d, ...p }))}
+          onCreate={create}
+        />
       ) : null}
     </div>
   );

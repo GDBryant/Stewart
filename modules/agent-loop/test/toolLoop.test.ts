@@ -66,7 +66,7 @@ describe("ToolLoop", () => {
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
     const events: string[] = [];
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "shim");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, toolsMode: "shim" });
     const r = await loop.run("m", hist, { onToolOutcome: (_c, o) => events.push(o.kind) }, sig());
     expect(r.kind).toBe("completed");
     expect(events).toEqual(["success"]);
@@ -83,7 +83,7 @@ describe("ToolLoop", () => {
       ] }, { kind: "done" }],
       [{ kind: "text", text: "ok" }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     const tools = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
     expect(tools[0]).toMatch(/unknown tool/);
@@ -101,7 +101,7 @@ describe("ToolLoop", () => {
       seen.push(c);
       return { kind: "rejected", reason: "no" };
     };
-    const loop = new ToolLoop(ch, registryOf([gatedTool as never]) as never, gate, DEFAULT_LIMITS, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([gatedTool as never]) as never, gate, { limits: DEFAULT_LIMITS, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(seen).toHaveLength(1);
     expect(r.messages[1]).toMatchObject({ role: "tool" });
@@ -118,7 +118,7 @@ describe("ToolLoop", () => {
       [{ kind: "tool_calls", calls: [{ id: "s", name: "Slow", arguments: {} }] }, { kind: "done" }],
       [{ kind: "text", text: "next" }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([slow as never]) as never, approve, { ...DEFAULT_LIMITS, toolTimeoutMs: 5 }, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([slow as never]) as never, approve, { limits: { ...DEFAULT_LIMITS, toolTimeoutMs: 5 }, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.messages[1].content).toMatch(/Outcome uncertain: timed out/);
   });
@@ -132,7 +132,7 @@ describe("ToolLoop", () => {
     };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "s", name: "Slow", arguments: {} }] }, { kind: "done" }]]);
     const ctl = new AbortController();
-    const loop = new ToolLoop(ch, registryOf([slow as never]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([slow as never]) as never, approve, { limits: DEFAULT_LIMITS, toolsMode: "native" });
     const p = loop.run("m", hist, {}, ctl.signal);
     await new Promise((r) => setTimeout(r, 10));
     ctl.abort();
@@ -147,7 +147,7 @@ describe("ToolLoop", () => {
 
   it("stops at the turn limit", async () => {
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "e1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }]]);
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { ...DEFAULT_LIMITS, maxModelTurns: 2 }, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxModelTurns: 2 }, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.kind).toBe("turn_limit");
   });
@@ -169,7 +169,7 @@ describe("ToolLoop", () => {
       [{ kind: "tool_calls", calls: [{ id: "b", name: "Big", arguments: {} }] }, { kind: "done" }],
       [{ kind: "text", text: "ok" }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.messages[1].content).toBe("xxxxxxx\n[output truncated: 90 chars omitted]\nxxx");
   });
@@ -184,7 +184,7 @@ describe("ToolLoop", () => {
       [{ kind: "tool_calls", calls: [{ id: "b", name: "Big", arguments: {} }] }, { kind: "done" }],
       [{ kind: "text", text: "ok" }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([big as never]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.messages[1].content.endsWith("RR") || r.messages[1].content.endsWith("OR")).toBe(true);
     expect(r.messages[1].content.length).toBeLessThan(80);
@@ -200,7 +200,7 @@ describe("ToolLoop", () => {
       [{ kind: "tool_calls", calls: [{ id: "b", name: "Small", arguments: {} }] }, { kind: "done" }],
       [{ kind: "text", text: "ok" }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([small as never]) as never, approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, undefined, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, registryOf([small as never]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxToolOutputChars: 10 }, toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.messages[1].content).toBe("xxxxxxxxxx");
   });
@@ -210,7 +210,7 @@ describe("ToolLoop", () => {
       [{ kind: "text", text: "part" }, { kind: "done", truncated: true }],
       [{ kind: "text", text: "complete" }, { kind: "done" }],
     ]);
-    const loopOk = new ToolLoop(chOk, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 1 });
+    const loopOk = new ToolLoop(chOk, registryOf([]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxTruncationRetries: 1 } });
     const ok = await loopOk.run("m", hist, {}, sig());
     expect(ok.kind).toBe("completed");
     expect(ok.messages[0]).toMatchObject({ content: "complete" });
@@ -219,7 +219,7 @@ describe("ToolLoop", () => {
       [{ kind: "text", text: "part1" }, { kind: "done", truncated: true }],
       [{ kind: "text", text: "part2" }, { kind: "done", truncated: true }],
     ]);
-    const loopFail = new ToolLoop(chFail, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 1 });
+    const loopFail = new ToolLoop(chFail, registryOf([]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxTruncationRetries: 1 } });
     const fail = await loopFail.run("m", hist, {}, sig());
     expect(fail).toMatchObject({ kind: "failed", code: "truncated" });
   });
@@ -233,7 +233,7 @@ describe("ToolLoop", () => {
       ],
     ]);
     const usages: [unknown, unknown][] = [];
-    const loop = new ToolLoop(ch, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxTruncationRetries: 3 });
+    const loop = new ToolLoop(ch, registryOf([]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxTruncationRetries: 3 } });
     const r = await loop.run("m", hist, { onUsage: (u, c) => usages.push([u, c]) }, sig());
     expect(r).toMatchObject({ kind: "failed", code: "protocol_error", message: "provider emitted events after completion" });
     expect(usages).toEqual([[{ in: 3, out: 2 }, 0.01]]);
@@ -244,7 +244,7 @@ describe("ToolLoop", () => {
       [{ kind: "text", text: '<tool_call>{"name":"Echo","arguments":{oops}}</tool_call>' }, { kind: "done" }],
       [{ kind: "tool_calls", calls: [{ id: "e1", name: "Echo", arguments: { text: "ok" } }] }, { kind: "done" }],
     ]);
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(["Echo"]), "native");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(["Echo"]), toolsMode: "native" });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.kind).toBe("completed");
     const toolMsgs = r.messages.filter((m) => m.role === "tool");
@@ -262,23 +262,14 @@ describe("ToolLoop", () => {
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
     const compacted: [number, number][] = [];
-    const loop = new ToolLoop(
-      ch,
-      registryOf([echoTool]) as never,
-      approve,
-      { ...DEFAULT_LIMITS, maxContextChars: 600 },
-      undefined,
-      undefined,
-      undefined,
-      "native",
-    );
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxContextChars: 600 }, toolsMode: "native" });
     const r = await loop.run("m", hist, { onCompacted: (b, a) => compacted.push([b, a]) }, sig());
     expect(r.kind).toBe("completed");
     expect(compacted.length).toBeGreaterThan(0);
 
     const chTooSmall = fakeChannel([[{ kind: "text", text: "hi" }, { kind: "done" }]]);
     const failedCompactions: string[] = [];
-    const loopSmall = new ToolLoop(chTooSmall, registryOf([]) as never, approve, { ...DEFAULT_LIMITS, maxContextChars: 1 });
+    const loopSmall = new ToolLoop(chTooSmall, registryOf([]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxContextChars: 1 } });
     const f = await loopSmall.run("m", [{ role: "user", content: "too long" }], { onCompactionFailed: (m) => failedCompactions.push(m) }, sig());
     expect(f).toMatchObject({ kind: "failed", code: "context_limit" });
     expect(failedCompactions).toHaveLength(1);
@@ -291,7 +282,7 @@ describe("ToolLoop tool injection", () => {
   it("shim mode: system prompt carries the tools block with names, schema and call format", async () => {
     let req: unknown;
     const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, "ROLE", new Set(), "shim");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, rolePrompt: "ROLE", terminalTools: new Set(), toolsMode: "shim" });
     await loop.run("m", hist, {}, sig());
     const sys = sysOf(req) ?? "";
     expect(sys.startsWith("ROLE\n\n<tools>")).toBe(true);
@@ -311,7 +302,7 @@ describe("ToolLoop tool injection", () => {
   it("native mode: sends tools natively and injects no tools block (negative)", async () => {
     let req: unknown;
     const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
-    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native");
+    const loop = new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "native" });
     await loop.run("m", hist, {}, sig());
     expect((req as { tools?: unknown[] }).tools).toHaveLength(1);
     expect(sysOf(req)).toBeUndefined();
@@ -321,7 +312,7 @@ describe("ToolLoop tool injection", () => {
   it("shim mode with zero tools: no tools block and no system message (negative)", async () => {
     let req: unknown;
     const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => (req = r));
-    await new ToolLoop(ch, registryOf([]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    await new ToolLoop(ch, registryOf([]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(sysOf(req)).toBeUndefined();
     expect((req as { messages: ChatMessage[] }).messages).toEqual(hist);
   });
@@ -335,7 +326,7 @@ describe("ToolLoop tool injection", () => {
       ],
       (r) => reqs.push(r),
     );
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(r.kind).toBe("completed");
     expect(reqs).toHaveLength(2);
     const fed = (reqs[1] as { messages: ChatMessage[] }).messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
@@ -346,7 +337,7 @@ describe("ToolLoop tool injection", () => {
 
   it("shim: a persistent parse error ends as turn_limit, bounded by maxModelTurns", async () => {
     const ch = fakeChannel([[{ kind: "text", text: '<|tool_call>call:Nope{x:<|"|>1<|"|>}<tool_call|>' }, { kind: "done" }]]);
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { ...DEFAULT_LIMITS, maxModelTurns: 2 }, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxModelTurns: 2 }, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(r.kind).toBe("turn_limit");
   });
 
@@ -355,7 +346,7 @@ describe("ToolLoop tool injection", () => {
       [{ kind: "text", text: '{"name": "Echo", "arguments": {"text": "yo"}}' }, { kind: "done" }],
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(r.messages[1]).toMatchObject({ role: "tool", content: "echo:yo" });
   });
 
@@ -364,14 +355,14 @@ describe("ToolLoop tool injection", () => {
       [{ kind: "text", text: '<tool_call>{"name":"Echo","arguments":{}}</tool_call>' }, { kind: "done" }],
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(r.messages[1].content).toMatch(/Invalid tool call: missing required/);
   });
 
   it("shim: prose with an unknown bare JSON name completes without feedback (negative, no loop)", async () => {
     const reqs: unknown[] = [];
     const ch = fakeChannel([[{ kind: "text", text: 'Schema: {"name": "Nope", "arguments": {}}' }, { kind: "done" }]], (r) => reqs.push(r));
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", hist, {}, sig());
     expect(r.kind).toBe("completed");
     expect(reqs).toHaveLength(1);
   });
@@ -381,7 +372,7 @@ describe("ToolLoop tool injection", () => {
       [{ kind: "text", text: '<|tool_call>call:Echo{text:<|"|>yo<|"|>}<tool_call|>' }, { kind: "done" }],
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "native" }).run("m", hist, {}, sig());
     expect(r.messages[1]).toMatchObject({ role: "tool", content: "echo:yo" });
   });
 
@@ -395,7 +386,7 @@ describe("ToolLoop tool injection", () => {
       ],
       [{ kind: "text", text: "final" }, { kind: "done" }],
     ]);
-    await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "native").run("m", hist, { onToolOutcome: (_c, o) => outcomes.push(o.kind === "success" ? o.content : o.kind) }, sig());
+    await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "native" }).run("m", hist, { onToolOutcome: (_c, o) => outcomes.push(o.kind === "success" ? o.content : o.kind) }, sig());
     expect(outcomes).toEqual(["echo:x"]);
   });
 
@@ -409,7 +400,7 @@ describe("ToolLoop tool injection", () => {
       (r) => reqs.push(r),
     );
     const base: ChatMessage[] = [{ role: "user", content: "go" }];
-    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, new Set(), "shim").run("m", base, {}, sig());
+    const r = await new ToolLoop(ch, registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, terminalTools: new Set(), toolsMode: "shim" }).run("m", base, {}, sig());
     expect(r.kind).toBe("completed");
     expect(reqs).toHaveLength(2);
     for (const req of reqs) {
@@ -433,18 +424,7 @@ describe("ToolLoop summarize stage", () => {
   const run = (max: number, n: number, summarize?: (m: ChatMessage[]) => Promise<string>, extra: Record<string, number> = {}) => {
     const compacted: [number, number][] = [];
     const seen: ChatMessage[][] = [];
-    const loop = new ToolLoop(
-      fakeChannel(turns(n), (req) => seen.push((req as { messages: ChatMessage[] }).messages)),
-      registryOf([echoTool]) as never,
-      approve,
-      { ...DEFAULT_LIMITS, maxContextChars: max, ...extra },
-      undefined,
-      undefined,
-      undefined,
-      "native",
-      undefined,
-      summarize,
-    );
+    const loop = new ToolLoop(fakeChannel(turns(n), (req) => seen.push((req as { messages: ChatMessage[] }).messages)), registryOf([echoTool]) as never, approve, { limits: { ...DEFAULT_LIMITS, maxContextChars: max, ...extra }, toolsMode: "native", summarize });
     return { loop, compacted, seen, go: () => loop.run("m", [{ role: "user", content: "task" }], { onCompacted: (b, a) => compacted.push([b, a]) }, sig()) };
   };
 
@@ -497,14 +477,14 @@ describe("ToolLoop live text", () => {
       [{ kind: "text", text: "all done" }, { kind: "done" }],
     ];
     const shown: string[] = [];
-    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "shim");
+    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, toolsMode: "shim" });
     await loop.run("m", hist, { onText: (t) => shown.push(t) }, sig());
     expect(shown.join("")).toBe("Checking all done");
   });
   it("still shows call-like text that never parsed as a call", async () => {
     const turns: ChatEvent[][] = [[{ kind: "text", text: "use <call> to wrap" }, { kind: "done" }]];
     const shown: string[] = [];
-    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, DEFAULT_LIMITS, undefined, undefined, undefined, "shim");
+    const loop = new ToolLoop(fakeChannel(turns), registryOf([echoTool]) as never, approve, { limits: DEFAULT_LIMITS, toolsMode: "shim" });
     await loop.run("m", hist, { onText: (t) => shown.push(t) }, sig());
     expect(shown.join("")).toBe("use <call> to wrap");
   });

@@ -12,7 +12,16 @@ export interface CallAttrScan {
   complete: boolean;
 }
 
-function applyCallAttr(name: string | undefined, args: string | undefined, key: string, raw: string, kind: "sq" | "dq" | "raw"): { name?: string; args?: string } {
+/** One attribute read from a call tag: its key, raw value and quoting kind. */
+interface CallAttr {
+  key: string;
+  raw: string;
+  kind: "sq" | "dq" | "raw";
+}
+
+function applyCallAttr(cur: { name?: string; args?: string }, attr: CallAttr): { name?: string; args?: string } {
+  const { name, args } = cur;
+  const { key, raw, kind } = attr;
   if (key === "name" && kind !== "raw") return { name: decodeAttrValue(raw, kind), args };
   if (key === "arguments" || key === "args" || key === "parameters") return { name, args: decodeAttrValue(raw, kind) };
   return { name, args };
@@ -47,7 +56,7 @@ export function scanCallAttrTag(text: string, start: number): CallAttrScan | nul
     if (v === null) return { name, args, end: i, complete: false };
     const [raw, vend, kind] = v;
     i = vend;
-    ({ name, args } = applyCallAttr(name, args, key, raw, kind));
+    ({ name, args } = applyCallAttr({ name, args }, { key, raw, kind }));
   }
 }
 

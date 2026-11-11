@@ -74,7 +74,7 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
     { "channels.yaml": CHANNELS, "agents.yaml": AGENTS, "roles.yaml": rolesYaml(opts.roles), "settings.yaml": opts.settings },
     {},
     {},
-    true,
+    { trusted: true },
   );
 }
 
@@ -290,11 +290,11 @@ describe("RunService direct continue question", () => {
     });
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
-    const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: agentOf(cfg), text: "go", role, rolePrompt: "ROLE:general-worker", budget: {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
       recovery: recoveryState(cfg.settings),
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     const q = events.find((e) => e.kind === "ask_user");
     expect(q).toBeDefined();
@@ -308,11 +308,11 @@ describe("RunService direct continue question", () => {
     const instantClock = { now: () => Date.now(), setTimeout: (fn: () => void) => (queueMicrotask(fn), { cancel: () => {} }) };
     const manager = new RunService({ host: fake.host, clock: instantClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
-    const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: agentOf(cfg), text: "go", role, rolePrompt: "ROLE:general-worker", budget: {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
       recovery: recoveryState(cfg.settings),
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).not.toBe("running"));
     expect(manager.get(run.id)!.status).toBe("interrupted");
     expect(events.find((e) => e.kind === "question.withdrawn")).toBeDefined();
@@ -324,10 +324,10 @@ describe("RunService direct continue question", () => {
     const fake = fakeHost({});
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
-    const run = await manager.direct("p", channel, agentOf(cfg), "hi", undefined, undefined, undefined, undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: agentOf(cfg), text: "hi", budget: {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     const msgs = manager.get(run.id)!.messages;
     expect(msgs[0]).toMatchObject({ role: "user", content: "hi" });
@@ -340,10 +340,10 @@ describe("RunService direct continue question", () => {
     const { channel } = fakeChannel(() => [text("hello"), done()]);
     const fake = fakeHost({});
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus(() => {}, 0) });
-    const run = await manager.direct("p", channel, agentOf(cfg), "hi there", undefined, undefined, undefined, undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: agentOf(cfg), text: "hi there", budget: {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     const j = JSON.parse(fake.files[`/tmp/st/scratch/${run.id}/run.json`]!);
     expect(j.agentId).toBe("a-free");
@@ -396,10 +396,10 @@ describe("RunService direct continue question", () => {
     const fake = fakeHost({ "a.ts": "a" });
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
-    const run = await manager.direct("p", channel, agentOf(cfg), "go", undefined, undefined, undefined, undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: agentOf(cfg), text: "go", budget: {
       config: cfg,
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
-    });
+    } });
     manager.cancel(run.id);
     await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished")).toBe(true));
     expect(manager.get(run.id)!.status).toBe("cancelled");
@@ -422,7 +422,7 @@ describe("RunService direct outcomes", () => {
     const fake = fakeHost({});
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
-    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, baseBudget(cfg));
+    const run = await manager.direct("p", { channel, agent: freeAgent(cfg), text: "go", budget: baseBudget(cfg) });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("failed"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "failed" });
     expect(fake.files[`/tmp/st/scratch/${run.id}/run.json`]).toContain('"status":"failed"');
@@ -435,7 +435,7 @@ describe("RunService direct outcomes", () => {
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
-    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, baseBudget(cfg));
+    const run = await manager.direct("p", { channel, agent: freeAgent(cfg), text: "go", role, rolePrompt: "ROLE:general-worker", budget: baseBudget(cfg) });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped" });
   });
@@ -451,10 +451,10 @@ describe("RunService direct outcomes", () => {
       if (e.kind === "ask_user") manager.answer(e.questionId, "Stop this task");
     });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
-    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: freeAgent(cfg), text: "go", role, rolePrompt: "ROLE:general-worker", budget: {
       ...baseBudget(cfg),
       recovery: recoveryState(cfg.settings),
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped" });
   });
@@ -473,10 +473,10 @@ describe("RunService direct outcomes", () => {
       if (e.kind === "ask_user") manager.answer(e.questionId, "try b.ts instead");
     });
     const role = cfg.roles.find((r) => r.id === "general-worker")!;
-    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, role, "ROLE:general-worker", undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: freeAgent(cfg), text: "go", role, rolePrompt: "ROLE:general-worker", budget: {
       ...baseBudget(cfg),
       recovery: recoveryState(cfg.settings),
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     expect(sawGuidance).toBe(true);
   });
@@ -487,7 +487,7 @@ describe("RunService direct outcomes", () => {
     const fake = fakeHost({});
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
-    const run = await manager.direct("p", channel, paidAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, baseBudget(cfg));
+    const run = await manager.direct("p", { channel, agent: paidAgent(cfg), text: "go", budget: baseBudget(cfg) });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("done"));
     const summary = events.find((e) => e.kind === "cost.summary") as Extract<RunEvent, { kind: "cost.summary" }> | undefined;
     expect(summary).toMatchObject({ runId: run.id, accruedUsd: 0.05 });
@@ -509,10 +509,10 @@ describe("RunService direct outcomes", () => {
     const fake = fakeHost({});
     const events: RunEvent[] = [];
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus: new EventBus((e) => events.push(e), 0) });
-    const run = await manager.direct("p", channel, freeAgent(cfg), "go", undefined, undefined, undefined, undefined, undefined, {
+    const run = await manager.direct("p", { channel, agent: freeAgent(cfg), text: "go", budget: {
       ...baseBudget(cfg),
       profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0.005 },
-    });
+    } });
     await vi.waitFor(() => expect(manager.get(run.id)!.status).toBe("interrupted"));
     expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "stopped", error: expect.stringContaining("time limit") });
   });

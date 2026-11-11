@@ -1,6 +1,7 @@
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
-import { ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { buildRecommendPrompt } from "./recommendPrompt.js";
 import { asStr, hardRefusal, modelRefusal, roleRefusal } from "./recommendRefusals.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";
 import type { SetupContext } from "./setupContext.js";
@@ -53,8 +54,6 @@ export interface RecommendChannel {
   chat(req: ChatRequest): AsyncIterable<ChatEvent>;
 }
 
-const CAP_KEYS = ["tools", "vision", "reasoning", "imageGen", "contextTokens"] as const;
-
 /**
  * Discover models on every enabled channel, ask one reachable model to pick the
  * best model per role, then validate the answer against what was discovered.
@@ -85,7 +84,7 @@ export async function recommendAssignments(
     return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
   }
   const researcher = pickResearcher(config, channels, allModels, opts);
-  const prompt = buildRecommendPrompt(config, channels, candidates, rules, opts);
+  const prompt = buildRecommendPrompt({ config, channels, candidates, rules, context: opts.context });
 
   const mc = managed.get(researcher.channel)!;
   let text = "";
@@ -174,68 +173,6 @@ function pickResearcher(
     researcher = { channel: first.id, model: first.models[0] };
   }
   return researcher;
-}
-
-function buildRecommendPrompt(
-  config: EffectiveConfig,
-  channels: RecommendChannelInfo[],
-  candidates: Candidate[],
-  rules: ReturnType<typeof scoreAssignments>,
-  opts: RecommendOptions,
-): string {
-  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
-  const roleLines = config.roles
-    .map((r) => {
-      const t = ROLE_PROFILES[r.id]?.typicalTurns;
-      return `- ${r.id}${t ? ` (~${t[0]}-${t[1]} turns)` : ""}: ${(r.prompt ?? "").replace(/\s+/g, " ").trim().slice(0, 160)}`;
-    })
-    .join("\n");
-  const chanLines = channels
-    .map((c) => {
-      const models = c.models
-        .map((m) => {
-          const caps = resolveModelProfile(config, { channel: c.id, model: m }).caps;
-          const parts = CAP_KEYS.filter((k) => caps[k] !== undefined).map((k) => `${k}=${caps[k]}`);
-          const perf = caps.perf;
-          if (perf?.tokPerSec !== undefined) parts.push(`${Math.round(perf.tokPerSec)}tok/s`);
-          if (perf?.toolReliability !== undefined) parts.push(`tool=${Math.round(perf.toolReliability * 3)}/3`);
-          if (perf?.editOk !== undefined) parts.push(`edit=${perf.editOk}`);
-          const cd = cand.get(`${c.id}:${m}`);
-          if (cd?.costBlended !== undefined) parts.push(`$${cd.costBlended.toFixed(2)}/MTok(${cd.costTier})`);
-          return parts.length ? `${m} (${parts.join(", ")})` : m;
-        })
-        .join("; ");
-      return `- ${c.id} (${c.type})${c.error ? ` [listModels failed: ${c.error}]` : ""}: ${models}`;
-    })
-    .join("\n");
-  const prompt = [
-    "You are assigning models to agent roles for a coding assistant.",
-    "",
-    "Roles:",
-    roleLines,
-    "",
-    "Available channels and discovered models (known capabilities in parentheses):",
-    chanLines,
-    formatContextBlock(opts.context),
-    "",
-    'Return ONLY a JSON object {"assignments":[{"role":"roleId","channel":"channelId","model":"model","reason":"short"}]}.',
-    "A deterministic scorer proposed this baseline (keep it unless you have a clear reason):",
-    rules.assignments.map((a) => `- ${a.role}: ${a.channel}:${a.model}`).join("\n") || "(none)",
-    "",
-    "Choose the best model for each role. Every role must appear; channel and model must come from the candidates above.",
-    "Prefer reasoning models for orchestrator, planner, plan-validator, code-reviewer and code-health-reviewer; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
-  ].join("\n");
-  return prompt;
-}
-
-function formatContextBlock(sc: RecommendOptions["context"]): string {
-  const ctxLines = [
-    sc?.workspace ? `- workspace: ${sc.workspace.sizeClass} (${sc.workspace.files} files, ~${sc.workspace.loc} loc${sc.workspace.monorepo ? ", monorepo" : ""})` : "",
-    sc?.hardware ? `- hardware: ${sc.hardware.os}, ${sc.hardware.ramGb}GB RAM${sc.hardware.gpus?.length ? `, GPU ${sc.hardware.gpus.map((g) => `${g.name} ${g.vramGb}GB`).join("/")}` : ""}` : "",
-    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed}, cost ${sc.priorities.cost}, quality ${sc.priorities.quality}` : "",
-    sc?.typicalWork ? `- typical work: ${sc.typicalWork}` : "",
-  ].filter(Boolean);
-  return ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";
 }
 
 /** Inputs the researcher answer is validated against. */

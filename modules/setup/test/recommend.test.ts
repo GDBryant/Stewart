@@ -12,7 +12,7 @@ const cfg = () =>
     },
     {},
     {},
-    true,
+    { trusted: true },
   );
 
 function mc(models: string[], answer?: string | Error): RecommendChannel {
@@ -172,7 +172,7 @@ describe("recommendAssignments candidate pricing", () => {
       },
       {},
       {},
-      true,
+      { trusted: true },
     );
 
   it("calls priceFor only for candidates without an agent price, in eligible order", async () => {
@@ -204,7 +204,7 @@ describe("recommendAssignments channel discovery", () => {
       },
       {},
       {},
-      true,
+      { trusted: true },
     );
 
   it("keeps extraModels when listModels succeeds and when it throws", async () => {
@@ -233,7 +233,7 @@ describe("recommendAssignments prompt and validation", () => {
       },
       {},
       {},
-      true,
+      { trusted: true },
     );
     let promptText = "";
     const probe: RecommendChannel = {
@@ -271,7 +271,7 @@ describe("recommendAssignments prompt and validation", () => {
       },
       {},
       {},
-      true,
+      { trusted: true },
     );
     const answer = JSON.stringify({
       assignments: [

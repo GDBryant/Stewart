@@ -54,7 +54,7 @@ items:
 `;
 
 function config(): EffectiveConfig {
-  return loadEffectiveConfig({ "channels.yaml": CHANNELS, "agents.yaml": AGENTS }, {}, {}, true);
+  return loadEffectiveConfig({ "channels.yaml": CHANNELS, "agents.yaml": AGENTS }, {}, {}, { trusted: true });
 }
 
 const echo: Tool = {

@@ -44,7 +44,7 @@ function setup() {
     host,
     api,
     core: { dispatch },
-    run: (m: Record<string, unknown>) => route({ dispatch } as never, host as never, panel as never, m as never, api as never),
+    run: (m: Record<string, unknown>) => route({ core: { dispatch } as never, host: host as never, panel: panel as never, api: api as never }, m as never),
   };
 }
 

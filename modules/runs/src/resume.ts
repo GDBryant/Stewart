@@ -7,7 +7,7 @@ import { resolveRole, runRoleTask } from "@stewart/orchestration";
 import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { loadProjectContext } from "@stewart/context";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
-import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
+import type { ExecCtx, PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
 import type { Run, RunHost } from "./types.js";
 
 export interface ResumeRequest {
@@ -33,8 +33,8 @@ const REPLAY_UNAVAILABLE = "resume unavailable: task graph replay is not impleme
 export function resumeStrategy(runId: string): RunStrategy<ResumeRequest> {
   const state: ResumeState = { interrupted: [], text: "" };
   return {
-    plan: (svc, projectId, req, ctx) => planResume(runId, state, svc, projectId, req, ctx),
-    execute: (svc, run, rt, req, ctx) => executeResume(state, svc, run, rt, req, ctx),
+    plan: (svc, projectId, req, ctx) => planResume({ runId, state, svc, projectId, req, ctx }),
+    execute: (c) => executeResume(state, c),
   };
 }
 
@@ -44,6 +44,12 @@ interface ResumeLoad {
   state: ResumeState;
   svc: RunHost;
   req: ResumeRequest;
+}
+
+/** Plan-step inputs: the load inputs plus the project and plan context. */
+interface PlanResumeCtx extends ResumeLoad {
+  projectId: string;
+  ctx: PlanCtx;
 }
 
 /** Replay inputs for one interrupted task; one object instead of a long parameter list. */
@@ -84,7 +90,8 @@ async function confirmedToResume(c: ResumeLoad, interrupted: TaskRecord[]): Prom
   return confirmInterrupted(c.svc, c.runId, interrupted.length);
 }
 
-function resumeRunRecord(runId: string, projectId: string, state: ResumeState, live: Run | undefined, persisted: { startedAt?: number; agentId?: string } | undefined, svc: RunHost, ctx: PlanCtx): Run {
+function resumeRunRecord(c: PlanResumeCtx, live: Run | undefined, persisted: { startedAt?: number; agentId?: string } | undefined): Run {
+  const { runId, projectId, state, svc, ctx } = c;
   return {
     id: runId,
     projectId,
@@ -98,36 +105,24 @@ function resumeRunRecord(runId: string, projectId: string, state: ResumeState, l
   };
 }
 
-async function planResume(
-  runId: string,
-  state: ResumeState,
-  svc: RunHost,
-  projectId: string,
-  req: ResumeRequest,
-  ctx: PlanCtx,
-): Promise<RunPlan | Refusal> {
+async function planResume(c: PlanResumeCtx): Promise<RunPlan | Refusal> {
+  const { runId, state, svc, req, ctx } = c;
   const live = svc.get(runId);
   if (live && live.status !== "interrupted") return { ok: false, reason: `run is ${live.status}` };
   const loaded = await loadPersistedRun(svc, runId, ctx.stateDir, live);
   if (!loaded.ok) return loaded;
   const { persisted } = loaded;
-  const early = await loadResumeGraph({ runId, state, svc, req }, live, persisted);
+  const early = await loadResumeGraph(c, live, persisted);
   if (early) return early;
-  const run = resumeRunRecord(runId, projectId, state, live, persisted, svc, ctx);
+  const run = resumeRunRecord(c, live, persisted);
   return { run, title: state.text, config: req.config, channelFor: req.channelFor };
 }
 
-async function executeResume(
-  state: ResumeState,
-  svc: RunHost,
-  run: Run,
-  rt: RunRuntime,
-  req: ResumeRequest,
-  ctx: PlanCtx,
-): Promise<RunOutcome> {
+async function executeResume(state: ResumeState, c: ExecCtx<ResumeRequest>): Promise<RunOutcome> {
+  const { run, rt } = c;
   const graph = state.graph!;
   const timeCap = rt.timeCap;
-  const rc: ReplayCtx = { svc, run, rt, req, ctx, graph, text: state.text };
+  const rc: ReplayCtx = { ...c, graph, text: state.text };
   for (const t of state.interrupted) {
     if (timeCap?.hit) break;
     await replayTask(rc, t);

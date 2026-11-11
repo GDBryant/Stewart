@@ -1,6 +1,6 @@
 # Stewart — Modular Design (healthy-code structure)
 
-Status: implemented through §7 step 7 (all 22 modules extracted, `core.ts` is a router); step 8 (lint limits) partly built: file-size and function-limit gates exist, offenders are being ratcheted down. Originally derived from `project_features.md`; §3 now reflects the as-built manifests and §11 lists where the build deviates from the §4 sketches. As-built detail lives in `../ai_docs/ARCHITECTURE_NOW.md`; progress in `MODULAR_MIGRATION_STATUS.md`. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
+Status: implemented through §7 step 7 (all 22 modules extracted, `core.ts` is a router); step 8 (lint limits) done: file-size and function-limit gates exist, no baselined offenders remain. Originally derived from `project_features.md`; §3 now reflects the as-built manifests and §11 lists where the build deviates from the §4 sketches. As-built detail lives in `../ai_docs/ARCHITECTURE_NOW.md`; progress in `MODULAR_MIGRATION_STATUS.md`. Complements `ARCHITECTURE_REFACTORING.md` (R1–R3) and scores against the `code-health` rubric.
 
 ## 1. Health rules (the design constraints)
 

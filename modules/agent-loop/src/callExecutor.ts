@@ -27,16 +27,33 @@ interface Invocation {
   key: string | undefined;
 }
 
+/** Everything a CallExecutor needs from its owning ToolLoop. */
+export interface CallExecutorDeps {
+  registry: ToolRegistry;
+  approval: ApprovalGate;
+  limits: LoopLimits;
+  clock: Clock | undefined;
+  terminalTools: Set<string>;
+  idempotency: IdempotencyHooks | undefined;
+}
+
 /** Resolve → gate → invoke → shape pipeline for one model-issued tool call, plus batching. */
 export class CallExecutor {
-  constructor(
-    private readonly registry: ToolRegistry,
-    private readonly approval: ApprovalGate,
-    private readonly limits: LoopLimits,
-    private readonly clock: Clock | undefined,
-    private readonly terminalTools: Set<string>,
-    private readonly idempotency: IdempotencyHooks | undefined,
-  ) {}
+  private readonly registry: ToolRegistry;
+  private readonly approval: ApprovalGate;
+  private readonly limits: LoopLimits;
+  private readonly clock: Clock | undefined;
+  private readonly terminalTools: Set<string>;
+  private readonly idempotency: IdempotencyHooks | undefined;
+
+  constructor(deps: CallExecutorDeps) {
+    this.registry = deps.registry;
+    this.approval = deps.approval;
+    this.limits = deps.limits;
+    this.clock = deps.clock;
+    this.terminalTools = deps.terminalTools;
+    this.idempotency = deps.idempotency;
+  }
 
   /** Executes calls in parallel-capable batches; `terminal` means a terminal tool ended the turn. */
   async executeCalls(
@@ -156,7 +173,7 @@ export class CallExecutor {
     else signal.addEventListener("abort", onAbort, { once: true });
     let timer: { cancel(): void } | undefined;
     try {
-      const out = await this.execWithTimeout(job.tool, call, job.preview, child, (t) => {
+      const out = await this.execWithTimeout(call, job, child, (t) => {
         timer = t;
       });
       return await this.shapeResult(call, out, job.key, listener);
@@ -169,14 +186,13 @@ export class CallExecutor {
   }
 
   private async execWithTimeout(
-    tool: Tool,
     call: ToolCall,
-    preview: ToolPreview | null,
+    job: Invocation,
     child: AbortController,
     armTimer: (t: { cancel(): void }) => void,
   ): Promise<string | { text: string; images?: string[] }> {
-    const exec = tool.execute(call.arguments, preview, child.signal);
-    if (tool.awaitsUser) return exec;
+    const exec = job.tool.execute(call.arguments, job.preview, child.signal);
+    if (job.tool.awaitsUser) return exec;
     return Promise.race([
       exec,
       new Promise<never>((_res, rej) => {

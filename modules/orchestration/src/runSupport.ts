@@ -164,7 +164,7 @@ async function resolveCostLimit(host: RunHost): Promise<OrchestrationOutcome | n
         freeCandidates(host.parked.map((t) => ({ roleId: host.graph.get(t)?.roleId ?? "" })), rt.config.agents, rt.config.channels),
         rt.config.channels,
       );
-  rt.bus.emit({ kind: "cost.summary", runId: rt.runId, ...costSummary(rt, host.graph, host.parked, host.freeFinished, host.suggestions) });
+  rt.bus.emit({ kind: "cost.summary", runId: rt.runId, ...costSummary(rt, host) });
   if (rt.cost.onLimit === "stop") {
     await host.stopParkedTasks();
     rt.leases.releaseAll();
@@ -188,16 +188,18 @@ async function resolveCostLimit(host: RunHost): Promise<OrchestrationOutcome | n
   return null;
 }
 
-function costSummary(rt: RunRuntime, graph: TaskGraph, parked: string[], freeFinished: string[], suggestions: Replacement[]) {
+/** Payload of the cost.summary event: spend, the parked and finished tasks, and the replacement suggestions. */
+function costSummary(rt: RunRuntime, host: Pick<RunHost, "graph" | "parked" | "freeFinished" | "suggestions">) {
   const c = rt.ledger.cost(rt.runId);
+  const title = (t: string) => host.graph.get(t)?.title ?? t;
   return {
     capUsd: rt.cost.cap,
     accruedUsd: rt.cost.accrued,
     overshootUsd: rt.cost.overshoot(),
     byRole: c.byRole,
     byAgent: c.byAgent,
-    parked: parked.map((t) => graph.get(t)?.title ?? t),
-    freeFinished: freeFinished.map((t) => graph.get(t)?.title ?? t),
-    suggestions,
+    parked: host.parked.map(title),
+    freeFinished: host.freeFinished.map(title),
+    suggestions: host.suggestions,
   };
 }

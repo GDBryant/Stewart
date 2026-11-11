@@ -62,44 +62,39 @@ function ComposerAction({ busy, canSend, onStop, onSend }: { busy: boolean; canS
   return <button class="send" disabled={!canSend} onClick={onSend}>Send</button>;
 }
 
-export function Composer({ store }: { store: Store }) {
-  const s = store.state;
-  const [draft, setDraft] = useState("");
-  const pickerRef = useRef<HTMLInputElement>(null);
-  useComposerInsert(store, setDraft);
-  const send = () => {
-    store.send(draft);
-    setDraft("");
-  };
+function ComposerTextarea({ draft, busy, onDraft, onAttach, onSend }: {
+  draft: string;
+  busy: boolean;
+  onDraft(text: string): void;
+  onAttach(files: File[]): void;
+  onSend(): void;
+}) {
   const onPaste = (e: ClipboardEvent) => {
     const files = clipboardFiles(e.clipboardData);
-    if (files.length) attachFiles(store, files);
+    if (files.length) onAttach(files);
   };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      onSend();
     }
   };
   return (
-    <div
-      class="composer"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        attachFiles(store, e.dataTransfer?.files ?? []);
-      }}
-    >
-      <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
-      {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
-      <textarea
-        value={draft}
-        placeholder={s.busyRunId ? "Waiting for reply…" : "Ask Stewart"}
-        disabled={!!s.busyRunId}
-        onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-        onPaste={onPaste}
-        onKeyDown={onKeyDown}
-      />
+    <textarea
+      value={draft}
+      placeholder={busy ? "Waiting for reply…" : "Ask Stewart"}
+      disabled={busy}
+      onInput={(e) => onDraft((e.target as HTMLTextAreaElement).value)}
+      onPaste={onPaste}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
+function AttachButton({ onFiles }: { onFiles(files: FileList | File[]): void }) {
+  const pickerRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
       <input
         ref={pickerRef}
         type="file"
@@ -107,25 +102,57 @@ export function Composer({ store }: { store: Store }) {
         multiple
         style="display:none"
         onChange={(e) => {
-          attachFiles(store, (e.target as HTMLInputElement).files ?? []);
+          onFiles((e.target as HTMLInputElement).files ?? []);
           (e.target as HTMLInputElement).value = "";
         }}
       />
       <button class="small" title="Attach image" onClick={() => pickerRef.current?.click()}>
         📎
       </button>
-      <div class="profile-select" role="group" aria-label="budget profile" title="Budget profile">
-        {(["auto", "quick", "normal", "deep"] as const).map((p) => (
-          <button
-            key={p}
-            class={`small profile-opt ${s.profileChoice === p ? "active" : ""}`}
-            aria-pressed={s.profileChoice === p}
-            onClick={() => store.setProfileChoice(p)}
-          >
-            {p}
-          </button>
-        ))}
-      </div>
+    </>
+  );
+}
+
+function ProfileSelect({ choice, onChoose }: { choice: string; onChoose(p: "auto" | "quick" | "normal" | "deep"): void }) {
+  return (
+    <div class="profile-select" role="group" aria-label="budget profile" title="Budget profile">
+      {(["auto", "quick", "normal", "deep"] as const).map((p) => (
+        <button
+          key={p}
+          class={`small profile-opt ${choice === p ? "active" : ""}`}
+          aria-pressed={choice === p}
+          onClick={() => onChoose(p)}
+        >
+          {p}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Composer({ store }: { store: Store }) {
+  const s = store.state;
+  const [draft, setDraft] = useState("");
+  useComposerInsert(store, setDraft);
+  const attach = (files: FileList | File[]) => attachFiles(store, files);
+  const send = () => {
+    store.send(draft);
+    setDraft("");
+  };
+  return (
+    <div
+      class="composer"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        attach(e.dataTransfer?.files ?? []);
+      }}
+    >
+      <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
+      {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
+      <ComposerTextarea draft={draft} busy={!!s.busyRunId} onDraft={setDraft} onAttach={attach} onSend={send} />
+      <AttachButton onFiles={attach} />
+      <ProfileSelect choice={s.profileChoice} onChoose={(p) => store.setProfileChoice(p)} />
       <ComposerAction busy={!!s.busyRunId} canSend={!!draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
     </div>
   );

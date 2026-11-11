@@ -41,7 +41,7 @@ export function parseToolCalls(text: string, schema: SchemaMap, startInFence = f
     const close = nextFenceClose(stripped, 0, stripped.length);
     from = close ? close.end : stripped.length;
   }
-  scanSpan(ctx, from, stripped.length, true, true);
+  scanSpan(ctx, { pos: from, to: stripped.length, fences: true, tags: true });
   let out = "";
   let p = 0;
   for (const [s, e] of ctx.removed) {
@@ -105,20 +105,20 @@ function spanCandidates(ctx: Scan, w: SpanWindow): SpanCandidates {
   return { jsonIdx, tagM, tagIdx, fence, fenceIdx };
 }
 
-function scanSpan(ctx: Scan, from: number, to: number, fences: boolean, tags: boolean): void {
-  let pos = from;
-  while (pos < to) {
-    const c = spanCandidates(ctx, { pos, to, fences, tags });
+function scanSpan(ctx: Scan, w: SpanWindow): void {
+  let pos = w.pos;
+  while (pos < w.to) {
+    const c = spanCandidates(ctx, { ...w, pos });
     if (c.jsonIdx >= 0) {
-      pos = bareAt(ctx, c.jsonIdx, to);
+      pos = bareAt(ctx, c.jsonIdx, w.to);
       continue;
     }
     if (c.tagM && c.tagIdx < c.fenceIdx) {
-      pos = tagAt(ctx, c.tagM, to);
+      pos = tagAt(ctx, c.tagM, w.to);
       continue;
     }
     if (c.fence) {
-      pos = fenceAt(ctx, c.fence, to);
+      pos = fenceAt(ctx, c.fence, w.to);
       continue;
     }
     break;
@@ -139,7 +139,7 @@ function fenceAt(ctx: Scan, f: { index: number; lineEnd: number; lang: string },
   if (close === null) return f.lineEnd;
   if (!PARSABLE_FENCES.has(f.lang)) return close.end;
   const mark = ctx.removed.length;
-  scanSpan(ctx, bodyStart, close.index, false, true);
+  scanSpan(ctx, { pos: bodyStart, to: close.index, fences: false, tags: true });
   const bodySpans = ctx.removed.splice(mark);
   if (bodySpans.length > 0 && isBlank(ctx.text, bodyStart, close.index, bodySpans)) {
     ctx.removed.push([f.index, close.end]);
@@ -168,9 +168,9 @@ function tagBounds(text: string, opener: string, tagEnd: number, to: number): { 
   return { closeAt, closed, end: closed ? closeAt + closer.length : to };
 }
 
-function tagRaw(text: string, opener: string, start: number, end: number, tagEnd: number, closeAt: number, closed: boolean, to: number): string {
-  if (opener.startsWith("<function=")) return text.slice(start, end);
-  return innermostToolCall(text.slice(tagEnd, closed ? closeAt : to), opener);
+function tagRaw(text: string, opener: string, s: { start: number; end: number; tagEnd: number; closeAt: number; closed: boolean; to: number }): string {
+  if (opener.startsWith("<function=")) return text.slice(s.start, s.end);
+  return innermostToolCall(text.slice(s.tagEnd, s.closed ? s.closeAt : s.to), opener);
 }
 
 function parseTagCall(raw: string, opener: string, schema: SchemaMap): { parsed: [string, Json] | null; code: string } {
@@ -189,7 +189,7 @@ function tagAt(ctx: Scan, m: RegExpExecArray, to: number): number {
   const tagEnd = start + opener.length;
   const { closeAt, closed, end } = tagBounds(text, opener, tagEnd, to);
   if (isInlineMention(text, start, end, closed)) return end;
-  const raw = tagRaw(text, opener, start, end, tagEnd, closeAt, closed, to);
+  const raw = tagRaw(text, opener, { start, end, tagEnd, closeAt, closed, to });
   const { parsed, code } = parseTagCall(raw, opener, schema);
   if (!closed) return unclosedTagAt(ctx, m, to, parsed);
   if (parsed === null) {

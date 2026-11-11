@@ -52,6 +52,17 @@ function dispatchParserEvent(ev: ClaudeEvent, parser: ClaudeStreamParser): { eve
   return { events: [] };
 }
 
+type ClaudeRec = (direction: "outgoing" | "incoming" | "stderr" | "error", payload: string) => void;
+
+/** Inputs for launching one CLI turn: config, request, prepared input, temp cwd and the debug recorder. */
+interface ProcStart {
+  cfg: ChannelConfig;
+  req: ChatRequest;
+  input: ReturnType<typeof prepare>;
+  cwd: string;
+  rec: ClaudeRec;
+}
+
 /** Consume CLI stdout lines into ChatEvents; returns the parser's failure event if one was emitted. */
 async function* consumeStdout(
   proc: SpawnedProc,
@@ -198,17 +209,12 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     return { tools: "shim", vision: true, reasoning: true, contextTokens: 200_000 };
   }
 
-  private async startClaudeProc(
-    cfg: ChannelConfig,
-    req: ChatRequest,
-    input: ReturnType<typeof prepare>,
-    cwd: string,
-    rec: (direction: "outgoing" | "incoming" | "stderr" | "error", payload: string) => void,
-  ): Promise<{ proc: SpawnedProc; promptDir: string }> {
+  private async startClaudeProc(s: ProcStart): Promise<{ proc: SpawnedProc; promptDir: string }> {
+    const { cfg, input, cwd, rec } = s;
     const wf = this.deps.writeTempFile ?? ((c: string) => writeTempFile("stewart-claude-prompt-", c));
     const promptFile = await wf(input.system);
     const promptDir = promptFile.slice(0, promptFile.lastIndexOf("/"));
-    const argv = claudeArgv(this.cliPath(cfg), normalizeModel(req.model), promptFile, input.hasImages);
+    const argv = claudeArgv(this.cliPath(cfg), normalizeModel(s.req.model), promptFile, input.hasImages);
     let proc: SpawnedProc;
     try {
       proc = this.spawn(argv, { cwd, env: this.childEnv(cfg) });
@@ -228,15 +234,14 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     }
     const input = prepare(req.messages);
     const dbg = this.deps.debug;
-    const rec = (direction: "outgoing" | "incoming" | "stderr" | "error", payload: string) =>
-      dbg?.record({ direction, provider: this.type, model: req.model, payload });
+    const rec: ClaudeRec = (direction, payload) => dbg?.record({ direction, provider: this.type, model: req.model, payload });
     const mk = this.deps.makeTempDir ?? makeTempDir;
     const rm = this.deps.rmDir ?? rmDir;
     const cwd = await mk();
     let proc: SpawnedProc | undefined;
     let promptDir: string | undefined;
     try {
-      const started = await this.startClaudeProc(cfg, req, input, cwd, rec);
+      const started = await this.startClaudeProc({ cfg, req, input, cwd, rec });
       proc = started.proc;
       promptDir = started.promptDir;
       const parser = new ClaudeStreamParser();

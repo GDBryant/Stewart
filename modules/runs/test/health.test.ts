@@ -77,7 +77,7 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
     { "channels.yaml": CHANNELS, "agents.yaml": AGENTS, "roles.yaml": rolesYaml(opts.roles), "settings.yaml": opts.settings },
     {},
     {},
-    true,
+    { trusted: true },
   );
 }
 

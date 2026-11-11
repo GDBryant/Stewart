@@ -87,7 +87,7 @@ describe("loadEffectiveConfig", () => {
       { "agents.yaml": agentsYaml, "channels.yaml": channelsYaml, "roles.yaml": rolesYaml },
       { "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    turnBudget: 99\n" },
       {},
-      true,
+      { trusted: true },
     );
     const gw = cfg.roles.find((r) => r.id === "general-worker");
     expect(gw?.turnBudget).toBe(99);
@@ -95,19 +95,19 @@ describe("loadEffectiveConfig", () => {
   });
 
   it("ignores project roles in an untrusted workspace", () => {
-    const cfg = loadEffectiveConfig({ "roles.yaml": rolesYaml, "agents.yaml": agentsYaml, "channels.yaml": channelsYaml }, { "roles.yaml": "version: 1\nitems:\n  - id: evil\n    enabled: true\n" }, {}, false);
+    const cfg = loadEffectiveConfig({ "roles.yaml": rolesYaml, "agents.yaml": agentsYaml, "channels.yaml": channelsYaml }, { "roles.yaml": "version: 1\nitems:\n  - id: evil\n    enabled: true\n" }, {}, { trusted: false });
     expect(cfg.roles.some((r) => r.id === "evil")).toBe(false);
     expect(cfg.errors.join(" ")).toContain("untrusted");
   });
 
   it("project cannot add channels or agents even when trusted", () => {
-    const cfg = loadEffectiveConfig({}, { "channels.yaml": channelsYaml, "agents.yaml": agentsYaml, "roles.yaml": rolesYaml }, {}, true);
+    const cfg = loadEffectiveConfig({}, { "channels.yaml": channelsYaml, "agents.yaml": agentsYaml, "roles.yaml": rolesYaml }, {}, { trusted: true });
     expect(cfg.channels).toHaveLength(0);
     expect(cfg.agents).toHaveLength(0);
   });
 
   it("surfaces invalid YAML as error and keeps last good fields", () => {
-    const cfg = loadEffectiveConfig({ "channels.yaml": "version: 1\nitems: [{\n" }, {}, {}, true);
+    const cfg = loadEffectiveConfig({ "channels.yaml": "version: 1\nitems: [{\n" }, {}, {}, { trusted: true });
     expect(cfg.errors.length).toBe(1);
     expect(cfg.channels).toHaveLength(0);
   });

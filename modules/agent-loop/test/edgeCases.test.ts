@@ -127,7 +127,7 @@ describe("ToolLoop stream outcomes", () => {
         });
       },
     };
-    const loop = new ToolLoop(new ManagedChannel(adapter, { id: "c", type: "f", enabled: true, maxParallel: 1 }), new ToolRegistry([]), approve, { ...DEFAULT_LIMITS, modelCallTimeoutMs: 10 });
+    const loop = new ToolLoop(new ManagedChannel(adapter, { id: "c", type: "f", enabled: true, maxParallel: 1 }), new ToolRegistry([]), approve, { limits: { ...DEFAULT_LIMITS, modelCallTimeoutMs: 10 } });
     const r = await loop.run("m", hist, {}, sig());
     expect(r.kind === "failed" && r.code === "call_timeout").toBe(true);
   });
@@ -153,7 +153,7 @@ describe("ToolLoop call execution edge cases", () => {
       [{ kind: "done" }],
     ]);
     const reg = new ToolRegistry([mk("P1"), mk("P2")] as never);
-    const r = await new ToolLoop(ch, reg, approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, reg, approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     expect(r.kind).toBe("completed");
     expect(ran.sort()).toEqual(["P1", "P2"]);
   });
@@ -167,7 +167,7 @@ describe("ToolLoop call execution edge cases", () => {
     const ch = fakeChannel([
       [{ kind: "tool_calls", calls: [{ id: "1", name: "Final", arguments: {} }, { id: "2", name: "After", arguments: {} }] }, { kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, new ToolRegistry([mk("Final"), mk("After")] as never), approve, DEFAULT_LIMITS, clock, undefined, new Set(["Final"]), "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([mk("Final"), mk("After")] as never), approve, { limits: DEFAULT_LIMITS, clock, terminalTools: new Set(["Final"]), toolsMode: "native" }).run("m", hist, {}, sig());
     expect(r.kind).toBe("completed");
     const msgs = r.messages.filter((m) => m.role === "tool");
     expect(msgs.some((m) => m.content.includes("ended the turn"))).toBe(true);
@@ -184,10 +184,10 @@ describe("ToolLoop call execution edge cases", () => {
     const t = { ...echoTool, execute: async () => (execs++, "res") };
     const mk = () => fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }], [{ kind: "done" }]]);
     const reg = new ToolRegistry([t] as never);
-    const r1 = await new ToolLoop(mk(), reg, approve, DEFAULT_LIMITS, clock, undefined, undefined, "native", idem).run("m", hist, {}, sig());
+    const r1 = await new ToolLoop(mk(), reg, approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native", idempotency: idem }).run("m", hist, {}, sig());
     expect(execs).toBe(1);
     const reg2 = new ToolRegistry([{ ...echoTool, execute: async () => (execs++, "res2") }] as never);
-    await new ToolLoop(mk(), reg2, approve, DEFAULT_LIMITS, clock, undefined, undefined, "native", idem).run("m", hist, {}, sig());
+    await new ToolLoop(mk(), reg2, approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native", idempotency: idem }).run("m", hist, {}, sig());
     expect(execs).toBe(1);
     expect(r1.messages.find((m) => m.role === "tool")?.content).toBe("res");
   });
@@ -196,7 +196,7 @@ describe("ToolLoop call execution edge cases", () => {
     const big = "x".repeat(30_000);
     const t = { ...echoTool, execute: async () => big };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }], [{ kind: "done" }]]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, { ...DEFAULT_LIMITS, maxToolOutputChars: 1000 }, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: { ...DEFAULT_LIMITS, maxToolOutputChars: 1000 }, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     const tool = r.messages.find((m) => m.role === "tool");
     expect(tool?.content).toContain("output truncated");
   });
@@ -204,7 +204,7 @@ describe("ToolLoop call execution edge cases", () => {
   it("forwards image results as a user image message", async () => {
     const t = { ...echoTool, execute: async () => ({ text: "img", images: ["data:image/png;base64,QUJD"] }) };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }], [{ kind: "done" }]]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     const img = r.messages.find((m) => m.role === "user" && m.images);
     expect(img?.content).toContain("image from Echo");
   });
@@ -219,7 +219,7 @@ describe("ToolLoop call execution edge cases", () => {
       execute: async () => "never",
     };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Gate", arguments: {} }] }, { kind: "done" }], [{ kind: "done" }]]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     const tool = r.messages.find((m) => m.role === "tool");
     expect(tool?.content).toContain("preview blew up");
   });
@@ -232,7 +232,7 @@ describe("ToolLoop call execution edge cases", () => {
       execute: async () => "never",
     };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Gate", arguments: {} }] }, { kind: "done" }], [{ kind: "done" }]]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), async () => ({ kind: "rejected", reason: "denied" }), DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), async () => ({ kind: "rejected", reason: "denied" }), { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     expect(r.messages.find((m) => m.role === "tool")?.content).toContain("Rejected");
   });
 
@@ -241,7 +241,7 @@ describe("ToolLoop call execution edge cases", () => {
     err.name = "LeaseCycleError";
     const t = { ...echoTool, execute: async () => Promise.reject(err) };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }]]);
-    await expect(new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig())).rejects.toThrow("cycle");
+    await expect(new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig())).rejects.toThrow("cycle");
   });
 
   it("cancel during an awaitsUser call leaves a not-answered tool message", async () => {
@@ -257,7 +257,7 @@ describe("ToolLoop call execution edge cases", () => {
         }),
     };
     const ch = fakeChannel([[{ kind: "tool_calls", calls: [{ id: "1", name: "Ask", arguments: {} }] }, { kind: "done" }]]);
-    const loop = new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native");
+    const loop = new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" });
     const err = await loop.run("m", hist, { onToolRequested: () => ac.abort() }, ac.signal).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(RunCancelledError);
     const msgs = (err as RunCancelledError).produced.filter((m) => m.role === "tool");
@@ -281,7 +281,7 @@ describe("ToolLoop characterization gaps", () => {
       [{ kind: "tool_calls", calls: [{ id: "1", name: "Echo", arguments: { text: "x" } }] }, { kind: "done" }],
       [{ kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), approve, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     expect(r.messages.find((m) => m.role === "tool")?.content).toBe("Error: tool failed");
   });
 
@@ -300,7 +300,7 @@ describe("ToolLoop characterization gaps", () => {
       [{ kind: "tool_calls", calls: [{ id: "1", name: "Gate", arguments: {} }] }, { kind: "done" }],
       [{ kind: "done" }],
     ]);
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate as never, DEFAULT_LIMITS, clock, undefined, undefined, "native").run("m", hist, {}, sig());
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate as never, { limits: DEFAULT_LIMITS, clock, toolsMode: "native" }).run("m", hist, {}, sig());
     expect(previews).toEqual([null]);
     expect(r.messages.find((m) => m.role === "tool")?.content).toBe("ran");
   });
@@ -320,7 +320,7 @@ describe("ToolLoop characterization gaps", () => {
       preview: async () => ({ kind: "other" as const }),
       execute: async () => "never",
     };
-    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate, { ...DEFAULT_LIMITS, maxModelTurns: 1 }, clock, undefined, undefined, "native").run("m", hist, {}, ac.signal);
+    const r = await new ToolLoop(ch, new ToolRegistry([t] as never), gate, { limits: { ...DEFAULT_LIMITS, maxModelTurns: 1 }, clock, toolsMode: "native" }).run("m", hist, {}, ac.signal);
     expect(gateCalls).toBe(0);
     expect(r.kind).toBe("turn_limit");
     expect(r.messages.find((m) => m.role === "tool")?.content).toBe("Rejected by user: denied");

@@ -10,7 +10,7 @@ import type { RecoveryState, RunRuntime, TaskResult } from "@stewart/run-contrac
 import { loadProjectContext } from "@stewart/context";
 import { DIRECT_TASK_ID, chatRoleDef } from "./consts.js";
 import { outcomeOf } from "./outcome.js";
-import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
+import type { ExecCtx, PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
 import type { Run, RunHost } from "./types.js";
 
 export interface DirectRequest {
@@ -45,7 +45,7 @@ export const directStrategy: RunStrategy<DirectRequest> = {
     return { run, title: req.text, config: req.budget.config, profileName: req.budget.name, channelFor: () => req.channel, profile: req.budget.profile };
   },
 
-  async execute(svc: RunHost, run: Run, rt: RunRuntime, req: DirectRequest, ctx: PlanCtx): Promise<RunOutcome> {
+  async execute({ svc, run, rt, req, ctx }: ExecCtx<DirectRequest>): Promise<RunOutcome> {
     const state = await startRun(svc, run, req);
     try {
       const res = await runTask({ svc, run, rt, req, state });

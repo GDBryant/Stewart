@@ -28,11 +28,20 @@ export type RunPlan = {
 export type Refusal = { ok: false; reason: string };
 export type RunOutcome = { status: RunStatus; event: "done" | "failed" | "cancelled" | "stopped" | "no_dispatch"; error?: string };
 
+/** Everything a strategy's execute step needs; one object instead of a long parameter list. */
+export interface ExecCtx<Req> {
+  svc: RunHost;
+  run: Run;
+  rt: RunRuntime;
+  req: Req;
+  ctx: PlanCtx;
+}
+
 export interface RunStrategy<Req> {
   /** Pre-flight + Run construction; may refuse before anything is registered or emitted. */
   plan(svc: RunHost, projectId: string, req: Req, ctx: PlanCtx): Promise<RunPlan | Refusal>;
   /** Drives the run on the shared runtime; must not emit run.finished or journal the final state (the pipeline does). */
-  execute(svc: RunHost, run: Run, rt: RunRuntime, req: Req, ctx: PlanCtx): Promise<RunOutcome>;
+  execute(c: ExecCtx<Req>): Promise<RunOutcome>;
 }
 
 /** The one pipeline: plan → register + run.started → idem + journal + runtime → execute → finish (status, costUsd, journal, saveHistory, run.finished). Exceptions → failed. */
@@ -47,11 +56,21 @@ export async function runPipeline<Req>(svc: RunHost, strategy: RunStrategy<Req>,
   run.handle = handle;
   svc.register(run);
   svc.deps.bus.emit({ kind: "run.started", runId: run.id, title: plan.title.slice(0, 80), ...(plan.profileName ? { profile: plan.profileName } : {}) });
-  void drive(svc, strategy, run, plan, req, ctx);
+  void drive({ svc, strategy, plan, req, ctx });
   return { ok: true, run, handle };
 }
 
-async function drive<Req>(svc: RunHost, strategy: RunStrategy<Req>, run: Run, plan: RunPlan, req: Req, ctx: PlanCtx): Promise<void> {
+/** Arguments for the drive step of one run; `run` is always `plan.run`. */
+interface DriveArgs<Req> {
+  svc: RunHost;
+  strategy: RunStrategy<Req>;
+  plan: RunPlan;
+  req: Req;
+  ctx: PlanCtx;
+}
+
+async function drive<Req>({ svc, strategy, plan, req, ctx }: DriveArgs<Req>): Promise<void> {
+  const { run } = plan;
   const bus = svc.deps.bus;
   const idem = new IdempotencyLog(svc.deps.host, `${ctx.stateDir}/scratch/${run.id}/executed.jsonl`, run.id);
   await idem.load();
@@ -66,7 +85,7 @@ async function drive<Req>(svc: RunHost, strategy: RunStrategy<Req>, run: Run, pl
     onGraphChange: plan.onGraphChange,
   });
   try {
-    const outcome = await strategy.execute(svc, run, rt, req, ctx);
+    const outcome = await strategy.execute({ svc, run, rt, req, ctx });
     run.status = outcome.status;
     run.costUsd = rt.cost.accrued;
     await svc.journal(run, ctx.stateDir);

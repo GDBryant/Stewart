@@ -15,7 +15,15 @@ function uniqueAgentId(base: string, taken: (id: string) => boolean): string {
   return id;
 }
 
-function agentForPair(id: string, channel: string, model: string, channelType: string | undefined, catalog: CatalogInfo | undefined): AgentSummary {
+type PairAgentInput = {
+  id: string;
+  channel: string;
+  model: string;
+  channelType: string | undefined;
+  catalog: CatalogInfo | undefined;
+};
+
+function agentForPair({ id, channel, model, channelType, catalog }: PairAgentInput): AgentSummary {
   const pin = catalog?.inPerMTok;
   const priced = pin !== undefined && pin > 0;
   return {
@@ -52,7 +60,7 @@ export function buildAgentsForRoles(input: {
     const base = `${ch}-${model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
     const id = uniqueAgentId(base, (x) => nextAgents.has(x));
     const channelType = channels.find((c) => c.id === ch)?.type;
-    nextAgents.set(id, agentForPair(id, ch, model, channelType, probeResults[ref]?.catalog));
+    nextAgents.set(id, agentForPair({ id, channel: ch, model, channelType, catalog: probeResults[ref]?.catalog }));
     pairToAgent.set(ref, id);
   }
   const nextRoles = roles.map((r) => {

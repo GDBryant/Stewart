@@ -4,7 +4,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
 import { runPreflight, type FeatureRun, type RunRuntime, type TaskResult } from "@stewart/run-contract";
 import { questionPrompt } from "@stewart/interaction";
-import { NO_ANSWER, planGatePrompt } from "./prompts.js";
+import { NO_ANSWER } from "./prompts.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
 import type { Tool } from "@stewart/tools";
@@ -14,6 +14,7 @@ import { answerNestedAskUser } from "./askUser.js";
 import { buildSession, finalize, runSession, type RunHost } from "./runSupport.js";
 import { ORCHESTRATOR_MAX_TOOL_OUTPUT, resolveRole, type OrchestrationOutcome } from "./orchestrator.js";
 import { taskOutcomeEvent, taskRecordStatus } from "./taskEvents.js";
+import { PlanVerbs } from "./planVerbs.js";
 
 /**
  * One orchestrated run: the Orchestrator routes work through `dispatch`, core
@@ -27,10 +28,26 @@ export async function runOrchestrated(rt: RunRuntime, userText: string, history:
   if (!agent) return { status: "failed", error: `role orchestrator: enabled but no agent bound`, suggestions: [] };
   const refused = runPreflight(rt.features, userText, rt);
   if (refused) return { status: "failed", error: refused, suggestions: [] };
-  return new OrchestratedRun(rt, orchestrator, agent, rt.channelFor(agent.channel), userText, history).run();
+  return new OrchestratedRun({ rt, orchestrator, agent, channel: rt.channelFor(agent.channel), userText, history }).run();
+}
+
+/** Inputs for one OrchestratedRun; `history` defaults to an empty transcript. */
+export interface OrchestratedRunInit {
+  rt: RunRuntime;
+  orchestrator: RoleDef;
+  agent: AgentDef;
+  channel: ManagedChannel;
+  userText: string;
+  history?: ChatMessage[];
 }
 
 export class OrchestratedRun implements RunHost {
+  readonly rt: RunRuntime;
+  readonly orchestrator: RoleDef;
+  readonly agent: AgentDef;
+  readonly channel: ManagedChannel;
+  readonly userText: string;
+  readonly history: ChatMessage[];
   readonly graph = new TaskGraph();
   readonly results = new Map<string, TaskResult>();
   private readonly pending = new Map<string, Promise<TaskResult>>();
@@ -39,25 +56,24 @@ export class OrchestratedRun implements RunHost {
   private readonly nestedUsed = new Map<string, number>();
   readonly overrides: Map<string, string>;
   suggestions: Replacement[] = [];
-  private replans = 0;
   /** Dispatch calls that named a valid role; zero means the Orchestrator never routed work. */
   dispatchCalls = 0;
-  private milestoneCount = 0;
   limitAnnounced = false;
-  private planApproved = false;
+  private readonly plan: PlanVerbs;
   readonly handlers: OrchestrationHandlers;
   /** Per-run state of each plugged-in feature (tools offered to the Orchestrator and to dispatched tasks). */
   readonly featureRuns: readonly FeatureRun[];
 
-  constructor(
-    readonly rt: RunRuntime,
-    readonly orchestrator: RoleDef,
-    readonly agent: AgentDef,
-    readonly channel: ManagedChannel,
-    readonly userText: string,
-    readonly history: ChatMessage[] = [],
-  ) {
+  constructor(init: OrchestratedRunInit) {
+    this.rt = init.rt;
+    this.orchestrator = init.orchestrator;
+    this.agent = init.agent;
+    this.channel = init.channel;
+    this.userText = init.userText;
+    this.history = init.history ?? [];
+    const rt = this.rt;
     this.overrides = (rt.roleAgentOverrides ??= new Map<string, string>());
+    this.plan = new PlanVerbs(rt, init.orchestrator);
     this.featureRuns = (rt.features ?? []).map((f) => f.createRun(rt, { tasks: () => this.graph.all(), maxOutputChars: ORCHESTRATOR_MAX_TOOL_OUTPUT }));
     this.handlers = {
       dispatch: async (args, signal) => {
@@ -69,8 +85,8 @@ export class OrchestratedRun implements RunHost {
         const o = await rt.prompt(questionPrompt("ask_user", args.question, args.options), { roleId: this.orchestrator.id });
         return o.kind === "answered" ? o.value : NO_ANSWER;
       },
-      submitPlan: (args) => this.submitPlan(args),
-      submitVerdict: (args) => this.submitVerdict(args),
+      submitPlan: (args) => this.plan.submitPlan(args),
+      submitVerdict: (args) => this.plan.submitVerdict(args),
       submitReplacements: (args) => this.submitReplacements(args),
     };
   }
@@ -86,19 +102,11 @@ export class OrchestratedRun implements RunHost {
     await this.rt.onGraphChange?.(this.graph);
   }
 
-  private replan(reasons: string[] | undefined): string {
-    this.replans++;
-    if (this.replans > this.rt.maxReplans) {
-      return `Verdict recorded: revise, but the replan limit (${this.rt.maxReplans}) is reached. Proceed with the best plan available and report the open risks.`;
-    }
-    return `Verdict recorded: revise (${this.replans}/${this.rt.maxReplans}). Re-dispatch the planner with these reasons: ${(reasons ?? []).join("; ")}`;
-  }
-
   private dispatchAt(spec: TaskSpec, depth: number): Promise<TaskResult> {
     const rt = this.rt;
     const role = resolveRole(rt, spec.roleId);
     if (!role) return Promise.resolve({ status: "failed", summary: `no enabled role for '${spec.roleId}' and no General Worker fallback`, filesTouched: [] } as TaskResult);
-    if (rt.planGate && !this.planApproved && isWriteCapableRole(role)) {
+    if (rt.planGate && !this.plan.isApproved && isWriteCapableRole(role)) {
       const added = this.graph.add({ ...spec, roleId: role.id });
       if (!added.ok) return Promise.resolve({ status: "failed", summary: added.error.message, filesTouched: [] });
       const rec = added.value;
@@ -256,26 +264,6 @@ export class OrchestratedRun implements RunHost {
     }).filter((t) => (t.spec.name === "dispatch" ? canDispatch : wanted.includes(t.spec.name)));
     const featureTools = this.featureRuns.flatMap((f) => f.taskTools(parentId)).filter((t) => wanted.includes(t.spec.name));
     return [...verbs, ...featureTools];
-  }
-
-  private submitPlan(args: { milestones: { title: string; acceptance?: string }[] }): string {
-    this.milestoneCount = args.milestones?.length ?? 0;
-    this.rt.bus.emit({ kind: "plan.created", runId: this.rt.runId, milestoneCount: this.milestoneCount });
-    return `Plan recorded with ${this.milestoneCount} milestone(s). Dispatch the plan-validator role next, then implementation tasks.`;
-  }
-
-  private async submitVerdict(args: { verdict: "approve" | "revise"; reasons?: string[] }): Promise<string> {
-    const rt = this.rt;
-    rt.bus.emit({ kind: "plan.validated", runId: rt.runId, verdict: args.verdict, reasons: args.reasons ?? [] });
-    if (args.verdict !== "approve") return this.replan(args.reasons);
-    if (rt.planGate && !this.planApproved) {
-      const o = await rt.prompt(planGatePrompt(this.milestoneCount), { roleId: this.orchestrator.id });
-      if (o.kind === "withdrawn") return "Plan not approved: prompt withdrawn.";
-      if (o.value.kind === "revise") return this.replan([o.value.reason]);
-    }
-    this.planApproved = true;
-    rt.bus.emit({ kind: "plan.approved", runId: rt.runId, milestoneCount: this.milestoneCount });
-    return "Verdict recorded: approved. Proceed with implementation dispatches.";
   }
 
   private submitReplacements(args: { replacements: { role: string; agent: string; reason: string }[] }): string {

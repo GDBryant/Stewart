@@ -199,7 +199,7 @@ describe("code-health-reviewer role", () => {
   });
   it("existing user roles.yaml still receives the shipped role", () => {
     const user = stringifyYaml({ version: 1, items: [{ id: "tester", enabled: true }] });
-    const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, true);
+    const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: true });
     expect(cfg.roles.some((x) => x.id === "code-health-reviewer")).toBe(true);
   });
   it("is not write-capable; tester still is", () => {

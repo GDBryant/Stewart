@@ -8,6 +8,23 @@ import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
 
 const sessions = new Map<string, SetupSession>();
 
+/** First validation error across the drafted config files (unknown name, bad YAML, schema), or undefined. */
+function validateConfigFiles(files: Record<string, string>): string | undefined {
+  for (const [name, yaml] of Object.entries(files)) {
+    const schema = CONFIG_FILE_SCHEMAS[name];
+    if (!schema) return `unknown config file: ${name}`;
+    let doc: unknown;
+    try {
+      doc = parseYaml(yaml);
+    } catch (e) {
+      return `${name}: invalid YAML: ${e instanceof Error ? e.message : e}`;
+    }
+    const parsed = schema.safeParse(doc ?? {});
+    if (!parsed.success) return `${name}: ${parsed.error.issues[0]?.message ?? "schema error"}`;
+  }
+  return undefined;
+}
+
 async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<SetupSessionDeps> {
   const stateDir = await ctx.host.workspace.stateDir();
   return {
@@ -18,21 +35,7 @@ async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): P
       core.userGuard.recordWrite(name, yaml);
       await core.deps.userConfig.write(name, yaml);
     },
-    validateFiles: (files) => {
-      for (const [name, yaml] of Object.entries(files)) {
-        const schema = CONFIG_FILE_SCHEMAS[name];
-        if (!schema) return `unknown config file: ${name}`;
-        let doc: unknown;
-        try {
-          doc = parseYaml(yaml);
-        } catch (e) {
-          return `${name}: invalid YAML: ${e instanceof Error ? e.message : e}`;
-        }
-        const parsed = schema.safeParse(doc ?? {});
-        if (!parsed.success) return `${name}: ${parsed.error.issues[0]?.message ?? "schema error"}`;
-      }
-      return undefined;
-    },
+    validateFiles: validateConfigFiles,
     existingChannelIds: () => ctx.config.channels.map((c) => c.id),
     setSecret: async (ref, value) => {
       await ctx.host.secrets.set(ref, value);

@@ -5,7 +5,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import { runOrchestrated } from "@stewart/orchestration";
 import type { RunRuntime } from "@stewart/run-contract";
 import { timeCapMessage } from "./consts.js";
-import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
+import type { ExecCtx, PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
 import type { Run, RunHost } from "./types.js";
 
 export interface OrchestratedRequest {
@@ -51,7 +51,7 @@ export const orchestratedStrategy: RunStrategy<OrchestratedRequest> = {
     };
   },
 
-  async execute(svc: RunHost, run: Run, rt: RunRuntime, req: OrchestratedRequest): Promise<RunOutcome> {
+  async execute({ svc, run, rt, req }: ExecCtx<OrchestratedRequest>): Promise<RunOutcome> {
     const outcome = await runOrchestrated(rt, req.text, run.messages.slice(0, -1));
     if (outcome.reply) run.messages.push({ role: "assistant", content: outcome.reply });
     if (run.status === "cancelled") return { status: "cancelled", event: "cancelled" };

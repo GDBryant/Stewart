@@ -194,7 +194,7 @@ describe("modelCaps.perf schema", () => {
       },
       {},
       {},
-      true,
+      { trusted: true },
     );
     const m1 = cfg.channels[0].modelCaps.m1;
     expect(m1.perf).toMatchObject({ tokPerSec: 42.5, toolReliability: 0.67 });

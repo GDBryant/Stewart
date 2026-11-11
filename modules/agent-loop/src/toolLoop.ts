@@ -11,23 +11,52 @@ import { NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry } from "@stewart/t
 import { CallExecutor } from "./callExecutor.js";
 import { streamTurn, type StreamOutcome, type TurnState } from "./toolStream.js";
 
+/** Optional knobs for a ToolLoop; every field defaults as documented on the class. */
+export interface ToolLoopOptions {
+  /** Defaults to DEFAULT_LIMITS. */
+  limits?: LoopLimits;
+  clock?: Clock;
+  rolePrompt?: string;
+  /** Defaults to an empty set. */
+  terminalTools?: Set<string>;
+  /** Defaults to "shim". */
+  toolsMode?: ToolsMode;
+  idempotency?: IdempotencyHooks;
+  /** Summarize stage (R3.3): turns the middle of the transcript into a note; absent = off. */
+  summarize?: (middle: ChatMessage[]) => Promise<string>;
+}
+
 export class ToolLoop {
   private readonly executor: CallExecutor;
+  private readonly limits: LoopLimits;
+  private readonly clock: Clock | undefined;
+  private readonly rolePrompt: string | undefined;
+  private readonly terminalTools: Set<string>;
+  private readonly toolsMode: ToolsMode;
+  private readonly idempotency: IdempotencyHooks | undefined;
+  private readonly summarize: ((middle: ChatMessage[]) => Promise<string>) | undefined;
 
   constructor(
-    private channel: ManagedChannel,
-    private registry: ToolRegistry,
-    private approval: ApprovalGate,
-    private limits: LoopLimits = DEFAULT_LIMITS,
-    private clock?: Clock,
-    private rolePrompt?: string,
-    private terminalTools: Set<string> = new Set(),
-    private toolsMode: ToolsMode = "shim",
-    private idempotency?: IdempotencyHooks,
-    /** Summarize stage (R3.3): turns the middle of the transcript into a note; absent = off. */
-    private summarize?: (middle: ChatMessage[]) => Promise<string>,
+    private readonly channel: ManagedChannel,
+    private readonly registry: ToolRegistry,
+    approval: ApprovalGate,
+    options: ToolLoopOptions = {},
   ) {
-    this.executor = new CallExecutor(registry, approval, limits, clock, terminalTools, idempotency);
+    this.limits = options.limits ?? DEFAULT_LIMITS;
+    this.clock = options.clock;
+    this.rolePrompt = options.rolePrompt;
+    this.terminalTools = options.terminalTools ?? new Set();
+    this.toolsMode = options.toolsMode ?? "shim";
+    this.idempotency = options.idempotency;
+    this.summarize = options.summarize;
+    this.executor = new CallExecutor({
+      registry,
+      approval,
+      limits: this.limits,
+      clock: this.clock,
+      terminalTools: this.terminalTools,
+      idempotency: this.idempotency,
+    });
   }
 
   private get schemaMap(): SchemaMap {

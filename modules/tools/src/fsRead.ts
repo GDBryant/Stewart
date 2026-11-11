@@ -161,12 +161,21 @@ function queryRegex(query: string, useRegex: boolean): RegExp | null {
   }
 }
 
-function scanContent(rel: string, content: string, query: string, regex: RegExp | null, max: number, results: string[]): number {
+interface ScanOpts {
+  rel: string;
+  content: string;
+  query: string;
+  regex: RegExp | null;
+  max: number;
+}
+
+/** Appends matching `rel:line: text` rows to `results` up to `max`; returns how many matches did not fit. */
+function scanContent(o: ScanOpts, results: string[]): number {
   let overflow = 0;
-  content.split("\n").forEach((line, i) => {
-    const hit = regex ? regex.test(line) : line.includes(query);
+  o.content.split("\n").forEach((line, i) => {
+    const hit = o.regex ? o.regex.test(line) : line.includes(o.query);
     if (hit) {
-      if (results.length < max) results.push(`${rel}:${i + 1}: ${line}`);
+      if (results.length < o.max) results.push(`${o.rel}:${i + 1}: ${line}`);
       else overflow++;
     }
   });
@@ -209,7 +218,7 @@ async function searchTree(
       if (st.size > MAX_FILE_BYTES) continue;
       const { content } = await paths.read(rel);
       if (isBinary(content)) continue;
-      overflow += scanContent(rel, content, o.query, o.regex, o.max, results);
+      overflow += scanContent({ rel, content, query: o.query, regex: o.regex, max: o.max }, results);
     } catch {
     }
   }

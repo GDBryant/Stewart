@@ -99,7 +99,7 @@ export class Core implements CoreCtx {
     this.userGuard.syncLayer(userLayer);
     const projectGuard = new SelfWriteGuard();
     projectGuard.syncLayer(projectLayer);
-    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, trusted, FEATURE_ROLE_TOOLS));
+    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, { trusted, requiredRoleTools: FEATURE_ROLE_TOOLS }));
     this.applyDebug(config);
     const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus, features: RUN_FEATURES });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
@@ -135,7 +135,7 @@ export class Core implements CoreCtx {
     ctx.projectLayer = nextProj;
     this.userGuard.syncLayer(nextUser);
     ctx.projectGuard.syncLayer(nextProj);
-    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted, FEATURE_ROLE_TOOLS));
+    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, { trusted: ctx.trusted, requiredRoleTools: FEATURE_ROLE_TOOLS }));
     const fatalParse = nextConfig.errors.some((e) => /^(channels|agents|roles|settings)\.yaml:/.test(e));
     if (fatalParse && fromWatcher) {
       ctx.config = { ...ctx.config, errors: nextConfig.errors };

@@ -12,4 +12,4 @@ export { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
 export { DEFAULT_SKILLS, EXECUTION_CONTRACT, SIDE_EFFECT_TOOLS } from "./defaults/skills.js";
 export type { ShippedSkill } from "./defaults/skills.js";
 export { loadEffectiveConfig } from "./effective.js";
-export type { EffectiveConfig } from "./effective.js";
+export type { EffectiveConfig, EffectiveOptions } from "./effective.js";

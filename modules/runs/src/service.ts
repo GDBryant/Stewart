@@ -1,18 +1,13 @@
 import type { Clock, HostPort, IdGen } from "@stewart/kernel";
-import type { AgentDef, RoleDef } from "@stewart/config";
-import type { EffectiveConfig } from "@stewart/roles-skills";
-import type { BudgetProfile } from "@stewart/budget";
-import type { ManagedChannel } from "@stewart/channels";
-import type { ChatMessage } from "@stewart/kernel";
 import { Permissions, type GrantDecision } from "@stewart/permissions";
-import type { RunRuntime, RecoveryState } from "@stewart/run-contract";
+import type { RunRuntime } from "@stewart/run-contract";
 import { RunLedger } from "@stewart/ledger";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
 import { createRecovery } from "@stewart/recovery";
 import { Interaction } from "@stewart/interaction";
 import type { RunEvent } from "@stewart/protocol";
-import { directStrategy } from "./direct.js";
+import { directStrategy, type DirectRequest } from "./direct.js";
 import { orchestratedStrategy, type OrchestratedRequest } from "./orchestrated.js";
 import { resumeStrategy, type ResumeRequest, type ResumeResult } from "./resume.js";
 import { runPipeline } from "./strategy.js";
@@ -103,19 +98,8 @@ export class RunService implements RunHost {
   }
 
   /** Direct-mode run: stream one agent through the tool loop under a role's constraints. */
-  async direct(
-    projectId: string,
-    channel: ManagedChannel,
-    agent: AgentDef,
-    text: string,
-    images: string[] | undefined,
-    role: RoleDef | undefined,
-    rolePrompt: string | undefined,
-    sessionId: string | undefined,
-    history: ChatMessage[] | undefined,
-    budget: { config: EffectiveConfig; profile: BudgetProfile; name?: string; recovery?: RecoveryState },
-  ): Promise<Run> {
-    const r = await runPipeline(this, directStrategy, projectId, { channel, agent, text, images, role, rolePrompt, sessionId, history, budget });
+  async direct(projectId: string, req: DirectRequest): Promise<Run> {
+    const r = await runPipeline(this, directStrategy, projectId, req);
     if (!r.ok) throw new Error(r.reason);
     return r.run;
   }

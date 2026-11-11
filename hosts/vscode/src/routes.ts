@@ -11,10 +11,11 @@ type Api = Pick<typeof import("vscode"), "window" | "workspace" | "Uri">;
 type Panel = Pick<vscode.WebviewPanel, "webview">;
 type CoreLike = Pick<Core, "dispatch">;
 type HostLike = Pick<VsCodeHost, "userConfigDir">;
-type Ctx = { core: CoreLike; host: HostLike; panel: Panel; api: Api };
-type Handler = (ctx: Ctx, m: RouteMessage) => Promise<void>;
+/** Everything a route handler needs; one object keeps `route` within the parameter limit. */
+export type RouteCtx = { core: CoreLike; host: HostLike; panel: Panel; api: Api };
+type Handler = (ctx: RouteCtx, m: RouteMessage) => Promise<void>;
 
-async function dispatchAndReply(ctx: Ctx, method: string, params: unknown, reply: Record<string, unknown>): Promise<void> {
+async function dispatchAndReply(ctx: RouteCtx, method: string, params: unknown, reply: Record<string, unknown>): Promise<void> {
   const r = await ctx.core.dispatch(method, params);
   await ctx.panel.webview.postMessage({ ...reply, ...(r as object) });
 }
@@ -114,12 +115,11 @@ const fallback: Handler = async (ctx, m) => {
   await ctx.core.dispatch(m.type, { ...m, projectId: PROJECT_ID });
 };
 
-export async function route(core: CoreLike, host: HostLike, panel: Panel, m: RouteMessage, api: Api): Promise<void> {
-  const ctx: Ctx = { core, host, panel, api };
+export async function route(ctx: RouteCtx, m: RouteMessage): Promise<void> {
   try {
     const handler = Object.hasOwn(ROUTES, m.type) ? ROUTES[m.type] : fallback;
     await handler(ctx, m);
   } catch (e) {
-    await panel.webview.postMessage({ type: "error", message: e instanceof Error ? e.message : String(e) });
+    await ctx.panel.webview.postMessage({ type: "error", message: e instanceof Error ? e.message : String(e) });
   }
 }

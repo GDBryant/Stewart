@@ -23,7 +23,7 @@ interface Req {
   setCancelled?: boolean;
 }
 
-const emptyConfig = () => loadEffectiveConfig({}, {}, {}, true);
+const emptyConfig = () => loadEffectiveConfig({}, {}, {}, { trusted: true });
 
 function strategy(over: Partial<RunStrategy<Req>> = {}): RunStrategy<Req> {
   return {
@@ -31,7 +31,7 @@ function strategy(over: Partial<RunStrategy<Req>> = {}): RunStrategy<Req> {
       const run: Run = { id: s.deps.ids.next("run"), projectId, status: "running", controller: new AbortController(), startedAt: s.deps.clock.now(), messages: [{ role: "user", content: "hi" }], costUsd: 0, sessionId: req.sessionId };
       return { run, title: req.title ?? "hi", config: req.config, profileName: req.profileName, channelFor: () => { throw new Error("no channel"); } };
     },
-    execute: async (_s, run, rt, req): Promise<RunOutcome> => {
+    execute: async ({ run, req }): Promise<RunOutcome> => {
       if (req.setCancelled) run.status = "cancelled";
       if (req.throw) throw req.throw;
       return req.outcome ?? { status: "done", event: "done" };
@@ -114,7 +114,7 @@ describe("runPipeline", () => {
       },
     };
     const { s, events } = svc(clock);
-    const config = loadEffectiveConfig({ "settings.yaml": "version: 1\nmaxRunHours: 1" }, {}, {}, true);
+    const config = loadEffectiveConfig({ "settings.yaml": "version: 1\nmaxRunHours: 1" }, {}, {}, { trusted: true });
     await runPipeline(s, strategy(), "p", { config });
     await finished(events);
     expect(armed).toBe(true);

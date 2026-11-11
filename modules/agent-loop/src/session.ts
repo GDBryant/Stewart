@@ -107,6 +107,6 @@ export function createAgentSession(spec: SessionSpec, clock: Clock): AgentSessio
   const listener: LoopListener = {};
   wireEventListener(listener, spec);
   wireMeterListener(listener, spec, agent);
-  const loop = new ToolLoop(channel, spec.registry, spec.approve, limits, clock, spec.prompt, spec.terminal ?? new Set(), profile.toolsMode, spec.idem, spec.summarize);
+  const loop = new ToolLoop(channel, spec.registry, spec.approve, { limits, clock, rolePrompt: spec.prompt, terminalTools: spec.terminal ?? new Set(), toolsMode: profile.toolsMode, idempotency: spec.idem, summarize: spec.summarize });
   return { loop, listener, profile, limits };
 }
