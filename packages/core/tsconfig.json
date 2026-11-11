@@ -76,6 +76,9 @@
       "path": "../../modules/tools"
     },
     {
+      "path": "../../modules/v1-import"
+    },
+    {
       "path": "../protocol"
     }
   ]

@@ -97,7 +97,7 @@ Two problems remain:
 ### C3. `v1-import` module
 **Problem:** legacy XML import (`config/v1import.ts`, about 230 lines) sits inside `config`, though it has one caller (`core/handlers/config.ts`).
 
-**Step:** create the `v1-import` module (L3, depends on `config`) and move `v1import.ts` into it. `config` no longer exports `importV1Xml`. The goal is that the module can be deleted later without touching `config`.
+**Step:** create the `v1-import` module (L2, depends on `catalog` only; it never used `config`) and move `v1import.ts` into it. `config` no longer exports `importV1Xml`. The goal is that the module can be deleted later without touching `config`.
 
 **Tests:** the existing v1import tests move unchanged. `config` api has no `importV1Xml`.
 

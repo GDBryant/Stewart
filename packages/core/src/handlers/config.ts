@@ -1,7 +1,7 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
-import { importV1Xml, parseMiniXml } from "@stewart/config";
+import { importV1Xml, parseMiniXml } from "@stewart/v1-import";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 
 async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {

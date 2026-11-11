@@ -6,5 +6,3 @@ export { CONFIG_FILE_SCHEMAS, PROJECT_FILES, isProjectFile } from "./files.js";
 export { SelfWriteGuard, hashContent } from "./store.js";
 export type { ConfigStore } from "./store.js";
 export { sharedUserConfigDir, ensureUserConfigDir } from "./userDir.js";
-export { importV1Xml, parseMiniXml } from "./v1import.js";
-export type { V1ImportResult, XmlNode } from "./v1import.js";

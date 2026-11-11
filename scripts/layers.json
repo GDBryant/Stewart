@@ -22,5 +22,6 @@
   "recovery": 7,
   "setup": 7,
   "runs": 8,
-  "run-contract": 6
+  "run-contract": 6,
+  "v1-import": 2
 }

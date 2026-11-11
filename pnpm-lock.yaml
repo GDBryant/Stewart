@@ -202,9 +202,6 @@ importers:
 
   modules/config:
     dependencies:
-      '@stewart/catalog':
-        specifier: workspace:*
-        version: link:../catalog
       yaml:
         specifier: 2.8.1
         version: 2.8.1
@@ -761,6 +758,28 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  modules/v1-import:
+    dependencies:
+      '@stewart/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      yaml:
+        specifier: 2.8.1
+        version: 2.8.1
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   packages/conformance:
     dependencies:
       '@stewart/channels':
@@ -854,6 +873,9 @@ importers:
       '@stewart/tools':
         specifier: workspace:*
         version: link:../../modules/tools
+      '@stewart/v1-import':
+        specifier: workspace:*
+        version: link:../../modules/v1-import
       yaml:
         specifier: 2.8.1
         version: 2.8.1
