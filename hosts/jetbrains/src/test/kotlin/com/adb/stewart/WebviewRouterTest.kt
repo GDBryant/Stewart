@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -167,7 +168,7 @@ class WebviewRouterTest {
         )
         val p = rig.calls[0].second!!
         assertEquals("p1", p["projectId"]!!.jsonPrimitive.content)
-        assertEquals("c1", p["candidates"]!!.jsonObject.let { (it as kotlinx.serialization.json.JsonArray)[0].jsonObject["channel"]!!.jsonPrimitive.content })
+        assertEquals("c1", p["candidates"]!!.jsonArray[0].jsonObject["channel"]!!.jsonPrimitive.content)
     }
 
     @Test
