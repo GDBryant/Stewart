@@ -1,7 +1,7 @@
 import type { AgentDef, Settings } from "@stewart/config";
-import type { ChatMessage, Clock, HostPort, IdGen, ToolCall } from "@stewart/kernel";
+import type { ChatMessage, Clock, FaultKind, HostPort, IdGen, ToolCall } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
-import type { ToolPreview } from "@stewart/permissions";
+import type { ApprovalDecision, ToolPreview } from "@stewart/permissions";
 import type { RunLedger, CostLimit } from "@stewart/ledger";
 import type { LeaseManager, TaskGraph, TaskSpec } from "@stewart/scheduling";
 import type { IdempotencyLog } from "@stewart/run-state";
@@ -11,8 +11,6 @@ import type { RoleDef } from "@stewart/config";
 import type { Tool } from "@stewart/tools";
 import type { RunEvent } from "@stewart/protocol";
 import type { Prompt, PromptOutcome } from "@stewart/interaction";
-import type { ApprovalDecision } from "./loopTypes.js";
-import type { FaultKind } from "./faults.js";
 
 /** Per-run recovery limits (from settings) plus live counters. */
 export interface RecoveryState {

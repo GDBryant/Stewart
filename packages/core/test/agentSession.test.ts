@@ -7,7 +7,7 @@ import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "@stewart/agent-loop";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
-import { type ApprovalDecision } from "@stewart/agent-loop";
+import type { ApprovalDecision } from "@stewart/permissions";
 import { ToolRegistry, type Tool } from "@stewart/tools";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";

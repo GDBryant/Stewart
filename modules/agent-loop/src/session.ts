@@ -8,7 +8,8 @@ import type { ToolRegistry } from "@stewart/tools";
 import { DEFAULT_LIMITS, type LoopLimits, resolveLimits, type BudgetProfile } from "@stewart/budget";
 import type { IdempotencyHooks } from "@stewart/kernel";
 import { ToolLoop } from "./toolLoop.js";
-import type { ApprovalGate, LoopListener } from "./loopTypes.js";
+import type { ApprovalGate } from "@stewart/permissions";
+import type { LoopListener } from "./loopTypes.js";
 import { profileFromChannel, type ModelProfile } from "@stewart/models";
 import { costOfCall, type CostLimit, type RunLedger } from "@stewart/ledger";
 

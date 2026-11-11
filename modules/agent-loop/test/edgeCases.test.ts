@@ -5,7 +5,8 @@ import { DEFAULT_LIMITS, DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
 import { RunLedger } from "@stewart/ledger";
 import type { AgentDef, RoleDef, Settings } from "@stewart/config";
 import { ToolRegistry } from "@stewart/tools";
-import { createAgentSession, recoveryState, RunCancelledError, ToolLoop, type ApprovalDecision } from "../src/api.js";
+import type { ApprovalDecision } from "@stewart/permissions";
+import { createAgentSession, recoveryState, RunCancelledError, ToolLoop } from "../src/api.js";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;

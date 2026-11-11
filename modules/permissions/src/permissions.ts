@@ -3,8 +3,11 @@ import { approvalPrompt, type Interaction, type PromptTag } from "@stewart/inter
 import { Grants } from "./grants.js";
 import { categoryOf, type ToolPreview } from "./preview.js";
 
-/** Structurally identical to `ApprovalDecision` in `@stewart/agent-loop` (declared here because agent-loop sits above this layer). */
-export type PermissionDecision = { kind: "approved" } | { kind: "rejected"; reason: string };
+/** The outcome of one approval: the shared decision type used by the permissions gate and the agent loop. */
+export type ApprovalDecision = { kind: "approved" } | { kind: "rejected"; reason: string };
+export type PermissionDecision = ApprovalDecision;
+/** What the tool loop calls to approve one tool call. */
+export type ApprovalGate = (call: ToolCall, preview: ToolPreview | null) => Promise<ApprovalDecision>;
 
 export interface PermissionRequest {
   tool: string;

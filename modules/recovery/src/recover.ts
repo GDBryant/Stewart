@@ -1,8 +1,7 @@
-import type { ChatMessage } from "@stewart/kernel";
+import type { ChatMessage, FaultKind } from "@stewart/kernel";
 import { isWriteCapableRole } from "@stewart/roles-skills";
 import {
   countToolCalls,
-  type FaultKind,
   type OrchestrationRuntime,
   type RecoveryContext,
   type RecoveryState,

@@ -1,7 +1,7 @@
 import type { ChatMessage, Clock, IdempotencyHooks, ToolCall } from "@stewart/kernel";
 import type { LoopLimits } from "@stewart/budget";
-import type { ToolPreview } from "@stewart/permissions";
-import type { ApprovalDecision, ApprovalGate, LoopListener } from "./loopTypes.js";
+import type { ApprovalDecision, ApprovalGate, ToolPreview } from "@stewart/permissions";
+import type { LoopListener } from "./loopTypes.js";
 import { NOT_ANSWERED_CANCELLED, outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stewart/tools";
 
 function rejected(): ApprovalDecision {

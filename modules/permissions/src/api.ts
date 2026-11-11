@@ -5,4 +5,4 @@ export { Grants, isScratchPath } from "./grants.js";
 export type { GrantScope, GrantDecision, AuditEntry } from "./grants.js";
 export { splitShellPrograms } from "./shell.js";
 export { Permissions } from "./permissions.js";
-export type { PermissionDecision, PermissionRequest, ApproveFn } from "./permissions.js";
+export type { ApprovalDecision, ApprovalGate, PermissionDecision, PermissionRequest, ApproveFn } from "./permissions.js";

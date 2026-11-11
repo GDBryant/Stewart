@@ -3,7 +3,8 @@ import { ManagedChannel } from "@stewart/channels";
 import { type ToolCall, type ChatMessage } from "@stewart/kernel";
 import type { ChannelAdapter, ChatEvent } from "@stewart/channels";
 import { DEFAULT_LIMITS } from "@stewart/budget";
-import { RunCancelledError, ToolLoop, type ApprovalDecision } from "../src/api.js";
+import type { ApprovalDecision } from "@stewart/permissions";
+import { RunCancelledError, ToolLoop } from "../src/api.js";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;

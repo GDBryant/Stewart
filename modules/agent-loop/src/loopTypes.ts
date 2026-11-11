@@ -2,8 +2,6 @@ import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { ToolPreview } from "@stewart/permissions";
 import type { ToolOutcome } from "@stewart/tools";
 
-export type ApprovalDecision = { kind: "approved" } | { kind: "rejected"; reason: string };
-export type ApprovalGate = (call: ToolCall, preview: ToolPreview | null) => Promise<ApprovalDecision>;
 
 export interface LoopListener {
   onText?(text: string): void;

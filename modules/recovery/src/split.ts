@@ -1,6 +1,7 @@
 import type { RoleDef } from "@stewart/config";
 import type { ToolCall } from "@stewart/kernel";
-import { actionsSoFar, type FaultKind, type OrchestrationRuntime, type RecoveryState, type RecoveryContext, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
+import type { FaultKind } from "@stewart/kernel";
+import { actionsSoFar, type OrchestrationRuntime, type RecoveryState, type RecoveryContext, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
 import type { ToolPreview } from "@stewart/permissions";
 import { ProjectPaths } from "@stewart/tools";
 import type { TaskSpec } from "@stewart/scheduling";
