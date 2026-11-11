@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
 import { EventBus } from "@stewart/kernel";
-import { loadConfig, type Config } from "@stewart/roles-skills";
+import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import { counterIds, systemClock } from "@stewart/kernel";
 import { RunService } from "../src/api.js";
 import { LeaseManager } from "@stewart/scheduling";
@@ -69,8 +69,8 @@ function rolesYaml(over: Record<string, string> = {}): string {
   return `version: 1\nitems:\n${items}\n`;
 }
 
-function config(opts: { roles?: Record<string, string>; settings?: string } = {}): Config {
-  return loadConfig(
+function config(opts: { roles?: Record<string, string>; settings?: string } = {}): EffectiveConfig {
+  return loadEffectiveConfig(
     { "channels.yaml": CHANNELS, "agents.yaml": AGENTS, "roles.yaml": rolesYaml(opts.roles), "settings.yaml": opts.settings },
     {},
     {},
@@ -79,7 +79,7 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
 }
 
 async function runtime(
-  cfg: Config,
+  cfg: EffectiveConfig,
   channel: ManagedChannel,
   over: Partial<RunRuntime> & { files?: Record<string, string> } = {},
 ): Promise<{ rt: RunRuntime; events: RunEvent[]; files: Record<string, string> }> {
@@ -275,7 +275,7 @@ describe("runTaskRecoverable", () => {
 });
 
 describe("RunService direct continue question", () => {
-  const agentOf = (cfg: Config) => cfg.agents.find((a) => a.id === "a-free")!;
+  const agentOf = (cfg: EffectiveConfig) => cfg.agents.find((a) => a.id === "a-free")!;
 
   it("asks on turn limit and continues when the user answers", async () => {
     const cfg = config({ roles: { "general-worker": TURNS_1 } });
@@ -407,9 +407,9 @@ describe("RunService direct continue question", () => {
 });
 
 describe("RunService direct outcomes", () => {
-  const paidAgent = (cfg: Config) => cfg.agents.find((a) => a.id === "a-paid")!;
-  const freeAgent = (cfg: Config) => cfg.agents.find((a) => a.id === "a-free")!;
-  const baseBudget = (cfg: Config) => ({
+  const paidAgent = (cfg: EffectiveConfig) => cfg.agents.find((a) => a.id === "a-paid")!;
+  const freeAgent = (cfg: EffectiveConfig) => cfg.agents.find((a) => a.id === "a-free")!;
+  const baseBudget = (cfg: EffectiveConfig) => ({
     config: cfg,
     profile: { turnMultiplier: 1, timeoutMultiplier: 1, allowSplit: true, maxRunMinutes: 0 },
   });

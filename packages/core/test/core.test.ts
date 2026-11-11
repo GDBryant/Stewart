@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus } from "@stewart/kernel";
-import { loadConfig } from "@stewart/roles-skills";
+import { loadEffectiveConfig } from "@stewart/roles-skills";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";
 import { fakeFetcher, streamOf } from "@stewart/kernel";
@@ -77,13 +77,13 @@ describe("EventBus coalescing", () => {
   });
 });
 
-describe("loadConfig", () => {
+describe("loadEffectiveConfig", () => {
   const rolesYaml = "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
   const agentsYaml = "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n";
   const channelsYaml = "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://x\n";
 
   it("merges user and project roles by id, project fields winning", () => {
-    const cfg = loadConfig(
+    const cfg = loadEffectiveConfig(
       { "agents.yaml": agentsYaml, "channels.yaml": channelsYaml, "roles.yaml": rolesYaml },
       { "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    turnBudget: 99\n" },
       {},
@@ -95,19 +95,19 @@ describe("loadConfig", () => {
   });
 
   it("ignores project roles in an untrusted workspace", () => {
-    const cfg = loadConfig({ "roles.yaml": rolesYaml, "agents.yaml": agentsYaml, "channels.yaml": channelsYaml }, { "roles.yaml": "version: 1\nitems:\n  - id: evil\n    enabled: true\n" }, {}, false);
+    const cfg = loadEffectiveConfig({ "roles.yaml": rolesYaml, "agents.yaml": agentsYaml, "channels.yaml": channelsYaml }, { "roles.yaml": "version: 1\nitems:\n  - id: evil\n    enabled: true\n" }, {}, false);
     expect(cfg.roles.some((r) => r.id === "evil")).toBe(false);
     expect(cfg.errors.join(" ")).toContain("untrusted");
   });
 
   it("project cannot add channels or agents even when trusted", () => {
-    const cfg = loadConfig({}, { "channels.yaml": channelsYaml, "agents.yaml": agentsYaml, "roles.yaml": rolesYaml }, {}, true);
+    const cfg = loadEffectiveConfig({}, { "channels.yaml": channelsYaml, "agents.yaml": agentsYaml, "roles.yaml": rolesYaml }, {}, true);
     expect(cfg.channels).toHaveLength(0);
     expect(cfg.agents).toHaveLength(0);
   });
 
   it("surfaces invalid YAML as error and keeps last good fields", () => {
-    const cfg = loadConfig({ "channels.yaml": "version: 1\nitems: [{\n" }, {}, {}, true);
+    const cfg = loadEffectiveConfig({ "channels.yaml": "version: 1\nitems: [{\n" }, {}, {}, true);
     expect(cfg.errors.length).toBe(1);
     expect(cfg.channels).toHaveLength(0);
   });

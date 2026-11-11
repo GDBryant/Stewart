@@ -15,4 +15,4 @@ export * from "@stewart/toolcall-format";
 export * from "@stewart/ledger";
 export * from "@stewart/context";
 export * from "@stewart/setup";
-export { loadConfig, type Config } from "@stewart/roles-skills";
+export { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";

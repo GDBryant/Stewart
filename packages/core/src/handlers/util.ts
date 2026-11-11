@@ -2,7 +2,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import type { ModelInfo } from "@stewart/catalog";
 import { CATALOG_UPDATED, lookupModelInfo } from "@stewart/catalog";
 import { mergeProbeCaps } from "@stewart/models";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import { scanWorkspace, type WorkspaceInfo } from "@stewart/setup";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 
@@ -21,7 +21,7 @@ export async function workspaceInfoFor(core: CoreCtx, ctx: ProjectCtx, projectId
   }
 }
 
-export function applyProbes(core: CoreCtx, config: Config): Config {
+export function applyProbes(core: CoreCtx, config: EffectiveConfig): EffectiveConfig {
   for (const ch of config.channels) {
     for (const [key, entry] of core.probeCache.entries()) {
       if (!key.startsWith(`${ch.id}:`)) continue;
@@ -43,7 +43,7 @@ export async function catalogFor(core: CoreCtx, ch: ManagedChannel, model: strin
   return info ? { ...info, source: `catalog ${CATALOG_UPDATED}` } : undefined;
 }
 
-export function pickChatAgent(config: Config, role?: Config["roles"][number]): Config["agents"][number] {
+export function pickChatAgent(config: EffectiveConfig, role?: EffectiveConfig["roles"][number]): EffectiveConfig["agents"][number] {
   if (role) {
     if (!role.agent) throw new Error(`role ${role.id}: enabled but no agent bound`);
     const bound = config.agents.find((a) => a.id === role.agent);

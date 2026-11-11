@@ -1,5 +1,5 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage } from "@stewart/kernel";
@@ -21,7 +21,7 @@ export interface DirectRequest {
   rolePrompt?: string;
   sessionId?: string;
   history?: ChatMessage[];
-  budget: { config: Config; profile: BudgetProfile; name?: string; recovery?: RecoveryState };
+  budget: { config: EffectiveConfig; profile: BudgetProfile; name?: string; recovery?: RecoveryState };
 }
 
 /** Direct-mode strategy: a single task of the chat role through `runRoleTask` (same runtime as orchestrated runs). */

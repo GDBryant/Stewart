@@ -6,7 +6,7 @@ import type { RunLedger, CostLimit } from "@stewart/ledger";
 import type { LeaseManager, TaskGraph, TaskSpec } from "@stewart/scheduling";
 import type { IdempotencyLog } from "@stewart/run-state";
 import type { BudgetProfile } from "@stewart/budget";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { RoleDef } from "@stewart/config";
 import type { Tool } from "@stewart/tools";
 import type { RunEvent } from "@stewart/protocol";
@@ -85,7 +85,7 @@ export interface RunRuntime {
   clock: Clock;
   ids: IdGen;
   bus: { emit(ev: RunEvent): void };
-  config: Config;
+  config: EffectiveConfig;
   stateDir: string;
   channelFor(channelId: string): ManagedChannel;
   ledger: RunLedger;

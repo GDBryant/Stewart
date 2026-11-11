@@ -6,7 +6,7 @@ import { ChannelRegistry, ChannelService, type ManagedChannel } from "@stewart/c
 import { OllamaAdapter } from "@stewart/channels";
 import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
-import { loadConfig, type Config } from "@stewart/roles-skills";
+import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
 import { RunService } from "@stewart/runs";
@@ -65,7 +65,7 @@ export class Core implements CoreCtx {
   }
 
   /** Reconfigures the debug log from settings.log; the sink is rebuilt only when level or retention changes. */
-  private applyDebug(config: Config): void {
+  private applyDebug(config: EffectiveConfig): void {
     const { level, retainDays } = config.settings.log;
     const key = `${level}:${retainDays}`;
     if (key === this.debugKey) return;
@@ -90,7 +90,7 @@ export class Core implements CoreCtx {
   }
 
   /** Host calls once per project. */
-  async attachProject(projectId: string, host: HostPort): Promise<Config> {
+  async attachProject(projectId: string, host: HostPort): Promise<EffectiveConfig> {
     const trusted = await host.workspace.trusted();
     const projectStore = await this.deps.projectConfig(projectId);
     const userLayer = await this.deps.userConfig.read();
@@ -98,7 +98,7 @@ export class Core implements CoreCtx {
     this.userGuard.syncLayer(userLayer);
     const projectGuard = new SelfWriteGuard();
     projectGuard.syncLayer(projectLayer);
-    const config = applyProbes(this, loadConfig(userLayer, projectLayer, this.defaults, trusted));
+    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, trusted));
     this.applyDebug(config);
     const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
@@ -112,7 +112,7 @@ export class Core implements CoreCtx {
     return config;
   }
 
-  private async rebuildChannels(config: Config, host: HostPort): Promise<void> {
+  private async rebuildChannels(config: EffectiveConfig, host: HostPort): Promise<void> {
     const secrets = await this.channelService.rebuild(config.channels, host);
     for (const [k, v] of secrets) this.secretValues.set(k, v);
   }
@@ -123,7 +123,7 @@ export class Core implements CoreCtx {
     return p;
   }
 
-  async reload(projectId: string, fromWatcher = false): Promise<{ config: Config; suppressed: boolean }> {
+  async reload(projectId: string, fromWatcher = false): Promise<{ config: EffectiveConfig; suppressed: boolean }> {
     const ctx = this.ctx(projectId);
     const nextUser = await this.deps.userConfig.read();
     const nextProj = await ctx.projectStore.read();
@@ -134,7 +134,7 @@ export class Core implements CoreCtx {
     ctx.projectLayer = nextProj;
     this.userGuard.syncLayer(nextUser);
     ctx.projectGuard.syncLayer(nextProj);
-    const nextConfig = applyProbes(this, loadConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted));
+    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, ctx.trusted));
     const fatalParse = nextConfig.errors.some((e) => /^(channels|agents|roles|settings)\.yaml:/.test(e));
     if (fatalParse && fromWatcher) {
       ctx.config = { ...ctx.config, errors: nextConfig.errors };

@@ -1,5 +1,5 @@
 import type { ChatMessage } from "@stewart/kernel";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import { runOrchestrated } from "@stewart/orchestration";
@@ -9,7 +9,7 @@ import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strat
 import type { Run, RunHost } from "./types.js";
 
 export interface OrchestratedRequest {
-  config: Config;
+  config: EffectiveConfig;
   channelFor(channelId: string): ManagedChannel;
   text: string;
   runId?: string;

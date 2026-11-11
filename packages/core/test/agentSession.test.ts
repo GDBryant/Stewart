@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
 import { EventBus } from "@stewart/kernel";
-import { loadConfig, type Config } from "@stewart/roles-skills";
+import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import { systemClock } from "@stewart/kernel";
 import { createAgentSession, type SessionSpec } from "@stewart/agent-loop";
 import { RunLedger, CostLimit } from "@stewart/ledger";
@@ -53,8 +53,8 @@ items:
     price: { inPerMTok: 3, outPerMTok: 15 }
 `;
 
-function config(): Config {
-  return loadConfig({ "channels.yaml": CHANNELS, "agents.yaml": AGENTS }, {}, {}, true);
+function config(): EffectiveConfig {
+  return loadEffectiveConfig({ "channels.yaml": CHANNELS, "agents.yaml": AGENTS }, {}, {}, true);
 }
 
 const echo: Tool = {

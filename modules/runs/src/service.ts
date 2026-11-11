@@ -1,6 +1,6 @@
 import type { Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { AgentDef, RoleDef } from "@stewart/config";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage } from "@stewart/kernel";
@@ -113,7 +113,7 @@ export class RunService implements RunHost {
     rolePrompt: string | undefined,
     sessionId: string | undefined,
     history: ChatMessage[] | undefined,
-    budget: { config: Config; profile: BudgetProfile; name?: string; recovery?: RecoveryState },
+    budget: { config: EffectiveConfig; profile: BudgetProfile; name?: string; recovery?: RecoveryState },
   ): Promise<Run> {
     const r = await runPipeline(this, directStrategy, projectId, { channel, agent, text, images, role, rolePrompt, sessionId, history, budget });
     if (!r.ok) throw new Error(r.reason);

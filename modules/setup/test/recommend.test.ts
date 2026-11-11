@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
-import { loadConfig } from "@stewart/roles-skills";
+import { loadEffectiveConfig } from "@stewart/roles-skills";
 import { recommendAssignments, type RecommendChannel } from "../src/recommend.js";
 
 const cfg = () =>
-  loadConfig(
+  loadEffectiveConfig(
     {
       "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n  - id: c2\n    type: ollama\n    enabled: true\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
@@ -164,7 +164,7 @@ describe("recommendAssignments eligible filtering", () => {
 
 describe("recommendAssignments candidate pricing", () => {
   const cfgPriced = () =>
-    loadConfig(
+    loadEffectiveConfig(
       {
         "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n",
         "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n    price: { inPerMTok: 0.5, outPerMTok: 1.5 }\n",
@@ -196,7 +196,7 @@ describe("recommendAssignments candidate pricing", () => {
 
 describe("recommendAssignments channel discovery", () => {
   const cfgExtra = () =>
-    loadConfig(
+    loadEffectiveConfig(
       {
         "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n    extraModels: [x1, x2]\n  - id: c2\n    type: ollama\n    enabled: true\n",
         "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
@@ -224,7 +224,7 @@ describe("recommendAssignments channel discovery", () => {
 
 describe("recommendAssignments prompt and validation", () => {
   it("sends context, caps and price in the researcher prompt", async () => {
-    const cfgP = loadConfig(
+    const cfgP = loadEffectiveConfig(
       {
         "channels.yaml":
           "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n    modelCaps:\n      m1:\n        tools: native\n        vision: true\n        contextTokens: 32000\n",
@@ -263,7 +263,7 @@ describe("recommendAssignments prompt and validation", () => {
   });
 
   it("drops an assignment that fails hard requirements with the original reason", async () => {
-    const cfgV = loadConfig(
+    const cfgV = loadEffectiveConfig(
       {
         "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    enabled: true\n",
         "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",

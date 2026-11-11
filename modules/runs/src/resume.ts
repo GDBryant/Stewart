@@ -1,5 +1,5 @@
 import { questionPrompt } from "@stewart/interaction";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord } from "@stewart/scheduling";
 import { resolveRole, runRoleTask } from "@stewart/orchestration";
@@ -10,7 +10,7 @@ import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strat
 import type { Run, RunHost } from "./types.js";
 
 export interface ResumeRequest {
-  config: Config;
+  config: EffectiveConfig;
   channelFor(channelId: string): ManagedChannel;
   /** When true, interrupted tasks trigger a Resume/Cancel prompt before replay. */
   confirmResume?: boolean;

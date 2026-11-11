@@ -1,4 +1,4 @@
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
 import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";
@@ -60,7 +60,7 @@ const CAP_KEYS = ["tools", "vision", "reasoning", "imageGen", "contextTokens"] a
  * Never writes config — the webview applies the proposal explicitly.
  */
 export async function recommendAssignments(
-  config: Config,
+  config: EffectiveConfig,
   managed: { get(id: string): RecommendChannel | undefined },
   opts: RecommendOptions = {},
 ): Promise<RecommendResult> {
@@ -100,7 +100,7 @@ export async function recommendAssignments(
 }
 
 async function discoverChannels(
-  config: Config,
+  config: EffectiveConfig,
   managed: { get(id: string): RecommendChannel | undefined },
 ): Promise<RecommendChannelInfo[]> {
   const channels: RecommendChannelInfo[] = [];
@@ -121,7 +121,7 @@ async function discoverChannels(
   return channels;
 }
 
-async function buildCandidates(config: Config, channels: RecommendChannelInfo[], opts: RecommendOptions): Promise<Candidate[]> {
+async function buildCandidates(config: EffectiveConfig, channels: RecommendChannelInfo[], opts: RecommendOptions): Promise<Candidate[]> {
   const candidates: Candidate[] = channels.flatMap((c) =>
     c.models.map((model) => ({ channel: c.id, channelType: c.type, model, caps: resolveModelProfile(config, { channel: c.id, model }).caps })),
   );
@@ -151,7 +151,7 @@ async function buildCandidates(config: Config, channels: RecommendChannelInfo[],
 }
 
 function pickResearcher(
-  config: Config,
+  config: EffectiveConfig,
   channels: RecommendChannelInfo[],
   allModels: Map<string, Set<string>>,
   opts: RecommendOptions,
@@ -176,7 +176,7 @@ function pickResearcher(
 }
 
 function buildRecommendPrompt(
-  config: Config,
+  config: EffectiveConfig,
   channels: RecommendChannelInfo[],
   candidates: Candidate[],
   rules: ReturnType<typeof scoreAssignments>,
@@ -239,7 +239,7 @@ function formatContextBlock(sc: RecommendOptions["context"]): string {
 
 function parseAndValidate(
   text: string,
-  config: Config,
+  config: EffectiveConfig,
   channels: RecommendChannelInfo[],
   candidates: Candidate[],
   researcher: { channel: string; model: string },

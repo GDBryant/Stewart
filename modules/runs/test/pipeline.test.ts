@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus, counterIds, fakeHost, systemClock, type Clock } from "@stewart/kernel";
-import { loadConfig, type Config } from "@stewart/roles-skills";
+import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import type { RunRuntime } from "@stewart/run-contract";
 import { RunService } from "../src/api.js";
 import { runPipeline, type PlanCtx, type Refusal, type RunOutcome, type RunPlan, type RunStrategy } from "../src/strategy.js";
@@ -14,7 +14,7 @@ function svc(clock: Clock = systemClock) {
 }
 
 interface Req {
-  config: Config;
+  config: EffectiveConfig;
   title?: string;
   profileName?: string;
   sessionId?: string;
@@ -23,7 +23,7 @@ interface Req {
   setCancelled?: boolean;
 }
 
-const emptyConfig = () => loadConfig({}, {}, {}, true);
+const emptyConfig = () => loadEffectiveConfig({}, {}, {}, true);
 
 function strategy(over: Partial<RunStrategy<Req>> = {}): RunStrategy<Req> {
   return {
@@ -114,7 +114,7 @@ describe("runPipeline", () => {
       },
     };
     const { s, events } = svc(clock);
-    const config = loadConfig({ "settings.yaml": "version: 1\nmaxRunHours: 1" }, {}, {}, true);
+    const config = loadEffectiveConfig({ "settings.yaml": "version: 1\nmaxRunHours: 1" }, {}, {}, true);
     await runPipeline(s, strategy(), "p", { config });
     await finished(events);
     expect(armed).toBe(true);

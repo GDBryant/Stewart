@@ -1,6 +1,6 @@
 import type { ManagedChannel } from "@stewart/channels";
 import type { RunLedger } from "@stewart/ledger";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import { IdempotencyLog } from "@stewart/run-state";
 import type { RunRuntime } from "@stewart/run-contract";
@@ -18,7 +18,7 @@ export type RunPlan = {
   run: Run;
   /** run.started title (sliced to 80 by the pipeline). */
   title: string;
-  config: Config;
+  config: EffectiveConfig;
   profileName?: string;
   channelFor(channelId: string): ManagedChannel;
   profile?: BudgetProfile;

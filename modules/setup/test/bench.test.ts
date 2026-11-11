@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BENCH_VERSION, benchModel } from "../src/api.js";
 import { ManagedChannel } from "@stewart/channels";
 import type { ChannelAdapter, ChannelConfig, ChatEvent } from "@stewart/channels";
-import { loadConfig } from "@stewart/roles-skills";
+import { loadEffectiveConfig } from "@stewart/roles-skills";
 
 import type { ConfigStore } from "@stewart/config";
 import type { Clock, HostPort } from "@stewart/kernel";
@@ -187,7 +187,7 @@ describe("benchModel", () => {
 
 describe("modelCaps.perf schema", () => {
   it("loads channels yaml with and without persisted perf", () => {
-    const cfg = loadConfig(
+    const cfg = loadEffectiveConfig(
       {
         "channels.yaml":
           "version: 1\nitems:\n  - id: c1\n    type: ollama\n    modelCaps:\n      m1:\n        tools: native\n        perf:\n          tokPerSec: 42.5\n          toolReliability: 0.67\n          benchedAt: 100\n          benchVersion: 1\n      m2:\n        tools: shim\n",

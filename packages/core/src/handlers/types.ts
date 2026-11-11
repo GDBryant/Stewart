@@ -1,7 +1,7 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { Clock, Fetcher, HostPort, IdGen } from "@stewart/kernel";
 import type { ChannelService, ManagedChannel } from "@stewart/channels";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ConfigStore, SelfWriteGuard } from "@stewart/config";
 import type { RunService } from "@stewart/runs";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
@@ -25,7 +25,7 @@ export interface CoreDeps {
 
 export interface ProjectCtx {
   host: HostPort;
-  config: Config;
+  config: EffectiveConfig;
   trusted: boolean;
   runs: RunService;
   projectStore: ConfigStore;
@@ -50,5 +50,5 @@ export interface CoreCtx {
   readonly secretValues: Map<string, string>;
   readonly defaults: Record<string, string | undefined>;
   ctx(projectId: string): ProjectCtx;
-  reload(projectId: string, fromWatcher?: boolean): Promise<{ config: Config; suppressed: boolean }>;
+  reload(projectId: string, fromWatcher?: boolean): Promise<{ config: EffectiveConfig; suppressed: boolean }>;
 }

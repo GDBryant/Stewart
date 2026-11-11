@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeHost, type ChatMessage } from "@stewart/kernel";
 import type { AgentDef, RoleDef } from "@stewart/config";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import { RunLedger } from "@stewart/ledger";
 import { LeaseManager, type TaskSpec } from "@stewart/scheduling";
@@ -36,7 +36,7 @@ function mkRt(over: Partial<RunRuntime> = {}) {
   const rt: RunRuntime = {
     runId: "r1", projectId: "p", host, clock: { now: () => 0, setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; } },
     ids: { next: (p) => `${p}-1` }, bus: { emit: () => {} },
-    config: { roles: [role()], agents: [agent], channels: [], settings, skills: [], errors: [] } as unknown as Config,
+    config: { roles: [role()], agents: [agent], channels: [], settings, skills: [], errors: [] } as unknown as EffectiveConfig,
     stateDir: "/st", channelFor: () => channel,
     ledger: new RunLedger(host, "l.jsonl", { now: () => 0, setTimeout: (f, m) => { const t = setTimeout(f, m); return { cancel: () => clearTimeout(t) }; } }),
     leases: new LeaseManager(), idem: undefined as never, cost: { accrued: 0 } as never,

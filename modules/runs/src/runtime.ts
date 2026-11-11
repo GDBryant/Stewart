@@ -1,5 +1,5 @@
 import type { ManagedChannel } from "@stewart/channels";
-import type { Config } from "@stewart/roles-skills";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { RunLedger } from "@stewart/ledger";
 import { CostLimit } from "@stewart/ledger";
 import { LeaseManager } from "@stewart/scheduling";
@@ -13,7 +13,7 @@ export function buildRunRuntime(
   svc: RunHost,
   run: Run,
   opts: {
-    config: Config;
+    config: EffectiveConfig;
     channelFor(channelId: string): ManagedChannel;
     ledger: RunLedger;
     stateDir: string;

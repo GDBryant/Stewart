@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChannelAdapter, ChatEvent, ChatRequest } from "@stewart/channels";
 import { ManagedChannel } from "@stewart/channels";
 import { EventBus } from "@stewart/kernel";
-import { loadConfig, type Config } from "@stewart/roles-skills";
+import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import { counterIds, systemClock, type Clock } from "@stewart/kernel";
 import { RunService } from "../src/api.js";
 import { DEFAULT_BUDGET_PROFILES, DEFAULT_LIMITS } from "@stewart/budget";
@@ -85,8 +85,8 @@ function rolesYaml(over: Record<string, string> = {}): string {
   return `version: 1\nitems:\n${items}\n`;
 }
 
-function config(opts: { roles?: Record<string, string>; settings?: string } = {}): Config {
-  return loadConfig(
+function config(opts: { roles?: Record<string, string>; settings?: string } = {}): EffectiveConfig {
+  return loadEffectiveConfig(
     { "channels.yaml": CHANNELS, "agents.yaml": AGENTS, "roles.yaml": rolesYaml(opts.roles), "settings.yaml": opts.settings },
     {},
     {},
@@ -95,7 +95,7 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
 }
 
 async function runtime(
-  cfg: Config,
+  cfg: EffectiveConfig,
   channel: ManagedChannel,
   over: Partial<RunRuntime> & { files?: Record<string, string> } = {},
 ): Promise<{ rt: RunRuntime; events: RunEvent[]; files: Record<string, string>; host: ReturnType<typeof fakeHost>["host"] }> {
