@@ -1,0 +1,668 @@
+{
+  "modules/agent-loop/src/callExecutor.ts::constructor": {
+    "lines": 8,
+    "complexity": 1,
+    "depth": 0,
+    "params": 6
+  },
+  "modules/agent-loop/src/callExecutor.ts::executeCalls": {
+    "lines": 30,
+    "complexity": 7,
+    "depth": 3,
+    "params": 6
+  },
+  "modules/agent-loop/src/callExecutor.ts::finishTerminalBatch": {
+    "lines": 8,
+    "complexity": 3,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/agent-loop/src/callExecutor.ts::executeCall": {
+    "lines": 19,
+    "complexity": 6,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/agent-loop/src/callExecutor.ts::invokeTool": {
+    "lines": 28,
+    "complexity": 3,
+    "depth": 1,
+    "params": 7
+  },
+  "modules/agent-loop/src/callExecutor.ts::execWithTimeout": {
+    "lines": 19,
+    "complexity": 2,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/agent-loop/src/callExecutor.ts::invokeCatch": {
+    "lines": 21,
+    "complexity": 9,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/agent-loop/src/toolLoop.ts::constructor": {
+    "lines": 14,
+    "complexity": 1,
+    "depth": 0,
+    "params": 10
+  },
+  "modules/agent-loop/src/toolLoop.ts::run": {
+    "lines": 44,
+    "complexity": 12,
+    "depth": 3,
+    "params": 4
+  },
+  "modules/agent-loop/src/toolLoop.ts::handleStreamOutcome": {
+    "lines": 22,
+    "complexity": 11,
+    "depth": 2,
+    "params": 3
+  },
+  "modules/agent-loop/src/toolLoop.ts::finishTurn": {
+    "lines": 24,
+    "complexity": 9,
+    "depth": 2,
+    "params": 7
+  },
+  "modules/agent-loop/src/toolLoop.ts::closeOpenToolCalls": {
+    "lines": 27,
+    "complexity": 11,
+    "depth": 2,
+    "params": 2
+  },
+  "modules/agent-loop/src/toolStream.ts::streamTurn": {
+    "lines": 44,
+    "complexity": 9,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/budget/src/limits.ts::limitFactors": {
+    "lines": 10,
+    "complexity": 11,
+    "depth": 2,
+    "params": 3
+  },
+  "modules/channels/src/claude/adapter.ts::finishChat": {
+    "lines": 26,
+    "complexity": 11,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/channels/src/claude/adapter.ts::startClaudeProc": {
+    "lines": 23,
+    "complexity": 6,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/channels/src/claude/nodeSpawn.ts::nodeSpawn": {
+    "lines": 41,
+    "complexity": 1,
+    "depth": 0,
+    "params": 2
+  },
+  "modules/channels/src/ollama.ts::warnIfTruncated": {
+    "lines": 11,
+    "complexity": 5,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/channels/src/ollama.ts::ollamaLines": {
+    "lines": 12,
+    "complexity": 5,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/channels/src/stream.ts::postForStream": {
+    "lines": 25,
+    "complexity": 7,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/code-health/src/metrics.ts::summarizeMetrics": {
+    "lines": 27,
+    "complexity": 12,
+    "depth": 3,
+    "params": 1
+  },
+  "modules/code-health/src/scan.ts::maskBrace": {
+    "lines": 19,
+    "complexity": 12,
+    "depth": 3,
+    "params": 1
+  },
+  "modules/code-health/src/scan.ts::scanIndent": {
+    "lines": 27,
+    "complexity": 13,
+    "depth": 3,
+    "params": 2
+  },
+  "modules/code-health/src/scanFunctions.ts::braceDepth": {
+    "lines": 17,
+    "complexity": 9,
+    "depth": 4,
+    "params": 5
+  },
+  "modules/code-health/src/types.ts::mergeReports": {
+    "lines": 13,
+    "complexity": 11,
+    "depth": 2,
+    "params": 1
+  },
+  "modules/code-health/src/types.ts::renderReport": {
+    "lines": 28,
+    "complexity": 14,
+    "depth": 2,
+    "params": 4
+  },
+  "modules/compaction/src/compaction.ts::pruneTarget": {
+    "lines": 8,
+    "complexity": 7,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/config/src/loader.ts::loadConfig": {
+    "lines": 12,
+    "complexity": 10,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/kernel/src/testing.ts::fakeHost": {
+    "lines": 53,
+    "complexity": 1,
+    "depth": 0,
+    "params": 2
+  },
+  "modules/orchestration/src/askUser.ts::answerNestedAskUser": {
+    "lines": 10,
+    "complexity": 3,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/orchestration/src/askUser.ts::selfAnswer": {
+    "lines": 14,
+    "complexity": 8,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/orchestration/src/askUser.ts::askOrchestrator": {
+    "lines": 47,
+    "complexity": 4,
+    "depth": 1,
+    "params": 4
+  },
+  "modules/orchestration/src/orchestratedRun.ts::constructor": {
+    "lines": 25,
+    "complexity": 2,
+    "depth": 0,
+    "params": 6
+  },
+  "modules/orchestration/src/orchestratedRun.ts::rerunParkedTasks": {
+    "lines": 20,
+    "complexity": 11,
+    "depth": 2,
+    "params": 1
+  },
+  "modules/orchestration/src/roleRunner.ts::buildSessionDeps": {
+    "lines": 44,
+    "complexity": 6,
+    "depth": 0,
+    "params": 5
+  },
+  "modules/orchestration/src/roleRunner.ts::runCompactor": {
+    "lines": 13,
+    "complexity": 6,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/orchestration/src/runSupport.ts::retryInput": {
+    "lines": 16,
+    "complexity": 10,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/orchestration/src/runSupport.ts::costSummary": {
+    "lines": 13,
+    "complexity": 1,
+    "depth": 0,
+    "params": 5
+  },
+  "modules/orchestration/src/tools.ts::orchestrationTools": {
+    "lines": 119,
+    "complexity": 1,
+    "depth": 0,
+    "params": 1
+  },
+  "modules/recovery/src/recover.ts::runTaskRecoverable": {
+    "lines": 25,
+    "complexity": 10,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/recovery/src/recover.ts::recoverFault": {
+    "lines": 19,
+    "complexity": 5,
+    "depth": 2,
+    "params": 10
+  },
+  "modules/recovery/src/recover.ts::layer0Retry": {
+    "lines": 26,
+    "complexity": 9,
+    "depth": 1,
+    "params": 7
+  },
+  "modules/recovery/src/recover.ts::askContinue": {
+    "lines": 25,
+    "complexity": 8,
+    "depth": 1,
+    "params": 7
+  },
+  "modules/recovery/src/recover.ts::trySplit": {
+    "lines": 16,
+    "complexity": 6,
+    "depth": 1,
+    "params": 9
+  },
+  "modules/recovery/src/split.ts::assembleFinalFile": {
+    "lines": 41,
+    "complexity": 12,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/recovery/src/split.ts::splitBrief": {
+    "lines": 13,
+    "complexity": 4,
+    "depth": 0,
+    "params": 7
+  },
+  "modules/recovery/src/split.ts::runSplitSubtasks": {
+    "lines": 41,
+    "complexity": 6,
+    "depth": 2,
+    "params": 9
+  },
+  "modules/recovery/src/split.ts::assembleSplit": {
+    "lines": 31,
+    "complexity": 6,
+    "depth": 2,
+    "params": 8
+  },
+  "modules/recovery/src/split.ts::splitTask": {
+    "lines": 30,
+    "complexity": 6,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/roles-skills/src/effective.ts::loadEffectiveConfig": {
+    "lines": 5,
+    "complexity": 2,
+    "depth": 0,
+    "params": 5
+  },
+  "modules/run-state/src/snapshots.ts::revertRunSnapshots": {
+    "lines": 31,
+    "complexity": 10,
+    "depth": 4,
+    "params": 3
+  },
+  "modules/runs/src/direct.ts::execute": {
+    "lines": 11,
+    "complexity": 2,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/runs/src/direct.ts::askContinue": {
+    "lines": 28,
+    "complexity": 9,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/runs/src/direct.ts::runTask": {
+    "lines": 16,
+    "complexity": 5,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/runs/src/direct.ts::finishRun": {
+    "lines": 23,
+    "complexity": 11,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/runs/src/resume.ts::execute": {
+    "lines": 1,
+    "complexity": 1,
+    "depth": 0,
+    "params": 5
+  },
+  "modules/runs/src/resume.ts::loadResumeGraph": {
+    "lines": 27,
+    "complexity": 9,
+    "depth": 2,
+    "params": 7
+  },
+  "modules/runs/src/resume.ts::resumeRunRecord": {
+    "lines": 13,
+    "complexity": 4,
+    "depth": 0,
+    "params": 7
+  },
+  "modules/runs/src/resume.ts::planResume": {
+    "lines": 18,
+    "complexity": 5,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/runs/src/resume.ts::executeResume": {
+    "lines": 21,
+    "complexity": 5,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/runs/src/resume.ts::replayTask": {
+    "lines": 44,
+    "complexity": 9,
+    "depth": 1,
+    "params": 8
+  },
+  "modules/runs/src/runtime.ts::buildRunRuntime": {
+    "lines": 63,
+    "complexity": 3,
+    "depth": 1,
+    "params": 3
+  },
+  "modules/runs/src/service.ts::direct": {
+    "lines": 16,
+    "complexity": 2,
+    "depth": 1,
+    "params": 10
+  },
+  "modules/runs/src/strategy.ts::drive": {
+    "lines": 30,
+    "complexity": 5,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/setup/src/assign.ts::eligible": {
+    "lines": 11,
+    "complexity": 12,
+    "depth": 1,
+    "params": 2
+  },
+  "modules/setup/src/assign.ts::scoreAssignments": {
+    "lines": 37,
+    "complexity": 12,
+    "depth": 3,
+    "params": 3
+  },
+  "modules/setup/src/bench.ts::summarizePerf": {
+    "lines": 8,
+    "complexity": 7,
+    "depth": 1,
+    "params": 6
+  },
+  "modules/setup/src/bench.ts::measureSpeed": {
+    "lines": 27,
+    "complexity": 7,
+    "depth": 4,
+    "params": 1
+  },
+  "modules/setup/src/draftChannels.ts::addDraftChannel": {
+    "lines": 22,
+    "complexity": 21,
+    "depth": 2,
+    "params": 4
+  },
+  "modules/setup/src/probe.ts::probeOne": {
+    "lines": 39,
+    "complexity": 14,
+    "depth": 1,
+    "params": 3
+  },
+  "modules/setup/src/rank.ts::validateRanking": {
+    "lines": 30,
+    "complexity": 11,
+    "depth": 2,
+    "params": 2
+  },
+  "modules/setup/src/recommend.ts::buildRecommendPrompt": {
+    "lines": 51,
+    "complexity": 2,
+    "depth": 0,
+    "params": 5
+  },
+  "modules/setup/src/recommend.ts::parseAndValidate": {
+    "lines": 36,
+    "complexity": 9,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/setup/src/recommend.ts::validateAssignment": {
+    "lines": 18,
+    "complexity": 12,
+    "depth": 1,
+    "params": 4
+  },
+  "modules/setup/src/setupContext.ts::scanWorkspace": {
+    "lines": 23,
+    "complexity": 11,
+    "depth": 2,
+    "params": 2
+  },
+  "modules/setup/src/smoke.ts::probeStepOutcome": {
+    "lines": 21,
+    "complexity": 11,
+    "depth": 2,
+    "params": 6
+  },
+  "modules/setup/src/smoke.ts::smokeModel": {
+    "lines": 55,
+    "complexity": 7,
+    "depth": 3,
+    "params": 3
+  },
+  "modules/toolcall-format/src/callAttr.ts::applyCallAttr": {
+    "lines": 5,
+    "complexity": 6,
+    "depth": 1,
+    "params": 5
+  },
+  "modules/toolcall-format/src/shimParser.ts::spanCandidates": {
+    "lines": 33,
+    "complexity": 10,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/toolcall-format/src/shimParser.ts::scanSpan": {
+    "lines": 19,
+    "complexity": 6,
+    "depth": 2,
+    "params": 5
+  },
+  "modules/toolcall-format/src/shimParser.ts::tagRaw": {
+    "lines": 4,
+    "complexity": 3,
+    "depth": 1,
+    "params": 8
+  },
+  "modules/toolcall-format/src/shimParser.ts::tagAt": {
+    "lines": 30,
+    "complexity": 11,
+    "depth": 2,
+    "params": 3
+  },
+  "modules/toolcall-format/src/tagParsers.ts::findJsonToolName": {
+    "lines": 18,
+    "complexity": 11,
+    "depth": 1,
+    "params": 2
+  },
+  "modules/tools/src/codeMetrics.ts::collect": {
+    "lines": 20,
+    "complexity": 9,
+    "depth": 4,
+    "params": 1
+  },
+  "modules/tools/src/fsRead.ts::scanContent": {
+    "lines": 11,
+    "complexity": 1,
+    "depth": 0,
+    "params": 6
+  },
+  "modules/tools/src/fsRead.ts::execute#4": {
+    "lines": 25,
+    "complexity": 11,
+    "depth": 3,
+    "params": 1
+  },
+  "modules/tools/src/leaseGuard.ts::leasedTools": {
+    "lines": 46,
+    "complexity": 1,
+    "depth": 0,
+    "params": 2
+  },
+  "modules/tools/src/types.ts::validateValue": {
+    "lines": 17,
+    "complexity": 12,
+    "depth": 3,
+    "params": 3
+  },
+  "packages/core/src/handlers/chat.ts::chatProfileName": {
+    "lines": 5,
+    "complexity": 2,
+    "depth": 1,
+    "params": 7
+  },
+  "packages/core/src/handlers/chat.ts::orchestratedChat": {
+    "lines": 13,
+    "complexity": 3,
+    "depth": 0,
+    "params": 7
+  },
+  "packages/core/src/handlers/chat.ts::directChat": {
+    "lines": 23,
+    "complexity": 6,
+    "depth": 1,
+    "params": 8
+  },
+  "packages/core/src/handlers/config.ts::handleConfigSet": {
+    "lines": 24,
+    "complexity": 11,
+    "depth": 2,
+    "params": 2
+  },
+  "packages/core/src/handlers/setup.ts::sessionDeps": {
+    "lines": 43,
+    "complexity": 1,
+    "depth": 0,
+    "params": 3
+  },
+  "packages/core/src/handlers/setup.ts::handleChannelProbe": {
+    "lines": 25,
+    "complexity": 11,
+    "depth": 2,
+    "params": 2
+  },
+  "packages/webview/src/App.tsx::App": {
+    "lines": 27,
+    "complexity": 11,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/Composer.tsx::Composer": {
+    "lines": 68,
+    "complexity": 4,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/SetupWizard.tsx::SetupWizard": {
+    "lines": 145,
+    "complexity": 10,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/SetupWizardResult.tsx::ReviewStep": {
+    "lines": 72,
+    "complexity": 12,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/agentExtra.tsx::AgentBadges": {
+    "lines": 15,
+    "complexity": 11,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/items.tsx::ItemCard": {
+    "lines": 47,
+    "complexity": 10,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/items.tsx::ItemsSection": {
+    "lines": 59,
+    "complexity": 6,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/skillsSection.tsx::NewSkill": {
+    "lines": 47,
+    "complexity": 5,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardApply.ts::agentForPair": {
+    "lines": 13,
+    "complexity": 5,
+    "depth": 0,
+    "params": 5
+  },
+  "packages/webview/src/wizardDerived.ts::useWizardDerived": {
+    "lines": 21,
+    "complexity": 11,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardStep1Channels.tsx::NewChannelForm": {
+    "lines": 41,
+    "complexity": 8,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardStep1Channels.tsx::EvaluatorPicker": {
+    "lines": 41,
+    "complexity": 4,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardStep1Channels.tsx::ChannelsStep": {
+    "lines": 90,
+    "complexity": 7,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardStep2Discover.tsx::DiscoverStep": {
+    "lines": 71,
+    "complexity": 17,
+    "depth": 0,
+    "params": 1
+  },
+  "packages/webview/src/wizardStep3Evaluator.tsx::EvaluatorStep": {
+    "lines": 62,
+    "complexity": 7,
+    "depth": 0,
+    "params": 1
+  },
+  "hosts/vscode/src/extension.ts::activate": {
+    "lines": 65,
+    "complexity": 1,
+    "depth": 0,
+    "params": 1
+  },
+  "hosts/vscode/src/routes.ts::route": {
+    "lines": 9,
+    "complexity": 4,
+    "depth": 1,
+    "params": 5
+  }
+}

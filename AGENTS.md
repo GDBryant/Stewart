@@ -12,7 +12,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build all: `pnpm -r build`
 - Tests: `pnpm -r test`
 - Typecheck: `pnpm -r typecheck`
-- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export, per-module dep-count ratchet `scripts/deps.baseline.json`; `--report` lists counts, `--update` accepts), `pnpm check:boundaries` (file size, all packages: >300 warns, >500 fails; `forbidden` pattern rules, e.g. raw `modelCaps` reads), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`), `pnpm check:docs` (ARCHITECTURE_NOW version + module table vs code); all run in CI
+- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export, per-module dep-count ratchet `scripts/deps.baseline.json`; `--report` lists counts, `--update` accepts), `pnpm check:boundaries` (file size, all packages: >300 warns, >500 fails; `forbidden` pattern rules, e.g. raw `modelCaps` reads), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`), `pnpm check:docs` (ARCHITECTURE_NOW version + module table vs code), `pnpm check:functions` (per-function limits: ≤40 code lines, complexity ≤10, depth ≤3, ≤4 params; known offenders ratcheted in `scripts/functions.baseline.json`, new or grown ones fail; `--report` lists worst, `--update` drops fixed entries); all run in CI
 - Coverage: `pnpm test:coverage` (per package ≥90% line, ≥80% branch)
 - No pnpm on this machine — run per package instead: `cd modules/<name>` (or `packages/<name>`) then `./node_modules/.bin/vitest run` (tests), `./node_modules/.bin/tsc -p tsconfig.json --composite false --noEmit` (typecheck), `./node_modules/.bin/tsc -p tsconfig.json` (build). After changing `modules/toolcall-format` (or any sidecar dep), re-bundle + repackage: `cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && ./node_modules/.bin/esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs`, then `./gradlew buildPlugin` → `build/distributions/stewart-X.Y.Z.zip`.
 - New module: `node scripts/new-module.mjs <name> "<purpose>"`, then add it to `scripts/layers.json` and fill its `README.md`
@@ -22,7 +22,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 ## References
 
 `docs/building/` — active build/design docs:
-- Modular design: `docs/building/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–7 done, 8 deferred), §11 sketch-vs-build deviations.
+- Modular design: `docs/building/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–7 done, 8 partly: function-limit gate built, refactoring offenders down), §11 sketch-vs-build deviations.
 - §11 build: `docs/building/modular-design-refactor-num11.md` — audit, scoping of the 14 §11 deviations, per-item status and commits.
 - Migration status: `docs/building/MODULAR_MIGRATION_STATUS.md` — verified state, what each step landed, remaining work (step 8 eslint limits).
 - Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).

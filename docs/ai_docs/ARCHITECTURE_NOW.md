@@ -110,7 +110,7 @@ Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins
 
 - Budgets M5 done (`6d4ea05`: `@stewart/budget` `taskSize.ts` classifier, `/quick` `/deep`); fault-recovery machinery ported (unblocks M6 escalation).
 - Code-health project check built (`docs/building/PROJECT_HEALTH_CHECK.md`): `code-health` module + generic `metrics.ts` lexical scanner, `CodeMetrics` tool, `submit_health`/`health_report` + `checks` project checks, orchestrate-skill routing; manual smoke pending.
-- Complexity report: `node scripts/complexity-scan.mjs` scans TS/TSX in modules/packages/hosts; it is non-blocking and uses different branch-count methodology from the code-health report. Phases 1–3 are done (`tasks/complexity-refactor-plan.md`); Phase-3 targets/helpers are below 15 branches, but 22 untouched functions still exceed 15 repository-wide.
+- Complexity report: `node scripts/complexity-scan.mjs` scans TS/TSX in modules/packages/hosts; it is non-blocking and uses different branch-count methodology from the code-health report. Phases 1–3 are done (`tasks/complexity-refactor-plan.md`); Phase-3 targets/helpers are below 15 branches, and by that scan only two functions exceed 15. The blocking gate is `pnpm check:functions` (`scripts/check-functions.mjs`, limits in `scripts/functions.json`): ≤40 code lines, cyclomatic complexity ≤10 (nested functions counted separately), depth ≤3, ≤4 params; baselined offenders (`scripts/functions.baseline.json`) may not grow, new functions must be clean.
 
 ## 7. Known gaps vs v2 plan
 
