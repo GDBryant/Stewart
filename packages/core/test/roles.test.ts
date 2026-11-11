@@ -171,10 +171,12 @@ describe("Core roles + skills dispatch", () => {
     }
     await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
     const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: string }[] };
-    // No role prompt, but shim mode injects the tools block as the only system message.
+    // No role prompt: the only system message is the workspace context plus the shim-mode tools block.
     expect(sent.messages).toHaveLength(2);
     expect(sent.messages[0].role).toBe("system");
-    expect(sent.messages[0].content.startsWith("<tools>")).toBe(true);
+    expect(sent.messages[0].content).toContain("# Workspace\nProject root: /p");
+    expect(sent.messages[0].content).toContain("<tools>");
+    expect(sent.messages[0].content).not.toContain("ROLE:");
     expect(sent.messages[1]).toMatchObject({ role: "user", content: "hi" });
   });
 });
