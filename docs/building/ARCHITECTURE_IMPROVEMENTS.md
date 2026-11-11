@@ -163,9 +163,9 @@ interface FeatureRunCtx { tasks(): { id: string; roleId: string }[] }
 | `core/handlers/setup.ts:189` | `perf.benchVersion` |
 
 **Steps**
-1. Add `capsFor(cfg: { modelCaps?: … }, model): ModelCaps` to `models/caps.ts`. It merges with `DEFAULT_CAPS` and is used by `profileFromChannel`. Switch the two channels sites, `bench.ts` and `handlers/setup.ts` to it.
-2. `roleRunner` uses the `profile` that `createAgentSession` already returns. `replacements.ts` uses `resolveModelProfile` and drops the cast.
-3. Guard: a `check-boundaries` forbidden pattern `modelCaps\??\.\[` that fails outside `modules/models`, `modules/config` and `modules/v1-import`.
+1. Add to `models/caps.ts`: `userCaps(source, model)` (the user's fields as written; absent = unknown, needed by Ollama's `numCtx`/`contextTokens` auto-sizing and the replacements/bench-version reads) and `capsFor(source, model): ModelCaps` (the same under `DEFAULT_CAPS`). Switch the six sites to whichever matches their current semantics (behaviour unchanged).
+2. **Deviation (as built):** `roleRunner`'s `imageGenFor` runs before the session exists, so it uses `capsFor` rather than the session profile; `replacements.ts` uses `userCaps` (not `resolveModelProfile`, which would change behaviour by preferring `numCtx` and the catalog) and drops the cast.
+3. Guard: a `check-boundaries` forbidden pattern `modelCaps\??\.\[` that fails outside `modules/models`, `modules/config`, `modules/v1-import`, core's probe-merge write (`handlers/util.ts`) and `packages/webview` (displays raw summary caps; depends only on protocol).
 
 **Tests:** `capsFor` returns the user value over the default, and returns `DEFAULT_CAPS` for an unknown model or a missing map. The guard fails on a fixture containing a raw read and passes on `capsFor`.
 

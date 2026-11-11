@@ -1,6 +1,6 @@
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatEvent } from "@stewart/channels";
-import { DEFAULT_CAPS, type ModelPerf, type ProbeLoop, type ToolsMode } from "@stewart/models";
+import { capsFor, type ModelPerf, type ProbeLoop } from "@stewart/models";
 import type { Clock, ToolSpec } from "@stewart/kernel";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */
@@ -148,7 +148,7 @@ const BENCH_STEPS: Record<BenchStep, (d: BenchDeps) => Promise<Partial<ModelPerf
  */
 export async function benchModel(channel: ManagedChannel, model: string, clock: Clock, probe: ProbeLoop<ManagedChannel>): Promise<ModelPerf> {
   const perf: ModelPerf = { benchedAt: clock.now(), benchVersion: BENCH_VERSION };
-  const mode = (channel.cfg.modelCaps?.[model]?.tools ?? DEFAULT_CAPS.tools) as ToolsMode;
+  const mode = capsFor(channel.cfg, model).tools;
   const deps: BenchDeps = { channel, model, clock, probe };
   const steps: BenchStep[] = mode === "none" ? ["speed", "json"] : ["speed", "tools", "edit", "json"];
   for (const step of steps) Object.assign(perf, await BENCH_STEPS[step](deps));

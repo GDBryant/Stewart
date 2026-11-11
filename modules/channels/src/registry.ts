@@ -1,5 +1,5 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
-import { DEFAULT_CAPS } from "@stewart/models";
+import { capsFor } from "@stewart/models";
 import { ChannelError } from "./types.js";
 import { stripImages } from "@stewart/kernel";
 
@@ -72,7 +72,7 @@ export class ManagedChannel {
 
   async *chat(req: ChatRequest): AsyncIterable<ChatEvent> {
     await this.acquire();
-    const vision = this.cfg.modelCaps?.[req.model]?.vision ?? DEFAULT_CAPS.vision;
+    const vision = capsFor(this.cfg, req.model).vision;
     if (!vision) req = { ...req, messages: stripImages(req.messages) };
     let ok = false;
     try {

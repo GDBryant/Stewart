@@ -1,7 +1,21 @@
 {
-  "comment": "Maps packages/core/src files still awaiting extraction to their target module (MODULAR_DESIGN §7). Empty since M-7: every module is extracted; only the maxLines rule applies to core. First match wins; unmapped = app.",
+  "comment": "Maps packages/core/src files still awaiting extraction to their target module (MODULAR_DESIGN \u00a77). Empty since M-7: every module is extracted; only the maxLines rule applies to core. First match wins; unmapped = app.",
   "map": [],
   "appLayer": 9,
   "softLines": 300,
-  "maxLines": 500
+  "maxLines": 500,
+  "forbidden": [
+    {
+      "id": "raw-modelCaps-read",
+      "pattern": "modelCaps\\??\\.?\\[",
+      "allow": [
+        "modules/models/",
+        "modules/config/",
+        "modules/v1-import/",
+        "packages/core/src/handlers/util.ts",
+        "packages/webview/"
+      ],
+      "hint": "read model caps with userCaps/capsFor from @stewart/models; webview shows raw summary caps and depends only on protocol"
+    }
+  ]
 }

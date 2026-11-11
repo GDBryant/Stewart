@@ -1,5 +1,6 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { userCaps } from "@stewart/models";
 import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
@@ -186,7 +187,7 @@ async function benchCandidates(core: CoreCtx, ctx: ProjectCtx, projectId: string
     }
     for (const model of models) {
       const hit = core.probeCache.get(`${c.id}:${model}`);
-      if (hit?.caps.imageGen === true || c.modelCaps?.[model]?.perf?.benchVersion === BENCH_VERSION) continue;
+      if (hit?.caps.imageGen === true || userCaps(c, model).perf?.benchVersion === BENCH_VERSION) continue;
       if (hit?.caps.perf?.benchVersion === BENCH_VERSION) continue;
       await handleChannelProbe(core, { projectId, channelId: c.id, model, bench: true });
     }

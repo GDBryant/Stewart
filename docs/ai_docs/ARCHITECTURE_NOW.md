@@ -97,7 +97,7 @@ Limits: `@stewart/budget` `limits.ts` `resolveLimits` (budget profile quick/norm
 
 ## 4. Model facts
 
-Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. `models/profile.ts` is the single merge for `roles.ts` and `@stewart/budget` `limits.ts`; Remaining direct `modelCaps` reads: `channels/registry.ts` (vision), `channels/ollama.ts` (`numCtx`), `@stewart/orchestration` `replacements.ts` (contextTokens), `roleRunner` (imageGen), `bench.ts` (tools mode); `recommend.ts` price (agent > `priceFor`, no catalog) is separate.
+Per `channel/model`, facts come from: `modelCaps` in `channels.yaml` (user, wins) ← probe cache (in-memory, `applyProbes`) ← bench `perf` ← catalog (`catalog.data.json`) / live `priceList`; agent `price` wins for cost. `models/profile.ts` is the single merge for `roles.ts` and `@stewart/budget` `limits.ts`; Raw `modelCaps` reads go through `@stewart/models` `userCaps` (user fields as written, absent = unknown) or `capsFor` (under `DEFAULT_CAPS`); `check:boundaries` forbids raw `modelCaps?.[…]` reads outside `models`, `config`, `v1-import`, core's probe-merge write and the webview (`forbidden` rules in `scripts/boundaries.json`). `recommend.ts` price (agent > `priceFor`, no catalog) is separate.
 
 ## 5. Config and state
 

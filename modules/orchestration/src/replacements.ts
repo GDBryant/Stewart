@@ -1,6 +1,6 @@
 import type { AgentDef, ChannelDef } from "@stewart/config";
 import { agentServesRole, roleCapability } from "@stewart/roles-skills";
-import { isCosting } from "@stewart/models";
+import { isCosting, userCaps } from "@stewart/models";
 
 export interface ParkedRole {
   roleId: string;
@@ -15,8 +15,7 @@ export interface Replacement {
 }
 
 function contextTokens(agent: AgentDef, channels: ChannelDef[]): number {
-  const caps = channels.find((c) => c.id === agent.channel)?.modelCaps?.[agent.model] as { contextTokens?: number } | undefined;
-  return caps?.contextTokens ?? 0;
+  return userCaps(channels.find((c) => c.id === agent.channel), agent.model).contextTokens ?? 0;
 }
 
 /** Enabled, non-costing agents that meet each parked role's capability needs. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findViolations, moduleOf, sizeFindings } from "./check-boundaries.mjs";
+import { findViolations, forbiddenFindings, moduleOf, sizeFindings } from "./check-boundaries.mjs";
 
 const cfg = { map: [["a.ts", "low"], ["b/", "high"]], appLayer: 9, maxLines: 3 };
 const layers = { low: 1, high: 2 };
@@ -28,4 +28,16 @@ test("sizeFindings: under soft passes, soft-to-hard warns, over hard fails", () 
 test("sizeFindings: exactly at hard limit is a warning, not a failure", () => {
   const r = sizeFindings({ "a.ts": lines(10) }, 5, 10);
   assert.deepEqual(r, { warn: ["a.ts (10)"], fail: [] });
+});
+
+const rule = { id: "raw", pattern: "modelCaps\\??\\.?\\[", allow: ["modules/models/", "keep.ts"] };
+test("forbiddenFindings: flags a raw read outside the allow-list, with or without optional chaining", () => {
+  const files = { "modules/x/a.ts": "c.modelCaps?.[m]?.vision", "modules/y/b.ts": "c.modelCaps[m]", "modules/z/c.ts": "capsFor(c, m).vision" };
+  assert.deepEqual(forbiddenFindings(files, [rule]), ["forbidden modules/x/a.ts [raw]", "forbidden modules/y/b.ts [raw]"]);
+});
+test("forbiddenFindings: allow-listed prefixes and exact files pass; no rules or no matches give nothing", () => {
+  const files = { "modules/models/caps.ts": "c.modelCaps?.[m]", "keep.ts": "c.modelCaps[m] = 1" };
+  assert.deepEqual(forbiddenFindings(files, [rule]), []);
+  assert.deepEqual(forbiddenFindings({ "a.ts": "c.modelCaps?.[m]" }, undefined), []);
+  assert.deepEqual(forbiddenFindings({ "a.ts": "modelCapsX" }, [rule]), []);
 });

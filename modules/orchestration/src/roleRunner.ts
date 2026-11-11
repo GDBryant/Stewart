@@ -1,7 +1,7 @@
 import { fallbackPrompt } from "./prompts.js";
 import type { RoleDef } from "@stewart/config";
 import type { ChatMessage } from "@stewart/kernel";
-import { DEFAULT_CAPS, isCosting } from "@stewart/models";
+import { capsFor, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { agentServesRole } from "@stewart/roles-skills";
 import { DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
@@ -120,7 +120,7 @@ async function resolveAgent(
 }
 
 function imageGenFor(channel: ReturnType<RunRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>): ImageGenerator | undefined {
-  const enabled = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage;
+  const enabled = capsFor(channel.cfg, agent.model).imageGen && channel.adapter.generateImage;
   return enabled ? (prompt: string) => channel.generateImage(agent.model, prompt) : undefined;
 }
 

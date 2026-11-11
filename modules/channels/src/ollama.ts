@@ -1,6 +1,7 @@
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
 import { ChannelError } from "./types.js";
 import type { DebugSink } from "@stewart/diagnostics";
+import { userCaps } from "@stewart/models";
 import { lines, postForStream, StreamAccumulator, type WireDelta } from "./stream.js";
 
 function url(cfg: ChannelConfig, path: string): string {
@@ -115,7 +116,7 @@ export class OllamaAdapter implements ChannelAdapter {
     const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
     const messages = toOllamaMessages(req);
     const dbg = this.deps.debug;
-    const caps = cfg.modelCaps?.[req.model];
+    const caps = userCaps(cfg, req.model);
     const estTokens = estimatePromptTokens(messages, tools);
     const numCtx = caps?.numCtx ?? autoNumCtx(estTokens, caps?.contextTokens);
     const body = JSON.stringify({

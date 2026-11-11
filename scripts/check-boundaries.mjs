@@ -3,6 +3,7 @@
 // Size rule over every non-test source file in modules/*/src, packages/*/src, hosts/*/src (.ts .tsx .kt):
 // over `softLines` (300) = warning, over `maxLines` (500) = failure. For packages/core/src, files still mapped
 // to a module in scripts/boundaries.json also get the relative-import layer rule (the map is empty now).
+// `forbidden` rules (pattern + allow-list in scripts/boundaries.json) fail on raw uses that must go through a helper.
 // Known failures live in scripts/boundaries.baseline.json; only NEW ones fail. `--update` rewrites the baseline.
 import { readFileSync, readdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -40,6 +41,19 @@ export function sizeFindings(files, softLines, maxLines) {
   return { warn: warn.sort(), fail: fail.sort() };
 }
 
+/** Source files matching a forbidden pattern outside its allow-list: `forbidden <path> [<rule id>]`. */
+export function forbiddenFindings(files, rules) {
+  const out = [];
+  for (const rule of rules ?? []) {
+    const re = new RegExp(rule.pattern);
+    for (const [rel, text] of Object.entries(files)) {
+      if (rule.allow.some((a) => rel === a || (a.endsWith("/") && rel.startsWith(a)))) continue;
+      if (re.test(text)) out.push(`forbidden ${rel} [${rule.id}]`);
+    }
+  }
+  return out.sort();
+}
+
 const SKIP = new Set(["node_modules", "dist", "build", "coverage", "test", "tests", ".gradle"]);
 const SRC = /\.(ts|tsx|kt)$/;
 
@@ -72,7 +86,7 @@ function main() {
   const all = {};
   for (const r of sourceRoots(root)) walk(r, root, all, SRC);
   const sizes = sizeFindings(all, cfg.softLines, cfg.maxLines);
-  found.push(...sizes.fail);
+  found.push(...sizes.fail, ...forbiddenFindings(all, cfg.forbidden));
   if (sizes.warn.length) console.log(`size warnings (>${cfg.softLines} lines, hard limit ${cfg.maxLines}):\n  ${sizes.warn.join("\n  ")}`);
   const basePath = join(root, "scripts/boundaries.baseline.json");
   if (process.argv.includes("--update")) { writeFileSync(basePath, JSON.stringify(found, null, 2) + "\n"); return console.log(`baseline: ${found.length}`); }
