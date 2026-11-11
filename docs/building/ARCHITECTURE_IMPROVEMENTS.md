@@ -29,7 +29,7 @@ Two problems remain:
    | `setup/session.ts` | 301 |
 
    None is over 500.
-2. **Some modules depend on too many others.** `runs` depends on 18 `@stewart` packages, and `orchestration` and `agent-loop` on 16 each. Much of that comes from type-only imports of contracts parked in the wrong module (see C1). This dependency spread, not the number of modules, is the real coupling cost.
+2. **Some modules depend on too many others.** `orchestration` depends on 16 `@stewart` packages, `agent-loop` and `runs` on 14 each (`check-layers --report`; ratcheted in `scripts/deps.baseline.json`). Much of that comes from type-only imports of contracts parked in the wrong module (see C1). This dependency spread, not the number of modules, is the real coupling cost.
 
 ## D. Docs current and checked (#6)
 
@@ -85,7 +85,7 @@ Two problems remain:
    - Drop `scheduling`, `run-state` and `interaction` from agent-loop's dependencies.
    - Drop the `RunRuntime = OrchestrationRuntime` alias and keep one name, `RunRuntime`.
 
-**Done when:** `run-contract` exists, agent-loop has 13 dependencies, and `check:layers` and `check:cycles` pass.
+**Done when:** `run-contract` exists, agent-loop has 11 dependencies, and `check:layers` and `check:cycles` pass.
 
 ### C2. One `Config` name
 **Problem:** both `@stewart/config` and `@stewart/roles-skills` export a type named `Config`. `effective.ts` does belong in roles-skills (skills and role validation sit above config), but the shared name hides which one a caller gets.

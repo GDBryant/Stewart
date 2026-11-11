@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Fails if a module depends on its own layer or above, is missing from scripts/layers.json,
 // or exposes more than the single `.` export. See docs/building/MODULAR_DESIGN.md §6.
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +28,25 @@ export function checkLayers(layers, manifests) {
   return errors;
 }
 
+/** `@stewart/*` workspace dependency count per module short name (protocol excluded: it is a leaf contract). */
+export function depCounts(manifests) {
+  const out = {};
+  for (const m of manifests) {
+    out[m.name.replace(/^@stewart\//, "")] = Object.keys(m.dependencies ?? {}).filter((d) => d.startsWith("@stewart/") && d !== "@stewart/protocol").length;
+  }
+  return out;
+}
+
+/** Errors for modules whose dependency count grew past the baseline (new modules need a baseline entry). */
+export function checkDepBaseline(counts, baseline) {
+  const errors = [];
+  for (const [name, n] of Object.entries(counts)) {
+    if (!(name in baseline)) errors.push(`${name}: ${n} deps, no baseline entry (run --update)`);
+    else if (n > baseline[name]) errors.push(`${name}: ${n} deps, baseline ${baseline[name]} (reduce, or --update to accept)`);
+  }
+  return errors;
+}
+
 function main() {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const layers = JSON.parse(readFileSync(join(root, "scripts", "layers.json"), "utf8"));
@@ -37,6 +56,11 @@ function main() {
         .map((d) => JSON.parse(readFileSync(join(dir, d, "package.json"), "utf8")))
     : [];
   const errors = checkLayers(layers, manifests);
+  const counts = depCounts(manifests);
+  const basePath = join(root, "scripts", "deps.baseline.json");
+  if (process.argv.includes("--update")) { writeFileSync(basePath, JSON.stringify(counts, null, 2) + "\n"); return console.log("deps baseline updated"); }
+  if (process.argv.includes("--report")) for (const [n, c] of Object.entries(counts).sort((a, b) => b[1] - a[1])) console.log(`${String(c).padStart(3)}  ${n}`);
+  errors.push(...checkDepBaseline(counts, existsSync(basePath) ? JSON.parse(readFileSync(basePath, "utf8")) : {}));
   if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
   console.log(`check-layers: ${manifests.length} modules ok`);
 }
