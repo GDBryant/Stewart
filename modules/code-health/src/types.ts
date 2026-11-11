@@ -132,33 +132,46 @@ export function aggregate(report: HealthReport): Aggregate {
 
 const SEVERITY_ORDER: Record<Finding["severity"], number> = { high: 0, med: 1, low: 2 };
 
+function checkLines(checks: ProjectCheck[] | undefined): string[] {
+  if (!checks || checks.length === 0) return [];
+  return ["Project checks:", ...checks.map((c) => `- ${c.name}: ${c.status} — \`${c.command}\` — ${c.detail}`)];
+}
+
+function redLines(red: FileHealth[]): string[] {
+  if (red.length === 0) return [];
+  return ["Red files:", ...red.map((f) => `- ${f.path} ${f.score}/10 (${f.loc} LOC)`)];
+}
+
+function fileLines(files: FileHealth[]): string[] {
+  const sorted = [...files].sort((x, y) => y.loc - x.loc);
+  return sorted.map((f) => `${f.path}\t${f.loc}\t${f.score}/10 ${f.band}`);
+}
+
+function notCheckedLines(notChecked: string[]): string[] {
+  if (notChecked.length === 0) return [];
+  return ["Not checked:", ...notChecked.map((p) => `- ${p}`)];
+}
+
+function findingLines(findings: Finding[]): string[] {
+  if (findings.length === 0) return [];
+  const ordered = [...findings].sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity]);
+  return ["Findings:", ...ordered.map((f) => `${f.path}:${f.line ?? "?"}\t${f.smell} | ${f.severity} | ${f.refactor}`)];
+}
+
 export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "issues", measured?: string): string {
-  const lines: string[] = [];
-  lines.push(
-    `Scope: project · Mode: ${mode} · Checked: ${a.files} files / ${a.loc} LOC · Not checked: ${a.notChecked.length}`,
-  );
-  lines.push(`Overall: ${a.score}/10 (${a.band})`);
-  if (measured) lines.push(measured);
-  if (r.checks && r.checks.length > 0) {
-    lines.push("Project checks:");
-    for (const c of r.checks) lines.push(`- ${c.name}: ${c.status} — \`${c.command}\` — ${c.detail}`);
-  }
-  if (a.red.length > 0) {
-    lines.push("Red files:");
-    for (const f of a.red) lines.push(`- ${f.path} ${f.score}/10 (${f.loc} LOC)`);
-  }
-  const sorted = [...r.files].sort((x, y) => y.loc - x.loc);
-  for (const f of sorted) lines.push(`${f.path}\t${f.loc}\t${f.score}/10 ${f.band}`);
-  if (a.notChecked.length > 0) {
-    lines.push("Not checked:");
-    for (const p of a.notChecked) lines.push(`- ${p}`);
-  }
-  if (mode === "issues" && r.findings.length > 0) {
-    lines.push("Findings:");
-    const ordered = [...r.findings].sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity]);
-    for (const f of ordered) lines.push(`${f.path}:${f.line ?? "?"}\t${f.smell} | ${f.severity} | ${f.refactor}`);
-  }
-  return lines.join("\n");
+  const sections: string[][] = [
+    [
+      `Scope: project · Mode: ${mode} · Checked: ${a.files} files / ${a.loc} LOC · Not checked: ${a.notChecked.length}`,
+      `Overall: ${a.score}/10 (${a.band})`,
+    ],
+    measured ? [measured] : [],
+    checkLines(r.checks),
+    redLines(a.red),
+    fileLines(r.files),
+    notCheckedLines(a.notChecked),
+    mode === "issues" ? findingLines(r.findings) : [],
+  ];
+  return sections.flat().join("\n");
 }
 
 const HEALTH_TERM = /\b(health|healthy|code health|score the code)\b/i;

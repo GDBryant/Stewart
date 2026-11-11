@@ -85,6 +85,14 @@ export interface RankCandidate extends SmokeCandidate {
 
 export const key = (c: SmokeCandidate) => `${c.channel}:${c.model}`;
 
+/** The fields every result for this candidate carries; `attempts` counts this probe and `lastReason` keeps the prior failure. */
+export const attemptBase = (c: SmokeCandidate, prior: ProbeItem | undefined) => ({
+  channel: c.channel,
+  model: c.model,
+  attempts: (prior?.attempts ?? 0) + 1,
+  lastReason: prior?.lastReason ?? prior?.reason,
+});
+
 const REASON_MAX = 160;
 
 /**

@@ -14,6 +14,24 @@ const PROBE_STATE_VIEWS: Record<SetupProbeState, (item: SetupProbeItem, badges: 
   skipped: (item) => <span class="hint">skipped{item.reason ? ` — ${item.reason}` : ""}</span>,
 };
 
+const DONE_STATES = new Set<SetupProbeState>(["green", "orange", "red", "skipped"]);
+
+type Pair = { channel: string; model: string };
+
+type DiscoverProps = {
+  smoke: SetupProbeSnapshot | undefined;
+  pairs: Pair[];
+  probeBusy: boolean;
+  retryable: boolean;
+  bench: boolean;
+  probeResults: State["probeResults"];
+  onBench(checked: boolean): void;
+  onAccept(): void;
+  onRetry(): void;
+  onBack(): void;
+  onNext(): void;
+};
+
 function ProbeRow({ item, badges }: { item: SetupProbeItem; badges: string }) {
   return (
     <div class="summary">
@@ -35,71 +53,93 @@ function ProbeSummary({ smoke }: { smoke: SetupProbeSnapshot | undefined }) {
   );
 }
 
+/** Snapshot items once a smoke run exists, otherwise every candidate pair as queued. */
+function listedItems(smoke: SetupProbeSnapshot | undefined, pairs: Pair[]) {
+  const smokeRan = !!smoke && smoke.status !== "idle";
+  return smokeRan ? smoke.items : pairs.map((p) => ({ channel: p.channel, model: p.model, state: "queued" as const }));
+}
+
+function AcceptRow({ onAccept }: { onAccept(): void }) {
+  return (
+    <div class="row">
+      <button class="small" onClick={onAccept}>
+        Accept and continue
+      </button>
+      <span class="hint">stops probing now; recommendation uses the green results so far</span>
+    </div>
+  );
+}
+
+function BenchToggle({ bench, onBench }: { bench: boolean; onBench(checked: boolean): void }) {
+  return (
+    <label class="field">
+      <span>
+        <input type="checkbox" checked={bench} onChange={(e) => onBench((e.target as HTMLInputElement).checked)} /> Measure speed (up to ~2.5 min per model)
+      </span>
+      <span class="hint">Sends a few test requests to each green model to measure reply speed, tool-call and edit reliability.</span>
+    </label>
+  );
+}
+
+function RetryButton({ retrying, onClick }: { retrying: boolean; onClick(): void }) {
+  return (
+    <button
+      class="small"
+      disabled={retrying}
+      aria-busy={retrying ? "true" : undefined}
+      onClick={onClick}
+    >
+      {retrying ? <><Spinner /> Retrying…</> : "Retry failed"}
+    </button>
+  );
+}
+
+function ProbeList({ smoke, pairs, probeResults }: { smoke: SetupProbeSnapshot | undefined; pairs: Pair[]; probeResults: State["probeResults"] }) {
+  return (
+    <div aria-live="polite">
+      {listedItems(smoke, pairs).map((it) => {
+        const k = key(it.channel, it.model);
+        const badges = it.state === "green" ? capBadges(probeResults[k]?.caps) : "";
+        return <ProbeRow key={k} item={it} badges={badges} />;
+      })}
+    </div>
+  );
+}
+
+function DiscoverBusy({ smoke, pairs, probeBusy }: { smoke: SetupProbeSnapshot | undefined; pairs: Pair[]; probeBusy: boolean }) {
+  const smokeDone = smoke?.status === "running" ? smoke.items.filter((it) => DONE_STATES.has(it.state)).length : 0;
+  return (
+    <>
+      {probeBusy && smoke?.status !== "running" && pairs.length > 0 ? <BusyNote label="Starting model discovery…" /> : null}
+      {smoke?.status === "running" ? <BusyNote label={`Smoke-testing models (${smokeDone} of ${smoke.items.length} done)…`} /> : null}
+      {smoke?.ranking ? <BusyNote label="Ranking remaining models…" /> : null}
+    </>
+  );
+}
+
 export function DiscoverStep({
   smoke, pairs, probeBusy, retryable, bench, probeResults, onBench, onAccept, onRetry, onBack, onNext,
-}: {
-  smoke: SetupProbeSnapshot | undefined;
-  pairs: { channel: string; model: string }[];
-  probeBusy: boolean;
-  retryable: boolean;
-  bench: boolean;
-  probeResults: State["probeResults"];
-  onBench(checked: boolean): void;
-  onAccept(): void;
-  onRetry(): void;
-  onBack(): void;
-  onNext(): void;
-}) {
+}: DiscoverProps) {
   const [retrying, setRetrying] = useState(false);
   const smokeRunKey = smoke?.status === "running" ? smoke.runId : 0;
   useEffect(() => {
     if (smokeRunKey) setRetrying(false);
   }, [smokeRunKey]);
-  const smokeRan = !!smoke && smoke.status !== "idle";
-  const smokeDone = smoke?.status === "running" ? smoke.items.filter((it) => it.state === "green" || it.state === "orange" || it.state === "red" || it.state === "skipped").length : 0;
+  const retry = () => {
+    setRetrying(true);
+    onRetry();
+  };
   return (
     <div class="form">
       <p><b>What to do:</b> Stewart smoke-tests every model one at a time (local models first, ~30s max each). Only passing models can be assigned to roles.</p>
-      {smoke?.status === "running" ? (
-        <div class="row">
-          <button class="small" onClick={onAccept}>
-            Accept and continue
-          </button>
-          <span class="hint">stops probing now; recommendation uses the green results so far</span>
-        </div>
-      ) : null}
-      <label class="field">
-        <span>
-          <input type="checkbox" checked={bench} onChange={(e) => onBench((e.target as HTMLInputElement).checked)} /> Measure speed (up to ~2.5 min per model)
-        </span>
-        <span class="hint">Sends a few test requests to each green model to measure reply speed, tool-call and edit reliability.</span>
-      </label>
+      {smoke?.status === "running" ? <AcceptRow onAccept={onAccept} /> : null}
+      <BenchToggle bench={bench} onBench={onBench} />
       {pairs.length === 0 ? <div class="fail">No models found. Go back and check your channels (for Ollama: run <code>ollama pull &lt;model&gt;</code>).</div> : null}
-      {probeBusy && smoke?.status !== "running" && pairs.length > 0 ? <BusyNote label="Starting model discovery…" /> : null}
-      {smoke?.status === "running" ? <BusyNote label={`Smoke-testing models (${smokeDone} of ${smoke.items.length} done)…`} /> : null}
-      {smoke?.ranking ? <BusyNote label="Ranking remaining models…" /> : null}
-      <div aria-live="polite">
-        {(smokeRan ? smoke.items : pairs.map((p) => ({ channel: p.channel, model: p.model, state: "queued" as const }))).map((it) => {
-          const k = key(it.channel, it.model);
-          const badges = it.state === "green" ? capBadges(probeResults[k]?.caps) : "";
-          return <ProbeRow key={k} item={it} badges={badges} />;
-        })}
-      </div>
+      <DiscoverBusy smoke={smoke} pairs={pairs} probeBusy={probeBusy} />
+      <ProbeList smoke={smoke} pairs={pairs} probeResults={probeResults} />
       <ProbeSummary smoke={smoke} />
       <div class="row">
-        {retryable && smoke?.status !== "running" ? (
-          <button
-            class="small"
-            disabled={retrying}
-            aria-busy={retrying ? "true" : undefined}
-            onClick={() => {
-              setRetrying(true);
-              onRetry();
-            }}
-          >
-            {retrying ? <><Spinner /> Retrying…</> : "Retry failed"}
-          </button>
-        ) : null}
+        {retryable && smoke?.status !== "running" ? <RetryButton retrying={retrying} onClick={retry} /> : null}
         <button class="small" onClick={onBack}>Back</button>
         <button class="send" disabled={pairs.length === 0 || probeBusy} onClick={onNext}>Next: choose evaluator</button>
       </div>

@@ -42,48 +42,57 @@ export class ToolLoop {
   }
 
   async run(model: string, history: ChatMessage[], listener: LoopListener, signal: AbortSignal): Promise<LoopResult> {
-    const produced: ChatMessage[] = [];
-    const base = history;
-    const turn: TurnState = { text: "", open: false };
-    const inFlight = { id: null as string | null, awaitsUser: false };
-    let turns = 0;
-    let truncRetries = 0;
-    let executed = 0;
+    const st: RunState = {
+      produced: [],
+      base: history,
+      turn: { text: "", open: false },
+      inFlight: { id: null, awaitsUser: false },
+      turns: 0,
+      truncRetries: 0,
+      executed: 0,
+    };
     try {
       while (true) {
-        if (turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
-        if (await this.prepareTurn(base, produced, listener)) {
-          return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
-        }
-        turns++;
-        turn.text = "";
-        turn.open = true;
-        const s = await streamTurn(
-          { channel: this.channel, registry: this.registry, toolsMode: this.toolsMode, modelCallTimeoutMs: this.limits.modelCallTimeoutMs ?? 0 },
-          model,
-          this.outbound(base, produced),
-          listener,
-          signal,
-          turn,
-        );
-        const decision = await this.handleStreamOutcome(s, truncRetries, listener);
-        if (decision.kind === "retry") {
-          truncRetries++;
-          turns--;
-          turn.open = false;
-          continue;
-        }
-        if (decision.kind === "failed") return { kind: "failed", messages: produced, base, message: decision.message, code: decision.code };
-        const handled = await this.finishTurn(s, turn, produced, listener, inFlight, signal, executed);
-        executed = handled.executed;
-        if (handled.completed) return { kind: "completed", messages: produced, base };
+        const result = await this.runOneTurn(model, st, listener, signal);
+        if (result) return result;
       }
     } catch (e) {
-      this.closeOpenToolCalls(produced, inFlight);
-      if (turn.open && turn.text.trim() !== "") produced.push({ role: "assistant", content: turn.text });
-      if (signal.aborted) throw new RunCancelledError(base, produced, e);
+      this.closeOpenToolCalls(st.produced, st.inFlight);
+      if (st.turn.open && st.turn.text.trim() !== "") st.produced.push({ role: "assistant", content: st.turn.text });
+      if (signal.aborted) throw new RunCancelledError(st.base, st.produced, e);
       throw e;
     }
+  }
+
+  /** One pass of the run loop. Returns the final result, or undefined to keep looping. */
+  private async runOneTurn(model: string, st: RunState, listener: LoopListener, signal: AbortSignal): Promise<LoopResult | undefined> {
+    const { base, produced, turn, inFlight } = st;
+    if (st.turns >= this.limits.maxModelTurns) return { kind: "turn_limit", messages: produced, base };
+    if (await this.prepareTurn(base, produced, listener)) {
+      return { kind: "failed", messages: produced, base, message: "context size limit exceeded", code: "context_limit" };
+    }
+    st.turns++;
+    turn.text = "";
+    turn.open = true;
+    const s = await streamTurn(
+      { channel: this.channel, registry: this.registry, toolsMode: this.toolsMode, modelCallTimeoutMs: this.limits.modelCallTimeoutMs ?? 0 },
+      model,
+      this.outbound(base, produced),
+      listener,
+      signal,
+      turn,
+    );
+    const decision = await this.handleStreamOutcome(s, st.truncRetries, listener);
+    if (decision.kind === "retry") {
+      st.truncRetries++;
+      st.turns--;
+      turn.open = false;
+      return undefined;
+    }
+    if (decision.kind === "failed") return { kind: "failed", messages: produced, base, message: decision.message, code: decision.code };
+    const handled = await this.finishTurn(s, turn, produced, listener, inFlight, signal, st.executed);
+    st.executed = handled.executed;
+    return handled.completed ? { kind: "completed", messages: produced, base } : undefined;
   }
 
   private async prepareTurn(base: ChatMessage[], produced: ChatMessage[], listener: LoopListener): Promise<boolean> {
@@ -174,14 +183,7 @@ export class ToolLoop {
   }
 
   private closeOpenToolCalls(produced: ChatMessage[], inFlight: { id: string | null; awaitsUser: boolean }): void {
-    let idx = -1;
-    for (let i = produced.length - 1; i >= 0; i--) {
-      const m = produced[i];
-      if (m.role === "assistant" && "toolCalls" in m && m.toolCalls && m.toolCalls.length > 0) {
-        idx = i;
-        break;
-      }
-    }
+    const idx = lastToolCallTurn(produced);
     if (idx < 0) return;
     const calls = (produced[idx] as { toolCalls: ToolCall[] }).toolCalls;
     const answered = new Set(
@@ -189,15 +191,35 @@ export class ToolLoop {
     );
     for (const call of calls) {
       if (answered.has(call.id)) continue;
-      let content: string;
-      if (call.id === inFlight.id) {
-        content = inFlight.awaitsUser
-          ? NOT_ANSWERED_CANCELLED
-          : outcomeMessage({ kind: "uncertain", reason: "cancelled; side effects unknown" });
-      } else {
-        content = "Not executed: cancelled by user";
-      }
-      produced.push({ role: "tool", toolCallId: call.id, content });
+      produced.push({ role: "tool", toolCallId: call.id, content: cancelledContent(call.id, inFlight) });
     }
   }
+}
+
+/** Mutable state threaded through the run loop. */
+interface RunState {
+  produced: ChatMessage[];
+  base: ChatMessage[];
+  turn: TurnState;
+  inFlight: { id: string | null; awaitsUser: boolean };
+  turns: number;
+  truncRetries: number;
+  executed: number;
+}
+
+/** Index of the latest assistant message carrying tool calls, or -1. */
+function lastToolCallTurn(produced: ChatMessage[]): number {
+  for (let i = produced.length - 1; i >= 0; i--) {
+    const m = produced[i];
+    if (m.role === "assistant" && "toolCalls" in m && m.toolCalls && m.toolCalls.length > 0) return i;
+  }
+  return -1;
+}
+
+/** Tool result text for a call that never got an answer. */
+function cancelledContent(callId: string, inFlight: { id: string | null; awaitsUser: boolean }): string {
+  if (callId !== inFlight.id) return "Not executed: cancelled by user";
+  return inFlight.awaitsUser
+    ? NOT_ANSWERED_CANCELLED
+    : outcomeMessage({ kind: "uncertain", reason: "cancelled; side effects unknown" });
 }

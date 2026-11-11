@@ -96,9 +96,17 @@ function effectiveSize(c: Candidate): number | undefined {
 const CODER = /coder|code|devstral|codestral|deepseek|qwen.*instruct/i;
 
 function eligible(c: Candidate, p: Profile): string | undefined {
+  return capabilityRefusal(c, p) ?? perfRefusal(c, p);
+}
+
+function capabilityRefusal(c: Candidate, p: Profile): string | undefined {
   if (p.needs?.tools && c.caps.tools === "none") return "no tool support";
   if (p.needs?.vision && c.caps.vision !== true) return "no vision";
   if (p.needs?.imageGen && c.caps.imageGen !== true) return "no image generation";
+  return undefined;
+}
+
+function perfRefusal(c: Candidate, p: Profile): string | undefined {
   const perf = c.caps.perf;
   if (p.needsEdit && perf?.editOk === false) return "failed edit bench";
   if (p.minToolReliability !== undefined && perf?.toolReliability !== undefined && perf.toolReliability < p.minToolReliability) {
@@ -237,35 +245,50 @@ export function scoreAssignments(roleIds: string[], candidates: Candidate[], ctx
   const unfilled: Unfilled[] = [];
   const uses = new Map<string, number>();
   for (const role of roleIds) {
-    const p = ROLE_PROFILES[role] ?? DEFAULT_PROFILE;
-    const reasons = new Set<string>();
-    let best: { c: Candidate; eff: number; raw: ReturnType<typeof score> } | undefined;
-    for (const c of candidates) {
-      const why = eligible(c, p);
-      if (why) {
-        reasons.add(why);
-        continue;
-      }
-      const raw = score(c, p, ctx);
-      const key = `${c.channel}:${c.model}`;
-      const eff = raw.score * (1 - 0.05 * (uses.get(key) ?? 0)); // spread across models when near-equal
-      if (!best || eff > best.eff) best = { c, eff, raw };
-    }
+    const { best, reasons } = bestFor(ROLE_PROFILES[role] ?? DEFAULT_PROFILE, candidates, ctx, uses);
     if (!best) {
-      unfilled.push({ role, reason: candidates.length ? `no model with: ${[...reasons].map((r) => r.replace(/^no /, "")).join(", ")}` : "no models available" });
+      unfilled.push({ role, reason: unfilledReason(candidates, reasons) });
       continue;
     }
     const key = `${best.c.channel}:${best.c.model}`;
     uses.set(key, (uses.get(key) ?? 0) + 1);
-    assignments.push({
-      role,
-      channel: best.c.channel,
-      model: best.c.model,
-      reason: best.raw.why.join(", ") || "best available",
-      score: Math.round(best.raw.score * 10) / 10,
-      warnings: best.raw.warnings,
-      source: "rules",
-    });
+    assignments.push(toAssignment(role, best));
   }
   return { assignments, unfilled };
+}
+
+type Best = { c: Candidate; eff: number; raw: ReturnType<typeof score> };
+
+/** Highest effective score among eligible candidates (ties keep the earlier one); `reasons` collects why the rest were refused. */
+function bestFor(p: Profile, candidates: Candidate[], ctx: SetupContext | undefined, uses: Map<string, number>): { best: Best | undefined; reasons: Set<string> } {
+  const reasons = new Set<string>();
+  let best: Best | undefined;
+  for (const c of candidates) {
+    const why = eligible(c, p);
+    if (why) {
+      reasons.add(why);
+      continue;
+    }
+    const raw = score(c, p, ctx);
+    const key = `${c.channel}:${c.model}`;
+    const eff = raw.score * (1 - 0.05 * (uses.get(key) ?? 0)); // spread across models when near-equal
+    if (!best || eff > best.eff) best = { c, eff, raw };
+  }
+  return { best, reasons };
+}
+
+function unfilledReason(candidates: Candidate[], reasons: Set<string>): string {
+  return candidates.length ? `no model with: ${[...reasons].map((r) => r.replace(/^no /, "")).join(", ")}` : "no models available";
+}
+
+function toAssignment(role: string, best: Best): ScoredAssignment {
+  return {
+    role,
+    channel: best.c.channel,
+    model: best.c.model,
+    reason: best.raw.why.join(", ") || "best available",
+    score: Math.round(best.raw.score * 10) / 10,
+    warnings: best.raw.warnings,
+    source: "rules",
+  };
 }

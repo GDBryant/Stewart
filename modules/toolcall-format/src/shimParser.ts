@@ -182,18 +182,10 @@ function tagAt(ctx: Scan, m: RegExpExecArray, to: number): number {
   const start = m.index;
   const tagEnd = start + opener.length;
   const { closeAt, closed, end } = tagBounds(text, opener, tagEnd, to);
-  // A tag quoted inline as `<tool_call>...</tool_call>` is a mention, not a call.
-  if (closed && start > 0 && text[start - 1] === "`" && text[end] === "`") return end;
+  if (isInlineMention(text, start, end, closed)) return end;
   const raw = tagRaw(text, opener, start, end, tagEnd, closeAt, closed, to);
   const { parsed, code } = parseTagCall(raw, opener, schema);
-  if (!closed) {
-    if (parsed === null) return tagEnd;
-    const [name, args] = normalizeCall(parsed, schema);
-    if (!known(name, schema)) return tagEnd;
-    ctx.calls.push({ id: newCallId(), name, arguments: args });
-    ctx.removed.push([start, to]);
-    return to;
-  }
+  if (!closed) return unclosedTagAt(ctx, m, to, parsed);
   if (parsed === null) {
     ctx.errors.push({ code, message: `malformed tool call (${FAILURE_REASONS[code] ?? code})` });
     return end;
@@ -206,6 +198,21 @@ function tagAt(ctx: Scan, m: RegExpExecArray, to: number): number {
   ctx.calls.push({ id: newCallId(), name, arguments: args });
   ctx.removed.push([start, end]);
   return end;
+}
+
+/** A tag quoted inline as `<tool_call>...</tool_call>` is a mention, not a call. */
+function isInlineMention(text: string, start: number, end: number, closed: boolean): boolean {
+  return closed && start > 0 && text[start - 1] === "`" && text[end] === "`";
+}
+
+/** Unclosed opener: a call only if it parses to a known tool, otherwise plain text. */
+function unclosedTagAt(ctx: Scan, m: RegExpExecArray, to: number, parsed: [string, Json] | null): number {
+  if (parsed === null) return m.index + m[0].length;
+  const [name, args] = normalizeCall(parsed, ctx.schema);
+  if (!known(name, ctx.schema)) return m.index + m[0].length;
+  ctx.calls.push({ id: newCallId(), name, arguments: args });
+  ctx.removed.push([m.index, to]);
+  return to;
 }
 
 /** Bare JSON: an object (or array of objects) exactly shaped {name, arguments|parameters|args}. */

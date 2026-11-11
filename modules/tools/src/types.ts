@@ -67,17 +67,32 @@ export function validateArgs(args: Json, schema: Json, name: string): string | n
 function validateValue(value: unknown, schema: Json, label: string): string | null {
   const typeErr = typeError(value, schema);
   if (typeErr) return `${label}: ${typeErr}`;
+  if (!enumMatches(value, schema)) return `${label}: value not in enum`;
+  return validateNested(value, schema, label);
+}
+
+function enumMatches(value: unknown, schema: Json): boolean {
   const en = schema.enum as unknown[] | undefined;
-  if (en && !en.some((e) => JSON.stringify(e) === JSON.stringify(value))) return `${label}: value not in enum`;
+  return !en || en.some((e) => JSON.stringify(e) === JSON.stringify(value));
+}
+
+/** Array items and nested object properties. */
+function validateNested(value: unknown, schema: Json, label: string): string | null {
   const items = schema.items as Json | undefined;
   if (Array.isArray(value) && items && typeof items === "object") {
-    for (const el of value) {
-      const err = validateValue(el, items, label);
-      if (err) return err;
-    }
+    const err = validateItems(value, items, label);
+    if (err) return err;
   }
   if (typeMatches("object", value) && (schema.properties || schema.required)) {
     return validateArgs(value as Json, schema, label.replace(/^argument '([^']+)' for (.*)$/, "$2"));
+  }
+  return null;
+}
+
+function validateItems(values: unknown[], items: Json, label: string): string | null {
+  for (const el of values) {
+    const err = validateValue(el, items, label);
+    if (err) return err;
   }
   return null;
 }

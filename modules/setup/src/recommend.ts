@@ -1,6 +1,7 @@
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
-import { meetsHardRequirements, ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { ROLE_PROFILES, scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { asStr, hardRefusal, modelRefusal, roleRefusal } from "./recommendRefusals.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";
 import type { SetupContext } from "./setupContext.js";
 import { resolveModelProfile } from "@stewart/models";
@@ -282,14 +283,11 @@ function validateAssignment(
   cand: Map<string, Candidate>,
 ): { assignment: Assignment; dropped?: never } | { assignment?: never; dropped: string } {
   const a = (e ?? {}) as Record<string, unknown>;
-  const role = typeof a.role === "string" ? a.role : "";
-  const channel = typeof a.channel === "string" ? a.channel : "";
-  const model = typeof a.model === "string" ? a.model : "";
-  if (!roleIds.has(role)) return { dropped: `${role || "?"}: unknown role` };
-  const info = byId.get(channel);
-  if (!info) return { dropped: `${role}: unknown channel '${channel}'` };
-  if (!info.models.includes(model)) return { dropped: `${role}: unknown model '${model}' on ${channel}` };
-  const c = cand.get(`${channel}:${model}`);
-  if (c && !meetsHardRequirements(role, c)) return { dropped: `${role}: ${channel}:${model} fails hard requirements` };
+  const role = asStr(a.role);
+  const channel = asStr(a.channel);
+  const model = asStr(a.model);
+  const dropped = roleRefusal(role, roleIds) ?? modelRefusal(role, channel, model, byId) ?? hardRefusal(role, channel, model, cand);
+  if (dropped) return { dropped };
   return { assignment: { role, channel, model, reason: typeof a.reason === "string" ? a.reason : undefined } };
 }
+

@@ -38,23 +38,37 @@ function templateEnd(src: string, i: number): number {
   return src.length;
 }
 
+/** End (exclusive) of a comment starting at i, or -1. Index space: `a` (code points), except the block-comment search. */
+function commentEnd(src: string, a: string[], i: number): number {
+  if (a[i] !== "/") return -1;
+  if (a[i + 1] === "/") {
+    const e = a.indexOf("\n", i);
+    return e < 0 ? a.length : e;
+  }
+  if (a[i + 1] === "*") {
+    const e = src.indexOf("*/", i + 2);
+    return e < 0 ? a.length : e + 2;
+  }
+  return -1;
+}
+
+/** End (exclusive) of a string/char/template literal starting at i, or -1 if it is unterminated or not a literal. */
+function literalEnd(src: string, i: number, c: string): number {
+  if (c === '"' || c === "'") {
+    const e = closingQuote(src, i, c);
+    return e >= 0 ? e + 1 : -1;
+  }
+  if (c === "`") return templateEnd(src, i);
+  return -1;
+}
+
 /** Mask comments and string/char literals with spaces, preserving newlines and length. */
 export function maskBrace(src: string): string {
   const a = [...src];
   for (let i = 0; i < a.length; i++) {
-    const c = a[i];
-    if (c === "/" && a[i + 1] === "/") {
-      const e = a.indexOf("\n", i);
-      i = blankRange(a, i, e < 0 ? a.length : e) - 1;
-    } else if (c === "/" && a[i + 1] === "*") {
-      const e = src.indexOf("*/", i + 2);
-      i = blankRange(a, i, e < 0 ? a.length : e + 2) - 1;
-    } else if (c === '"' || c === "'") {
-      const e = closingQuote(src, i, c);
-      if (e >= 0) i = blankRange(a, i, e + 1) - 1;
-    } else if (c === "`") {
-      i = blankRange(a, i, templateEnd(src, i)) - 1;
-    }
+    const to = commentEnd(src, a, i);
+    const end = to >= 0 ? to : literalEnd(src, i, a[i]);
+    if (end >= 0) i = blankRange(a, i, end) - 1;
   }
   return a.join("");
 }
@@ -103,27 +117,36 @@ export function scanBrace(content: string): FunctionMetric[] {
 
 const INDENT_DEF = /^(\s*)(?:async\s+)?def\s+([A-Za-z_]\w*)/;
 
+/** Index of the first line after a def header whose parentheses (possibly multi-line) are balanced. */
+function defBodyStart(lines: string[], i: number): number {
+  let bodyStart = i + 1;
+  let bal = parenBalance(lines[i]);
+  while (bodyStart < lines.length && bal > 0) {
+    bal += parenBalance(lines[bodyStart]);
+    bodyStart++;
+  }
+  return bodyStart;
+}
+
+/** Index of the first non-blank line at or below the def's indent (Ruby: include its `end`), else lines.length. */
+function defEnd(lines: string[], from: number, indent: string, isRuby: boolean): number {
+  for (let j = from; j < lines.length; j++) {
+    const t = lines[j];
+    const ind = t.length - t.trimStart().length;
+    if (t.trim() && ind <= indent.length) {
+      return isRuby && ind === indent.length && t.trim() === "end" ? j + 1 : j;
+    }
+  }
+  return lines.length;
+}
+
 export function scanIndent(content: string, isRuby: boolean): FunctionMetric[] {
   const lines = maskIndent(content).split("\n");
   const fns: FunctionMetric[] = [];
   for (let i = 0; i < lines.length; i++) {
     const m = INDENT_DEF.exec(lines[i]);
     if (!m) continue;
-    let bodyStart = i + 1;
-    let bal = parenBalance(lines[i]);
-    while (bodyStart < lines.length && bal > 0) {
-      bal += parenBalance(lines[bodyStart]);
-      bodyStart++;
-    }
-    let end = lines.length;
-    for (let j = bodyStart; j < lines.length; j++) {
-      const t = lines[j];
-      const ind = t.length - t.trimStart().length;
-      if (t.trim() && ind <= m[1].length) {
-        end = isRuby && ind === m[1].length && t.trim() === "end" ? j + 1 : j;
-        break;
-      }
-    }
+    let end = defEnd(lines, defBodyStart(lines, i), m[1], isRuby);
     if (end === lines.length && lines[end - 1] === "") end--;
     const span = lines.slice(i, end);
     fns.push({ name: m[2], line: i + 1, lines: end - i, branches: indentBranches(span), depth: indentDepth(span) });

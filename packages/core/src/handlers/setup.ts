@@ -1,6 +1,6 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { userCaps } from "@stewart/models";
+import { userCaps, type ModelCaps } from "@stewart/models";
 import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
@@ -154,11 +154,7 @@ export async function handleChannelProbe(core: CoreCtx, params: unknown): Promis
   }
   try {
     const caps = await ch.probeCaps(p.model);
-    let perf = hit?.caps.perf;
-    if (p.bench && caps.imageGen !== true) {
-      perf = await benchModel(ch, p.model, core.clock, core.probeLoop).catch(() => perf);
-    }
-    const merged = perf ? { ...caps, perf } : caps;
+    const merged = await withBenchPerf(core, ch, { model: p.model, bench: p.bench, caps, prior: hit?.caps.perf });
     const probedAt = core.clock.now();
     core.probeCache.set(cacheKey, { caps: merged, probedAt });
     applyProbes(core, ctx.config);
@@ -166,6 +162,21 @@ export async function handleChannelProbe(core: CoreCtx, params: unknown): Promis
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+type ProbeChannel = NonNullable<ReturnType<CoreCtx["channelService"]["get"]>>;
+
+/** Attaches perf: a fresh bench when requested (skipped for image-gen models), else the prior perf. */
+async function withBenchPerf(
+  core: CoreCtx,
+  ch: ProbeChannel,
+  o: { model: string; bench?: boolean; caps: Partial<ModelCaps>; prior: ModelCaps["perf"] | undefined },
+): Promise<Partial<ModelCaps>> {
+  let perf = o.prior;
+  if (o.bench && o.caps.imageGen !== true) {
+    perf = await benchModel(ch, o.model, core.clock, core.probeLoop).catch(() => perf);
+  }
+  return perf ? { ...o.caps, perf } : o.caps;
 }
 
 type SetupRecommendParams = {

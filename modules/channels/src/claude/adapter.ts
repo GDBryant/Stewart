@@ -79,29 +79,39 @@ async function* consumeStdout(
   return failure;
 }
 
+interface FinishArgs {
+  parser: ClaudeStreamParser;
+  proc: SpawnedProc;
+  exitCode: number;
+  dbg: DebugSink | undefined;
+  rec: (direction: "stderr" | "error", payload: string) => void;
+}
+
+/** Debug-only: record stderr tail and a non-zero exit code. */
+async function recordExit({ proc, exitCode, dbg, rec }: FinishArgs): Promise<void> {
+  if (!dbg) return;
+  const err = await proc.stderrText();
+  if (err) rec("stderr", err.slice(-2000));
+  if (exitCode !== 0) rec("error", `exit code ${exitCode}`);
+}
+
+/** Error for a stream with no result event: clean exit means truncated stream, otherwise classify stderr. */
+async function incompleteError(proc: SpawnedProc, exitCode: number): Promise<ChannelError> {
+  if (exitCode === 0) return new ChannelError("stream ended before completion", 0, undefined, "incomplete_stream");
+  const tail = (await proc.stderrText()).slice(-2000);
+  const cls = classify(tail);
+  return new ChannelError(`Claude CLI exited with code ${exitCode}: ${tail}`, 0, undefined, cls === "auth" ? "auth" : "cli_exit");
+}
+
 /** Post-stream outcome: debug stderr/exit, then a done event or the right ChannelError. */
-async function finishChat(
-  parser: ClaudeStreamParser,
-  proc: SpawnedProc,
-  exitCode: number,
-  dbg: DebugSink | undefined,
-  rec: (direction: "stderr" | "error", payload: string) => void,
-): Promise<ChatEvent | undefined> {
-  if (dbg) {
-    const err = await proc.stderrText();
-    if (err) rec("stderr", err.slice(-2000));
-    if (exitCode !== 0) rec("error", `exit code ${exitCode}`);
-  }
+async function finishChat(args: FinishArgs): Promise<ChatEvent | undefined> {
+  const { parser, proc, exitCode } = args;
+  await recordExit(args);
   if (parser.toolTurnEnded || (parser.cutPending && !parser.resultSeen)) {
     const u = parser.turnUsage();
     return { kind: "done", usage: usageOf(u), costUsd: u?.costUsd };
   }
-  if (!parser.resultSeen) {
-    if (exitCode === 0) throw new ChannelError("stream ended before completion", 0, undefined, "incomplete_stream");
-    const tail = (await proc.stderrText()).slice(-2000);
-    const cls = classify(tail);
-    throw new ChannelError(`Claude CLI exited with code ${exitCode}: ${tail}`, 0, undefined, cls === "auth" ? "auth" : "cli_exit");
-  }
+  if (!parser.resultSeen) throw await incompleteError(proc, exitCode);
   if (exitCode !== 0) throw new ChannelError(`Claude CLI exited with code ${exitCode}`, 0, undefined, "cli_exit");
   const u = parser.turnUsage();
   return { kind: "done", usage: usageOf(u), costUsd: u?.costUsd, truncated: parser.finishReason === "length" };
@@ -233,7 +243,7 @@ export class ClaudeCliAdapter implements ChannelAdapter {
       const failure = yield* consumeStdout(proc, parser, req, rec);
       if (failure) throw new ChannelError(failure.message, 0, undefined, failure.code);
       const { code: exitCode } = await proc.done;
-      const fin = await finishChat(parser, proc, exitCode, dbg, rec);
+      const fin = await finishChat({ parser, proc, exitCode, dbg, rec });
       if (fin) yield fin;
     } finally {
       if (proc) await proc.kill().catch(() => {});

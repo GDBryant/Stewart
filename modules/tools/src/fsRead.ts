@@ -187,25 +187,33 @@ export class Search extends ProjectTool {
     const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const max = Math.min(Math.max(optInt(args, "max_results") ?? MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
-    const results: string[] = [];
-    let overflow = 0;
-    for (const rel of await this.paths.list(dir)) {
-      if (results.length >= max) {
-        overflow++;
-        continue;
-      }
-      try {
-        const st = await this.paths.stat(rel);
-        if (st.size > MAX_FILE_BYTES) continue;
-        const { content } = await this.paths.read(rel);
-        if (isBinary(content)) continue;
-        overflow += scanContent(rel, content, query, regex, max, results);
-      } catch {
-      }
-    }
+    const { results, overflow } = await searchTree(this.paths, { dir, query, regex, max });
     if (overflow > 0) results.push(`[${overflow} more]`);
     return results.length === 0 ? "no matches" : results.join("\n");
   }
+}
+
+async function searchTree(
+  paths: ProjectPaths,
+  o: { dir: string; query: string; regex: ReturnType<typeof queryRegex>; max: number },
+): Promise<{ results: string[]; overflow: number }> {
+  const results: string[] = [];
+  let overflow = 0;
+  for (const rel of await paths.list(o.dir)) {
+    if (results.length >= o.max) {
+      overflow++;
+      continue;
+    }
+    try {
+      const st = await paths.stat(rel);
+      if (st.size > MAX_FILE_BYTES) continue;
+      const { content } = await paths.read(rel);
+      if (isBinary(content)) continue;
+      overflow += scanContent(rel, content, o.query, o.regex, o.max, results);
+    } catch {
+    }
+  }
+  return { results, overflow };
 }
 
 export class GetProblems extends ProjectTool {

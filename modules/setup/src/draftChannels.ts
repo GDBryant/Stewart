@@ -43,20 +43,39 @@ export async function addDraftChannel(deps: Deps, draft: SetupDraft, input: Draf
   const current = (await deps.readUserFiles())[FILE];
   const items = parseItems(current);
   if (!items) return fail("channels.yaml is not valid YAML; fix it in Settings first");
-  const taken = items.some((i) => i.id === id) || (deps.existingChannelIds?.() ?? []).includes(id);
-  if (taken && !draft.addedChannels.includes(id)) return fail(`channel '${id}' already exists`);
+  if (isRefusedId(deps, draft, items, id)) return fail(`channel '${id}' already exists`);
   if (apiKey && !deps.setSecret) return fail("secret storage is unavailable");
 
-  if (draft.channelsBase === undefined) draft.channelsBase = current ?? null;
-  const secretRef = apiKey ? (input.secretRef ?? `channel-${id}`) : input.secretRef;
-  if (apiKey && secretRef) {
-    if (!draft.secretsCreated.includes(secretRef)) draft.secretsCreated.push(secretRef);
-    await deps.setSecret!(secretRef, apiKey);
-  }
-  const item: Item = { id, type, enabled: input.enabled ?? true, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(secretRef ? { secretRef } : {}) };
-  await deps.writeUserFile(FILE, render([...items.filter((i) => i.id !== id), item]));
+  captureBase(draft, current);
+  const secretRef = secretRefFor(id, input, apiKey);
+  await stageSecret(deps, draft, secretRef, apiKey);
+  await deps.writeUserFile(FILE, render([...items.filter((i) => i.id !== id), buildItem(id, type, input, secretRef)]));
   if (!draft.addedChannels.includes(id)) draft.addedChannels.push(id);
   return { ok: true };
+}
+
+/** True when the id exists in channels.yaml or elsewhere, and this session did not add it (re-adding its own channel is allowed). */
+function isRefusedId(deps: Deps, draft: SetupDraft, items: Item[], id: string): boolean {
+  const taken = items.some((i) => i.id === id) || (deps.existingChannelIds?.() ?? []).includes(id);
+  return taken && !draft.addedChannels.includes(id);
+}
+
+function captureBase(draft: SetupDraft, current: string | undefined): void {
+  if (draft.channelsBase === undefined) draft.channelsBase = current ?? null;
+}
+
+function secretRefFor(id: string, input: DraftChannelInput, apiKey: string | undefined): string | undefined {
+  return apiKey ? (input.secretRef ?? `channel-${id}`) : input.secretRef;
+}
+
+async function stageSecret(deps: Deps, draft: SetupDraft, ref: string | undefined, apiKey: string | undefined): Promise<void> {
+  if (!apiKey || !ref) return;
+  if (!draft.secretsCreated.includes(ref)) draft.secretsCreated.push(ref);
+  await deps.setSecret!(ref, apiKey);
+}
+
+function buildItem(id: string, type: string, input: DraftChannelInput, secretRef: string | undefined): Item {
+  return { id, type, enabled: input.enabled ?? true, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(secretRef ? { secretRef } : {}) };
 }
 
 /** Remove a channel this session added (and its secret); other channels are never touched. */

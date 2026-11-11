@@ -1,6 +1,7 @@
 import { ChannelDrain } from "./probeDrain.js";
 import { abortWait } from "./smoke.js";
 import {
+  attemptBase,
   key,
   MAX_SMOKE_ATTEMPTS,
   normalizeReason,
@@ -10,6 +11,7 @@ import {
   type ProbeSnapshot,
   type ProbeStatus,
   type SmokeCandidate,
+  type SmokeResult,
   type SmokeState,
 } from "./probeTypes.js";
 
@@ -207,7 +209,7 @@ export class SetupProbeRunner {
     const k = key(c);
     const now = this.deps.now ?? Date.now;
     const prior = this.results.get(k);
-    const base = { channel: c.channel, model: c.model, attempts: (prior?.attempts ?? 0) + 1, lastReason: prior?.lastReason ?? prior?.reason };
+    const base = attemptBase(c, prior);
     if (this.busy.isWedged(c.channel)) {
       this.putSkipped(c, "channel did not release the previous probe", prior);
       return;
@@ -232,15 +234,15 @@ export class SetupProbeRunner {
     this.emit();
     const r = await this.busy.attempt(ch, c, ctrl);
     if (runId !== this.runId) return; // superseded run: discard the late result
-    const state: SmokeState = r.state === "aborted" ? "skipped" : r.state;
-    this.results.set(k, {
-      ...base,
-      state,
-      reason: this.reason(state === "skipped" ? (prior?.lastReason ?? "stopped") : r.reason),
-      waitMs,
-      durationMs: Math.max(0, now() - t0),
-    });
+    const { state, reason } = this.settle(r, prior);
+    this.results.set(k, { ...base, state, reason, waitMs, durationMs: Math.max(0, now() - t0) });
     this.emit();
+  }
+
+  /** Map an attempt verdict to the stored state; an aborted attempt is reported as skipped. */
+  private settle(r: SmokeResult, prior: ProbeItem | undefined): { state: SmokeState; reason: string | undefined } {
+    const state: SmokeState = r.state === "aborted" ? "skipped" : r.state;
+    return { state, reason: this.reason(state === "skipped" ? (prior?.lastReason ?? "stopped") : r.reason) };
   }
 
   /** Accept-and-continue: stop admitting candidates and abort the in-flight probe. Idempotent. */

@@ -72,7 +72,8 @@ function rankPrompt(cands: RankCandidate[]): string {
   ].join("\n");
 }
 
-function validateRanking(text: string, cands: RankCandidate[]): SmokeCandidate[] | undefined {
+/** The `order` array from the first `{` to the last `}` of the reply, or undefined when absent or not JSON. */
+function parseOrder(text: string): unknown[] | undefined {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end <= start) return undefined;
@@ -82,11 +83,16 @@ function validateRanking(text: string, cands: RankCandidate[]): SmokeCandidate[]
   } catch {
     return undefined;
   }
-  if (!Array.isArray(parsed.order)) return undefined;
+  return Array.isArray(parsed.order) ? parsed.order : undefined;
+}
+
+function validateRanking(text: string, cands: RankCandidate[]): SmokeCandidate[] | undefined {
+  const order = parseOrder(text);
+  if (!order) return undefined;
   const known = new Map(cands.map((c) => [key(c), c]));
   const out: SmokeCandidate[] = [];
   const used = new Set<string>();
-  for (const e of parsed.order) {
+  for (const e of order) {
     if (typeof e !== "string") continue;
     const c = known.get(e);
     if (!c || used.has(e)) continue;

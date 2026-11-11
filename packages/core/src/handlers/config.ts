@@ -39,24 +39,34 @@ export async function handleConfigSet(core: CoreCtx, params: unknown): Promise<u
   const ctx = core.ctx(p.projectId);
   const schema = CONFIG_FILE_SCHEMAS[p.file];
   if (!schema) throw new Error(`unknown config file: ${p.file}`);
-  let doc: unknown;
+  checkConfigSchema(schema, p.file, parseConfigYaml(p.yaml));
+  await writeConfigLayer(core, ctx, { file: p.file, yaml: p.yaml, layer: p.layer ?? "user" });
+  await core.reload(p.projectId);
+  return { ok: true };
+}
+
+function parseConfigYaml(yaml: string): unknown {
   try {
-    doc = parseYaml(p.yaml);
+    return parseYaml(yaml);
   } catch (e) {
     throw new Error(`invalid YAML: ${e instanceof Error ? e.message : e}`);
   }
+}
+
+function checkConfigSchema(schema: (typeof CONFIG_FILE_SCHEMAS)[string], file: string, doc: unknown): void {
   const parsed = schema.safeParse(doc ?? {});
-  if (!parsed.success) throw new Error(`invalid ${p.file}: ${parsed.error.issues[0]?.message ?? "schema error"}`);
-  const layer = p.layer ?? "user";
-  if (layer === "project") {
-    if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
-    if (!isProjectFile(p.file)) throw new Error(`${p.file} is not allowed at project level`);
-    await writeProject(ctx, p.file, p.yaml);
-  } else {
-    await writeUser(core, p.file, p.yaml);
-  }
-  await core.reload(p.projectId);
-  return { ok: true };
+  if (!parsed.success) throw new Error(`invalid ${file}: ${parsed.error.issues[0]?.message ?? "schema error"}`);
+}
+
+async function writeConfigLayer(
+  core: CoreCtx,
+  ctx: ProjectCtx,
+  o: { file: string; yaml: string; layer: "user" | "project" },
+): Promise<void> {
+  if (o.layer !== "project") return writeUser(core, o.file, o.yaml);
+  if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
+  if (!isProjectFile(o.file)) throw new Error(`${o.file} is not allowed at project level`);
+  await writeProject(ctx, o.file, o.yaml);
 }
 
 export async function handleConfigImportV1(core: CoreCtx, params: unknown): Promise<unknown> {

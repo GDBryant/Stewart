@@ -15,6 +15,32 @@ import { recoveryCall } from "./brain.js";
 export type Recoverable = (rt: RunRuntime, spec: TaskSpec, deps: RoleTaskDeps, ctx: RecoveryContext) => Promise<TaskResult>;
 export type SplitContext = RecoveryContext & { recurse: Recoverable };
 
+const errText = (e: unknown): string => `${e instanceof Error ? e.message : e}`;
+
+/** Reads every sub-task output in plan order; the first unreadable file fails the assembly. */
+async function readSubtaskOutputs(rt: RunRuntime, plan: RecoveryPlan, taskDir: string): Promise<{ joined: string } | { error: string }> {
+  const parts: string[] = [];
+  for (const s of plan.subtasks) {
+    const p = `${taskDir}/${s.outputFile}`;
+    try {
+      parts.push((await rt.host.files.read(p)).content);
+    } catch (e) {
+      return { error: `cannot read ${p}: ${errText(e)}` };
+    }
+  }
+  return { joined: parts.join("\n") };
+}
+
+/** Current content of the target file, or null when it is absent or unreadable (treated as new). */
+async function readExisting(rt: RunRuntime, rel: string): Promise<string | null> {
+  try {
+    if (await rt.host.files.exists(rel)) return (await rt.host.files.read(rel)).content;
+  } catch {
+    /* treated as new */
+  }
+  return null;
+}
+
 export async function assembleFinalFile(
   rt: RunRuntime,
   spec: TaskSpec,
@@ -28,24 +54,12 @@ export async function assembleFinalFile(
   try {
     rel = paths.resolve(plan.finalFile);
   } catch (e) {
-    return { ok: false, error: `final_file rejected: ${e instanceof Error ? e.message : e}` };
+    return { ok: false, error: `final_file rejected: ${errText(e)}` };
   }
-  const parts: string[] = [];
-  for (const s of plan.subtasks) {
-    const p = `${taskDir}/${s.outputFile}`;
-    try {
-      parts.push((await rt.host.files.read(p)).content);
-    } catch (e) {
-      return { ok: false, error: `cannot read ${p}: ${e instanceof Error ? e.message : e}` };
-    }
-  }
-  const joined = parts.join("\n");
-  let before: string | null = null;
-  try {
-    if (await rt.host.files.exists(rel)) before = (await rt.host.files.read(rel)).content;
-  } catch {
-    /* treated as new */
-  }
+  const gathered = await readSubtaskOutputs(rt, plan, taskDir);
+  if ("error" in gathered) return { ok: false, error: gathered.error };
+  const joined = gathered.joined;
+  const before = await readExisting(rt, rel);
   const call: ToolCall = { id: `recovery-${spec.id}`, name: "WriteFile", arguments: { path: rel, content: joined } };
   const preview: ToolPreview = { kind: "file", path: rel, before, after: joined };
   const decision = await rt.approve(call, preview, { roleId: role.id, taskId: spec.id });
@@ -53,7 +67,7 @@ export async function assembleFinalFile(
   try {
     await rt.host.files.edit({ path: rel, content: joined });
   } catch (e) {
-    return { ok: false, error: `final_file write failed: ${e instanceof Error ? e.message : e}` };
+    return { ok: false, error: `final_file write failed: ${errText(e)}` };
   }
   return { ok: true, rel };
 }

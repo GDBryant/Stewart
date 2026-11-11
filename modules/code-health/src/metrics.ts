@@ -1,4 +1,4 @@
-import type { FileMetrics, MetricsSummary, Suppression } from "./types.js";
+import type { FileMetrics, FunctionMetric, MetricsSummary, Suppression } from "./types.js";
 import { measuredFamily, scanBrace, scanIndent } from "./scan.js";
 
 const SUPPRESSION_RES = [
@@ -31,6 +31,15 @@ export function scanMetrics(path: string, content: string): FileMetrics {
   }
 }
 
+function addFunctionStats(s: MetricsSummary, fn: FunctionMetric): void {
+  if (fn.branches > 10) s.branchesOver10++;
+  if (fn.branches > 15) s.branchesOver15++;
+  if (fn.lines > 60) s.linesOver60++;
+  if (fn.lines > 120) s.linesOver120++;
+  if (fn.depth >= 4) s.depth4++;
+  if (fn.depth >= 5) s.depth5++;
+}
+
 export function summarizeMetrics(files: FileMetrics[]): MetricsSummary {
   const s: MetricsSummary = {
     files: files.length, loc: 0, notMeasured: 0, functions: 0,
@@ -47,14 +56,7 @@ export function summarizeMetrics(files: FileMetrics[]): MetricsSummary {
     s.suppressions += f.suppressions.length;
     if (f.loc > 500) s.filesOver500++;
     if (f.loc > 1000) s.filesOver1000++;
-    for (const fn of f.functions) {
-      if (fn.branches > 10) s.branchesOver10++;
-      if (fn.branches > 15) s.branchesOver15++;
-      if (fn.lines > 60) s.linesOver60++;
-      if (fn.lines > 120) s.linesOver120++;
-      if (fn.depth >= 4) s.depth4++;
-      if (fn.depth >= 5) s.depth5++;
-    }
+    for (const fn of f.functions) addFunctionStats(s, fn);
   }
   return s;
 }

@@ -6,6 +6,7 @@ import { ChannelDot } from "./channelColors.js";
 import { BusyNote, Spinner } from "./Busy.js";
 
 type Assignment = NonNullable<State["recommendation"]>["assignments"][number];
+type Recommendation = NonNullable<State["recommendation"]>;
 
 function ReviewRoleRow({
   role, assignment, unfilled, chosen, edit, catalog, options, onChange,
@@ -41,9 +42,7 @@ function ReviewRoleRow({
   );
 }
 
-export function ReviewStep({
-  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, onApply, onBack, onUseRules,
-}: {
+type ReviewProps = {
   rec: State["recommendation"];
   recommendBusy: State["recommendBusy"];
   recommendError: State["recommendError"];
@@ -58,21 +57,50 @@ export function ReviewStep({
   onApply(): void;
   onBack(): void;
   onUseRules(): void;
-}) {
+};
+
+function busyLabel(bench: boolean, evalMode: "rules" | "ai"): string {
+  if (bench) return "Measuring model speed and building the proposal — this can take several minutes…";
+  return evalMode === "ai" ? "AI evaluator is refining the proposal — this can take a few minutes…" : "Matching models to roles…";
+}
+
+type ReviewRowsProps = Pick<ReviewProps, "roles" | "rowFor" | "edits" | "probeResults" | "eligiblePairs" | "onEditRole"> & { rec: Recommendation };
+
+function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, onEditRole }: ReviewRowsProps) {
+  return (
+    <div>
+      {rec.researcher ? <div class="hint">Refined by {rec.researcher.channel}:{rec.researcher.model}</div> : null}
+      {roles.map((r) => {
+        const a = rec.assignments.find((x) => x.role === r.id);
+        const un = rec.unfilled?.find((x) => x.role === r.id);
+        const chosen = rowFor(r.id);
+        const catalog = chosen ? probeResults[chosen]?.catalog : undefined;
+        return (
+          <ReviewRoleRow
+            key={r.id}
+            role={r}
+            assignment={a}
+            unfilled={un}
+            chosen={chosen}
+            edit={edits[r.id]}
+            catalog={catalog}
+            options={eligiblePairs}
+            onChange={(ref) => onEditRole(r.id, ref)}
+          />
+        );
+      })}
+      {rec.dropped?.length ? <div class="hint">Ignored AI picks: {rec.dropped.join("; ")}</div> : null}
+    </div>
+  );
+}
+
+export function ReviewStep({
+  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, onApply, onBack, onUseRules,
+}: ReviewProps) {
   return (
     <div class="form">
       <p><b>What to do:</b> check who does what. Change any row, or leave a role off. Warnings mean the model is weak for that role.</p>
-      {recommendBusy ? (
-        <BusyNote
-          label={
-            bench
-              ? "Measuring model speed and building the proposal — this can take several minutes…"
-              : evalMode === "ai"
-                ? "AI evaluator is refining the proposal — this can take a few minutes…"
-                : "Matching models to roles…"
-          }
-        />
-      ) : null}
+      {recommendBusy ? <BusyNote label={busyLabel(bench, evalMode)} /> : null}
       {recommendError ? (
         <div class="fail">
           {recommendError}
@@ -80,29 +108,7 @@ export function ReviewStep({
         </div>
       ) : null}
       {rec ? (
-        <div>
-          {rec.researcher ? <div class="hint">Refined by {rec.researcher.channel}:{rec.researcher.model}</div> : null}
-          {roles.map((r) => {
-            const a = rec.assignments.find((x) => x.role === r.id);
-            const un = rec.unfilled?.find((x) => x.role === r.id);
-            const chosen = rowFor(r.id);
-            const catalog = chosen ? probeResults[chosen]?.catalog : undefined;
-            return (
-              <ReviewRoleRow
-                key={r.id}
-                role={r}
-                assignment={a}
-                unfilled={un}
-                chosen={chosen}
-                edit={edits[r.id]}
-                catalog={catalog}
-                options={eligiblePairs}
-                onChange={(ref) => onEditRole(r.id, ref)}
-              />
-            );
-          })}
-          {rec.dropped?.length ? <div class="hint">Ignored AI picks: {rec.dropped.join("; ")}</div> : null}
-        </div>
+        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} />
       ) : null}
       <div class="row">
         <button class="small" onClick={onBack}>Back</button>
