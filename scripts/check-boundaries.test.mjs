@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findViolations, moduleOf } from "./check-boundaries.mjs";
+import { findViolations, moduleOf, sizeFindings } from "./check-boundaries.mjs";
 
 const cfg = { map: [["a.ts", "low"], ["b/", "high"]], appLayer: 9, maxLines: 3 };
 const layers = { low: 1, high: 2 };
@@ -17,4 +17,15 @@ test("downward import ok; upward import and oversize file flagged", () => {
 });
 test("same-module import is fine", () => {
   assert.deepEqual(findViolations({ "b/x.ts": 'import {y} from "./y.js";', "b/y.ts": "" }, cfg, layers), []);
+});
+
+const lines = (n) => Array(n).fill("x").join("\n");
+test("sizeFindings: under soft passes, soft-to-hard warns, over hard fails", () => {
+  const r = sizeFindings({ "ok.ts": lines(3), "edge.ts": lines(5), "long.ts": lines(6), "huge.ts": lines(11) }, 5, 10);
+  assert.deepEqual(r.warn, ["long.ts (6)"]);
+  assert.deepEqual(r.fail, ["size huge.ts"]);
+});
+test("sizeFindings: exactly at hard limit is a warning, not a failure", () => {
+  const r = sizeFindings({ "a.ts": lines(10) }, 5, 10);
+  assert.deepEqual(r, { warn: ["a.ts (10)"], fail: [] });
 });
