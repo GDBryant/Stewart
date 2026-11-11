@@ -343,3 +343,34 @@ describe("continueQuestion as Prompt", () => {
     }
   });
 });
+
+describe("recoverable split gating", () => {
+  const splitRun = (rt: RunRuntime, ctx: { depth: number; brain?: unknown }) => {
+    let calls = 0;
+    const rec = createRecovery(async () => (calls++, fault("truncated", { transcript: [] })));
+    return rec.runTask(rt, spec, { role: role() }, ctx as never).then((res) => ({ res, calls }));
+  };
+  const brainCtx = { channel: undefined as never, agent: { id: "a", channel: "c", model: "m", effort: "medium" } as AgentDef };
+
+  it("does not split when the budget profile forbids it", async () => {
+    const { rt } = mkRt();
+    rt.budgetProfile = { allowSplit: false } as never;
+    const { res, calls } = await splitRun(rt, { depth: 0, brain: brainCtx });
+    expect(res.fault).toBe("truncated");
+    expect(calls).toBe(1);
+  });
+
+  it("does not split without a brain", async () => {
+    const { rt } = mkRt();
+    const { res, calls } = await splitRun(rt, { depth: 0 });
+    expect(res.fault).toBe("truncated");
+    expect(calls).toBe(1);
+  });
+
+  it("does not split at the maximum recovery depth", async () => {
+    const { rt } = mkRt();
+    const { res, calls } = await splitRun(rt, { depth: 2, brain: brainCtx });
+    expect(res.fault).toBe("truncated");
+    expect(calls).toBe(1);
+  });
+});

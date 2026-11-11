@@ -97,7 +97,7 @@ export async function recommendAssignments(
     return { ok: false, error: `researcher failed: ${e instanceof Error ? e.message : String(e)}`, channels };
   }
 
-  return parseAndValidate(text, config, channels, candidates, researcher, rules.unfilled);
+  return parseAndValidate(text, { config, channels, candidates, researcher, unfilled: rules.unfilled });
 }
 
 async function discoverChannels(
@@ -238,26 +238,32 @@ function formatContextBlock(sc: RecommendOptions["context"]): string {
   return ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";
 }
 
-function parseAndValidate(
-  text: string,
-  config: EffectiveConfig,
-  channels: RecommendChannelInfo[],
-  candidates: Candidate[],
-  researcher: { channel: string; model: string },
-  unfilled: Unfilled[],
-): RecommendResult {
-  const byId = new Map(channels.map((c) => [c.id, c]));
-  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
+/** Inputs the researcher answer is validated against. */
+interface ValidateContext {
+  config: EffectiveConfig;
+  channels: RecommendChannelInfo[];
+  candidates: Candidate[];
+  researcher: { channel: string; model: string };
+  unfilled: Unfilled[];
+}
+
+/** Parses the first `{` .. last `}` span of `text` as JSON; undefined when absent or malformed. */
+export function parseJsonObject(text: string): { assignments?: unknown } | undefined {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  let parsed: { assignments?: unknown } | undefined;
-  if (start >= 0 && end > start) {
-    try {
-      parsed = JSON.parse(text.slice(start, end + 1)) as { assignments?: unknown };
-    } catch {
-      parsed = undefined;
-    }
+  if (start < 0 || end <= start) return undefined;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as { assignments?: unknown };
+  } catch {
+    return undefined;
   }
+}
+
+function parseAndValidate(text: string, ctx: ValidateContext): RecommendResult {
+  const { config, channels, candidates, researcher, unfilled } = ctx;
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const cand = new Map(candidates.map((c) => [`${c.channel}:${c.model}`, c]));
+  const parsed = parseJsonObject(text);
   if (!parsed) {
     return { ok: false, error: "could not parse recommendation", raw: text.slice(0, 500), channels };
   }

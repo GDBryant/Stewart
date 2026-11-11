@@ -191,24 +191,26 @@ export class OrchestratedRun implements RunHost {
   }
 
   async rerunParkedTasks(onlyReplaced: boolean): Promise<void> {
-    const rt = this.rt;
-    const toRun = [...this.parked];
-    for (const taskId of toRun) {
+    for (const taskId of [...this.parked]) {
       const rec = this.graph.get(taskId);
-      if (!rec) continue;
-      const role = resolveRole(rt, rec.roleId);
-      if (!role) continue;
-      if (onlyReplaced && !this.overrides.has(role.id)) continue;
-      const effAgent = rt.config.agents.find((a) => a.id === (this.overrides.get(role.id) ?? role.agent));
-      if (!effAgent || (rt.cost.reached() && isCosting(effAgent))) continue;
-      const idx = this.parked.indexOf(taskId);
-      if (idx >= 0) this.parked.splice(idx, 1);
-      rec.status = "running";
-      await this.syncGraph();
-      rt.bus.emit({ kind: "task.started", runId: rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
-      const res = await rt.recoveryService.runTask(rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) }, { depth: 0, brain: { channel: this.channel, agent: this.agent } });
-      await this.applyTaskResult(rec, role, res, { requeueParked: false, announceLimit: false });
+      const role = rec && this.rerunRole(rec.roleId, onlyReplaced);
+      if (rec && role) await this.rerunTask(rec, role);
     }
+  }
+
+  /** Role to rerun a parked task under, or undefined when it cannot run now (unknown, not replaced, or costing past the cap). */
+  private rerunRole(roleId: string, onlyReplaced: boolean): RoleDef | undefined {
+    const role = resolveRole(this.rt, roleId);
+    if (!role || (onlyReplaced && !this.overrides.has(role.id))) return undefined;
+    const effAgent = this.rt.config.agents.find((a) => a.id === (this.overrides.get(role.id) ?? role.agent));
+    return !effAgent || (this.rt.cost.reached() && isCosting(effAgent)) ? undefined : role;
+  }
+  private async rerunTask(rec: TaskRecord, role: RoleDef): Promise<void> {
+    if (this.parked.includes(rec.id)) this.parked.splice(this.parked.indexOf(rec.id), 1);
+    rec.status = "running"; await this.syncGraph();
+    this.rt.bus.emit({ kind: "task.started", runId: this.rt.runId, taskId: rec.id, roleId: role.id, agentId: this.overrides.get(role.id) ?? role.agent });
+    const res = await this.rt.recoveryService.runTask(this.rt, rec, { role, nestedTools: this.roleVerbs(role, rec.id, 1) }, { depth: 0, brain: { channel: this.channel, agent: this.agent } });
+    await this.applyTaskResult(rec, role, res, { requeueParked: false, announceLimit: false });
   }
 
   private async dispatchArgs(args: { role?: string; task: string; files?: string[]; dependsOn?: string[]; expect?: string; title?: string }, depth: number): Promise<string> {

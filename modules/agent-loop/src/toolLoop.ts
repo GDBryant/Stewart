@@ -76,11 +76,7 @@ export class ToolLoop {
     turn.open = true;
     const s = await streamTurn(
       { channel: this.channel, registry: this.registry, toolsMode: this.toolsMode, modelCallTimeoutMs: this.limits.modelCallTimeoutMs ?? 0 },
-      model,
-      this.outbound(base, produced),
-      listener,
-      signal,
-      turn,
+      { model, outbound: this.outbound(base, produced), listener, signal, turn },
     );
     const decision = await this.handleStreamOutcome(s, st.truncRetries, listener);
     if (decision.kind === "retry") {
@@ -109,23 +105,13 @@ export class ToolLoop {
     return compactIfOver(base, produced, this.limits.maxContextChars, listener);
   }
 
-  private async handleStreamOutcome(
-    s: StreamOutcome,
-    truncRetries: number,
-    listener: LoopListener,
-  ): Promise<{ kind: "retry" } | { kind: "failed"; message: string; code?: string } | { kind: "parse" }> {
+  private async handleStreamOutcome(s: StreamOutcome, truncRetries: number, listener: LoopListener): Promise<StreamDecision> {
     if (s.sawDone) await listener.onUsage?.(s.usage, s.costUsd);
     if (s.postDone) {
       return { kind: "failed", message: "provider emitted events after completion", code: "protocol_error" };
     }
-    const isStallTruncated = s.failed !== null && (/TRUNCATED|stream stalled/i.test(s.failed.message) || (s.failed as { code?: string }).code === "truncated");
-    if (s.sawTruncated || isStallTruncated) {
-      if (truncRetries < this.limits.maxTruncationRetries) {
-        return { kind: "retry" };
-      }
-      return { kind: "failed", message: s.failed?.message ?? "response truncated", code: "truncated" };
-    }
-    if (s.failed) return { kind: "failed", message: s.failed.message, code: (s.failed as { code?: string }).code };
+    if (isTruncated(s)) return truncationDecision(s, truncRetries, this.limits.maxTruncationRetries);
+    if (s.failed) return { kind: "failed", message: s.failed.message, code: failureCode(s.failed) };
     if (!s.sawDone) {
       return { kind: "failed", message: "stream ended before completion", code: "incomplete_stream" };
     }
@@ -205,6 +191,25 @@ interface RunState {
   turns: number;
   truncRetries: number;
   executed: number;
+}
+
+/** What the run loop does after one model call's stream has been judged. */
+type StreamDecision = { kind: "retry" } | { kind: "failed"; message: string; code?: string } | { kind: "parse" };
+
+/** The stream was cut short: the provider flagged truncation, or the failure reads as one. */
+function isTruncated(s: StreamOutcome): boolean {
+  if (s.sawTruncated) return true;
+  return s.failed !== null && (/TRUNCATED|stream stalled/i.test(s.failed.message) || failureCode(s.failed) === "truncated");
+}
+
+/** Retry a truncated turn while retries remain; otherwise fail it with the truncation code. */
+function truncationDecision(s: StreamOutcome, truncRetries: number, maxRetries: number): StreamDecision {
+  if (truncRetries < maxRetries) return { kind: "retry" };
+  return { kind: "failed", message: s.failed?.message ?? "response truncated", code: "truncated" };
+}
+
+function failureCode(e: Error): string | undefined {
+  return (e as { code?: string }).code;
 }
 
 /** Index of the latest assistant message carrying tool calls, or -1. */

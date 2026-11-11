@@ -57,6 +57,14 @@ describe("resolveLimits", () => {
     });
     expect(free.maxModelTurns).toBe(38); // 25 * 1.5 (cheap boost clamped)
   });
+  it("free agents keep factor 1; unpriced costing agents with no known price keep factor 1", () => {
+    const freeAgent = resolveLimits({ baseTurns: turns(), agent: agent({ billing: "free", price: { inPerMTok: 40, outPerMTok: 40 } }), profile: normal, ceiling: 60 });
+    expect(freeAgent.maxModelTurns).toBe(25);
+    const fromModel = resolveLimits({ baseTurns: turns(), agent: agent({ billing: "priced" }), profile: normal, ceiling: 60, model: modelFor() });
+    expect(fromModel.maxModelTurns).toBe(25);
+    const noPrice = resolveLimits({ baseTurns: turns(), agent: agent({ billing: "priced" }), profile: normal, ceiling: 60 });
+    expect(noPrice.maxModelTurns).toBe(25);
+  });
 
   it("agent.budget overrides derived factors", () => {
     const l = resolveLimits({

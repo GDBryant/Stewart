@@ -31,7 +31,7 @@ describe("ToolRegistry.for", () => {
   });
 
   it("the shipped code-health-reviewer registry exposes CodeMetrics and RunTerminal", async () => {
-    const cfg = loadConfig({}, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, false);
+    const cfg = loadConfig({}, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: false });
     const reviewer = cfg.roles.find((r) => r.id === "code-health-reviewer")!;
     const reg = (await mk()).for(reviewer);
     const names = reg.tools.map((t) => t.spec.name);

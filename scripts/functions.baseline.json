@@ -47,29 +47,11 @@
     "depth": 0,
     "params": 10
   },
-  "modules/agent-loop/src/toolLoop.ts::handleStreamOutcome": {
-    "lines": 22,
-    "complexity": 11,
-    "depth": 2,
-    "params": 3
-  },
   "modules/agent-loop/src/toolLoop.ts::finishTurn": {
     "lines": 24,
     "complexity": 9,
     "depth": 2,
     "params": 7
-  },
-  "modules/agent-loop/src/toolStream.ts::streamTurn": {
-    "lines": 44,
-    "complexity": 9,
-    "depth": 2,
-    "params": 6
-  },
-  "modules/budget/src/limits.ts::limitFactors": {
-    "lines": 10,
-    "complexity": 11,
-    "depth": 2,
-    "params": 3
   },
   "modules/channels/src/claude/adapter.ts::startClaudeProc": {
     "lines": 23,
@@ -107,21 +89,9 @@
     "depth": 4,
     "params": 5
   },
-  "modules/code-health/src/types.ts::mergeReports": {
-    "lines": 13,
-    "complexity": 11,
-    "depth": 2,
-    "params": 1
-  },
   "modules/compaction/src/compaction.ts::pruneTarget": {
     "lines": 8,
     "complexity": 7,
-    "depth": 1,
-    "params": 5
-  },
-  "modules/config/src/loader.ts::loadConfig": {
-    "lines": 12,
-    "complexity": 10,
     "depth": 1,
     "params": 5
   },
@@ -155,12 +125,6 @@
     "depth": 0,
     "params": 6
   },
-  "modules/orchestration/src/orchestratedRun.ts::rerunParkedTasks": {
-    "lines": 20,
-    "complexity": 11,
-    "depth": 2,
-    "params": 1
-  },
   "modules/orchestration/src/roleRunner.ts::buildSessionDeps": {
     "lines": 44,
     "complexity": 6,
@@ -171,12 +135,6 @@
     "lines": 13,
     "complexity": 6,
     "depth": 2,
-    "params": 5
-  },
-  "modules/orchestration/src/runSupport.ts::retryInput": {
-    "lines": 16,
-    "complexity": 10,
-    "depth": 1,
     "params": 5
   },
   "modules/orchestration/src/runSupport.ts::costSummary": {
@@ -190,12 +148,6 @@
     "complexity": 1,
     "depth": 0,
     "params": 1
-  },
-  "modules/recovery/src/recover.ts::runTaskRecoverable": {
-    "lines": 25,
-    "complexity": 10,
-    "depth": 2,
-    "params": 6
   },
   "modules/recovery/src/recover.ts::recoverFault": {
     "lines": 19,
@@ -257,47 +209,17 @@
     "depth": 0,
     "params": 5
   },
-  "modules/run-state/src/snapshots.ts::revertRunSnapshots": {
-    "lines": 31,
-    "complexity": 10,
-    "depth": 4,
-    "params": 3
-  },
   "modules/runs/src/direct.ts::execute": {
     "lines": 11,
     "complexity": 2,
     "depth": 1,
     "params": 5
   },
-  "modules/runs/src/direct.ts::askContinue": {
-    "lines": 28,
-    "complexity": 9,
-    "depth": 1,
-    "params": 6
-  },
-  "modules/runs/src/direct.ts::runTask": {
-    "lines": 16,
-    "complexity": 5,
-    "depth": 2,
-    "params": 5
-  },
-  "modules/runs/src/direct.ts::finishRun": {
-    "lines": 23,
-    "complexity": 11,
-    "depth": 1,
-    "params": 6
-  },
   "modules/runs/src/resume.ts::execute": {
     "lines": 1,
     "complexity": 1,
     "depth": 0,
     "params": 5
-  },
-  "modules/runs/src/resume.ts::loadResumeGraph": {
-    "lines": 27,
-    "complexity": 9,
-    "depth": 2,
-    "params": 7
   },
   "modules/runs/src/resume.ts::resumeRunRecord": {
     "lines": 13,
@@ -312,16 +234,10 @@
     "params": 6
   },
   "modules/runs/src/resume.ts::executeResume": {
-    "lines": 21,
+    "lines": 22,
     "complexity": 5,
     "depth": 2,
     "params": 6
-  },
-  "modules/runs/src/resume.ts::replayTask": {
-    "lines": 44,
-    "complexity": 9,
-    "depth": 1,
-    "params": 8
   },
   "modules/runs/src/runtime.ts::buildRunRuntime": {
     "lines": 63,
@@ -359,24 +275,6 @@
     "depth": 0,
     "params": 5
   },
-  "modules/setup/src/recommend.ts::parseAndValidate": {
-    "lines": 36,
-    "complexity": 9,
-    "depth": 2,
-    "params": 6
-  },
-  "modules/setup/src/setupContext.ts::scanWorkspace": {
-    "lines": 23,
-    "complexity": 11,
-    "depth": 2,
-    "params": 2
-  },
-  "modules/setup/src/smoke.ts::probeStepOutcome": {
-    "lines": 21,
-    "complexity": 11,
-    "depth": 2,
-    "params": 6
-  },
   "modules/setup/src/smoke.ts::smokeModel": {
     "lines": 55,
     "complexity": 7,
@@ -387,12 +285,6 @@
     "lines": 5,
     "complexity": 6,
     "depth": 1,
-    "params": 5
-  },
-  "modules/toolcall-format/src/shimParser.ts::spanCandidates": {
-    "lines": 33,
-    "complexity": 10,
-    "depth": 2,
     "params": 5
   },
   "modules/toolcall-format/src/shimParser.ts::scanSpan": {
@@ -406,12 +298,6 @@
     "complexity": 3,
     "depth": 1,
     "params": 8
-  },
-  "modules/toolcall-format/src/tagParsers.ts::findJsonToolName": {
-    "lines": 18,
-    "complexity": 11,
-    "depth": 1,
-    "params": 2
   },
   "modules/tools/src/codeMetrics.ts::collect": {
     "lines": 20,
@@ -461,24 +347,6 @@
     "depth": 0,
     "params": 1
   },
-  "packages/webview/src/SetupWizard.tsx::SetupWizard": {
-    "lines": 145,
-    "complexity": 10,
-    "depth": 0,
-    "params": 1
-  },
-  "packages/webview/src/agentExtra.tsx::AgentBadges": {
-    "lines": 15,
-    "complexity": 11,
-    "depth": 0,
-    "params": 1
-  },
-  "packages/webview/src/items.tsx::ItemCard": {
-    "lines": 47,
-    "complexity": 10,
-    "depth": 0,
-    "params": 1
-  },
   "packages/webview/src/items.tsx::ItemsSection": {
     "lines": 59,
     "complexity": 6,
@@ -496,12 +364,6 @@
     "complexity": 5,
     "depth": 0,
     "params": 5
-  },
-  "packages/webview/src/wizardDerived.ts::useWizardDerived": {
-    "lines": 21,
-    "complexity": 11,
-    "depth": 0,
-    "params": 1
   },
   "packages/webview/src/wizardStep1Channels.tsx::NewChannelForm": {
     "lines": 41,

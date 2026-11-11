@@ -8,7 +8,8 @@ import { runRoleTask } from "@stewart/orchestration";
 import { continueQuestion } from "@stewart/recovery";
 import type { RecoveryState, RunRuntime, TaskResult } from "@stewart/run-contract";
 import { loadProjectContext } from "@stewart/context";
-import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
+import { DIRECT_TASK_ID, chatRoleDef } from "./consts.js";
+import { outcomeOf } from "./outcome.js";
 import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
 import type { Run, RunHost } from "./types.js";
 
@@ -47,8 +48,8 @@ export const directStrategy: RunStrategy<DirectRequest> = {
   async execute(svc: RunHost, run: Run, rt: RunRuntime, req: DirectRequest, ctx: PlanCtx): Promise<RunOutcome> {
     const state = await startRun(svc, run, req);
     try {
-      const res = await runTask(svc, run, rt, req, state);
-      return finishRun(svc, run, rt, ctx, state, res);
+      const res = await runTask({ svc, run, rt, req, state });
+      return finishRun({ svc, run, rt, ctx }, res);
     } catch (e) {
       rt.leases.releaseAll();
       run.tasks![0].status = "failed";
@@ -63,6 +64,22 @@ type DirectState = {
   spec: TaskSpec;
   recovery: RecoveryState | undefined;
 };
+
+/** Everything a direct run's task loop needs; passed as one object to keep helper signatures short. */
+interface DirectCtx {
+  svc: RunHost;
+  run: Run;
+  rt: RunRuntime;
+  req: DirectRequest;
+  state: DirectState;
+}
+
+interface FinishCtx {
+  svc: RunHost;
+  run: Run;
+  rt: RunRuntime;
+  ctx: PlanCtx;
+}
 
 async function startRun(svc: RunHost, run: Run, req: DirectRequest): Promise<DirectState> {
   const rec = run.tasks![0];
@@ -85,28 +102,22 @@ function wantsContinue(res: TaskResult, recovery: RecoveryState | undefined, con
   );
 }
 
-async function askContinue(
-  svc: RunHost,
-  run: Run,
-  rt: RunRuntime,
-  req: DirectRequest,
-  state: DirectState,
-  res: TaskResult,
-): Promise<{ history: ChatMessage[]; offset: number } | null> {
+async function askContinue(c: DirectCtx, res: TaskResult): Promise<{ history: ChatMessage[]; offset: number } | null> {
   const transcript = res.transcript!;
-  const { spec } = state;
-  const r = state.recovery!;
+  const { spec } = c.state;
+  const r = c.state.recovery!;
+  const roleId = c.req.role?.id ?? "chat";
   const contPrompt = continueQuestion({
-    spec: { ...spec, roleId: req.role?.id ?? "chat" },
+    spec: { ...spec, roleId },
     turns: res.turnBudget ?? 0,
     transcript,
     maxActions: r.maxActionsInRecoveryBrief,
     canSplit: false,
     timeoutMs: r.continueQuestionTimeoutMs,
   });
-  const o = await rt.prompt(contPrompt, { roleId: req.role?.id ?? "chat", taskId: spec.id });
+  const o = await c.rt.prompt(contPrompt, { roleId, taskId: spec.id });
   const answer = o.kind === "answered" ? o.value : ({ kind: "timeout" } as const);
-  svc.deps.host.log(`[run ${run.id}] continue question: ${answer.kind === "text" ? "guidance" : answer.kind}`);
+  c.svc.deps.host.log(`[run ${c.run.id}] continue question: ${answer.kind === "text" ? "guidance" : answer.kind}`);
   if (answer.kind === "stop" || answer.kind === "timeout") return null;
   return {
     offset: transcript.length,
@@ -114,15 +125,16 @@ async function askContinue(
   };
 }
 
-async function runTask(svc: RunHost, run: Run, rt: RunRuntime, req: DirectRequest, state: DirectState): Promise<TaskResult> {
-  const { spec, chatRole, prompt, recovery } = state;
-  let history = run.messages;
+async function runTask(c: DirectCtx): Promise<TaskResult> {
+  const { spec, chatRole, prompt, recovery } = c.state;
+  const { rt, req } = c;
+  let history = c.run.messages;
   let continuations = 0;
   let questions = 0;
   let res = await runRoleTask(rt, spec, { role: chatRole, agent: req.agent, prompt: prompt || undefined, history });
   while (wantsContinue(res, recovery, continuations, questions)) {
     questions++;
-    const cont = await askContinue(svc, run, rt, req, state, res);
+    const cont = await askContinue(c, res);
     if (!cont) break;
     continuations++;
     history = cont.history;
@@ -131,26 +143,17 @@ async function runTask(svc: RunHost, run: Run, rt: RunRuntime, req: DirectReques
   return res;
 }
 
-function finishRun(svc: RunHost, run: Run, rt: RunRuntime, ctx: PlanCtx, state: DirectState, res: TaskResult): RunOutcome {
-  const runId = run.id;
+function finishRun(c: FinishCtx, res: TaskResult): RunOutcome {
+  const { svc, run, rt, ctx } = c;
   rt.leases.releaseAll();
   if (res.transcript) run.messages = res.transcript;
-  const outcome: RunOutcome =
-    res.status === "cancelled" || run.status === "cancelled"
-      ? rt.timeCap?.hit
-        ? { status: "interrupted", event: "stopped", error: timeCapMessage(rt.timeCap.ms) }
-        : { status: "cancelled", event: "cancelled" }
-      : res.status === "failed"
-        ? { status: "failed", event: "failed", error: res.summary }
-        : res.status === "stopped" || res.status === "parked"
-          ? { status: "interrupted", event: "stopped", error: res.summary }
-          : { status: "done", event: "done" };
+  const outcome = outcomeOf(run, rt, res);
   const rec = run.tasks![0];
   rec.status = outcome.status === "done" ? "done" : "failed";
   if (outcome.error) rec.error = outcome.error;
   if (rt.cost.accrued > 0) {
-    const c = ctx.ledger.cost(runId);
-    svc.deps.bus.emit({ kind: "cost.summary", runId, capUsd: rt.cost.cap, accruedUsd: rt.cost.accrued, overshootUsd: rt.cost.overshoot(), byRole: c.byRole, byAgent: c.byAgent, parked: [], freeFinished: [], suggestions: [] });
+    const cost = ctx.ledger.cost(run.id);
+    svc.deps.bus.emit({ kind: "cost.summary", runId: run.id, capUsd: rt.cost.cap, accruedUsd: rt.cost.accrued, overshootUsd: rt.cost.overshoot(), byRole: cost.byRole, byAgent: cost.byAgent, parked: [], freeFinished: [], suggestions: [] });
   }
   return outcome;
 }

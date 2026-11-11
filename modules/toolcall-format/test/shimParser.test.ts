@@ -306,3 +306,30 @@ describe("parseToolCalls: attribute-form tag and channel markers (gemma4 log 202
     expect(bad.errors.length).toBeGreaterThan(0);
   });
 });
+
+describe("parseToolCalls: JSON call name sources", () => {
+  const args = '"arguments":{"path":"a.ts"}';
+  it.each([
+    ["nested function object", `{"function":{"name":"ReadFile",${args}}}`],
+    ["string function field", `{"function":"ReadFile",${args}}`],
+    ["function_name field", `{"function_name":"ReadFile",${args}}`],
+  ])("resolves the name from the %s", (_label, body) => {
+    const r = parseToolCalls(`<tool_call>${body}</tool_call>`, schema);
+    expect(r.errors).toEqual([]);
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0].name).toBe("ReadFile");
+    expect(r.calls[0].arguments).toEqual({ path: "a.ts" });
+  });
+
+  it("rejects a closed call whose name is empty", () => {
+    const r = parseToolCalls(`<tool_call>{"name":"",${args}}</tool_call>`, schema);
+    expect(r.calls).toHaveLength(0);
+    expect(r.errors.map((e) => e.code)).toEqual(["TC-NAME-MISSING"]);
+  });
+
+  it("rejects a closed call with no name source at all", () => {
+    const r = parseToolCalls(`<tool_call>{"name":5,${args}}</tool_call>`, schema);
+    expect(r.calls).toHaveLength(0);
+    expect(r.errors.map((e) => e.code)).toEqual(["TC-NAME-MISSING"]);
+  });
+});

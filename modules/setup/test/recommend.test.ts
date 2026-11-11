@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
 import { loadEffectiveConfig } from "@stewart/roles-skills";
-import { recommendAssignments, type RecommendChannel } from "../src/recommend.js";
+import { parseJsonObject, recommendAssignments, type RecommendChannel } from "../src/recommend.js";
 
 const cfg = () =>
   loadEffectiveConfig(
@@ -285,5 +285,20 @@ describe("recommendAssignments prompt and validation", () => {
       expect(r.assignments.map((a) => a.role)).toEqual(["general-worker"]);
       expect(r.dropped).toContain("image-reader: c1:m1 fails hard requirements");
     }
+  });
+});
+
+describe("parseJsonObject", () => {
+  it("extracts a JSON object embedded in surrounding prose", () => {
+    expect(parseJsonObject('Sure: {"assignments":[]} done')).toEqual({ assignments: [] });
+  });
+
+  it("returns undefined when there is no brace pair", () => {
+    expect(parseJsonObject("no json here")).toBeUndefined();
+    expect(parseJsonObject("} backwards {")).toBeUndefined();
+  });
+
+  it("returns undefined for malformed JSON between the braces", () => {
+    expect(parseJsonObject('{"assignments": [}')).toBeUndefined();
   });
 });

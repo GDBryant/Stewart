@@ -101,12 +101,15 @@ export function toolOutputCap(maxContextChars: number, profile: BudgetProfile): 
 function limitFactors(agent: AgentBudgetInput | undefined, perf: ModelProfile["perf"] | undefined, modelPrice: ModelProfile["price"] | undefined): { timeoutFactor: number; turnFactor: number } {
   const timeoutFactor = agent?.budget?.timeoutFactor ?? clamp(REF_TOK_PER_SEC / (perf?.tokPerSec ?? REF_TOK_PER_SEC), 0.5, 4);
   const reliabilityFactor = perf?.toolReliability !== undefined && perf.toolReliability < 0.67 ? 0.75 : 1;
-  let costFactor = 1;
-  if (agent && isCosting(agent)) {
-    const blended = blendedCost(agent.price) ?? blendedCost(modelPrice);
-    if (blended !== undefined && blended > 0) costFactor = clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
-  }
-  return { timeoutFactor, turnFactor: agent?.budget?.turnFactor ?? costFactor * reliabilityFactor };
+  return { timeoutFactor, turnFactor: agent?.budget?.turnFactor ?? costFactorFor(agent, modelPrice) * reliabilityFactor };
+}
+
+/** Cheaper-than-reference costing agents get more turns (clamped 0.5..1.5); free or unpriced agents keep 1. */
+function costFactorFor(agent: AgentBudgetInput | undefined, modelPrice: ModelProfile["price"] | undefined): number {
+  if (!agent || !isCosting(agent)) return 1;
+  const blended = blendedCost(agent.price) ?? blendedCost(modelPrice);
+  if (blended === undefined || !(blended > 0)) return 1;
+  return clamp(REF_BLENDED_COST / blended, 0.5, 1.5);
 }
 
 export function resolveLimits(opts: {

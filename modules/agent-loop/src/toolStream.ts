@@ -33,15 +33,24 @@ export interface StreamDeps {
   modelCallTimeoutMs: number;
 }
 
-/** Streams one model call; accumulates text into `turn.text` so a cancel can recover the partial reply. */
-export async function streamTurn(
-  deps: StreamDeps,
-  model: string,
-  outbound: ChatMessage[],
-  listener: LoopListener,
-  signal: AbortSignal,
-  turn: TurnState,
-): Promise<StreamOutcome> {
+/** Per-turn inputs for `streamTurn`, grouped so the call takes two params. */
+export interface StreamRequest {
+  model: string;
+  outbound: ChatMessage[];
+  listener: LoopListener;
+  signal: AbortSignal;
+  turn: TurnState;
+}
+
+interface CallTimeout {
+  signal: AbortSignal;
+  timeoutMs: number;
+  timedOut(): boolean;
+  done(): void;
+}
+
+/** Streams one model call; accumulates text into `req.turn.text` so a cancel can recover the partial reply. */
+export async function streamTurn(deps: StreamDeps, req: StreamRequest): Promise<StreamOutcome> {
   const s: StreamOutcome = {
     calls: [],
     sawDone: false,
@@ -52,37 +61,36 @@ export async function streamTurn(
     costUsd: undefined,
   };
   const filter = deps.toolsMode === "shim" ? new ToolCallStreamFilter() : undefined;
-  const call = armCallTimeout(signal, deps.modelCallTimeoutMs);
-  const onDelta = streamDeltas(s, turn, listener, filter);
+  const call = armCallTimeout(req.signal, deps.modelCallTimeoutMs);
+  const onDelta = streamDeltas(s, req.turn, req.listener, filter);
   try {
     for await (const ev of deps.channel.chat({
-      model,
-      messages: outbound,
-      tools: deps.toolsMode === "native" ? deps.registry.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })) : undefined,
+      model: req.model,
+      messages: req.outbound,
+      tools: deps.toolsMode === "native" ? deps.registry.specs.map((t) => ({ name: t.name, description: t.description, schema: t.parameters })) : undefined,
       signal: call.signal,
     })) {
       onDelta(ev);
     }
     s.held = filter?.flush() ?? "";
   } catch (e) {
-    if (signal.aborted) throw e;
-    if (call.timedOut()) {
-      const err = new Error(`model call timed out after ${call.timeoutMs}ms`);
-      (err as { code?: string }).code = "call_timeout";
-      s.failed = err;
-    } else {
-      s.failed = e instanceof Error ? e : new Error(String(e));
-    }
+    if (req.signal.aborted) throw e;
+    s.failed = callFailure(e, call);
   } finally {
     call.done();
   }
   return s;
 }
 
-function armCallTimeout(
-  signal: AbortSignal,
-  timeoutMs: number,
-): { signal: AbortSignal; timeoutMs: number; timedOut(): boolean; done(): void } {
+/** The error a failed model call reports: a timeout error when our own timer fired, else the thrown error. */
+function callFailure(e: unknown, call: CallTimeout): Error {
+  if (!call.timedOut()) return e instanceof Error ? e : new Error(String(e));
+  const err = new Error(`model call timed out after ${call.timeoutMs}ms`);
+  (err as { code?: string }).code = "call_timeout";
+  return err;
+}
+
+function armCallTimeout(signal: AbortSignal, timeoutMs: number): CallTimeout {
   if (timeoutMs <= 0) return { signal, timeoutMs, timedOut: () => false, done: () => {} };
   const ctl = new AbortController();
   const onAbort = () => ctl.abort();

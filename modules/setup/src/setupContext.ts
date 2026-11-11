@@ -59,6 +59,18 @@ function countLines(text: string): number {
 export async function scanWorkspace(host: Pick<HostPort, "files" | "proc">, now: () => number = () => Date.now()): Promise<WorkspaceInfo> {
   const all = await host.files.list(".");
   const files = all.slice(0, SCAN_FILE_CAP);
+  const tally = await tallyFiles(host, files, now);
+  const monorepo = MONOREPO_MARKERS.some((m) => all.includes(m)) || tally.packageJsons >= 3;
+  const sizeClass = sizeClassOf(all.length, files.length, tally.loc);
+  return { files: files.length, loc: tally.loc, languages: tally.languages, monorepo, sizeClass };
+}
+
+/** Per-language file counts, total LOC and package.json count over the capped file list. */
+async function tallyFiles(
+  host: Pick<HostPort, "files">,
+  files: string[],
+  now: () => number,
+): Promise<{ languages: Record<string, number>; loc: number; packageJsons: number }> {
   const languages: Record<string, number> = {};
   const deadline = now() + SCAN_DEADLINE_MS;
   let loc = 0;
@@ -70,14 +82,13 @@ export async function scanWorkspace(host: Pick<HostPort, "files" | "proc">, now:
     languages[lang] = (languages[lang] ?? 0) + 1;
     loc += await countFileLoc(host, f, now, deadline);
   }
-  const monorepo = MONOREPO_MARKERS.some((m) => all.includes(m)) || packageJsons >= 3;
-  const sizeClass: WorkspaceInfo["sizeClass"] =
-    all.length >= SCAN_FILE_CAP || loc > 2_000_000 || files.length > 10_000
-      ? "large"
-      : files.length < 2_000 && loc < 200_000
-        ? "small"
-        : "medium";
-  return { files: files.length, loc, languages, monorepo, sizeClass };
+  return { languages, loc, packageJsons };
+}
+
+/** Large when the listing hit the cap, LOC or file count is huge; small when both are low; otherwise medium. */
+export function sizeClassOf(listed: number, counted: number, loc: number): WorkspaceInfo["sizeClass"] {
+  if (listed >= SCAN_FILE_CAP || loc > 2_000_000 || counted > 10_000) return "large";
+  return counted < 2_000 && loc < 200_000 ? "small" : "medium";
 }
 
 async function countFileLoc(host: Pick<HostPort, "files">, f: string, now: () => number, deadline: number): Promise<number> {

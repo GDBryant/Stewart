@@ -105,18 +105,38 @@ export function batchInventory(files: InventoryEntry[], max = { files: 8, loc: 3
   return batches;
 }
 
+interface MergeState {
+  files: Map<string, FileHealth>;
+  findings: Map<string, Finding>;
+  notChecked: Set<string>;
+  checks: Map<string, ProjectCheck>;
+}
+
+function findingKey(f: Finding): string {
+  return `${f.path}:${f.line ?? ""}:${f.smell}:${f.severity}`;
+}
+
+function checkKey(c: ProjectCheck): string {
+  return `${c.name}|${c.command}`;
+}
+
+/** Folds one report into the merge state; a later report overwrites an earlier entry with the same key. */
+function mergeInto(state: MergeState, r: HealthReport): void {
+  for (const f of r.files ?? []) state.files.set(f.path, f);
+  for (const f of r.findings ?? []) state.findings.set(findingKey(f), f);
+  for (const p of r.notChecked ?? []) state.notChecked.add(p);
+  for (const c of r.checks ?? []) state.checks.set(checkKey(c), c);
+}
+
 export function mergeReports(reports: HealthReport[]): HealthReport {
-  const files = new Map<string, FileHealth>();
-  const findings = new Map<string, Finding>();
-  const notChecked = new Set<string>();
-  const checks = new Map<string, ProjectCheck>();
-  for (const r of reports) {
-    for (const f of r.files ?? []) files.set(f.path, f);
-    for (const f of r.findings ?? []) findings.set(`${f.path}:${f.line ?? ""}:${f.smell}:${f.severity}`, f);
-    for (const p of r.notChecked ?? []) notChecked.add(p);
-    for (const c of r.checks ?? []) checks.set(`${c.name}|${c.command}`, c);
-  }
-  return { files: [...files.values()], findings: [...findings.values()], notChecked: [...notChecked], checks: [...checks.values()] };
+  const state: MergeState = { files: new Map(), findings: new Map(), notChecked: new Set(), checks: new Map() };
+  for (const r of reports) mergeInto(state, r);
+  return {
+    files: [...state.files.values()],
+    findings: [...state.findings.values()],
+    notChecked: [...state.notChecked],
+    checks: [...state.checks.values()],
+  };
 }
 
 export function aggregate(report: HealthReport): Aggregate {

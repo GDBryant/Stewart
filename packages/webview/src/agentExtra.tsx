@@ -3,18 +3,29 @@ import type { Store } from "./state.js";
 import type { AgentSummary, ChannelSummary } from "./bridge.js";
 import { agentCosts } from "./bridge.js";
 
-function AgentBadges({ item, ch, channels, caps }: { item: AgentSummary; ch: ChannelSummary | undefined; channels: ChannelSummary[]; caps: Record<string, unknown> }) {
-  const isUnmetered =
-    item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
+/** An agent is unmetered when its billing says so, or when an openai-compatible channel (other than aif) has no billing set. */
+export function isUnmeteredAgent(item: AgentSummary, ch: ChannelSummary | undefined): boolean {
+  return item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
+}
+
+function CapBadges({ caps }: { caps: Record<string, unknown> }) {
   return (
     <>
-      {agentCosts(item, channels) ? <span class="badge warn" title="This agent incurs cost">$ costs</span> : null}
-      {isUnmetered ? <span class="badge warn" title="Spend is not visible to cost limit">unmetered</span> : null}
       {typeof caps.tools === "string" ? <span class="badge">tools:{caps.tools}</span> : null}
       {caps.vision ? <span class="badge">vision</span> : null}
       {caps.reasoning ? <span class="badge">reasoning</span> : null}
       {caps.imageGen ? <span class="badge">imageGen</span> : null}
       {typeof caps.contextTokens === "number" ? <span class="badge">{Math.round(caps.contextTokens / 1000)}k</span> : null}
+    </>
+  );
+}
+
+function AgentBadges({ item, ch, channels, caps }: { item: AgentSummary; ch: ChannelSummary | undefined; channels: ChannelSummary[]; caps: Record<string, unknown> }) {
+  return (
+    <>
+      {agentCosts(item, channels) ? <span class="badge warn" title="This agent incurs cost">$ costs</span> : null}
+      {isUnmeteredAgent(item, ch) ? <span class="badge warn" title="Spend is not visible to cost limit">unmetered</span> : null}
+      <CapBadges caps={caps} />
     </>
   );
 }

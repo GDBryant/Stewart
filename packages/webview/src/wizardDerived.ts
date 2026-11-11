@@ -26,30 +26,43 @@ function getEvaluatorOptions(input: {
   return channelModels(store, evalChanObj).map((m) => ({ v: key(evalChan, m), label: m }));
 }
 
+/** Keeps the chosen channel when it is still offered, otherwise falls back to the first one ("" when none). */
+export function resolveEvalChannel(evalChannels: ChannelSummary[], evalChannel: string): string {
+  return evalChannels.some((c) => c.id === evalChannel) ? evalChannel : (evalChannels[0]?.id ?? "");
+}
+
+/** Keeps the chosen evaluator when it is still offered, otherwise falls back to the first option ("" when none). */
+export function resolveEvaluator(options: { v: string }[], evaluator: string): string {
+  return options.some((o) => o.v === evaluator) ? evaluator : (options[0]?.v ?? "");
+}
+
+/** Smoke-probe view of the candidate pairs: only green pairs are eligible once a run has happened. */
+export function smokeState(smoke: State["smoke"], pairs: { channel: string; model: string }[]) {
+  const smokeRan = !!smoke && smoke.status !== "idle";
+  const greenKeys = new Set((smoke?.green ?? []).map((g) => key(g.channel, g.model)));
+  const eligiblePairs = smokeRan ? pairs.filter((p) => greenKeys.has(key(p.channel, p.model))) : pairs;
+  const probeBusy = !smokeRan || smoke.status === "running";
+  const retryable = !!smoke?.items.some((i) => i.state === "orange" || i.state === "red" || i.state === "skipped");
+  return { eligiblePairs, probeBusy, retryable };
+}
+
 export function useWizardDerived(input: WizardDerivedInput) {
   const { store, channels, agents, source, added, evalChannel, evaluator } = input;
   const tests = store.state.channelTest;
   const enabled = channels.filter((c) => c.enabled);
   const okChannels = enabled.filter((c) => tests[c.id]?.ok);
   const pairs = okChannels.flatMap((c) => channelModels(store, c).map((m) => ({ channel: c.id, model: m })));
-  const smoke = store.state.smoke;
-  const smokeRan = !!smoke && smoke.status !== "idle";
-  const greenKeys = new Set((smoke?.green ?? []).map((g) => key(g.channel, g.model)));
-  const eligiblePairs = smokeRan ? pairs.filter((p) => greenKeys.has(key(p.channel, p.model))) : pairs;
-  const probeBusy = !smokeRan || smoke.status === "running";
-  const retryable = !!smoke?.items.some((i) => i.state === "orange" || i.state === "red" || i.state === "skipped");
-
+  const { eligiblePairs, probeBusy, retryable } = smokeState(store.state.smoke, pairs);
   const evalChannels = source === "existing" ? okChannels : okChannels.filter((c) => added.has(c.id));
-  const evalChan = evalChannels.some((c) => c.id === evalChannel) ? evalChannel : (evalChannels[0]?.id ?? "");
+  const evalChan = resolveEvalChannel(evalChannels, evalChannel);
   const evalChanObj = evalChannels.find((c) => c.id === evalChan);
   const evalAgents = evalChan ? agents.filter((a) => a.channel === evalChan) : [];
   const evalOptions = getEvaluatorOptions({ store, evalChanObj, evalChan, evalAgents, source });
-  const evalSel = evalOptions.some((o) => o.v === evaluator) ? evaluator : (evalOptions[0]?.v ?? "");
+  const evalSel = resolveEvaluator(evalOptions, evaluator);
   const probeSig = pairs.map((p) => key(p.channel, p.model)).sort().join("|");
 
-  return { tests, enabled, okChannels, pairs, smoke, eligiblePairs, probeBusy, retryable, evalChannels, evalChan, evalChanObj, evalAgents, evalOptions, evalSel, probeSig };
+  return { tests, enabled, okChannels, pairs, smoke: store.state.smoke, eligiblePairs, probeBusy, retryable, evalChannels, evalChan, evalChanObj, evalAgents, evalOptions, evalSel, probeSig };
 }
-
 export function useWizardChannelForm(input: { store: Store; channels: ChannelSummary[] }) {
   const { store, channels } = input;
   const [preset, setPreset] = useState(PRESETS[0]);

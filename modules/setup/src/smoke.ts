@@ -56,26 +56,37 @@ export function abortWait(signal: AbortSignal): Promise<"aborted"> {
 type ProbeAccum = { text: string; sawDone: boolean; sawTool: boolean };
 type ProbeFinish = (r: SmokeResult) => SmokeResult;
 
-function probeStepOutcome(
-  s: Step<ChatEvent>,
-  acc: ProbeAccum,
-  finish: ProbeFinish,
-  opts: SmokeOptions,
-  b: { signal: AbortSignal },
-  timeoutMs: number,
-): SmokeResult | "cont" | "done" {
-  if (s.kind === "stop") return finish(s.why === "timeout" ? { state: "orange", reason: `no response within ${timeoutMs}ms` } : { state: "aborted" });
-  if (s.kind === "error") {
-    if (opts.signal.aborted) return finish({ state: "aborted" });
-    if (b.signal.aborted) return finish({ state: "orange", reason: `no response within ${timeoutMs}ms` });
-    return finish({ state: "red", reason: s.error instanceof Error ? s.error.message : String(s.error) });
-  }
+/** Per-probe state shared by the step loop: accumulator, finisher, caller options, deadline signal, timeout. */
+interface ProbeCtx {
+  acc: ProbeAccum;
+  finish: ProbeFinish;
+  opts: SmokeOptions;
+  b: { signal: AbortSignal };
+  timeoutMs: number;
+}
+
+function probeStepOutcome(s: Step<ChatEvent>, ctx: ProbeCtx): SmokeResult | "cont" | "done" {
+  if (s.kind === "stop") return ctx.finish(stopResult(s.why, ctx.timeoutMs));
+  if (s.kind === "error") return ctx.finish(errorResult(s.error, ctx));
   if (s.kind === "done") return "done";
-  const ev = s.value;
+  accumulate(s.value, ctx.acc);
+  return "cont";
+}
+
+function stopResult(why: Stop, timeoutMs: number): SmokeResult {
+  return why === "timeout" ? { state: "orange", reason: `no response within ${timeoutMs}ms` } : { state: "aborted" };
+}
+
+function errorResult(error: unknown, ctx: ProbeCtx): SmokeResult {
+  if (ctx.opts.signal.aborted) return { state: "aborted" };
+  if (ctx.b.signal.aborted) return { state: "orange", reason: `no response within ${ctx.timeoutMs}ms` };
+  return { state: "red", reason: error instanceof Error ? error.message : String(error) };
+}
+
+function accumulate(ev: ChatEvent, acc: ProbeAccum): void {
   if (ev.kind === "text") acc.text += ev.text;
   else if (ev.kind === "tool_calls") acc.sawTool = true;
   else if (ev.kind === "done") acc.sawDone = true;
-  return "cont";
 }
 
 function probeVerdict(acc: ProbeAccum, finish: ProbeFinish): SmokeResult {
@@ -135,7 +146,7 @@ export async function smokeModel(channel: SmokeChannel, model: string, opts: Smo
   try {
     for (;;) {
       const s = await step(next, b.stop);
-      const r = probeStepOutcome(s, acc, finish, opts, b, timeoutMs);
+      const r = probeStepOutcome(s, { acc, finish, opts, b, timeoutMs });
       if (typeof r !== "string") return r;
       if (r === "done") break;
     }

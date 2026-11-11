@@ -196,3 +196,25 @@ describe("isSourceFile", () => {
     expect(isSourceFile("./dist/a.ts")).toBe(false);
   });
 });
+
+describe("mergeReports findings", () => {
+  const f = (over: Partial<import("../src/api.js").Finding>): import("../src/api.js").Finding =>
+    ({ path: "a.ts", smell: "long-fn", severity: "high", refactor: "split", ...over });
+
+  it("dedupes findings with the same path, line, smell and severity, last wins", () => {
+    const a: HealthReport = { files: [], findings: [f({ line: 3, refactor: "old" })], notChecked: [] };
+    const b: HealthReport = { files: [], findings: [f({ line: 3, refactor: "new" })], notChecked: [] };
+    const m = mergeReports([a, b]);
+    expect(m.findings).toEqual([f({ line: 3, refactor: "new" })]);
+  });
+
+  it("keeps findings that differ in line, line presence, or severity", () => {
+    const a: HealthReport = { files: [], findings: [f({ line: 3 }), f({}), f({ line: 3, severity: "low" })], notChecked: [] };
+    expect(mergeReports([a]).findings).toHaveLength(3);
+  });
+
+  it("tolerates reports missing their optional arrays", () => {
+    const m = mergeReports([{ files: undefined, findings: undefined, notChecked: undefined } as unknown as HealthReport]);
+    expect(m).toEqual({ files: [], findings: [], notChecked: [], checks: [] });
+  });
+});

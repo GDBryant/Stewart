@@ -77,21 +77,39 @@ export async function buildSession(host: RunHost): Promise<AgentSession> {
   );
 }
 
-function retryInput(host: RunHost, result: LoopResult, flags: { retried: boolean; nudged: boolean }, R: ReturnType<RunRuntime["recoveryService"]["state"]>, input: ChatMessage[]): ChatMessage[] | "return" {
+type RecoveryRun = ReturnType<RunRuntime["recoveryService"]["state"]>;
+
+/** Per-run retry bookkeeping shared across the Orchestrator's loop attempts. */
+export interface RetryContext {
+  host: RunHost;
+  R: RecoveryRun;
+  flags: { retried: boolean; nudged: boolean };
+}
+
+/** Layer 0: one retry of a truncated / incomplete-stream / turn-limit fault while the run has recovery budget. */
+function faultRetry(ctx: RetryContext, result: LoopResult, input: ChatMessage[]): ChatMessage[] | undefined {
+  const { host, R, flags } = ctx;
   const rt = host.rt;
   const fault = classifyFault(result);
-  if (fault && !flags.retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
-    flags.retried = true;
-    R.recoveriesUsed++;
-    rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
-    return fault === "incomplete_stream" ? input : [...host.history, { role: "user", content: `${host.userText}\n\n${rt.recoveryService.sizeHint}` }];
-  }
-  if (result.kind !== "failed" && !flags.nudged && host.dispatchCalls === 0 && lastReplyHasUnparsedCall(result.messages)) {
-    flags.nudged = true;
-    rt.recoveryService.log(rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
-    return [...host.history, { role: "user", content: `${host.userText}\n\n${CALL_NUDGE}` }];
-  }
-  return "return";
+  if (!fault || flags.retried || !(R.recoveriesUsed < R.maxRecoveriesPerRun)) return undefined;
+  flags.retried = true;
+  R.recoveriesUsed++;
+  rt.recoveryService.log(rt, `layer 0: ${fault} on orchestrator, retrying${fault === "incomplete_stream" ? "" : " with size hint"}`);
+  return fault === "incomplete_stream" ? input : [...host.history, { role: "user", content: `${host.userText}\n\n${rt.recoveryService.sizeHint}` }];
+}
+
+/** One format nudge when the Orchestrator emitted a tool call that did not parse before dispatching anything. */
+function formatNudge(ctx: RetryContext, result: LoopResult): ChatMessage[] | undefined {
+  const { host, flags } = ctx;
+  if (result.kind === "failed" || flags.nudged || host.dispatchCalls !== 0 || !lastReplyHasUnparsedCall(result.messages)) return undefined;
+  flags.nudged = true;
+  host.rt.recoveryService.log(host.rt, "layer 0: unparsed tool call on orchestrator, retrying with format nudge");
+  return [...host.history, { role: "user", content: `${host.userText}\n\n${CALL_NUDGE}` }];
+}
+
+/** Next input for another loop attempt, or "return" to hand the loop result back. */
+export function retryInput(ctx: RetryContext, result: LoopResult, input: ChatMessage[]): ChatMessage[] | "return" {
+  return faultRetry(ctx, result, input) ?? formatNudge(ctx, result) ?? "return";
 }
 
 function sessionError(host: RunHost, e: unknown): OrchestrationOutcome {
@@ -105,12 +123,11 @@ function sessionError(host: RunHost, e: unknown): OrchestrationOutcome {
 export async function runSession(host: RunHost, session: AgentSession): Promise<LoopResult | OrchestrationOutcome> {
   const rt = host.rt;
   try {
-    const R = rt.recoveryService.state(rt);
-    const flags = { retried: false, nudged: false };
+    const ctx: RetryContext = { host, R: rt.recoveryService.state(rt), flags: { retried: false, nudged: false } };
     let input: ChatMessage[] = [...host.history, { role: "user", content: host.userText }];
     while (true) {
       const result = await session.loop.run(host.agent.model, input, session.listener, rt.signal);
-      const next = retryInput(host, result, flags, R, input);
+      const next = retryInput(ctx, result, input);
       if (next === "return") return result;
       input = next;
     }

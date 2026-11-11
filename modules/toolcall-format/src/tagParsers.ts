@@ -43,22 +43,25 @@ function trimOneNewline(v0: string): string {
   return v;
 }
 
+function stringOrUndefined(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+/** Name of a JSON call: `name`, then a string `function`, then `function_name`. */
+function jsonCallName(obj: Json, fn: unknown): string | undefined {
+  return stringOrUndefined(obj["name"]) ?? stringOrUndefined(fn) ?? stringOrUndefined(obj["function_name"]);
+}
+
 function findJsonToolName(obj0: Json, prefix: string): [string, Json] {
-  let obj = obj0;
-  const fnRaw = obj["function"];
-  let fn: unknown = fnRaw;
-  if (isObj(fnRaw)) {
-    obj = fnRaw;
-    fn = undefined;
+  const fnRaw = obj0["function"];
+  const obj = isObj(fnRaw) ? fnRaw : obj0;
+  const name = jsonCallName(obj, isObj(fnRaw) ? undefined : fnRaw);
+  if (name == null) {
+    // No name: a prefix that is a valid tool name makes the whole object its arguments.
+    if (PREFIX_NAME_RE.test(prefix)) return [prefix, { arguments: obj }];
+    throw new ToolCallParseException("TC-NAME-MISSING");
   }
-  const name =
-    (typeof obj["name"] === "string" ? (obj["name"] as string) : undefined) ??
-    (typeof fn === "string" ? fn : undefined) ??
-    (typeof obj["function_name"] === "string" ? (obj["function_name"] as string) : undefined);
-  if (name == null && PREFIX_NAME_RE.test(prefix)) {
-    return [prefix, { arguments: obj }];
-  }
-  if (name == null || name === "") throw new ToolCallParseException("TC-NAME-MISSING");
+  if (name === "") throw new ToolCallParseException("TC-NAME-MISSING");
   return [name, obj];
 }
 

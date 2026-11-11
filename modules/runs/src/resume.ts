@@ -1,9 +1,10 @@
 import { questionPrompt } from "@stewart/interaction";
+import type { RoleDef } from "@stewart/config";
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord } from "@stewart/scheduling";
 import { resolveRole, runRoleTask } from "@stewart/orchestration";
-import type { RunRuntime } from "@stewart/run-contract";
+import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { loadProjectContext } from "@stewart/context";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
 import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
@@ -26,6 +27,8 @@ type PersistedRun = { id?: string; projectId?: string; text?: string; status?: s
 
 type ResumeState = { graph?: TaskGraph; interrupted: TaskRecord[]; text: string };
 
+const REPLAY_UNAVAILABLE = "resume unavailable: task graph replay is not implemented; starting over may repeat writes";
+
 /** Resume strategy: replays a journaled task graph; interrupted tasks re-dispatch under their original ids. */
 export function resumeStrategy(runId: string): RunStrategy<ResumeRequest> {
   const state: ResumeState = { interrupted: [], text: "" };
@@ -35,32 +38,50 @@ export function resumeStrategy(runId: string): RunStrategy<ResumeRequest> {
   };
 }
 
+/** Shared inputs for the resume load step; one object instead of a long parameter list. */
+interface ResumeLoad {
+  runId: string;
+  state: ResumeState;
+  svc: RunHost;
+  req: ResumeRequest;
+}
+
+/** Replay inputs for one interrupted task; one object instead of a long parameter list. */
+interface ReplayCtx {
+  svc: RunHost;
+  run: Run;
+  rt: RunRuntime;
+  req: ResumeRequest;
+  ctx: PlanCtx;
+  graph: TaskGraph;
+  text: string;
+}
+
 async function loadResumeGraph(
-  runId: string,
-  state: ResumeState,
-  svc: RunHost,
+  c: ResumeLoad,
   live: Run | undefined,
   persisted: { tasks?: unknown; text?: string; startedAt?: number; agentId?: string } | undefined,
-  req: ResumeRequest,
-  ctx: PlanCtx,
 ): Promise<RunPlan | Refusal | null> {
   const taskRecords = live?.tasks ?? persisted?.tasks;
   if (!Array.isArray(taskRecords) || taskRecords.length === 0) {
-    return { ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" };
+    return { ok: false, reason: REPLAY_UNAVAILABLE };
   }
   const graph = TaskGraph.fromJSON(taskRecords);
-  state.graph = graph;
+  c.state.graph = graph;
   const interrupted = graph.all().filter((t) => t.status !== "done");
-  state.interrupted = interrupted;
-  markInterrupted(svc, runId, interrupted);
-  if (req.confirmResume && interrupted.length > 0) {
-    if (!(await confirmInterrupted(svc, runId, interrupted.length))) {
-      return { ok: false, reason: "resume declined by user" };
-    }
+  c.state.interrupted = interrupted;
+  markInterrupted(c.svc, c.runId, interrupted);
+  if (!(await confirmedToResume(c, interrupted))) {
+    return { ok: false, reason: "resume declined by user" };
   }
-  state.text = live?.messages.find((m) => m.role === "user")?.content ?? persisted?.text ?? "";
-  void ctx;
+  c.state.text = live?.messages.find((m) => m.role === "user")?.content ?? persisted?.text ?? "";
   return null;
+}
+
+/** True when no confirmation is required, or the user picked Resume. */
+async function confirmedToResume(c: ResumeLoad, interrupted: TaskRecord[]): Promise<boolean> {
+  if (!c.req.confirmResume || interrupted.length === 0) return true;
+  return confirmInterrupted(c.svc, c.runId, interrupted.length);
 }
 
 function resumeRunRecord(runId: string, projectId: string, state: ResumeState, live: Run | undefined, persisted: { startedAt?: number; agentId?: string } | undefined, svc: RunHost, ctx: PlanCtx): Run {
@@ -90,7 +111,7 @@ async function planResume(
   const loaded = await loadPersistedRun(svc, runId, ctx.stateDir, live);
   if (!loaded.ok) return loaded;
   const { persisted } = loaded;
-  const early = await loadResumeGraph(runId, state, svc, live, persisted, req, ctx);
+  const early = await loadResumeGraph({ runId, state, svc, req }, live, persisted);
   if (early) return early;
   const run = resumeRunRecord(runId, projectId, state, live, persisted, svc, ctx);
   return { run, title: state.text, config: req.config, channelFor: req.channelFor };
@@ -106,9 +127,10 @@ async function executeResume(
 ): Promise<RunOutcome> {
   const graph = state.graph!;
   const timeCap = rt.timeCap;
+  const rc: ReplayCtx = { svc, run, rt, req, ctx, graph, text: state.text };
   for (const t of state.interrupted) {
     if (timeCap?.hit) break;
-    await replayTask(svc, run, rt, req, ctx, graph, t, state.text);
+    await replayTask(rc, t);
   }
   run.tasks = graph.toJSON();
   if (timeCap?.hit) {
@@ -134,7 +156,7 @@ async function loadPersistedRun(
     try {
       persisted = JSON.parse((await svc.deps.host.files.read(jPath)).content);
     } catch {
-      return { ok: false, reason: "resume unavailable: task graph replay is not implemented; starting over may repeat writes" };
+      return { ok: false, reason: REPLAY_UNAVAILABLE };
     }
   }
   return { ok: true, persisted };
@@ -155,18 +177,9 @@ async function confirmInterrupted(svc: RunHost, runId: string, count: number): P
   return o.kind === "answered" && o.value.startsWith("Resume");
 }
 
-async function replayTask(
-  svc: RunHost,
-  run: Run,
-  rt: RunRuntime,
-  req: ResumeRequest,
-  ctx: PlanCtx,
-  graph: TaskGraph,
-  t: TaskRecord,
-  text: string,
-): Promise<void> {
-  const isDirect = t.id === DIRECT_TASK_ID;
-  const role = resolveRole(rt, t.roleId) ?? (isDirect ? chatRoleDef() : undefined);
+async function replayTask(c: ReplayCtx, t: TaskRecord): Promise<void> {
+  const { svc, run, rt, ctx, graph } = c;
+  const role = resolveRole(rt, t.roleId) ?? (t.id === DIRECT_TASK_ID ? chatRoleDef() : undefined);
   if (!role) {
     t.status = "failed";
     t.summary = `no enabled role for '${t.roleId}'`;
@@ -176,17 +189,8 @@ async function replayTask(
   run.tasks = graph.toJSON();
   await svc.journal(run, ctx.stateDir);
   svc.deps.bus.emit({ kind: "task.started", runId: run.id, taskId: t.id, roleId: role.id });
-  // Direct run: lean replay (original request only; executed tool calls are skipped via the idempotency log).
-  const res = isDirect
-    ? await runRoleTask(
-        rt,
-        { ...t, task: `${text}\n\n(Resumed after interruption: continue; already-executed tool calls are skipped.)` },
-        {
-          role,
-          agent: run.agentId ? req.config.agents.find((a) => a.id === run.agentId) : undefined,
-          prompt: [await loadProjectContext(svc.deps.host)].filter(Boolean).join("") || undefined,
-        },
-      )
+  const res = t.id === DIRECT_TASK_ID
+    ? await replayDirect(c, t, role)
     : await rt.recoveryService.runTask(rt, t, { role }, { depth: 0, brain: rt.recoveryService.brain(rt) });
   rt.leases.release(t.id);
   t.filesTouched = res.filesTouched;
@@ -194,9 +198,28 @@ async function replayTask(
   t.summary = res.summary;
   run.tasks = graph.toJSON();
   await svc.journal(run, ctx.stateDir);
-  svc.deps.bus.emit(
+  emitReplayResult(c, t, role.id, res);
+}
+
+/** Direct run: lean replay (original request only; executed tool calls are skipped via the idempotency log). */
+async function replayDirect(c: ReplayCtx, t: TaskRecord, role: RoleDef): Promise<TaskResult> {
+  const { svc, run, rt, req, text } = c;
+  return runRoleTask(
+    rt,
+    { ...t, task: `${text}\n\n(Resumed after interruption: continue; already-executed tool calls are skipped.)` },
+    {
+      role,
+      agent: run.agentId ? req.config.agents.find((a) => a.id === run.agentId) : undefined,
+      prompt: [await loadProjectContext(svc.deps.host)].filter(Boolean).join("") || undefined,
+    },
+  );
+}
+
+function emitReplayResult(c: ReplayCtx, t: TaskRecord, roleId: string, res: TaskResult): void {
+  const runId = c.run.id;
+  c.svc.deps.bus.emit(
     res.status === "done"
-      ? { kind: "task.done", runId: run.id, taskId: t.id, roleId: role.id, summary: res.summary.slice(0, 400) }
-      : { kind: "task.failed", runId: run.id, taskId: t.id, roleId: role.id, error: res.summary.slice(0, 400) },
+      ? { kind: "task.done", runId, taskId: t.id, roleId, summary: res.summary.slice(0, 400) }
+      : { kind: "task.failed", runId, taskId: t.id, roleId, error: res.summary.slice(0, 400) },
   );
 }

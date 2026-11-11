@@ -41,3 +41,20 @@ describe("IdempotencyLog", () => {
     expect(again.get(key)).toBe("done");
   });
 });
+
+describe("firstEntryPerPath", () => {
+  it("keeps the first entry per path in first-seen order", async () => {
+    const { firstEntryPerPath } = await import("../src/snapshots.js");
+    const out = firstEntryPerPath([
+      JSON.stringify({ path: "b.ts", existed: true, snap: "b" }),
+      JSON.stringify({ path: "a.ts", existed: false, snap: "a" }),
+      JSON.stringify({ path: "b.ts", existed: false, snap: "b2" }),
+    ]);
+    expect(out.map((e) => [e.path, e.snap])).toEqual([["b.ts", "b"], ["a.ts", "a"]]);
+  });
+  it("skips corrupt lines and entries without a string path", async () => {
+    const { firstEntryPerPath } = await import("../src/snapshots.js");
+    expect(firstEntryPerPath(["not-json", JSON.stringify({ path: 3, snap: "x" }), JSON.stringify({ existed: true })])).toEqual([]);
+    expect(firstEntryPerPath([])).toEqual([]);
+  });
+});

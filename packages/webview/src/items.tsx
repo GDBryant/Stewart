@@ -16,6 +16,52 @@ function itemSummary(fields: Field[], form: Record<string, string>): string {
     .join(" · ");
 }
 
+function ItemCardTitle<T extends object>({
+  item, form, lead, extra, onRemove, editing, idMissing, onToggle, onSave,
+}: {
+  item: T;
+  form: Record<string, string>;
+  lead?: (item: T) => unknown;
+  extra?: (item: T) => unknown;
+  onRemove?(): void;
+  editing: boolean;
+  idMissing: boolean;
+  onToggle(): void;
+  onSave(): void;
+}) {
+  return (
+    <div class="card-title">
+      {lead ? lead(item) : null}
+      <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
+      <span class="spacer" />
+      {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
+      <button onClick={onToggle}>{editing ? "Cancel" : "Edit"}</button>
+      {editing ? (
+        <button class="send" disabled={idMissing} onClick={onSave}>
+          Save
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ItemCardBody({ editing, fields, form, set, modelsFor }: {
+  editing: boolean;
+  fields: Field[];
+  form: Record<string, string>;
+  set(k: string, v: string): void;
+  modelsFor?: (channelId: string) => string[];
+}) {
+  if (!editing) return <div class="summary">{itemSummary(fields, form)}</div>;
+  return (
+    <div class="form">
+      {fields.map((f) => (
+        <FieldRow key={f.key} field={f} form={form} set={set} modelsFor={modelsFor} />
+      ))}
+    </div>
+  );
+}
+
 function ItemCard<T extends object>({
   item, fields, onSave, onRemove, extra, lead, startEditing, modelsFor,
 }: {
@@ -37,29 +83,17 @@ function ItemCard<T extends object>({
     set("apiKey", "");
     setEditing(false);
   };
+  const toggle = () => {
+    if (editing) set("apiKey", "");
+    setEditing(!editing);
+  };
   return (
     <div class="card">
-      <div class="card-title">
-        {lead ? lead(item) : null}
-        <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
-        <span class="spacer" />
-        {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
-        <button onClick={() => { if (editing) set("apiKey", ""); setEditing(!editing); }}>{editing ? "Cancel" : "Edit"}</button>
-        {editing ? (
-          <button class="send" disabled={idMissing} onClick={save}>
-            Save
-          </button>
-        ) : null}
-      </div>
-      {editing ? (
-        <div class="form">
-          {fields.map((f) => (
-            <FieldRow key={f.key} field={f} form={form} set={set} modelsFor={modelsFor} />
-          ))}
-        </div>
-      ) : (
-        <div class="summary">{itemSummary(fields, form)}</div>
-      )}
+      <ItemCardTitle
+        item={item} form={form} lead={lead} extra={extra} onRemove={onRemove}
+        editing={editing} idMissing={idMissing} onToggle={toggle} onSave={save}
+      />
+      <ItemCardBody editing={editing} fields={fields} form={form} set={set} modelsFor={modelsFor} />
     </div>
   );
 }

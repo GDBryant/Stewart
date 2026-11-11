@@ -8,23 +8,31 @@ import { splitTask, type Recoverable } from "./split.js";
 import { continueQuestion } from "./continue.js";
 
 export function recoverable(runOnce: RunTaskOnce): Recoverable {
-  const self: Recoverable = (rt, spec, deps, ctx) => runTaskRecoverable(rt, spec, deps, ctx, runOnce, self);
+  const self: Recoverable = (rt, spec, deps, ctx) => runTaskRecoverable({ rt, spec, deps, ctx, runOnce, self });
   return self;
 }
 
 type RetryState = { retried: boolean; continuations: number; history?: ChatMessage[]; idemOffset?: number; extraBriefing?: string };
 
-async function runTaskRecoverable(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  deps: RoleTaskDeps,
-  ctx: RecoveryContext,
-  runOnce: RunTaskOnce,
-  self: Recoverable,
-): Promise<TaskResult> {
+/** One recoverable task run: the task inputs plus the runner and the recursive entry point. */
+interface RecoverableJob {
+  rt: RunRuntime;
+  spec: TaskSpec;
+  deps: RoleTaskDeps;
+  ctx: RecoveryContext;
+  runOnce: RunTaskOnce;
+  self: Recoverable;
+}
+
+function splitAllowed(rt: RunRuntime, ctx: RecoveryContext, R: RecoveryState): boolean {
+  return (rt.budgetProfile?.allowSplit ?? true) && ctx.depth < R.maxRecoveryDepth && !!ctx.brain;
+}
+
+async function runTaskRecoverable(job: RecoverableJob): Promise<TaskResult> {
+  const { rt, spec, deps, ctx, runOnce, self } = job;
   const R = ensureRecovery(rt);
   const worker = isWriteCapableRole(deps.role);
-  const allowSplit = (rt.budgetProfile?.allowSplit ?? true) && ctx.depth < R.maxRecoveryDepth && !!ctx.brain;
+  const allowSplit = splitAllowed(rt, ctx, R);
   const state: RetryState = { retried: false, continuations: 0, extraBriefing: deps.extraBriefing };
 
   while (true) {

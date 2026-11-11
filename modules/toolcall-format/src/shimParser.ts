@@ -65,44 +65,50 @@ interface SpanCandidates {
   fenceIdx: number;
 }
 
-function spanCandidates(ctx: Scan, pos: number, to: number, fences: boolean, tags: boolean): SpanCandidates {
-  const { text } = ctx;
-  let fence: SpanCandidates["fence"] = null;
-  let fenceIdx = Infinity;
-  if (fences) {
-    FENCE_OPEN_RE.lastIndex = pos;
-    const m = FENCE_OPEN_RE.exec(text);
-    if (m && m.index < to) {
-      fence = { index: m.index, lineEnd: m.index + m[0].length, lang: m[1].trim().toLowerCase() };
-      fenceIdx = m.index;
-    }
-  }
-  let tagM: RegExpExecArray | null = null;
-  let tagIdx = Infinity;
-  if (tags) {
-    TAG_RE.lastIndex = pos;
-    const m = TAG_RE.exec(text);
-    if (m && m.index < to) {
-      tagM = m;
-      tagIdx = m.index;
-    }
-  }
-  const limit = Math.min(fenceIdx, tagIdx, to);
-  let jsonIdx = -1;
+/** Search window for {@link spanCandidates}: scan from `pos` up to `to`, with fences and/or tags enabled. */
+interface SpanWindow {
+  pos: number;
+  to: number;
+  fences: boolean;
+  tags: boolean;
+}
+
+function nextFenceOpen(text: string, pos: number, to: number): SpanCandidates["fence"] {
+  FENCE_OPEN_RE.lastIndex = pos;
+  const m = FENCE_OPEN_RE.exec(text);
+  if (!m || m.index >= to) return null;
+  return { index: m.index, lineEnd: m.index + m[0].length, lang: m[1].trim().toLowerCase() };
+}
+
+function nextTagOpen(text: string, pos: number, to: number): RegExpExecArray | null {
+  TAG_RE.lastIndex = pos;
+  const m = TAG_RE.exec(text);
+  return m && m.index < to ? m : null;
+}
+
+/** First `{` or `[` in text[pos, limit), or -1. */
+function firstJsonOpener(text: string, pos: number, limit: number): number {
   for (let j = pos; j < limit; j++) {
     const c = text[j];
-    if (c === "{" || c === "[") {
-      jsonIdx = j;
-      break;
-    }
+    if (c === "{" || c === "[") return j;
   }
+  return -1;
+}
+
+function spanCandidates(ctx: Scan, w: SpanWindow): SpanCandidates {
+  const { text } = ctx;
+  const fence = w.fences ? nextFenceOpen(text, w.pos, w.to) : null;
+  const fenceIdx = fence ? fence.index : Infinity;
+  const tagM = w.tags ? nextTagOpen(text, w.pos, w.to) : null;
+  const tagIdx = tagM ? tagM.index : Infinity;
+  const jsonIdx = firstJsonOpener(text, w.pos, Math.min(fenceIdx, tagIdx, w.to));
   return { jsonIdx, tagM, tagIdx, fence, fenceIdx };
 }
 
 function scanSpan(ctx: Scan, from: number, to: number, fences: boolean, tags: boolean): void {
   let pos = from;
   while (pos < to) {
-    const c = spanCandidates(ctx, pos, to, fences, tags);
+    const c = spanCandidates(ctx, { pos, to, fences, tags });
     if (c.jsonIdx >= 0) {
       pos = bareAt(ctx, c.jsonIdx, to);
       continue;

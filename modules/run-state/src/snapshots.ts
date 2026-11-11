@@ -35,6 +35,19 @@ export interface SnapshotManifestEntry {
 export async function revertRunSnapshots(host: Pick<HostPort, "files">, stateDir: string, runId: string): Promise<Result<string[]>> {
   const dir = `${stateDir}/scratch/${runId}/snapshots`;
   const lines = await host.files.readLines(`${dir}/manifest.jsonl`);
+  const restored: string[] = [];
+  for (const entry of firstEntryPerPath(lines)) {
+    try {
+      if (await restoreEntry(host, dir, entry)) restored.push(entry.path);
+    } catch (e) {
+      return err("revert_failed", `revert failed on ${entry.path}: ${e instanceof Error ? e.message : e}`, e);
+    }
+  }
+  return ok(restored);
+}
+
+/** First manifest entry per path, in first-seen order; corrupt lines and entries without a string path are skipped. */
+export function firstEntryPerPath(lines: string[]): SnapshotManifestEntry[] {
   const firstByPath = new Map<string, SnapshotManifestEntry>();
   for (const line of lines) {
     try {
@@ -44,25 +57,20 @@ export async function revertRunSnapshots(host: Pick<HostPort, "files">, stateDir
       /* ignore corrupt line */
     }
   }
-  const restored: string[] = [];
-  for (const entry of firstByPath.values()) {
-    try {
-      if (entry.existed) {
-        const snapPath = `${dir}/${entry.snap}`;
-        if (await host.files.exists(snapPath)) {
-          const before = await host.files.read(snapPath);
-          await host.files.edit({ path: entry.path, content: before.content });
-          restored.push(entry.path);
-        }
-      } else {
-        await host.files.delete(entry.path);
-        restored.push(entry.path);
-      }
-    } catch (e) {
-      return err("revert_failed", `revert failed on ${entry.path}: ${e instanceof Error ? e.message : e}`, e);
-    }
+  return [...firstByPath.values()];
+}
+
+/** Restore one entry; returns false when a pre-image was expected but its snapshot file is missing. */
+async function restoreEntry(host: Pick<HostPort, "files">, dir: string, entry: SnapshotManifestEntry): Promise<boolean> {
+  if (!entry.existed) {
+    await host.files.delete(entry.path);
+    return true;
   }
-  return ok(restored);
+  const snapPath = `${dir}/${entry.snap}`;
+  if (!(await host.files.exists(snapPath))) return false;
+  const before = await host.files.read(snapPath);
+  await host.files.edit({ path: entry.path, content: before.content });
+  return true;
 }
 
 /**

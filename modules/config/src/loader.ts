@@ -83,10 +83,21 @@ function applyRequiredTools(roles: RoleDef[], requiredByRole: RequiredRoleTools)
   }
 }
 
-export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, defaults: ConfigLayer, trusted: boolean, requiredRoleTools: RequiredRoleTools = {}): Config {
-  const errors: string[] = [];
-  const proj = trusted ? project ?? {} : {};
+/** Options for `loadConfig`: trust gate for the project layer and the shipped-role tool union. */
+export interface LoadConfigOptions {
+  trusted: boolean;
+  requiredRoleTools?: RequiredRoleTools;
+}
+
+/** Records (does not throw) when an untrusted workspace carries project config that is being ignored. */
+function noteUntrustedProject(project: ConfigLayer | undefined, trusted: boolean, errors: string[]): void {
   if (!trusted && project && (project["roles.yaml"] || project["skills/"])) errors.push("untrusted workspace: project .stewart/ config ignored");
+}
+
+export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, defaults: ConfigLayer, opts: LoadConfigOptions): Config {
+  const errors: string[] = [];
+  const proj = opts.trusted ? project ?? {} : {};
+  noteUntrustedProject(project, opts.trusted, errors);
 
   const ch = loadLayerFile(channelsFile, "channels.yaml", [defaults["channels.yaml"], user["channels.yaml"]], errors);
   const ag = loadLayerFile(agentsFile, "agents.yaml", [defaults["agents.yaml"], user["agents.yaml"]], errors);
@@ -94,7 +105,7 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
   const st = loadLayerFile(settingsFile, "settings.yaml", [defaults["settings.yaml"], user["settings.yaml"], proj["settings.yaml"]], errors);
 
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
-  applyRequiredTools(roles, requiredRoleTools);
+  applyRequiredTools(roles, opts.requiredRoleTools ?? {});
 
   return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), errors };
 }
