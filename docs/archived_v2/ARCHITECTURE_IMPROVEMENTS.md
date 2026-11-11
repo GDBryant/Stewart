@@ -1,6 +1,6 @@
 # Architecture Improvements (plan)
 
-Status: **built** 2026-11-11 (D, F, C1–C3, P, M, S; deviations are noted inline under each step), baseline `d86ed9b` (v2.1.2). Current state: `../ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `REFACTORING.md`.
+Status: **built, done (archived)** 2026-11-11 (D, F, C1–C3, P, M, S; deviations are noted inline under each step), baseline `d86ed9b` (v2.1.2). Current state: `../ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `../building/REFACTORING.md`.
 
 Rules for every step:
 - One commit per step, with behaviour unchanged unless the step says otherwise.

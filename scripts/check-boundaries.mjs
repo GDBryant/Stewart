@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Boundary lint (docs/building/MODULAR_DESIGN.md §7 steps 1 and 8; docs/building/ARCHITECTURE_IMPROVEMENTS.md F).
+// Boundary lint (docs/building/MODULAR_DESIGN.md §7 steps 1 and 8; docs/archived_v2/ARCHITECTURE_IMPROVEMENTS.md F, done).
 // Size rule over every non-test source file in modules/*/src, packages/*/src, hosts/*/src (.ts .tsx .kt):
 // over `softLines` (300) = warning, over `maxLines` (500) = failure. For packages/core/src, files still mapped
 // to a module in scripts/boundaries.json also get the relative-import layer rule (the map is empty now).

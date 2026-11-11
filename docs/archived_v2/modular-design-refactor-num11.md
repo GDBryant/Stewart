@@ -1,6 +1,6 @@
 # Modular design refactor — §11 deviations build
 
-Tracks the work on `MODULAR_DESIGN.md` §11 (sketch-vs-build deviations): the audit that produced the list, the scoping, and status per item.
+**Status: done (archived).** Closed out (a few sub-items are deliberately deferred, noted per item). Tracks the work on `../building/MODULAR_DESIGN.md` §11 (sketch-vs-build deviations): the audit that produced the list, the scoping, and status per item.
 
 ## 1. Audit (commit `c04316d`)
 

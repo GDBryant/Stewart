@@ -52,3 +52,9 @@ Score is the goal; every refactor must not lower it. Used by the `code-health` s
 - Agents tend to "reshuffle complexity" or make superficial fixes: re-measure and reject changes that only move the problem.
 - Healthy code ≠ relaxed control: small issues compound across iterations; keep the safeguards on.
 - Split very large/complex functions first, then refactor the pieces.
+
+### Function-limit refactors *(as applied, 111 → 0 offenders)*
+- Gate: `pnpm check:functions` (≤40 lines, complexity ≤10, depth ≤3, ≤4 params); the baseline is empty.
+- >4 params → one named context/options object (`DirectRequest`, `ToolLoopOptions`, `ExecCtx`, …); update every caller and test, rebuild the module's `dist` before dependents' tests.
+- Depth/length → extract named helpers (early returns, per-verb tool builders, per-step components/hooks); keep each file ≤300 lines by moving helpers to a sibling file.
+- Re-run the package tests plus all `check:*` gates after each batch; behavior and public exports stay unchanged unless stated.

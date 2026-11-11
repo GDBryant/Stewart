@@ -21,13 +21,10 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 ## References
 
-`docs/building/` — active build/design docs:
+`docs/building/` — active build/design docs (open or still-referenced):
 - Modular design: `docs/building/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–8 done: function-limit gate built, baseline empty), §11 sketch-vs-build deviations.
-- §11 build: `docs/building/modular-design-refactor-num11.md` — audit, scoping of the 14 §11 deviations, per-item status and commits.
-- Migration status: `docs/building/MODULAR_MIGRATION_STATUS.md` — verified state, what each step landed, remaining work (step 8 eslint limits).
-- Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
-- Project health check: `docs/building/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (`ListCodeFiles` inventory, batched `code-health-reviewer` dispatch, `submit_health`/`health_report` verbs, deterministic aggregation) (plan).
-- Architecture improvements: `docs/building/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins (health check out of orchestration), `userCaps`/`capsFor` model-caps guard, setup-owned channel adds (built; deviations inline).
+- Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints, function-limit refactor notes (living).
+- Project health check: `docs/building/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (`ListCodeFiles` inventory, batched `code-health-reviewer` dispatch, `submit_health`/`health_report` verbs, deterministic aggregation) (built; manual smoke runs pending).
 - Architecture refactoring: `docs/building/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder (done), R2 one run pipeline (done), R3 integrated context compaction (partial); steps, tests, done-when.
 
 `docs/ai_docs/` — living as-built docs:
@@ -42,7 +39,12 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Setup wizard: `docs/ai_docs/SETUP.md` — steps, assignment engine, protocol, gaps.
 - Health reports: `docs/health_reports/` — dated repository code-health scores and verification results.
 
-`docs/archived_v2/` — superseded v2-era plans:
+`docs/archived_v2/` — superseded or completed v2-era plans and builds:
+- Migration status (done): `docs/archived_v2/MODULAR_MIGRATION_STATUS.md` — verified state and what each §7 step landed; all steps 0–8 complete.
+- §11 build (done): `docs/archived_v2/modular-design-refactor-num11.md` — audit, scoping of the §11 deviations, per-item status and commits.
+- Architecture improvements (done): `docs/archived_v2/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins, `userCaps`/`capsFor` guard, setup-owned channel adds (built; deviations inline).
+- Image attachments plan (done): `docs/archived_v2/2026-11-03-image-attachments.md` — implementation plan; as-built in `docs/ai_docs/IMAGES.md`.
+- Setup wizard rewrite (done): `docs/archived_v2/2026-11-06-setup-wizard.md` — problem and rewrite plan; as-built in `docs/ai_docs/SETUP.md`.
 - Handoff: `docs/archived_v2/HANDOFF.md` — post-M10 plans for the outstanding items (runIde check, AIF model list, Qwen edits + write verification, Ollama native tools, Visual Studio, Nemotron). Previous handoff text is in git history (`0ee6ce2`).
 - Phase 2: `docs/archived_v2/PHASE2.md` — Phase 1 plan/build audit, missing items, and Phase 2 multi-layered agent roadmap (M11–M15).
 - Code health: `docs/archived_v2/2026-11-07-code-health.md` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).

@@ -1,6 +1,6 @@
 # Modular migration status (2026-11-07)
 
-Snapshot of the §7 incremental migration in `docs/building/MODULAR_DESIGN.md`. Delete once §7 is complete.
+**Status: done (archived).** All of §7 (steps 0–8) is complete; snapshot of the migration in `../building/MODULAR_DESIGN.md`, kept for history.
 
 ## Verified state
 
