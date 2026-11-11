@@ -176,6 +176,8 @@ export class Core implements CoreCtx {
     "setup.session.advance": (p) => setup.handleSetupSessionAdvance(this, p),
     "setup.session.back": (p) => setup.handleSetupSessionBack(this, p),
     "setup.session.cancel": (p) => setup.handleSetupSessionCancel(this, p),
+    "setup.session.addChannel": (p) => setup.handleSetupSessionAddChannel(this, p),
+    "setup.session.removeChannel": (p) => setup.handleSetupSessionRemoveChannel(this, p),
     "setup.review": (p) => setup.handleSetupReview(this, p),
     "setup.approve": (p) => setup.handleSetupApprove(this, p),
     "setup.undo": (p) => setup.handleSetupUndo(this, p),

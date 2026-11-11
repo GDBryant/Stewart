@@ -33,6 +33,8 @@ export type Outbound =
   | { type: "setup.session.advance" }
   | { type: "setup.session.back" }
   | { type: "setup.session.cancel" }
+  | { type: "setup.session.addChannel"; channel: { id: string; type: string; baseUrl?: string; enabled?: boolean }; apiKey?: string }
+  | { type: "setup.session.removeChannel"; id: string }
   | { type: "setup.review" }
   | { type: "setup.approve"; token: string }
   | { type: "setup.undo" }
@@ -151,6 +153,8 @@ export type Inbound =
     }
   | ({ type: "setup.probe.result" } & SetupProbeSnapshot)
   | { type: "setup.session.result"; phase?: string; draft?: Record<string, unknown>; ok?: boolean; error?: string }
+  | { type: "setup.session.addChannel.result"; ok: boolean; error?: string }
+  | { type: "setup.session.removeChannel.result"; ok: boolean; error?: string }
   | { type: "setup.review.result"; token?: string; error?: string }
   | { type: "setup.approve.result"; ok: boolean; error?: string }
   | { type: "setup.undo.result"; ok: boolean; error?: string }

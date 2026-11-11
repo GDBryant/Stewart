@@ -1,6 +1,6 @@
 # Architecture Improvements (plan)
 
-Status: **proposed**, 2026-11-11, baseline `d86ed9b` (v2.1.2). Current state: `../ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `REFACTORING.md`.
+Status: **built** 2026-11-11 (D, F, C1–C3, P, M, S; deviations are noted inline under each step), baseline `d86ed9b` (v2.1.2). Current state: `../ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `REFACTORING.md`.
 
 Rules for every step:
 - One commit per step, with behaviour unchanged unless the step says otherwise.
@@ -171,22 +171,21 @@ interface FeatureRunCtx { tasks(): { id: string; roleId: string }[] }
 
 ## S. Setup owns its channels (#5)
 
-**Problem:** the wizard's `addChannel` (`webview/wizardDerived.ts:68`) writes `channels.yaml` straight away through `store.saveFile`. That bypasses `SetupSession`:
-- there is no review;
-- cancel does not remove the channel;
-- undo misses the change.
+**Problem:** the wizard's `addChannel` (`webview/wizardDerived.ts`) wrote `channels.yaml` straight away through `store.saveFile`. That bypassed `SetupSession`: there was no review, cancel did not remove the channel, undo missed the change, and `secretsCreated` was never populated, so cancel's secret cleanup was dead code. Probes need the channel before approval, which is why it was written early. Out of scope: the Settings view's `channelExtra.tsx` `moveToStore` direct edit, which is a settings edit, not setup.
 
-Probes need the channel before approval, which is why it is written early. `SetupDraft` already has `channels`, `reusedChannels` and `secretsCreated`, and cancel already deletes the secrets the session created. Out of scope: the Settings view's `channelExtra.tsx` `moveToStore` direct edit, which is a settings edit, not setup.
+**Deviation from the original plan (as built):** the plan proposed a transient `ChannelService.withOverlay(draftChannels)`. Channel test, probe, recommend, bench and the evaluator all read the live `ChannelService`, so an overlay would have touched every one of those handlers. Instead the session keeps the write-ahead but owns it: it is the only writer, and it can undo what it wrote.
 
-**Steps**
-1. New `setup/draftChannels.ts` (keeps `session.ts` under 300 lines):
-   - `addChannel` and `removeChannel` on the draft;
-   - the secret ref goes into `secretsCreated`;
-   - ids are validated (unique, non-empty).
-2. `ChannelService.withOverlay(draftChannels)` returns a read-only service: the live channels plus transient draft channels. Setup probe and recommend use it while a session is active.
-3. Add the protocol methods `setup.session.addChannel` and `setup.session.removeChannel`. Wire them in VS Code `routes.ts` and in the **JetBrains `WebviewRouter.kt` allowlist** (line 66).
-4. The wizard calls the new methods instead of `saveFile`. `approveAndSave` writes the draft channels with the other files, so they are covered by backup, restore and undo.
+**Built**
+1. `setup/draftChannels.ts` (`session.ts` stays under 300 lines; types and file helpers moved to `sessionTypes.ts` / `sessionFiles.ts`): `addDraftChannel`, `removeDraftChannel`, `rollbackDraftChannels`, `backupBase`, `composeFiles`.
+   - `SetupDraft` gains `addedChannels` and `channelsBase` (the original file, or `null` if it did not exist).
+   - The API key goes to the secret store (`setSecret` dep) and into `secretsCreated`.
+   - Ids already in the merged config are refused (`existingChannelIds` dep).
+2. `cancel()` restores `channels.yaml` (or deletes it if the session created it) and deletes the secrets. `review()` stages `channels.yaml` with the other files so validation covers it. `approveAndSave` backs up the original `channels.yaml` so `undo` restores it; a failed write restores the pre-write state.
+3. Protocol `setup.session.addChannel` / `setup.session.removeChannel`, wired in core (`handlers/setup.ts`, reload after a change), VS Code `routes.ts`, the JetBrains `WebviewRouter.kt` allowlist, and the webview (`Store.addSetupChannel`, error under the form, "Adding…" latch cleared on failure).
 
 **Tests**
-- Positive: an added channel is probed, then written on approve; undo removes it.
-- Negative: on cancel, there is no `channels.yaml` change and the secret is deleted; a duplicate or empty id is rejected; overlay channels never appear in `ChannelService` after the session ends; the JetBrains router forwards both new methods (Kotlin test).
+- Positive: an added channel is written, probed-visible after reload, included in review and written on approve; the backup holds the original and undo restores it; the key lands in the secret store, not YAML; re-adding a session channel replaces it; removing one drops its secret.
+- Negative: empty id/type, an id that exists in user YAML or shipped defaults, invalid YAML and a key without secret storage are rejected with nothing written; `removeChannel` refuses channels the session did not add; cancel restores or deletes `channels.yaml` and deletes the secrets, and does nothing when no channel was added; a `channels.yaml` change between review and approve is `stale_approval`; a failed write restores the files; an old draft without `addedChannels` opens cleanly.
+- Not run here: the Kotlin router test (no JDK 21 on this machine); CI runs it.
+
+**Known gap:** like `roles.yaml` and the other setup files, `undo` only restores files that existed before; a `channels.yaml` the session created is removed by cancel but not by undo.

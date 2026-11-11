@@ -77,6 +77,7 @@ export function SetupWizard({ store, channels, agents, roles }: { store: Store; 
           onBaseUrl={setBaseUrl}
           onApiKey={setApiKey}
           onAddChannel={addChannel}
+          addError={store.state.setupChannelError}
           statusChannels={statusChannels}
           tests={tests}
           evalChannels={evalChannels}

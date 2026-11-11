@@ -6,9 +6,10 @@ import { PRESETS, friendlyError, type Preset } from "./wizardShared.js";
 import { ChannelDot, channelColor } from "./channelColors.js";
 
 function NewChannelForm({
-  preset, chId, baseUrl, apiKey, onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel, adding,
+  preset, chId, baseUrl, apiKey, onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel, adding, error,
 }: {
   adding: boolean;
+  error?: string;
   preset: Preset;
   chId: string;
   baseUrl: string;
@@ -40,6 +41,7 @@ function NewChannelForm({
           <span class="hint">Stored in your IDE's secret storage, not in config files.</span>
         </label>
       ) : null}
+      {error ? <div class="fail" role="alert">{error}</div> : null}
       <div class="row"><button class="small" disabled={!chId.trim() || adding} aria-busy={adding ? "true" : undefined} onClick={onAddChannel}>{adding ? <><Spinner /> Adding…</> : "Add this channel"}</button></div>
     </div>
   );
@@ -111,7 +113,7 @@ function EvaluatorPicker({
 
 export function ChannelsStep({
   store, hasChannels, source, onSource, preset, chId, baseUrl, apiKey,
-  onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel,
+  onPickPreset, onChId, onBaseUrl, onApiKey, onAddChannel, addError,
   statusChannels, tests, evalChannels, evalChan, evalChanObj, evalAgents, evalOptions, evalSel,
   onEvalChannel, onEvaluator, nextDisabled, onBack, onNext,
 }: {
@@ -128,6 +130,8 @@ export function ChannelsStep({
   onBaseUrl(v: string): void;
   onApiKey(v: string): void;
   onAddChannel(): void;
+  /** Why the last add-channel request failed (cleared when the next starts). */
+  addError?: string;
   statusChannels: ChannelSummary[];
   tests: State["channelTest"];
   evalChannels: ChannelSummary[];
@@ -147,7 +151,7 @@ export function ChannelsStep({
   useEffect(() => {
     if (addedVisible) setAddingId("");
   }, [addedVisible]);
-  const adding = !!addingId && !addedVisible;
+  const adding = !!addingId && !addedVisible && !addError;
   return (
     <div class="form">
       <p><b>What to do:</b> pick the channel and agent that will run the evaluation of all available models.</p>
@@ -172,6 +176,7 @@ export function ChannelsStep({
             onAddChannel();
           }}
           adding={adding}
+          error={addError}
         />
       ) : null}
       {statusChannels.map((c) => (

@@ -27,7 +27,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Migration status: `docs/building/MODULAR_MIGRATION_STATUS.md` — verified state, what each step landed, remaining work (step 8 eslint limits).
 - Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
 - Project health check: `docs/building/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (`ListCodeFiles` inventory, batched `code-health-reviewer` dispatch, `submit_health`/`health_report` verbs, deterministic aggregation) (plan).
-- Architecture improvements: `docs/building/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins (health check out of orchestration), `capsFor` model-caps guard, setup-owned draft channels (proposed).
+- Architecture improvements: `docs/building/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins (health check out of orchestration), `userCaps`/`capsFor` model-caps guard, setup-owned channel adds (built; deviations inline).
 - Architecture refactoring: `docs/building/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder (done), R2 one run pipeline (done), R3 integrated context compaction (partial); steps, tests, done-when.
 
 `docs/ai_docs/` — living as-built docs:

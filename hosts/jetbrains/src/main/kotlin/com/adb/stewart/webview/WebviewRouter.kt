@@ -63,7 +63,7 @@ class WebviewRouter(
                     val r = request("setup.recommend", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("setup.recommend.result"))))
                 }
-                "setup.session.start", "setup.session.get", "setup.session.update", "setup.session.advance", "setup.session.back", "setup.session.cancel", "setup.review", "setup.approve", "setup.undo" -> {
+                "setup.session.start", "setup.session.get", "setup.session.update", "setup.session.advance", "setup.session.back", "setup.session.cancel", "setup.session.addChannel", "setup.session.removeChannel", "setup.review", "setup.approve", "setup.undo" -> {
                     val r = request(type, withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("$type.result"))))
                 }

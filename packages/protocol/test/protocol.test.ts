@@ -40,6 +40,8 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.status");
     expect(METHODS).toContain("setup.probe.cancel");
     expect(METHODS).toContain("setup.probe.retry");
-    expect(METHODS.length).toBe(26);
+    expect(METHODS).toContain("setup.session.addChannel");
+    expect(METHODS).toContain("setup.session.removeChannel");
+    expect(METHODS.length).toBe(28);
   });
 });

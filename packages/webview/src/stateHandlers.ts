@@ -41,6 +41,8 @@ export class StoreHandlers {
       this.patch({ smoke: snap });
     },
     "setup.session.result": (m) => this.patch({ setupPhase: m.phase }),
+    "setup.session.addChannel.result": (m) => this.onChannelResult(m),
+    "setup.session.removeChannel.result": (m) => this.onChannelResult(m),
     "setup.review.result": (m) => this.onReviewResult(m),
     "setup.approve.result": (m) => this.patch({ setupSaved: m.ok, setupError: m.error }),
     "setup.undo.result": (m) => this.patch({ setupSaved: false, setupError: m.error }),
@@ -121,6 +123,12 @@ export class StoreHandlers {
 
   private onReply(m: Reply): void {
     this.dispatch(this.replyHandlers, m.type, m);
+  }
+
+  /** The session wrote channels.yaml (or refused): show any error and refresh the config so the channel list updates. */
+  private onChannelResult(m: { ok: boolean; error?: string }): void {
+    this.patch({ setupChannelError: m.ok ? undefined : (m.error ?? "could not change the channel") });
+    this.host.post({ type: "config.get" });
   }
 
   private onReviewResult(m: Extract<Reply, { type: "setup.review.result" }>): void {

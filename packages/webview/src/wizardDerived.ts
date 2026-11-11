@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { stringify } from "yaml";
 import type { State, Store } from "./state.js";
 import type { AgentSummary, ChannelSummary } from "./bridge.js";
 import { PRESETS, channelModels, key, type WizardPriorities } from "./wizardShared.js";
@@ -67,10 +66,8 @@ export function useWizardChannelForm(input: { store: Store; channels: ChannelSum
   };
   const addChannel = () => {
     if (!chId.trim()) return;
-    const ref = apiKey ? `channel-${chId}` : undefined;
-    const next = [...channels.filter((c) => c.id !== chId), { id: chId, type: preset.type, enabled: true, ...(baseUrl ? { baseUrl } : {}), ...(ref ? { secretRef: ref } : {}) }];
-    if (ref) store.setSecret(ref, apiKey); // key goes to the IDE secret store, never to YAML
-    store.saveFile("channels.yaml", stringify({ version: 1, items: next }, null, 2));
+    // The setup session writes channels.yaml and puts the key in the IDE secret store (never in YAML).
+    store.addSetupChannel({ id: chId.trim(), type: preset.type, enabled: true, ...(baseUrl ? { baseUrl } : {}) }, apiKey || undefined);
     setApiKey("");
     setAdded((prev) => new Set(prev).add(chId));
     pickPreset(preset.label);

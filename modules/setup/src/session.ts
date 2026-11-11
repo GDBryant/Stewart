@@ -1,45 +1,14 @@
 import { createHash } from "node:crypto";
-import type { HostPort } from "@stewart/kernel";
+import { SETUP_FILES, type Evaluation, type SetupDraft, type SetupEvent, type SetupPhase, type SetupSessionDeps } from "./sessionTypes.js";
+import { backupSetupFiles, restoreSetupFiles, writeSetupFiles } from "./sessionFiles.js";
+import { addDraftChannel, backupBase, composeFiles, removeDraftChannel, rollbackDraftChannels, type DraftChannelInput, type DraftChannelResult } from "./draftChannels.js";
 
-/** §10 five-phase setup session: state machine, persisted draft, gated transitions, atomic approve + undo. */
-export type SetupPhase = "channels" | "evaluator" | "evaluate" | "assign" | "approve" | "saved" | "cancelled";
+export { SETUP_FILES };
+export type { Evaluation, SetupDraft, SetupEvent, SetupPhase, SetupSessionDeps };
+
 const PHASES: readonly SetupPhase[] = ["channels", "evaluator", "evaluate", "assign", "approve", "saved"] as const;
 const DRAFT_VERSION = 1;
 const DRAFT_TTL_MS = 7 * 24 * 3600 * 1000;
-export const SETUP_FILES = ["channels.yaml", "agents.yaml", "roles.yaml", "settings.yaml"] as const;
-
-export interface Evaluation {
-  done: number;
-  total: number;
-  tally: { evaluated: number; unavailable: number; skipped: number };
-  results: Record<string, unknown>;
-  finished?: boolean;
-  stale?: boolean;
-}
-
-export interface SetupDraft {
-  version: number;
-  createdAt: number;
-  phase: SetupPhase;
-  secretsCreated: string[];
-  channels: { id: string; tested?: "ok" | "failed"; models?: string[] }[];
-  reusedChannels: string[];
-  evaluator?: { channel: string; model: string; checked?: boolean } | "rules";
-  candidates?: string[];
-  evaluation?: Evaluation;
-  assignment?: unknown;
-  assignmentValid?: boolean;
-  files?: Record<string, string>;
-  approvalToken?: string;
-  baseHash?: string;
-}
-
-export type SetupEvent =
-  | { kind: "progress"; done: number; total: number; running: { model: string; stage: string }[]; tally: Evaluation["tally"] }
-  | { kind: "model"; model: string; state: "evaluated" | "unavailable" | "skipped"; result?: unknown; error?: string }
-  | { kind: "rating"; state: "started" | "done" | "skipped" }
-  | { kind: "usage"; inTokens: number; outTokens: number; costUsd?: number }
-  | { kind: "phase"; phase: SetupPhase };
 
 const PHASE_GATES: Partial<Record<SetupPhase, (d: SetupDraft) => string | undefined>> = {
   channels: (d) => {
@@ -52,42 +21,10 @@ const PHASE_GATES: Partial<Record<SetupPhase, (d: SetupDraft) => string | undefi
   approve: () => "use review() then approveAndSave(token)",
 };
 
-async function backupSetupFiles(deps: SetupSessionDeps, base: Record<string, string | undefined>, backupDir: string): Promise<void> {
-  for (const f of SETUP_FILES) {
-    const cur = base[f];
-    if (cur !== undefined) await deps.files.writeAtomic(`${backupDir}/${f}`, cur);
-  }
-}
-
-async function writeSetupFiles(deps: SetupSessionDeps, files: Record<string, string>): Promise<void> {
-  for (const f of SETUP_FILES) {
-    if (files[f] !== undefined) await deps.writeUserFile(f, files[f]);
-  }
-}
-
-async function restoreSetupFiles(deps: SetupSessionDeps, base: Record<string, string | undefined>): Promise<void> {
-  for (const f of SETUP_FILES) {
-    const cur = base[f];
-    if (cur !== undefined) await deps.writeUserFile(f, cur).catch(() => {});
-  }
-}
-
-export interface SetupSessionDeps {
-  files: Pick<HostPort["files"], "exists" | "read" | "list" | "writeAtomic" | "delete">;
-  stateDir: string;
-  readUserFiles(): Promise<Record<string, string | undefined>>;
-  writeUserFile(name: string, yaml: string): Promise<void>;
-  /** Validate the rendered file set before writing; return an error string or undefined. */
-  validateFiles?(files: Record<string, string>): string | undefined;
-  deleteSecret?(ref: string): Promise<void>;
-  onEvent?(ev: SetupEvent): void;
-  now?(): number;
-}
-
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
 function freshDraft(now: number): SetupDraft {
-  return { version: DRAFT_VERSION, createdAt: now, phase: "channels", secretsCreated: [], channels: [], reusedChannels: [] };
+  return { version: DRAFT_VERSION, createdAt: now, phase: "channels", secretsCreated: [], channels: [], reusedChannels: [], addedChannels: [] };
 }
 
 export class SetupSession {
@@ -110,7 +47,7 @@ export class SetupSession {
       const { content } = await deps.files.read(path);
       const d = JSON.parse(content) as SetupDraft;
       if (d.version === DRAFT_VERSION && typeof d.phase === "string" && now - d.createdAt < DRAFT_TTL_MS) {
-        return new SetupSession(deps, d);
+        return new SetupSession(deps, { ...d, addedChannels: d.addedChannels ?? [] });
       }
     } catch {
       /* missing or corrupt draft starts fresh */
@@ -204,9 +141,24 @@ export class SetupSession {
     return { ok: true };
   }
 
-  /** Cancel from any phase: drop the draft and every secret this session created; writes no YAML. */
+  /** Add a channel ahead of approval (so it can be tested and probed); `apiKey` goes to the secret store, never to YAML. */
+  async addChannel(channel: DraftChannelInput, apiKey?: string): Promise<DraftChannelResult> {
+    const res = await addDraftChannel(this.deps, this.draft, channel, apiKey);
+    await this.persist();
+    return res;
+  }
+
+  /** Remove a channel this session added. */
+  async removeChannel(id: string): Promise<DraftChannelResult> {
+    const res = await removeDraftChannel(this.deps, this.draft, id);
+    if (res.ok) await this.persist();
+    return res;
+  }
+
+  /** Cancel from any phase: drop the draft, every secret this session created and every channel it wrote; leaves user YAML as it was. */
   async cancel(): Promise<void> {
     for (const ref of this.draft.secretsCreated) await this.deps.deleteSecret?.(ref);
+    await rollbackDraftChannels(this.deps, this.draft);
     this.draft.phase = "cancelled";
     await this.deps.files.delete(this.draftPath);
     this.emit({ kind: "phase", phase: "cancelled" });
@@ -245,9 +197,10 @@ export class SetupSession {
     if (!this.draft.files || Object.keys(this.draft.files).length === 0) throw new Error("nothing to review: stage draft.files first");
     const base = await this.deps.readUserFiles();
     this.draft.baseHash = hash(JSON.stringify(SETUP_FILES.map((f) => base[f] ?? "")));
-    this.draft.approvalToken = hash(JSON.stringify(this.draft.files));
+    const files = composeFiles(this.draft, base);
+    this.draft.approvalToken = hash(JSON.stringify(files));
     await this.persist();
-    return { token: this.draft.approvalToken, files: { ...this.draft.files }, base };
+    return { token: this.draft.approvalToken, files, base: backupBase(this.draft, base) };
   }
 
   /**
@@ -261,13 +214,14 @@ export class SetupSession {
     if (token !== d.approvalToken) return { ok: false, error: "stale_approval" };
     const base = await this.deps.readUserFiles();
     if (hash(JSON.stringify(SETUP_FILES.map((f) => base[f] ?? ""))) !== d.baseHash) return { ok: false, error: "stale_approval" };
-    const invalid = this.deps.validateFiles?.(d.files);
+    const files = composeFiles(d, base);
+    const invalid = this.deps.validateFiles?.(files);
     if (invalid) return { ok: false, error: invalid };
 
     const backupDir = `${this.deps.stateDir}/setup-backups/${this.now()}`;
-    await backupSetupFiles(this.deps, base, backupDir);
+    await backupSetupFiles(this.deps, backupBase(d, base), backupDir);
     try {
-      await writeSetupFiles(this.deps, d.files);
+      await writeSetupFiles(this.deps, files);
     } catch (e) {
       await restoreSetupFiles(this.deps, base);
       return { ok: false, error: `save failed; restored backup: ${e instanceof Error ? e.message : e}` };

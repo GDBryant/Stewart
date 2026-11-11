@@ -847,11 +847,42 @@ describe("webview settings", () => {
     expect((screen.getByLabelText("base url") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
     fireEvent.input(screen.getByLabelText("api key"), { target: { value: "sk-secret-123" } });
     fireEvent.click(screen.getByText("Add this channel"));
-    expect(bridge.sent).toContainEqual({ type: "secret.set", ref: "channel-openai", value: "sk-secret-123" });
-    const saved = bridge.sent.find((m: any) => m.type === "config.set" && m.file === "channels.yaml") as any;
-    expect(saved.yaml).toContain("id: openai");
-    expect(saved.yaml).toContain("secretRef: channel-openai");
-    expect(saved.yaml).not.toContain("sk-secret-123");
+    // The setup session owns the write: one request carries the channel and the key; no direct YAML or secret writes.
+    expect(bridge.sent).toContainEqual({
+      type: "setup.session.addChannel",
+      channel: { id: "openai", type: "openai-compatible", enabled: true, baseUrl: "https://api.openai.com/v1" },
+      apiKey: "sk-secret-123",
+    });
+    expect(bridge.sent.some((m: any) => m.type === "config.set" && m.file === "channels.yaml")).toBe(false);
+    expect(bridge.sent.some((m: any) => m.type === "secret.set")).toBe(false);
+  });
+
+  it("sends no apiKey when the key box is blank, and shows the session's error when the add is refused", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Start"));
+    fireEvent.click(screen.getByLabelText("source new"));
+    fireEvent.click(screen.getByText("Add this channel"));
+    const add = bridge.sent.find((m: any) => m.type === "setup.session.addChannel") as any;
+    expect(add.channel.id).toBe("local-ollama");
+    expect("apiKey" in add).toBe(false);
+    act(() => bridge.inbound({ type: "setup.session.addChannel.result", ok: false, error: "channel 'local-ollama' already exists" }));
+    expect(screen.getByRole("alert").textContent).toContain("already exists");
+    expect((screen.getByText("Add this channel") as HTMLButtonElement).disabled).toBe(false);
+    expect(bridge.sent.filter((m: any) => m.type === "config.get").length).toBeGreaterThan(0);
+  });
+
+  it("a successful add clears the error and refreshes config", () => {
+    const { bridge } = mk();
+    openWizard(bridge);
+    fireEvent.click(screen.getByText("Start"));
+    fireEvent.click(screen.getByLabelText("source new"));
+    act(() => bridge.inbound({ type: "setup.session.addChannel.result", ok: false, error: "boom" }));
+    expect(screen.queryByRole("alert")).not.toBeNull();
+    const before = bridge.sent.filter((m: any) => m.type === "config.get").length;
+    act(() => bridge.inbound({ type: "setup.session.addChannel.result", ok: true }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(bridge.sent.filter((m: any) => m.type === "config.get").length).toBe(before + 1);
   });
 
   it("hides the API key and URL fields where they do not apply and maps 401 errors", () => {

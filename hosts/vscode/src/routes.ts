@@ -84,6 +84,8 @@ const ROUTES: Record<string, Handler> = {
   "setup.session.advance": setupSession,
   "setup.session.back": setupSession,
   "setup.session.cancel": setupSession,
+  "setup.session.addChannel": setupStaged,
+  "setup.session.removeChannel": setupStaged,
   "setup.probe.start": setupProbe,
   "setup.probe.status": setupProbe,
   "setup.probe.cancel": setupProbe,

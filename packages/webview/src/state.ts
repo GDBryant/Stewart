@@ -188,6 +188,15 @@ export class Store {
     this.bridge.post(wizard !== undefined ? { type: "roles.assignAgent", agentId, wizard } : { type: "roles.assignAgent", agentId });
     this.requestConfig();
   }
+  /** Add a channel through the setup session (so cancel rolls it back and undo restores it); the key goes to the secret store. */
+  addSetupChannel(channel: { id: string; type: string; baseUrl?: string; enabled?: boolean }, apiKey?: string): void {
+    this.patch({ setupChannelError: undefined });
+    this.bridge.post({ type: "setup.session.addChannel", channel, ...(apiKey ? { apiKey } : {}) });
+  }
+  removeSetupChannel(id: string): void {
+    this.patch({ setupChannelError: undefined });
+    this.bridge.post({ type: "setup.session.removeChannel", id });
+  }
   /** Stage the rendered file set, then review → auto-approve (result arrives as setup.approve.result). */
   setupApply(files: Record<string, string>): void {
     this.patch({ setupSaved: undefined, setupError: undefined });

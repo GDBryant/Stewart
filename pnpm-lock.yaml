@@ -713,6 +713,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
+      yaml:
+        specifier: 2.8.1
+        version: 2.8.1
     devDependencies:
       '@types/node':
         specifier: 22.19.0

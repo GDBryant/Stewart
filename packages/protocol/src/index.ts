@@ -129,6 +129,8 @@ export interface CoreRequests {
   "setup.session.advance": { params: { projectId: string }; result: { ok: boolean; error?: string } };
   "setup.session.back": { params: { projectId: string }; result: { ok: boolean } };
   "setup.session.cancel": { params: { projectId: string }; result: { ok: boolean } };
+  "setup.session.addChannel": { params: { projectId: string; channel: { id: string; type: string; baseUrl?: string; secretRef?: string; enabled?: boolean }; apiKey?: string }; result: { ok: boolean; error?: string } };
+  "setup.session.removeChannel": { params: { projectId: string; id: string }; result: { ok: boolean; error?: string } };
   "setup.review": { params: { projectId: string }; result: unknown };
   "setup.approve": { params: { projectId: string; token: string }; result: { ok: boolean; error?: string } };
   "setup.undo": { params: { projectId: string }; result: { ok: boolean; error?: string } };
@@ -163,6 +165,8 @@ export const METHODS = [
   "setup.session.advance",
   "setup.session.back",
   "setup.session.cancel",
+  "setup.session.addChannel",
+  "setup.session.removeChannel",
   "setup.review",
   "setup.approve",
   "setup.undo",

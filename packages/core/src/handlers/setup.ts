@@ -1,7 +1,7 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { userCaps } from "@stewart/models";
-import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
+import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
@@ -32,6 +32,16 @@ async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): P
         if (!parsed.success) return `${name}: ${parsed.error.issues[0]?.message ?? "schema error"}`;
       }
       return undefined;
+    },
+    existingChannelIds: () => ctx.config.channels.map((c) => c.id),
+    setSecret: async (ref, value) => {
+      await ctx.host.secrets.set(ref, value);
+      core.secretValues.set(ref, value);
+      core.channelService.setSecret(ref, value);
+    },
+    deleteUserFile: async (name) => {
+      core.userGuard.recordDelete(name);
+      await core.deps.userConfig.delete?.(name);
     },
     deleteSecret: async (ref) => {
       await ctx.host.secrets.delete(ref);
@@ -74,6 +84,20 @@ export async function handleSetupSessionAdvance(core: CoreCtx, params: unknown):
 export async function handleSetupSessionBack(core: CoreCtx, params: unknown): Promise<unknown> {
   const { session } = await sessionFor(core, params as { projectId: string });
   return session.back();
+}
+export async function handleSetupSessionAddChannel(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; channel: DraftChannelInput; apiKey?: string };
+  const { session } = await sessionFor(core, p);
+  const res = await session.addChannel(p.channel, p.apiKey);
+  if (res.ok) await core.reload(p.projectId);
+  return res;
+}
+export async function handleSetupSessionRemoveChannel(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; id: string };
+  const { session } = await sessionFor(core, p);
+  const res = await session.removeChannel(p.id);
+  if (res.ok) await core.reload(p.projectId);
+  return res;
 }
 export async function handleSetupSessionCancel(core: CoreCtx, params: unknown): Promise<unknown> {
   const { session } = await sessionFor(core, params as { projectId: string });

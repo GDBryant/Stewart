@@ -27,6 +27,7 @@
     "@stewart/models": "workspace:*",
     "@stewart/channels": "workspace:*",
     "@stewart/catalog": "workspace:*",
-    "@stewart/roles-skills": "workspace:*"
+    "@stewart/roles-skills": "workspace:*",
+    "yaml": "2.8.1"
   }
 }

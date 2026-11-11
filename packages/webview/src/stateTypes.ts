@@ -100,6 +100,8 @@ export interface State {
   setupPhase?: string;
   setupSaved?: boolean;
   setupError?: string;
+  /** Why the last wizard add/remove-channel request failed; cleared when the next one starts. */
+  setupChannelError?: string;
   recommendation?: {
     assignments: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
     researcher?: { channel: string; model: string };

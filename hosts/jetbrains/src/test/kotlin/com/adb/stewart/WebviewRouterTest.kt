@@ -127,6 +127,25 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `setup session channel routes forward the channel and reply with a result type`() {
+        val rig = Rig { m, _ ->
+            if (m.startsWith("setup.session.")) Json.parseToJsonElement("""{"ok":true}""") else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"setup.session.addChannel","channel":{"id":"aif","type":"openai-compatible"},"apiKey":"k"}""")
+        rig.router.route("""{"type":"setup.session.removeChannel","id":"aif"}""")
+        val a = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        val r = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("setup.session.addChannel.result", a.type())
+        assertEquals("setup.session.removeChannel.result", r.type())
+        assertEquals(listOf("setup.session.addChannel", "setup.session.removeChannel"), rig.calls.map { it.first })
+        val p = rig.calls[0].second!!
+        assertEquals("p1", p["projectId"]!!.jsonPrimitive.content)
+        assertEquals("aif", p["channel"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("k", p["apiKey"]!!.jsonPrimitive.content)
+        assertEquals("aif", rig.calls[1].second!!["id"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `setup probe routes return shaped snapshots`() {
         val rig = Rig { m, _ ->
             if (m.startsWith("setup.probe.")) {

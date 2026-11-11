@@ -244,3 +244,52 @@ describe("setup.session via dispatch", () => {
     expect(s.draft.secretsCreated).toEqual([]);
   });
 });
+
+describe("setup.session channels via dispatch", () => {
+  const channelIds = async (core: Core, pid: string) =>
+    ((await core.dispatch("config.get", { projectId: pid })) as { summary: { channels: { id: string }[] } }).summary.channels.map((c) => c.id);
+
+  it("addChannel writes channels.yaml, reloads config and stores the key in the secret store, not the YAML", async () => {
+    const { core, uLayer, fh } = mk();
+    const stored = new Map<string, string>();
+    fh.host.secrets = { get: async (k) => stored.get(k), set: async (k, v) => void stored.set(k, v), delete: async () => {} };
+    await core.attachProject("ch1", fh.host);
+    const res = await core.dispatch("setup.session.addChannel", { projectId: "ch1", channel: { id: "aif", type: "fake", baseUrl: "http://aif/v1" }, apiKey: "sk-live" });
+    expect(res).toEqual({ ok: true });
+    expect(await channelIds(core, "ch1")).toContain("aif");
+    expect(stored.get("channel-aif")).toBe("sk-live");
+    expect(uLayer["channels.yaml"]).toContain("id: aif");
+    expect(uLayer["channels.yaml"]).not.toContain("sk-live");
+  });
+
+  it("addChannel returns the error and changes nothing for an empty id or a duplicate", async () => {
+    const { core, uLayer, fh } = mk();
+    await core.attachProject("ch2", fh.host);
+    expect(await core.dispatch("setup.session.addChannel", { projectId: "ch2", channel: { id: "", type: "fake" } })).toEqual({ ok: false, error: "channel id is required" });
+    await core.dispatch("setup.session.addChannel", { projectId: "ch2", channel: { id: "aif", type: "fake" } });
+    const before = uLayer["channels.yaml"];
+    const dup = await core.dispatch("setup.session.addChannel", { projectId: "ch2", channel: { id: "c1", type: "fake" } });
+    expect(dup).toEqual({ ok: false, error: "channel 'c1' already exists" });
+    expect(uLayer["channels.yaml"]).toBe(before);
+  });
+
+  it("cancel removes the channel again and deletes its secret", async () => {
+    const { core, uLayer, fh, secretDeleted } = mk();
+    await core.attachProject("ch3", fh.host);
+    await core.dispatch("setup.session.addChannel", { projectId: "ch3", channel: { id: "aif", type: "fake" }, apiKey: "k" });
+    expect(await channelIds(core, "ch3")).toContain("aif");
+    await core.dispatch("setup.session.cancel", { projectId: "ch3" });
+    expect(secretDeleted).toContain("channel-aif");
+    expect(uLayer["channels.yaml"]).toBeUndefined();
+  });
+
+  it("removeChannel drops a session channel; one the session did not add is refused", async () => {
+    const { core, fh } = mk();
+    await core.attachProject("ch4", fh.host);
+    await core.dispatch("setup.session.addChannel", { projectId: "ch4", channel: { id: "aif", type: "fake" } });
+    expect(await core.dispatch("setup.session.removeChannel", { projectId: "ch4", id: "aif" })).toEqual({ ok: true });
+    expect(await channelIds(core, "ch4")).not.toContain("aif");
+    expect(await core.dispatch("setup.session.removeChannel", { projectId: "ch4", id: "c1" })).toMatchObject({ ok: false });
+    expect(await channelIds(core, "ch4")).toContain("c1");
+  });
+});

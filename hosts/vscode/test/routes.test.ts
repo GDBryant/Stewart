@@ -190,7 +190,7 @@ describe("routes", () => {
     });
   }
 
-  for (const t of ["setup.review", "setup.approve", "setup.undo"]) {
+  for (const t of ["setup.review", "setup.approve", "setup.undo", "setup.session.addChannel", "setup.session.removeChannel"]) {
     it(`routes ${t} and replies ${t}.result`, async () => {
       const s = setup();
       s.results.set(t, { ok: true });
