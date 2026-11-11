@@ -26,6 +26,7 @@ jobs:
       - run: pnpm run check:boundaries
       - run: pnpm run check:cycles
       - run: pnpm run check:tsrefs
+      - run: pnpm run check:docs
       - run: pnpm --filter stewart run package
         working-directory: hosts/vscode
 

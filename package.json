@@ -11,7 +11,8 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "test:coverage": "pnpm -r test:coverage",
     "check:cycles": "depcruise modules/*/src packages/*/src --config .dependency-cruiser.cjs",
-    "check:tsrefs": "node scripts/sync-tsrefs.mjs --check"
+    "check:tsrefs": "node scripts/sync-tsrefs.mjs --check",
+    "check:docs": "node scripts/check-docs.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3",

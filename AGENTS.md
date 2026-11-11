@@ -12,7 +12,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Build all: `pnpm -r build`
 - Tests: `pnpm -r test`
 - Typecheck: `pnpm -r typecheck`
-- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export), `pnpm check:boundaries` (core file size), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`); all run in CI
+- Module boundaries: `pnpm check:layers` (manifest layers, single `.` export), `pnpm check:boundaries` (core file size), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`), `pnpm check:docs` (ARCHITECTURE_NOW version + module table vs code); all run in CI
 - Coverage: `pnpm test:coverage` (per package ≥90% line, ≥80% branch)
 - No pnpm on this machine — run per package instead: `cd modules/<name>` (or `packages/<name>`) then `./node_modules/.bin/vitest run` (tests), `./node_modules/.bin/tsc -p tsconfig.json --composite false --noEmit` (typecheck), `./node_modules/.bin/tsc -p tsconfig.json` (build). After changing `modules/toolcall-format` (or any sidecar dep), re-bundle + repackage: `cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && ./node_modules/.bin/esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs`, then `./gradlew buildPlugin` → `build/distributions/stewart-X.Y.Z.zip`.
 - New module: `node scripts/new-module.mjs <name> "<purpose>"`, then add it to `scripts/layers.json` and fill its `README.md`
@@ -28,7 +28,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints (draft).
 - Project health check: `docs/building/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (`ListCodeFiles` inventory, batched `code-health-reviewer` dispatch, `submit_health`/`health_report` verbs, deterministic aggregation) (plan).
 - Architecture improvements: `docs/building/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins (health check out of orchestration), `capsFor` model-caps guard, setup-owned draft channels (proposed).
-- Architecture refactoring: `docs/building/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder, R2 one run pipeline (direct = single-task run), R3 integrated context compaction; steps, tests, done-when (proposed).
+- Architecture refactoring: `docs/building/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder (done), R2 one run pipeline (done), R3 integrated context compaction (partial); steps, tests, done-when.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.

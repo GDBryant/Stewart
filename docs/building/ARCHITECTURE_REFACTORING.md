@@ -1,6 +1,6 @@
 # Architecture Refactoring (plan)
 
-Status: **proposed**, 2026-11-07, baseline `57e3da9` (budgets M4). Current state: `docs/ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `docs/building/REFACTORING.md` (behavior identical unless stated, one refactor per commit, existing tests bracket each step).
+Status: **R1 done, R2 done, R3 partial** (see "Deviations" under R3; was proposed 2026-11-07), baseline `57e3da9` (budgets M4). Current state: `docs/ai_docs/ARCHITECTURE_NOW.md`. Refactor rules: `docs/building/REFACTORING.md` (behavior identical unless stated, one refactor per commit, existing tests bracket each step).
 
 Three refactors. R1 (model profile + agent session) goes first; R2 (one run pipeline) and R3 (integrated context compaction) build on it.
 
