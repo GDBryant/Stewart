@@ -5,53 +5,17 @@
     "depth": 0,
     "params": 6
   },
-  "modules/agent-loop/src/callExecutor.ts::executeCalls": {
-    "lines": 30,
-    "complexity": 7,
-    "depth": 3,
-    "params": 6
-  },
-  "modules/agent-loop/src/callExecutor.ts::finishTerminalBatch": {
-    "lines": 8,
-    "complexity": 3,
-    "depth": 1,
-    "params": 5
-  },
-  "modules/agent-loop/src/callExecutor.ts::executeCall": {
-    "lines": 19,
-    "complexity": 6,
-    "depth": 1,
-    "params": 6
-  },
-  "modules/agent-loop/src/callExecutor.ts::invokeTool": {
-    "lines": 28,
-    "complexity": 3,
-    "depth": 1,
-    "params": 7
-  },
   "modules/agent-loop/src/callExecutor.ts::execWithTimeout": {
     "lines": 19,
     "complexity": 2,
     "depth": 1,
     "params": 5
   },
-  "modules/agent-loop/src/callExecutor.ts::invokeCatch": {
-    "lines": 21,
-    "complexity": 9,
-    "depth": 1,
-    "params": 6
-  },
   "modules/agent-loop/src/toolLoop.ts::constructor": {
     "lines": 14,
     "complexity": 1,
     "depth": 0,
     "params": 10
-  },
-  "modules/agent-loop/src/toolLoop.ts::finishTurn": {
-    "lines": 24,
-    "complexity": 9,
-    "depth": 2,
-    "params": 7
   },
   "modules/channels/src/claude/adapter.ts::startClaudeProc": {
     "lines": 23,
@@ -65,77 +29,17 @@
     "depth": 0,
     "params": 2
   },
-  "modules/channels/src/ollama.ts::warnIfTruncated": {
-    "lines": 11,
-    "complexity": 5,
-    "depth": 1,
-    "params": 6
-  },
-  "modules/channels/src/ollama.ts::ollamaLines": {
-    "lines": 12,
-    "complexity": 5,
-    "depth": 2,
-    "params": 6
-  },
-  "modules/channels/src/stream.ts::postForStream": {
-    "lines": 25,
-    "complexity": 7,
-    "depth": 2,
-    "params": 6
-  },
-  "modules/code-health/src/scanFunctions.ts::braceDepth": {
-    "lines": 17,
-    "complexity": 9,
-    "depth": 4,
-    "params": 5
-  },
-  "modules/compaction/src/compaction.ts::pruneTarget": {
-    "lines": 8,
-    "complexity": 7,
-    "depth": 1,
-    "params": 5
-  },
   "modules/kernel/src/testing.ts::fakeHost": {
     "lines": 53,
     "complexity": 1,
     "depth": 0,
     "params": 2
   },
-  "modules/orchestration/src/askUser.ts::answerNestedAskUser": {
-    "lines": 10,
-    "complexity": 3,
-    "depth": 1,
-    "params": 5
-  },
-  "modules/orchestration/src/askUser.ts::selfAnswer": {
-    "lines": 14,
-    "complexity": 8,
-    "depth": 2,
-    "params": 6
-  },
-  "modules/orchestration/src/askUser.ts::askOrchestrator": {
-    "lines": 47,
-    "complexity": 4,
-    "depth": 1,
-    "params": 4
-  },
   "modules/orchestration/src/orchestratedRun.ts::constructor": {
     "lines": 25,
     "complexity": 2,
     "depth": 0,
     "params": 6
-  },
-  "modules/orchestration/src/roleRunner.ts::buildSessionDeps": {
-    "lines": 44,
-    "complexity": 6,
-    "depth": 0,
-    "params": 5
-  },
-  "modules/orchestration/src/roleRunner.ts::runCompactor": {
-    "lines": 13,
-    "complexity": 6,
-    "depth": 2,
-    "params": 5
   },
   "modules/orchestration/src/runSupport.ts::costSummary": {
     "lines": 13,
@@ -148,60 +52,6 @@
     "complexity": 1,
     "depth": 0,
     "params": 1
-  },
-  "modules/recovery/src/recover.ts::recoverFault": {
-    "lines": 19,
-    "complexity": 5,
-    "depth": 2,
-    "params": 10
-  },
-  "modules/recovery/src/recover.ts::layer0Retry": {
-    "lines": 26,
-    "complexity": 9,
-    "depth": 1,
-    "params": 7
-  },
-  "modules/recovery/src/recover.ts::askContinue": {
-    "lines": 25,
-    "complexity": 8,
-    "depth": 1,
-    "params": 7
-  },
-  "modules/recovery/src/recover.ts::trySplit": {
-    "lines": 16,
-    "complexity": 6,
-    "depth": 1,
-    "params": 9
-  },
-  "modules/recovery/src/split.ts::assembleFinalFile": {
-    "lines": 30,
-    "complexity": 6,
-    "depth": 1,
-    "params": 5
-  },
-  "modules/recovery/src/split.ts::splitBrief": {
-    "lines": 13,
-    "complexity": 4,
-    "depth": 0,
-    "params": 7
-  },
-  "modules/recovery/src/split.ts::runSplitSubtasks": {
-    "lines": 41,
-    "complexity": 6,
-    "depth": 2,
-    "params": 9
-  },
-  "modules/recovery/src/split.ts::assembleSplit": {
-    "lines": 31,
-    "complexity": 6,
-    "depth": 2,
-    "params": 8
-  },
-  "modules/recovery/src/split.ts::splitTask": {
-    "lines": 30,
-    "complexity": 6,
-    "depth": 1,
-    "params": 6
   },
   "modules/roles-skills/src/effective.ts::loadEffectiveConfig": {
     "lines": 5,
@@ -257,29 +107,11 @@
     "depth": 2,
     "params": 6
   },
-  "modules/setup/src/bench.ts::summarizePerf": {
-    "lines": 8,
-    "complexity": 7,
-    "depth": 1,
-    "params": 6
-  },
-  "modules/setup/src/bench.ts::measureSpeed": {
-    "lines": 27,
-    "complexity": 7,
-    "depth": 4,
-    "params": 1
-  },
   "modules/setup/src/recommend.ts::buildRecommendPrompt": {
     "lines": 51,
     "complexity": 2,
     "depth": 0,
     "params": 5
-  },
-  "modules/setup/src/smoke.ts::smokeModel": {
-    "lines": 55,
-    "complexity": 7,
-    "depth": 3,
-    "params": 3
   },
   "modules/toolcall-format/src/callAttr.ts::applyCallAttr": {
     "lines": 5,
@@ -298,12 +130,6 @@
     "complexity": 3,
     "depth": 1,
     "params": 8
-  },
-  "modules/tools/src/codeMetrics.ts::collect": {
-    "lines": 20,
-    "complexity": 9,
-    "depth": 4,
-    "params": 1
   },
   "modules/tools/src/fsRead.ts::scanContent": {
     "lines": 11,
@@ -347,12 +173,6 @@
     "depth": 0,
     "params": 1
   },
-  "packages/webview/src/items.tsx::ItemsSection": {
-    "lines": 59,
-    "complexity": 6,
-    "depth": 0,
-    "params": 1
-  },
   "packages/webview/src/skillsSection.tsx::NewSkill": {
     "lines": 47,
     "complexity": 5,
@@ -364,30 +184,6 @@
     "complexity": 5,
     "depth": 0,
     "params": 5
-  },
-  "packages/webview/src/wizardStep1Channels.tsx::NewChannelForm": {
-    "lines": 41,
-    "complexity": 8,
-    "depth": 0,
-    "params": 1
-  },
-  "packages/webview/src/wizardStep1Channels.tsx::EvaluatorPicker": {
-    "lines": 41,
-    "complexity": 4,
-    "depth": 0,
-    "params": 1
-  },
-  "packages/webview/src/wizardStep1Channels.tsx::ChannelsStep": {
-    "lines": 90,
-    "complexity": 7,
-    "depth": 0,
-    "params": 1
-  },
-  "packages/webview/src/wizardStep3Evaluator.tsx::EvaluatorStep": {
-    "lines": 62,
-    "complexity": 7,
-    "depth": 0,
-    "params": 1
   },
   "hosts/vscode/src/extension.ts::activate": {
     "lines": 65,

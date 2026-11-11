@@ -74,14 +74,24 @@ function ollamaDeltas(j: OllamaLine): WireDelta[] {
 }
 
 /** Warn when the provider evaluated far fewer prompt tokens than sent (num_ctx truncation). */
-function warnIfTruncated(acc: StreamAccumulator, estTokens: number, numCtx: number | undefined, dbg: DebugSink | undefined, provider: string, model: string): void {
-  const u = acc.sawUsage;
-  if (u && u.in > 0 && u.in < estTokens * 0.6) {
-    dbg?.record({
+/** Per-turn state for the truncation check and the NDJSON line loop. */
+interface TurnCtx {
+  acc: StreamAccumulator;
+  dbg: DebugSink | undefined;
+  estTokens: number;
+  numCtx: number | undefined;
+  provider: string;
+  model: string;
+}
+
+function warnIfTruncated(c: TurnCtx): void {
+  const u = c.acc.sawUsage;
+  if (u && u.in > 0 && u.in < c.estTokens * 0.6) {
+    c.dbg?.record({
       direction: "error",
-      provider,
-      model,
-      payload: `prompt truncated by provider: ~${estTokens} tokens sent, ${u.in} evaluated (num_ctx=${numCtx ?? "default"}); raise numCtx`,
+      provider: c.provider,
+      model: c.model,
+      payload: `prompt truncated by provider: ~${c.estTokens} tokens sent, ${u.in} evaluated (num_ctx=${c.numCtx ?? "default"}); raise numCtx`,
     });
   }
 }
@@ -128,9 +138,7 @@ export class OllamaAdapter implements ChannelAdapter {
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: `num_ctx=${numCtx ?? "default"} ${body}` });
     const stream = await postForStream(
-      this.deps,
-      this.type,
-      req.model,
+      { deps: this.deps, provider: this.type, model: req.model },
       url(cfg, "/api/chat"),
       { headers: { "content-type": "application/json" }, signal: req.signal, body },
       (status, text) => new ChannelError(extractError(text, `POST /api/chat → ${status}`), status), // v1: extractError
@@ -138,7 +146,7 @@ export class OllamaAdapter implements ChannelAdapter {
     const acc = new StreamAccumulator();
     let sawDone = false;
     try {
-      sawDone = yield* this.ollamaLines(stream, req, acc, dbg, estTokens, numCtx);
+      sawDone = yield* this.ollamaLines(stream, req, { acc, dbg, estTokens, numCtx, provider: this.type, model: req.model });
     } catch (e) {
       dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: e instanceof Error ? e.message : String(e) });
       throw e;
@@ -147,13 +155,13 @@ export class OllamaAdapter implements ChannelAdapter {
     yield* acc.finish();
   }
 
-  private async *ollamaLines(stream: ReadableStream<Uint8Array>, req: ChatRequest, acc: StreamAccumulator, dbg: DebugSink | undefined, estTokens: number, numCtx: number | undefined): AsyncGenerator<ChatEvent, boolean> {
+  private async *ollamaLines(stream: ReadableStream<Uint8Array>, req: ChatRequest, turn: TurnCtx): AsyncGenerator<ChatEvent, boolean> {
     for await (const line of lines(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
-      dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: line });
+      turn.dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: line });
       const j = parseOllamaLine(line);
-      for (const d of ollamaDeltas(j)) yield* acc.apply(d);
+      for (const d of ollamaDeltas(j)) yield* turn.acc.apply(d);
       if (j.done === true) {
-        warnIfTruncated(acc, estTokens, numCtx, dbg, this.type, req.model);
+        warnIfTruncated(turn);
         return true;
       }
     }

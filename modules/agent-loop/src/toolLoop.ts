@@ -86,9 +86,8 @@ export class ToolLoop {
       return undefined;
     }
     if (decision.kind === "failed") return { kind: "failed", messages: produced, base, message: decision.message, code: decision.code };
-    const handled = await this.finishTurn(s, turn, produced, listener, inFlight, signal, st.executed);
-    st.executed = handled.executed;
-    return handled.completed ? { kind: "completed", messages: produced, base } : undefined;
+    const completed = await this.finishTurn(s, st, listener, signal);
+    return completed ? { kind: "completed", messages: produced, base } : undefined;
   }
 
   private async prepareTurn(base: ChatMessage[], produced: ChatMessage[], listener: LoopListener): Promise<boolean> {
@@ -118,15 +117,9 @@ export class ToolLoop {
     return { kind: "parse" };
   }
 
-  private async finishTurn(
-    s: StreamOutcome,
-    turn: TurnState,
-    produced: ChatMessage[],
-    listener: LoopListener,
-    inFlight: { id: string | null; awaitsUser: boolean },
-    signal: AbortSignal,
-    executed: number,
-  ): Promise<{ completed: boolean; executed: number }> {
+  /** Records the assistant turn, runs its calls, and returns true when the run is complete. Updates `st.executed`. */
+  private async finishTurn(s: StreamOutcome, st: RunState, listener: LoopListener, signal: AbortSignal): Promise<boolean> {
+    const { turn, produced } = st;
     turn.open = false;
     const parsed = this.parseCalls(turn.text, s.calls, listener);
     turn.text = parsed.text;
@@ -134,15 +127,16 @@ export class ToolLoop {
     if (s.held && parsed.calls.length === 0 && parsed.errors.length === 0) listener.onText?.(s.held);
     produced.push({ role: "assistant", content: turn.text, toolCalls: parsed.calls.length > 0 ? parsed.calls : undefined });
     if (parsed.calls.length === 0) {
-      if (parsed.errors.length === 0) return { completed: true, executed };
+      if (parsed.errors.length === 0) return true;
       // Call-like text that failed: tell the model and retry, bounded by maxModelTurns.
       produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
-      return { completed: false, executed };
+      return false;
     }
-    const batch = await this.executor.executeCalls(parsed.calls, produced, listener, inFlight, signal, executed);
-    if (batch.terminal) return { completed: true, executed: batch.executed };
+    const batch = await this.executor.executeCalls(parsed.calls, produced, { listener, inFlight: st.inFlight, signal }, st.executed);
+    st.executed = batch.executed;
+    if (batch.terminal) return true;
     if (parsed.errors.length > 0) produced.push({ role: "user", content: this.parseFeedback(parsed.errors) });
-    return { completed: false, executed: batch.executed };
+    return false;
   }
 
   private outbound(base: ChatMessage[], produced: ChatMessage[]): ChatMessage[] {

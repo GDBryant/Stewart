@@ -176,10 +176,10 @@ describe("splitTask", () => {
     const { rt, files } = mkRt();
     const R = ensureRecovery(rt);
     const parent: TaskResult = { ...fault("turn_limit"), transcript: [] };
-    const res = await splitTask(rt, spec, role(), parent, { depth: 0, brain: brain(), recurse: async (_r, s, _d, _c) => {
+    const res = await splitTask({ rt, spec, role: role(), ctx: { depth: 0, brain: brain(), recurse: async (_r, s, _d, _c) => {
       files[`.stewart/scratch/r1/task-t1/${s.id.endsWith("s1") ? "o1.txt" : "o2.txt"}`] = "out-" + s.id;
       return { status: "done", summary: "sub done", filesTouched: [] };
-    } }, R);
+    } }, R }, parent);
     expect(res.status).toBe("done");
     expect(res.summary).toContain("split into 2");
   });
@@ -188,7 +188,7 @@ describe("splitTask", () => {
     const { rt } = mkRt();
     const R = ensureRecovery(rt);
     const bad = brain({ nope: 1 });
-    const res = await splitTask(rt, spec, role(), { ...fault("truncated"), transcript: [] }, { depth: 0, brain: bad, recurse: async () => okRes }, R);
+    const res = await splitTask({ rt, spec, role: role(), ctx: { depth: 0, brain: bad, recurse: async () => okRes }, R }, { ...fault("truncated"), transcript: [] });
     expect(res.status).toBe("failed");
     expect(res.summary).toContain("no valid submit_recovery");
   });
@@ -197,7 +197,7 @@ describe("splitTask", () => {
     const { rt } = mkRt();
     const R = ensureRecovery(rt);
     let n = 0;
-    const res = await splitTask(rt, spec, role(), { ...fault("turn_limit"), transcript: [] }, { depth: 0, brain: brain(), recurse: async () => (n++, { status: "failed", summary: "sub broke", filesTouched: [] }) }, R);
+    const res = await splitTask({ rt, spec, role: role(), ctx: { depth: 0, brain: brain(), recurse: async () => (n++, { status: "failed", summary: "sub broke", filesTouched: [] }) }, R }, { ...fault("turn_limit"), transcript: [] });
     expect(res.status).toBe("failed");
     expect(n).toBe(1);
     expect(res.summary).toContain("sub-task failed");
@@ -212,7 +212,7 @@ describe("assembleFinalFile", () => {
     const dir = ".stewart/scratch/r1/task-t1";
     files[`${dir}/o1.txt`] = "one";
     files[`${dir}/o2.txt`] = "two";
-    const res = await assembleFinalFile(rt, spec, role(), plan, dir);
+    const res = await assembleFinalFile({ rt, spec, role: role(), plan, taskDir: dir });
     expect(res).toEqual({ ok: true, rel: "out/merged.txt" });
     expect(files["out/merged.txt"]).toBe("one\ntwo");
   });
@@ -222,13 +222,13 @@ describe("assembleFinalFile", () => {
     const dir = ".stewart/scratch/r1/task-t1";
     files[`${dir}/o1.txt`] = "one";
     files[`${dir}/o2.txt`] = "two";
-    const rejected = await assembleFinalFile({ ...rt, approve: async () => ({ kind: "rejected", reason: "no" }) }, spec, role(), plan, dir);
+    const rejected = await assembleFinalFile({ rt: { ...rt, approve: async () => ({ kind: "rejected", reason: "no" }) }, spec, role: role(), plan, taskDir: dir });
     expect(rejected.ok).toBe(false);
     expect(rejected.error).toContain("rejected");
     delete files[`${dir}/o2.txt`];
-    expect((await assembleFinalFile(rt, spec, role(), plan, dir)).error).toContain("cannot read");
-    expect((await assembleFinalFile(rt, spec, role(), { ...plan, finalFile: "../evil" }, dir)).error).toContain("rejected");
-    expect((await assembleFinalFile(rt, spec, role(), { subtasks: [], finalFile: undefined }, dir)).ok).toBe(true);
+    expect((await assembleFinalFile({ rt, spec, role: role(), plan, taskDir: dir })).error).toContain("cannot read");
+    expect((await assembleFinalFile({ rt, spec, role: role(), plan: { ...plan, finalFile: "../evil" }, taskDir: dir })).error).toContain("rejected");
+    expect((await assembleFinalFile({ rt, spec, role: role(), plan: { subtasks: [], finalFile: undefined }, taskDir: dir })).ok).toBe(true);
   });
 });
 

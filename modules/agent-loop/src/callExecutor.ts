@@ -8,6 +8,25 @@ function rejected(): ApprovalDecision {
   return { kind: "rejected", reason: "denied" };
 }
 
+/** Shared per-run plumbing: who listens, which call is in flight, and the run's abort signal. */
+export interface RunPlumbing {
+  listener: LoopListener;
+  inFlight: { id: string | null; awaitsUser: boolean };
+  signal: AbortSignal;
+}
+
+/** Plumbing plus the call ids already seen in this executeCalls pass (duplicate-id guard). */
+export interface CallContext extends RunPlumbing {
+  seen: Set<string>;
+}
+
+/** What invokeTool needs beyond the call itself: the resolved tool, its approval preview, and the idempotency key. */
+interface Invocation {
+  tool: Tool;
+  preview: ToolPreview | null;
+  key: string | undefined;
+}
+
 /** Resolve → gate → invoke → shape pipeline for one model-issued tool call, plus batching. */
 export class CallExecutor {
   constructor(
@@ -23,21 +42,19 @@ export class CallExecutor {
   async executeCalls(
     calls: ToolCall[],
     produced: ChatMessage[],
-    listener: LoopListener,
-    inFlight: { id: string | null; awaitsUser: boolean },
-    signal: AbortSignal,
+    run: RunPlumbing,
     executed: number,
   ): Promise<{ executed: number; terminal: boolean }> {
-    const seen = new Set<string>();
+    const ctx: CallContext = { ...run, seen: new Set<string>() };
     let i = 0;
     while (i < calls.length) {
-      const batch = this.parallelBatch(calls, i, listener);
+      const batch = this.parallelBatch(calls, i, run.listener);
       const seq = executed;
       executed += batch.length;
       const outcomes =
         batch.length === 1
-          ? [await this.executeCall(batch[0], seen, listener, inFlight, signal, seq)]
-          : await Promise.all(batch.map((c, k) => this.executeCall(c, seen, listener, inFlight, signal, seq + k)));
+          ? [await this.executeCall(batch[0], ctx, seq)]
+          : await Promise.all(batch.map((c, k) => this.executeCall(c, ctx, seq + k)));
       for (let k = 0; k < batch.length; k++) {
         const outcome = outcomes[k];
         produced.push({ role: "tool", toolCallId: batch[k].id, content: outcomeMessage(outcome) });
@@ -45,7 +62,7 @@ export class CallExecutor {
           produced.push({ role: "user", content: `[image from ${batch[k].name}]`, images: outcome.images });
         }
       }
-      if (this.finishTerminalBatch(batch, outcomes, calls, i, produced)) return { executed, terminal: true };
+      if (this.finishTerminalBatch(batch, outcomes, calls.slice(i + batch.length), produced)) return { executed, terminal: true };
       i += batch.length;
     }
     return { executed, terminal: false };
@@ -64,11 +81,12 @@ export class CallExecutor {
     return batch;
   }
 
-  private finishTerminalBatch(batch: ToolCall[], outcomes: ToolOutcome[], calls: ToolCall[], i: number, produced: ChatMessage[]): boolean {
+  /** `rest` is every call after this batch; once a terminal tool succeeds, they are all marked not executed. */
+  private finishTerminalBatch(batch: ToolCall[], outcomes: ToolOutcome[], rest: ToolCall[], produced: ChatMessage[]): boolean {
     const terminal = batch.findIndex((c, k) => this.terminalTools.has(c.name) && outcomes[k].kind === "success");
     if (terminal < 0) return false;
-    for (const rest of calls.slice(i + batch.length)) {
-      produced.push({ role: "tool", toolCallId: rest.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
+    for (const next of rest) {
+      produced.push({ role: "tool", toolCallId: next.id, content: `Not executed: '${batch[terminal].name}' ended the turn` });
     }
     return true;
   }
@@ -78,16 +96,10 @@ export class CallExecutor {
     return outcome;
   }
 
-  private async executeCall(
-    call: ToolCall,
-    seen: Set<string>,
-    listener: LoopListener,
-    inFlight: { id: string | null; awaitsUser: boolean },
-    signal: AbortSignal,
-    index: number,
-  ): Promise<ToolOutcome> {
-    if (seen.has(call.id)) return this.finishOutcome(call, { kind: "invalid", reason: "duplicate tool call id" }, listener);
-    seen.add(call.id);
+  private async executeCall(call: ToolCall, ctx: CallContext, index: number): Promise<ToolOutcome> {
+    const { listener, signal } = ctx;
+    if (ctx.seen.has(call.id)) return this.finishOutcome(call, { kind: "invalid", reason: "duplicate tool call id" }, listener);
+    ctx.seen.add(call.id);
     const resolved = this.resolveTool(call);
     if ("outcome" in resolved) return this.finishOutcome(call, resolved.outcome, listener);
     const key = this.idempotency?.key(call, index);
@@ -95,7 +107,7 @@ export class CallExecutor {
     if (replayed !== undefined) return this.finishOutcome(call, { kind: "success", content: replayed }, listener);
     const gated = await this.gateCall(call, resolved.tool, signal);
     if ("outcome" in gated) return this.finishOutcome(call, gated.outcome, listener);
-    return this.invokeTool(call, resolved.tool, gated.preview, key, listener, inFlight, signal);
+    return this.invokeTool(call, { tool: resolved.tool, preview: gated.preview, key }, ctx);
   }
 
   private resolveTool(call: ToolCall): { tool: Tool } | { outcome: ToolOutcome } {
@@ -134,29 +146,22 @@ export class CallExecutor {
     return { preview };
   }
 
-  private async invokeTool(
-    call: ToolCall,
-    tool: Tool,
-    preview: ToolPreview | null,
-    key: string | undefined,
-    listener: LoopListener,
-    inFlight: { id: string | null; awaitsUser: boolean },
-    signal: AbortSignal,
-  ): Promise<ToolOutcome> {
+  private async invokeTool(call: ToolCall, job: Invocation, ctx: CallContext): Promise<ToolOutcome> {
+    const { inFlight, listener, signal } = ctx;
     inFlight.id = call.id;
-    inFlight.awaitsUser = tool.awaitsUser === true;
+    inFlight.awaitsUser = job.tool.awaitsUser === true;
     const child = new AbortController();
     const onAbort = () => child.abort();
     if (signal.aborted) child.abort();
     else signal.addEventListener("abort", onAbort, { once: true });
     let timer: { cancel(): void } | undefined;
     try {
-      const out = await this.execWithTimeout(tool, call, preview, child, (t) => {
+      const out = await this.execWithTimeout(job.tool, call, job.preview, child, (t) => {
         timer = t;
       });
-      return await this.shapeResult(call, out, key, listener);
+      return await this.shapeResult(call, out, job.key, listener);
     } catch (e) {
-      return this.invokeCatch(e, call, inFlight, listener, signal, child);
+      return this.invokeCatch(e, call, ctx, child);
     } finally {
       timer?.cancel();
       signal.removeEventListener("abort", onAbort);
@@ -183,14 +188,8 @@ export class CallExecutor {
     ]);
   }
 
-  private invokeCatch(
-    e: unknown,
-    call: ToolCall,
-    inFlight: { id: string | null; awaitsUser: boolean },
-    listener: LoopListener,
-    signal: AbortSignal,
-    child: AbortController,
-  ): ToolOutcome {
+  private invokeCatch(e: unknown, call: ToolCall, ctx: CallContext, child: AbortController): ToolOutcome {
+    const { inFlight, listener, signal } = ctx;
     if (e instanceof Error && e.name === "LeaseCycleError") throw e;
     if (e instanceof Error && e.message === "__tool_timeout__") {
       return this.finishOutcome(call, { kind: "uncertain", reason: "timed out; side effects unknown" }, listener);

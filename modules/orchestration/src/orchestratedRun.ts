@@ -249,7 +249,7 @@ export class OrchestratedRun implements RunHost {
         this.nestedUsed.set(parentId, used + 1);
         return this.dispatchArgs(args, depth + 1);
       },
-      askUser: async (args, signal) => (signal.aborted ? "Cancelled." : answerNestedAskUser(this, role.id, parentId, args.question, args.options)),
+      askUser: async (args, signal) => (signal.aborted ? "Cancelled." : answerNestedAskUser(this, { roleId: role.id, taskId: parentId, question: args.question, options: args.options })),
       submitPlan: (args) => this.handlers.submitPlan(args),
       submitVerdict: (args) => this.handlers.submitVerdict(args),
       submitReplacements: () => "Replacements are submitted by the Orchestrator.",

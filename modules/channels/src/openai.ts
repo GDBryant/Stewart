@@ -140,9 +140,7 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: body });
     const stream = await postForStream(
-      this.deps,
-      this.type,
-      req.model,
+      { deps: this.deps, provider: this.type, model: req.model },
       url(cfg, "/chat/completions"),
       { headers: this.headers(cfg, secret), signal: req.signal, body },
       (status, text) => new ChannelError(`POST /chat/completions → ${status}: ${text.slice(0, 200)}`, status),

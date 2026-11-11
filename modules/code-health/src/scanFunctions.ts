@@ -143,18 +143,31 @@ export function countBranches(text: string): number {
   return n;
 }
 
-export function braceDepth(toks: Tok[], masked: string, starts: number[], from: number, closePos: number): number {
+/** Brace-scan context shared by braceDepth: tokens, comment/string-masked source, line starts. */
+export interface BraceCtx {
+  toks: Tok[];
+  masked: string;
+  starts: number[];
+}
+
+function isControlOpen(ctx: BraceCtx, i: number): boolean {
+  const t = ctx.toks[i];
+  const lo = i > 0 ? ctx.toks[i - 1].pos + 1 : 0;
+  return braceKind(headerGroup(ctx.masked, ctx.starts, lo, t.pos).text) === "control";
+}
+
+/** Max nesting of control-flow blocks (if/for/while/...) strictly inside the brace at `from`, closing at `closePos`. */
+export function braceDepth(ctx: BraceCtx, from: number, closePos: number): number {
   let depth = 0, max = 0;
   const stack: boolean[] = [];
-  for (let i = from + 1; i < toks.length && toks[i].pos < closePos; i++) {
-    const t = toks[i];
+  for (let i = from + 1; i < ctx.toks.length && ctx.toks[i].pos < closePos; i++) {
+    const t = ctx.toks[i];
     if (t.kind === "open") {
-      const lo = i > 0 ? toks[i - 1].pos + 1 : 0;
-      const ctrl = braceKind(headerGroup(masked, starts, lo, t.pos).text) === "control";
+      const ctrl = isControlOpen(ctx, i);
       stack.push(ctrl);
       if (ctrl) {
         depth++;
-        if (depth > max) max = depth;
+        max = Math.max(max, depth);
       }
     } else if (t.kind === "close" && stack.pop()) depth--;
   }

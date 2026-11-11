@@ -29,21 +29,27 @@ export class CodeMetrics extends ProjectTool {
     const includeTests = optBool(args, "include_tests");
     const files = new Map<string, FileMetrics>();
     const missing: string[] = [];
-    for (const raw of this.targets(args)) {
-      const rel = this.paths.resolve(raw);
-      if (!(await this.paths.exists(rel))) {
-        missing.push(rel);
-        continue;
-      }
-      const listed = await this.paths.list(rel).catch(() => [] as string[]);
-      const srcs = listed.filter((p) => isSourceFile(p, { includeTests }));
-      if (srcs.length > 0) {
-        for (const p of srcs) if (!files.has(p)) files.set(p, await this.measureOne(p));
-      } else if (listed.length === 0 || isSourceFile(rel, { includeTests: true })) {
-        if (!files.has(rel)) files.set(rel, await this.measureOne(rel));
-      }
-    }
+    for (const raw of this.targets(args)) await this.collectTarget(raw, includeTests, files, missing);
     return { files: [...files.values()], missing };
+  }
+
+  private async collectTarget(raw: string, includeTests: boolean, files: Map<string, FileMetrics>, missing: string[]): Promise<void> {
+    const rel = this.paths.resolve(raw);
+    if (!(await this.paths.exists(rel))) {
+      missing.push(rel);
+      return;
+    }
+    const listed = await this.paths.list(rel).catch(() => [] as string[]);
+    const srcs = listed.filter((p) => isSourceFile(p, { includeTests }));
+    if (srcs.length > 0) {
+      for (const p of srcs) await this.addFile(files, p);
+    } else if (listed.length === 0 || isSourceFile(rel, { includeTests: true })) {
+      await this.addFile(files, rel);
+    }
+  }
+
+  private async addFile(files: Map<string, FileMetrics>, rel: string): Promise<void> {
+    if (!files.has(rel)) files.set(rel, await this.measureOne(rel));
   }
 
   private async measureOne(rel: string): Promise<FileMetrics> {

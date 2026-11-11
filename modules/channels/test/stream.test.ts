@@ -60,30 +60,30 @@ describe("postForStream", () => {
 
   it("returns the body on 200", async () => {
     const { fetcher } = fakeFetcher([{ body: "data: x" }]);
-    const body = await postForStream(deps(fetcher), "p", "m", "http://x", init, describe);
+    const body = await postForStream({ deps: deps(fetcher), provider: "p", model: "m" }, "http://x", init, describe);
 
     expect(await new Response(body).text()).toBe("data: x\n");
   });
 
   it("throws ChannelError with retry-after on 429", async () => {
     const { fetcher } = fakeFetcher([{ status: 429, body: "slow down", headers: { "retry-after": "3" } }]);
-    await expect(postForStream(deps(fetcher), "p", "m", "http://x", init, describe)).rejects.toMatchObject({ status: 429, retryAfterMs: 3000 });
+    await expect(postForStream({ deps: deps(fetcher), provider: "p", model: "m" }, "http://x", init, describe)).rejects.toMatchObject({ status: 429, retryAfterMs: 3000 });
   });
 
   it("delegates non-200 errors to describeError", async () => {
     const { fetcher } = fakeFetcher([{ status: 500, body: "boom" }]);
-    await expect(postForStream(deps(fetcher), "p", "m", "http://x", init, describe)).rejects.toThrow("err 500: boom");
+    await expect(postForStream({ deps: deps(fetcher), provider: "p", model: "m" }, "http://x", init, describe)).rejects.toThrow("err 500: boom");
   });
 
   it("rethrows connection failures", async () => {
     const fetcher: Fetcher = async () => {
       throw new Error("conn refused");
     };
-    await expect(postForStream(deps(fetcher), "p", "m", "http://x", init, describe)).rejects.toThrow("conn refused");
+    await expect(postForStream({ deps: deps(fetcher), provider: "p", model: "m" }, "http://x", init, describe)).rejects.toThrow("conn refused");
   });
 
   it("throws on empty body", async () => {
     const fetcher: Fetcher = async () => ({ status: 200, headers: {}, body: null });
-    await expect(postForStream(deps(fetcher), "p", "m", "http://x", init, describe)).rejects.toThrow("empty response body");
+    await expect(postForStream({ deps: deps(fetcher), provider: "p", model: "m" }, "http://x", init, describe)).rejects.toThrow("empty response body");
   });
 });

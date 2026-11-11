@@ -65,21 +65,27 @@ function collectToolCalls(produced: ChatMessage[]): { calls: Map<string, { name:
   return { calls, latest };
 }
 
-function pruneTarget(m: ChatMessage, i: number, calls: Map<string, { name: string; key: string }>, latest: Map<string, string>, cutoff: number): { key: string; len: number } | null {
+/** Prune scan state: call index from collectToolCalls plus the first message index still kept verbatim. */
+interface PruneScan {
+  calls: Map<string, { name: string; key: string }>;
+  latest: Map<string, string>;
+  cutoff: number;
+}
+
+function pruneTarget(m: ChatMessage, i: number, scan: PruneScan): { key: string; len: number } | null {
   if (m.role !== "tool" || m.content.length < PRUNE_MIN_CHARS || m.content.startsWith("[elided")) return null;
-  const c = calls.get(m.toolCallId);
+  const c = scan.calls.get(m.toolCallId);
   if (!c) return null;
-  const superseded = latest.get(c.key) !== m.toolCallId;
-  if (!superseded && i >= cutoff) return null;
+  const superseded = scan.latest.get(c.key) !== m.toolCallId;
+  if (!superseded && i >= scan.cutoff) return null;
   return { key: c.key, len: m.content.length };
 }
 
 export function pruneStale(produced: ChatMessage[]): number {
-  const { calls, latest } = collectToolCalls(produced);
+  const scan: PruneScan = { ...collectToolCalls(produced), cutoff: produced.length - PRUNE_TAIL };
   let n = 0;
-  const cutoff = produced.length - PRUNE_TAIL;
   produced.forEach((m, i) => {
-    const t = pruneTarget(m, i, calls, latest, cutoff);
+    const t = pruneTarget(m, i, scan);
     if (!t) return;
     produced[i] = { ...m, content: `[elided: ${t.key} ${t.len} chars; re-run the tool if needed]` };
     n++;

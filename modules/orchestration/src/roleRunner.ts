@@ -1,6 +1,6 @@
 import { fallbackPrompt } from "./prompts.js";
 import type { RoleDef } from "@stewart/config";
-import type { ChatMessage } from "@stewart/kernel";
+import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { capsFor, isCosting } from "@stewart/models";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { agentServesRole } from "@stewart/roles-skills";
@@ -40,9 +40,9 @@ export async function runRoleTask(
   const { role } = deps;
   const resolved = await resolveAgent(rt, spec, role, deps.agent);
   if ("status" in resolved) return resolved;
-  const { agent, channel } = resolved;
+  const { agent } = resolved;
   for (const f of spec.files) rt.leases.tryAcquire(f, spec.id);
-  const { session, state } = await buildSessionDeps(rt, spec, deps, agent, channel);
+  const { session, state } = await buildSessionDeps(rt, spec, deps, resolved);
 
   const messages: ChatMessage[] = deps.history ?? [{ role: "user", content: roleBriefing(spec, deps) }];
 
@@ -138,24 +138,19 @@ function leasedRegistry(rt: RunRuntime, spec: TaskSpec, role: RoleDef, base: Too
   );
 }
 
-async function buildSessionDeps(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  deps: RoleTaskDeps,
-  agent: NonNullable<RoleTaskDeps["agent"]>,
-  channel: ReturnType<RunRuntime["channelFor"]>,
-) {
+type ResolvedAgent = { agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<RunRuntime["channelFor"]> };
+type SessionState = { filesTouched: string[]; terminalCallId?: string };
+
+async function buildSessionDeps(rt: RunRuntime, spec: TaskSpec, deps: RoleTaskDeps, { agent, channel }: ResolvedAgent) {
   const { role } = deps;
   const paths = await ProjectPaths.forProject(rt.host);
-  const extra = deps.nestedTools ?? [];
-  const imageGen = imageGenFor(channel, agent);
-  const base = new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGen }).tools, ...extra]).for(role);
+  const base = new ToolRegistry([...projectTools(rt.host, paths, { generateImage: imageGenFor(channel, agent) }).tools, ...(deps.nestedTools ?? [])]).for(role);
   const registry = leasedRegistry(rt, spec, role, base);
 
   const prompt = deps.prompt ?? (await buildRolePrompt(rt, role));
   const terminalNames = new Set([...TERMINAL, ...terminalToolNames(rt.features)]);
   const terminal = new Set([...terminalNames].filter((t) => registry.find(t)));
-  const state = { filesTouched: [] as string[], terminalCallId: undefined as string | undefined };
+  const state: SessionState = { filesTouched: [], terminalCallId: undefined };
 
   const { summarize, prune } = compactionFor(rt, spec.id);
   const session = createAgentSession(
@@ -173,16 +168,21 @@ async function buildSessionDeps(
       idem: rt.idem.hooks(spec.id, deps.idemOffset),
       summarize,
       events: { bus: rt.bus, runId: rt.runId, taskId: spec.id, roleId: role.id },
-      hooks: {
-        onToolRequested: (call) => {
-          if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") state.filesTouched.push(call.arguments.path);
-          if (terminalNames.has(call.name)) state.terminalCallId = call.id;
-        },
-      },
+      hooks: trackingHooks(state, terminalNames),
     },
     rt.clock,
   );
   return { session, state };
+}
+
+/** Records written paths and the terminal tool call id as the loop requests tools. */
+function trackingHooks(state: SessionState, terminalNames: Set<string>): { onToolRequested: (call: ToolCall) => void } {
+  return {
+    onToolRequested: (call) => {
+      if (WRITE_TOOLS.has(call.name) && typeof call.arguments.path === "string") state.filesTouched.push(call.arguments.path);
+      if (terminalNames.has(call.name)) state.terminalCallId = call.id;
+    },
+  };
 }
 
 function toTaskResult(
@@ -232,7 +232,7 @@ export function compactorFor(rt: RunRuntime, taskId?: string): ((middle: ChatMes
   if (!agent) return undefined;
   const channel = rt.channelFor(agent.channel);
   if (channel.unhealthy) return undefined;
-  return (middle) => runCompactor(rt, channel, agent, middle, taskId);
+  return (middle) => runCompactor(rt, { agent, channel }, middle, taskId);
 }
 
 async function recordCompactionCost(rt: RunRuntime, agent: NonNullable<RoleTaskDeps["agent"]>, ev: { usage?: { in: number; out: number }; costUsd?: number }, taskId?: string): Promise<void> {
@@ -251,7 +251,7 @@ async function recordCompactionCost(rt: RunRuntime, agent: NonNullable<RoleTaskD
   rt.cost.accrued += costUsd;
 }
 
-async function runCompactor(rt: RunRuntime, channel: ReturnType<RunRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>, middle: ChatMessage[], taskId?: string): Promise<string> {
+async function runCompactor(rt: RunRuntime, { agent, channel }: ResolvedAgent, middle: ChatMessage[], taskId?: string): Promise<string> {
   if (rt.cost.reached() && isCosting(agent)) return "";
   let text = "";
   const messages: ChatMessage[] = [

@@ -141,25 +141,32 @@ export class StreamAccumulator {
  * POST a chat request and return the streaming body. Handles connection errors,
  * non-200 statuses (429 → ChannelError with retry-after), debug records, empty bodies.
  */
+/** Who is calling: channel deps plus the provider/model labels used in debug records. */
+export interface StreamCallCtx {
+  deps: ChannelDeps;
+  provider: string;
+  model: string;
+}
+
+async function fetchOrRecord(ctx: StreamCallCtx, url: string, init: { headers: Record<string, string>; signal: AbortSignal; body: string }): Promise<FetchResponse> {
+  try {
+    return await ctx.deps.fetcher(url, { method: "POST", headers: init.headers, signal: init.signal, body: init.body });
+  } catch (e) {
+    ctx.deps.debug?.record({ direction: "error", provider: ctx.provider, model: ctx.model, payload: `connection failed: ${e instanceof Error ? e.message : String(e)}` });
+    throw e;
+  }
+}
+
 export async function postForStream(
-  deps: ChannelDeps,
-  provider: string,
-  model: string,
+  ctx: StreamCallCtx,
   url: string,
   init: { headers: Record<string, string>; signal: AbortSignal; body: string },
   describeError: (status: number, body: string) => ChannelError,
 ): Promise<ReadableStream<Uint8Array>> {
-  const dbg = deps.debug;
-  let r: FetchResponse;
-  try {
-    r = await deps.fetcher(url, { method: "POST", headers: init.headers, signal: init.signal, body: init.body });
-  } catch (e) {
-    dbg?.record({ direction: "error", provider, model, payload: `connection failed: ${e instanceof Error ? e.message : String(e)}` });
-    throw e;
-  }
+  const r = await fetchOrRecord(ctx, url, init);
   if (r.status !== 200) {
     const text = await new Response(r.body).text();
-    dbg?.record({ direction: "error", provider, model, payload: `HTTP ${r.status}: ${text}` });
+    ctx.deps.debug?.record({ direction: "error", provider: ctx.provider, model: ctx.model, payload: `HTTP ${r.status}: ${text}` });
     if (r.status === 429) throw new ChannelError("rate limited", 429, Number(r.headers["retry-after"] ?? 1) * 1000);
     throw describeError(r.status, text);
   }

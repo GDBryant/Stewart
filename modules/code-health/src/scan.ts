@@ -110,7 +110,7 @@ export function scanBrace(content: string): FunctionMetric[] {
     const start = lineOf(starts, hs);
     const end = lineOf(starts, close);
     const span = masked.slice(hs, close + 1);
-    fns.push({ name: fnName(header), line: start, lines: end - start + 1, branches: countBranches(span), depth: braceDepth(toks, masked, starts, i, close) });
+    fns.push({ name: fnName(header), line: start, lines: end - start + 1, branches: countBranches(span), depth: braceDepth({ toks, masked, starts }, i, close) });
   }
   return fns;
 }

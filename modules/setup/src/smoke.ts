@@ -95,6 +95,40 @@ function probeVerdict(acc: ProbeAccum, finish: ProbeFinish): SmokeResult {
   return finish({ state: "green" });
 }
 
+/** Wraps `it.next()` so the in-flight request is known to `makeFinish` (a throwing `next` rejects instead). */
+function trackNext(it: AsyncIterator<ChatEvent>): { next: () => Promise<IteratorResult<ChatEvent>>; pending: () => Promise<unknown> | undefined } {
+  let pendingNext: Promise<unknown> | undefined;
+  const next = (): Promise<IteratorResult<ChatEvent>> => {
+    let p: Promise<IteratorResult<ChatEvent>>;
+    try {
+      p = it.next();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    pendingNext = p;
+    const clear = () => {
+      if (pendingNext === p) pendingNext = undefined;
+    };
+    void p.then(clear, clear);
+    return p;
+  };
+  return { next, pending: () => pendingNext };
+}
+
+/** Result passthrough that closes the iterator and fires `settle` once the close and any in-flight `next` have settled. */
+function makeFinish(it: AsyncIterator<ChatEvent>, pending: () => Promise<unknown> | undefined, settle: () => void): ProbeFinish {
+  return (r) => {
+    let ret: Promise<unknown> | undefined;
+    try {
+      ret = it.return?.();
+    } catch {
+      ret = undefined;
+    }
+    void Promise.allSettled([ret, pending()]).then(() => settle());
+    return r;
+  };
+}
+
 /**
  * One bounded liveness probe: a tiny prompt, no tools, hard `timeoutMs` deadline
  * covering queue admission, the request and stream completion. Timeout → orange,
@@ -111,41 +145,17 @@ export async function smokeModel(channel: SmokeChannel, model: string, opts: Smo
     opts.onSettle?.(Promise.resolve());
     return { state: "red", reason: error instanceof Error ? error.message : String(error) };
   }
-  let pendingNext: Promise<unknown> | undefined;
-  const next = (): Promise<IteratorResult<ChatEvent>> => {
-    let p: Promise<IteratorResult<ChatEvent>>;
-    try {
-      p = it.next();
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    pendingNext = p;
-    const clear = () => {
-      if (pendingNext === p) pendingNext = undefined;
-    };
-    void p.then(clear, clear);
-    return p;
-  };
+  const tracked = trackNext(it);
   let settle!: () => void;
   const settled = new Promise<void>((res) => {
     settle = res;
   });
   opts.onSettle?.(settled);
-  const finish = (r: SmokeResult): SmokeResult => {
-    let ret: Promise<unknown> | undefined;
-    try {
-      ret = it.return?.();
-    } catch {
-      ret = undefined;
-    }
-    const pend = pendingNext;
-    void Promise.allSettled([ret, pend]).then(() => settle());
-    return r;
-  };
+  const finish = makeFinish(it, tracked.pending, () => settle());
   const acc = { text: "", sawDone: false, sawTool: false };
   try {
     for (;;) {
-      const s = await step(next, b.stop);
+      const s = await step(tracked.next, b.stop);
       const r = probeStepOutcome(s, { acc, finish, opts, b, timeoutMs });
       if (typeof r !== "string") return r;
       if (r === "done") break;

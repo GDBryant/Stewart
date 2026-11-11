@@ -98,9 +98,7 @@ function ItemCard<T extends object>({
   );
 }
 
-export function ItemsSection<T extends { id: string }>({
-  title, file, items, fields, store, empty, renderExtra, lead, modelsFor,
-}: {
+export interface ItemsSectionProps<T extends { id: string }> {
   title: string;
   file: string;
   items: T[];
@@ -110,17 +108,25 @@ export function ItemsSection<T extends { id: string }>({
   renderExtra?: (item: T, store: Store) => unknown;
   lead?: (item: T) => unknown;
   modelsFor?: (channelId: string) => string[];
-}) {
-  const save = (next: T[]) => store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
-  // An entered API key goes to the IDE secret store; only its ref name is written to YAML.
-  const withSecret = (next: T, secrets: Record<string, string>): T => {
-    const key = secrets.apiKey;
-    if (!key) return next;
-    const o = next as T & { secretRef?: string };
-    const ref = o.secretRef && !looksLikeKey(o.secretRef) ? o.secretRef : `channel-${o.id}`;
-    store.setSecret(ref, key);
-    return { ...o, secretRef: ref };
-  };
+}
+
+function saveItems<T>(store: Store, file: string, next: T[]): void {
+  store.saveFile(file, stringify({ version: 1, items: next }, null, 2));
+}
+
+// An entered API key goes to the IDE secret store; only its ref name is written to YAML.
+function attachSecret<T extends { id: string }>(store: Store, next: T, secrets: Record<string, string>): T {
+  const key = secrets.apiKey;
+  if (!key) return next;
+  const o = next as T & { secretRef?: string };
+  const ref = o.secretRef && !looksLikeKey(o.secretRef) ? o.secretRef : `channel-${o.id}`;
+  store.setSecret(ref, key);
+  return { ...o, secretRef: ref };
+}
+
+export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<T>) {
+  const { title, file, items, fields, store, empty, renderExtra, lead, modelsFor } = props;
+  const extra = renderExtra ? (i: T) => renderExtra(i, store) : undefined;
   const [draft, setDraft] = useState<T | undefined>(undefined);
   return (
     <section>
@@ -133,10 +139,10 @@ export function ItemsSection<T extends { id: string }>({
           item={it}
           fields={fields}
           modelsFor={modelsFor}
-          extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
-          lead={lead ? (i) => lead(i) : undefined}
-          onSave={(next, sec) => save(items.map((x) => (x.id === it.id ? withSecret(next, sec) : x)))}
-          onRemove={() => save(items.filter((x) => x.id !== it.id))}
+          extra={extra}
+          lead={lead}
+          onSave={(next, sec) => saveItems(store, file, items.map((x) => (x.id === it.id ? attachSecret(store, next, sec) : x)))}
+          onRemove={() => saveItems(store, file, items.filter((x) => x.id !== it.id))}
         />
       ))}
       {draft ? (
@@ -145,10 +151,10 @@ export function ItemsSection<T extends { id: string }>({
           fields={fields}
           modelsFor={modelsFor}
           startEditing
-          extra={renderExtra ? (i) => renderExtra(i, store) : undefined}
-          lead={lead ? (i) => lead(i) : undefined}
+          extra={extra}
+          lead={lead}
           onSave={(next, sec) => {
-            save([...items, withSecret(next, sec)]);
+            saveItems(store, file, [...items, attachSecret(store, next, sec)]);
             setDraft(undefined);
           }}
           onRemove={() => setDraft(undefined)}

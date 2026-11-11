@@ -4,7 +4,7 @@ import { countToolCalls } from "@stewart/agent-loop";
 import { type RunRuntime, type RecoveryContext, type RecoveryState, type RoleTaskDeps, type RunTaskOnce, type TaskResult } from "@stewart/run-contract";
 import type { TaskSpec } from "@stewart/scheduling";
 import { SIZE_HINT, ensureRecovery, logRecovery } from "./consts.js";
-import { splitTask, type Recoverable } from "./split.js";
+import { splitTask, type Recoverable, type SplitRequest } from "./split.js";
 import { continueQuestion } from "./continue.js";
 
 export function recoverable(runOnce: RunTaskOnce): Recoverable {
@@ -14,8 +14,8 @@ export function recoverable(runOnce: RunTaskOnce): Recoverable {
 
 type RetryState = { retried: boolean; continuations: number; history?: ChatMessage[]; idemOffset?: number; extraBriefing?: string };
 
-/** One recoverable task run: the task inputs plus the runner and the recursive entry point. */
-interface RecoverableJob {
+/** Inputs for one recoverable task run, as handed in by `recoverable`. */
+export interface RecoverableInput {
   rt: RunRuntime;
   spec: TaskSpec;
   deps: RoleTaskDeps;
@@ -24,61 +24,54 @@ interface RecoverableJob {
   self: Recoverable;
 }
 
+/** A recoverable run: the inputs plus the shared recovery counters, the run flags and the mutable retry state. */
+export interface RecoveryRun extends RecoverableInput {
+  R: RecoveryState;
+  worker: boolean;
+  allowSplit: boolean;
+  state: RetryState;
+}
+
 function splitAllowed(rt: RunRuntime, ctx: RecoveryContext, R: RecoveryState): boolean {
   return (rt.budgetProfile?.allowSplit ?? true) && ctx.depth < R.maxRecoveryDepth && !!ctx.brain;
 }
 
-async function runTaskRecoverable(job: RecoverableJob): Promise<TaskResult> {
-  const { rt, spec, deps, ctx, runOnce, self } = job;
-  const R = ensureRecovery(rt);
-  const worker = isWriteCapableRole(deps.role);
-  const allowSplit = splitAllowed(rt, ctx, R);
-  const state: RetryState = { retried: false, continuations: 0, extraBriefing: deps.extraBriefing };
-
+async function runTaskRecoverable(input: RecoverableInput): Promise<TaskResult> {
+  const R = ensureRecovery(input.rt);
+  const run: RecoveryRun = {
+    ...input,
+    R,
+    worker: isWriteCapableRole(input.deps.role),
+    allowSplit: splitAllowed(input.rt, input.ctx, R),
+    state: { retried: false, continuations: 0, extraBriefing: input.deps.extraBriefing },
+  };
+  const { rt, spec, deps, state } = run;
   while (true) {
     if (rt.signal.aborted) return { status: "cancelled", summary: "cancelled", filesTouched: [] };
-    const res = await runOnce(rt, spec, { ...deps, history: state.history, idemOffset: state.idemOffset, extraBriefing: state.extraBriefing });
+    const res = await run.runOnce(rt, spec, { ...deps, history: state.history, idemOffset: state.idemOffset, extraBriefing: state.extraBriefing });
     const fault = res.fault;
     if (!fault) return res;
+    // Snapshot taken before any recovery layer runs; layers below use this value, not a fresh read.
     const canRecover = R.recoveriesUsed < R.maxRecoveriesPerRun;
-
-    if (layer0Retry(rt, spec, fault, worker, canRecover, R, state)) continue;
-    if (!worker) return res;
-    const out = await recoverFault(rt, spec, deps, ctx, res, R, self, allowSplit, canRecover, state);
+    if (layer0Retry(run, fault, canRecover)) continue;
+    if (!run.worker) return res;
+    const out = await recoverFault(run, res, canRecover);
     if (out === "retry") continue;
     return out;
   }
 }
 
-async function recoverFault(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  deps: RoleTaskDeps,
-  ctx: RecoveryContext,
-  res: TaskResult,
-  R: RecoveryState,
-  self: Recoverable,
-  allowSplit: boolean,
-  canRecover: boolean,
-  state: RetryState,
-): Promise<"retry" | TaskResult> {
+async function recoverFault(run: RecoveryRun, res: TaskResult, canRecover: boolean): Promise<"retry" | TaskResult> {
   if (res.fault === "turn_limit") {
-    const decision = await askContinue(rt, spec, deps.role.id, res, allowSplit, R, state);
+    const decision = await askContinue(run, res);
     if (decision === "retry") return "retry";
     if (decision === "stop") return { ...res, status: "failed", summary: "stopped by user at turn limit" };
   }
-  return (await trySplit(rt, spec, deps, ctx, res, R, self, allowSplit, canRecover)) ?? res;
+  return (await trySplit(run, res, canRecover)) ?? res;
 }
 
-function layer0Retry(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  fault: FaultKind,
-  worker: boolean,
-  canRecover: boolean,
-  R: RecoveryState,
-  state: RetryState,
-): boolean {
+function layer0Retry(run: RecoveryRun, fault: FaultKind, canRecover: boolean): boolean {
+  const { rt, spec, R, state, worker } = run;
   if (fault === "incomplete_stream" && !state.retried && canRecover) {
     state.retried = true;
     R.recoveriesUsed++;
@@ -97,15 +90,8 @@ function layer0Retry(
   return false;
 }
 
-async function askContinue(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  roleId: string,
-  res: TaskResult,
-  allowSplit: boolean,
-  R: RecoveryState,
-  state: RetryState,
-): Promise<"retry" | "stop" | "fallthrough"> {
+async function askContinue(run: RecoveryRun, res: TaskResult): Promise<"retry" | "stop" | "fallthrough"> {
+  const { rt, spec, deps, R, state, allowSplit } = run;
   const canAsk = R.askOnTurnLimit && state.continuations < R.maxContinuations && R.questionsUsed < R.maxContinueQuestionsPerRun;
   if (!canAsk) return "fallthrough";
   R.questionsUsed++;
@@ -117,7 +103,7 @@ async function askContinue(
     canSplit: allowSplit,
     timeoutMs: R.continueQuestionTimeoutMs,
   });
-  const o = await rt.prompt(prompt, { roleId, taskId: spec.id });
+  const o = await rt.prompt(prompt, { roleId: deps.role.id, taskId: spec.id });
   const answer = o.kind === "answered" ? o.value : ({ kind: "timeout" } as const);
   logRecovery(rt, `continue question on ${spec.id}: ${answer.kind === "text" ? "guidance" : answer.kind}`);
   return applyContinueAnswer(answer, res, state);
@@ -136,19 +122,11 @@ function applyContinueAnswer(answer: { kind: string; text?: string }, res: TaskR
   return "fallthrough";
 }
 
-async function trySplit(
-  rt: RunRuntime,
-  spec: TaskSpec,
-  deps: RoleTaskDeps,
-  ctx: RecoveryContext,
-  res: TaskResult,
-  R: RecoveryState,
-  self: Recoverable,
-  allowSplit: boolean,
-  canRecover: boolean,
-): Promise<TaskResult | undefined> {
+async function trySplit(run: RecoveryRun, res: TaskResult, canRecover: boolean): Promise<TaskResult | undefined> {
+  const { rt, spec, deps, ctx, R, self, allowSplit } = run;
   if ((res.fault === "turn_limit" || res.fault === "truncated") && allowSplit && canRecover && !rt.signal.aborted) {
-    return splitTask(rt, spec, deps.role, res, { ...ctx, recurse: self }, R);
+    const req: SplitRequest = { rt, spec, role: deps.role, ctx: { ...ctx, recurse: self }, R };
+    return splitTask(req, res);
   }
   return undefined;
 }

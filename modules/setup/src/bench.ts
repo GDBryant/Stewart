@@ -33,38 +33,45 @@ const editProbeTool: ToolSpec = {
 type BenchDeps = { channel: ManagedChannel; model: string; clock: Clock; probe: ProbeLoop<ManagedChannel> };
 type BenchStep = "speed" | "tools" | "edit" | "json";
 
-function summarizePerf(t0: number, first: number, done: number, chars: number, out: number, now: number): Pick<ModelPerf, "ttftMs" | "tokPerSec"> {
+/** Timestamps (clock ms; -1 = not seen) and counts from one streamed request. `now` is read after the stream ends. */
+type SpeedSample = { t0: number; first: number; done: number; chars: number; out: number; now: number };
+
+function summarizePerf(s: SpeedSample): Pick<ModelPerf, "ttftMs" | "tokPerSec"> {
   const perf: Pick<ModelPerf, "ttftMs" | "tokPerSec"> = {};
-  if (first >= 0) perf.ttftMs = first - t0;
-  const tokens = out > 0 ? out : Math.round(chars / 4);
-  const genMs = (done >= 0 ? done : now) - (first >= 0 ? first : t0);
+  if (s.first >= 0) perf.ttftMs = s.first - s.t0;
+  const tokens = s.out > 0 ? s.out : Math.round(s.chars / 4);
+  const genMs = (s.done >= 0 ? s.done : s.now) - (s.first >= 0 ? s.first : s.t0);
   if (tokens > 0 && genMs > 0) perf.tokPerSec = Math.round((tokens / genMs) * 100_000) / 100;
   return perf;
 }
 
+function observeSpeed(ev: ChatEvent, s: SpeedSample, clock: Clock): void {
+  if (ev.kind === "text") {
+    if (s.first < 0) s.first = clock.now();
+    s.chars += ev.text.length;
+  } else if (ev.kind === "done") {
+    s.done = clock.now();
+    s.out = ev.usage?.out ?? 0;
+  }
+}
+
+async function collectSpeed(d: BenchDeps): Promise<SpeedSample> {
+  const s: SpeedSample = { t0: d.clock.now(), first: -1, done: -1, chars: 0, out: 0, now: 0 };
+  for await (const ev of d.channel.chat({
+    model: d.model,
+    messages: [{ role: "user", content: "Write a short paragraph (about 150 words) describing how a hash map works." }],
+    maxTokens: 260,
+    signal: AbortSignal.timeout(PROBE_CAP_MS),
+  })) {
+    observeSpeed(ev, s, d.clock);
+  }
+  s.now = d.clock.now();
+  return s;
+}
+
 async function measureSpeed(d: BenchDeps): Promise<Partial<ModelPerf>> {
   try {
-    const t0 = d.clock.now();
-    let first = -1;
-    let done = -1;
-    let chars = 0;
-    let out = 0;
-    for await (const ev of d.channel.chat({
-      model: d.model,
-      messages: [{ role: "user", content: "Write a short paragraph (about 150 words) describing how a hash map works." }],
-      maxTokens: 260,
-      signal: AbortSignal.timeout(PROBE_CAP_MS),
-    })) {
-      if (ev.kind === "text") {
-        if (first < 0) first = d.clock.now();
-        chars += ev.text.length;
-      }
-      if (ev.kind === "done") {
-        done = d.clock.now();
-        out = ev.usage?.out ?? 0;
-      }
-    }
-    return summarizePerf(t0, first, done, chars, out, d.clock.now());
+    return summarizePerf(await collectSpeed(d));
   } catch {
     return {};
   }
