@@ -30,6 +30,7 @@
     "@stewart/kernel": "workspace:*",
     "@stewart/permissions": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
+    "@stewart/run-contract": "workspace:*",
     "@stewart/scheduling": "workspace:*",
     "@stewart/tools": "workspace:*"
   }

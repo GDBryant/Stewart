@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventBus, counterIds, fakeHost, systemClock, type Clock } from "@stewart/kernel";
 import { loadConfig, type Config } from "@stewart/roles-skills";
-import type { RunRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { RunService } from "../src/api.js";
 import { runPipeline, type PlanCtx, type Refusal, type RunOutcome, type RunPlan, type RunStrategy } from "../src/strategy.js";
 import type { Run } from "../src/types.js";

@@ -77,8 +77,8 @@ export interface RoleTaskDeps {
   prompt?: string;
 }
 
-/** Everything a task runner needs from the owning run. */
-export interface OrchestrationRuntime {
+/** Everything a task runner needs from the owning run. Built once per run by `@stewart/runs`. */
+export interface RunRuntime {
   runId: string;
   projectId: string;
   host: HostPort;
@@ -128,19 +128,16 @@ export interface RecoveryContext {
 }
 
 /** Runs one role task once; recovery wraps it with retry / continue / split layers. */
-export type RunTaskOnce = (rt: OrchestrationRuntime, spec: TaskSpec, deps: RoleTaskDeps) => Promise<TaskResult>;
+export type RunTaskOnce = (rt: RunRuntime, spec: TaskSpec, deps: RoleTaskDeps) => Promise<TaskResult>;
 
 /** Fault recovery as orchestration sees it: declared here, implemented by `@stewart/recovery`, injected by the app. */
 export interface Recovery {
   /** Hint appended to the briefing when a read-only role is retried after truncation. */
   readonly sizeHint: string;
   /** Per-run counters and limits (created from settings on first use). */
-  state(rt: OrchestrationRuntime): RecoveryState;
-  log(rt: OrchestrationRuntime, line: string): void;
-  brain(rt: OrchestrationRuntime): RecoveryBrain | undefined;
+  state(rt: RunRuntime): RecoveryState;
+  log(rt: RunRuntime, line: string): void;
+  brain(rt: RunRuntime): RecoveryBrain | undefined;
   /** `runOnce` with layer-0 retry, the continue question and layer-1 split. */
-  runTask(rt: OrchestrationRuntime, spec: TaskSpec, deps: RoleTaskDeps, ctx: RecoveryContext): Promise<TaskResult>;
+  runTask(rt: RunRuntime, spec: TaskSpec, deps: RoleTaskDeps, ctx: RecoveryContext): Promise<TaskResult>;
 }
-
-/** Alias: the per-run runtime handed to task runners. */
-export type RunRuntime = OrchestrationRuntime;

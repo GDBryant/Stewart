@@ -1,4 +1,4 @@
-import type { Recovery, RunTaskOnce } from "@stewart/agent-loop";
+import type { Recovery, RunTaskOnce } from "@stewart/run-contract";
 import { SIZE_HINT, ensureRecovery, logRecovery } from "./consts.js";
 import { recoveryBrain } from "./brain.js";
 import { recoverable } from "./recover.js";

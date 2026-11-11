@@ -3,10 +3,10 @@ import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/ch
 import { fakeHost, type ChatMessage, type Clock } from "@stewart/kernel";
 import { DEFAULT_LIMITS, DEFAULT_BUDGET_PROFILES } from "@stewart/budget";
 import { RunLedger } from "@stewart/ledger";
-import type { AgentDef, RoleDef, Settings } from "@stewart/config";
+import type { AgentDef, RoleDef } from "@stewart/config";
 import { ToolRegistry } from "@stewart/tools";
 import type { ApprovalDecision } from "@stewart/permissions";
-import { createAgentSession, recoveryState, RunCancelledError, ToolLoop } from "../src/api.js";
+import { createAgentSession, RunCancelledError, ToolLoop } from "../src/api.js";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;
@@ -33,19 +33,6 @@ const hist: ChatMessage[] = [{ role: "user", content: "go" }];
 const sig = () => new AbortController().signal;
 const agent: AgentDef = { id: "a1", channel: "c", model: "m", effort: "medium" };
 const clock: Clock = { now: () => Date.now(), setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; } };
-
-describe("recoveryState", () => {
-  it("maps settings and initialises counters", () => {
-    const s = {
-      maxRecoveryDepth: 2, maxRecoveriesPerRun: 3, maxSubTasks: 4, recoverySummaryChars: 100,
-      maxActionsInRecoveryBrief: 5, maxContinuations: 6, maxContinueQuestionsPerRun: 7,
-      askOnTurnLimit: true, continueQuestionTimeoutMinutes: 2,
-    } as Settings;
-    const st = recoveryState(s);
-    expect(st).toMatchObject({ maxRecoveryDepth: 2, maxRecoveriesPerRun: 3, maxSubTasks: 4, recoverySummaryChars: 100, maxActionsInRecoveryBrief: 5, maxContinuations: 6, maxContinueQuestionsPerRun: 7, askOnTurnLimit: true, recoveriesUsed: 0, questionsUsed: 0 });
-    expect(st.continueQuestionTimeoutMs).toBe(120_000);
-  });
-});
 
 describe("RunCancelledError", () => {
   it("joins base and produced into one transcript", () => {

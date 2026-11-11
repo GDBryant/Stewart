@@ -5,7 +5,7 @@ import { CostLimit } from "@stewart/ledger";
 import { LeaseManager } from "@stewart/scheduling";
 import type { IdempotencyLog } from "@stewart/run-state";
 import { DEFAULT_BUDGET_PROFILES, effectiveRunCapMs, type BudgetProfile } from "@stewart/budget";
-import { recoveryState, type RunRuntime } from "@stewart/agent-loop";
+import { recoveryState, type RunRuntime } from "@stewart/run-contract";
 import type { Run, RunHost } from "./types.js";
 
 /** Single construction point for the per-run orchestration runtime (resume and fresh runs). */

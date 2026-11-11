@@ -34,6 +34,9 @@
       "path": "../roles-skills"
     },
     {
+      "path": "../run-contract"
+    },
+    {
       "path": "../scheduling"
     },
     {

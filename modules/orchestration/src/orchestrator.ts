@@ -1,5 +1,5 @@
 import type { RoleDef } from "@stewart/config";
-import type { OrchestrationRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import type { Replacement } from "./replacements.js";
 
 export interface OrchestrationOutcome {
@@ -15,7 +15,7 @@ export const ORCHESTRATOR_DEFAULT_TOOLS = ["dispatch", "ask_user", "submit_plan"
 export const ORCHESTRATOR_MAX_TOOL_OUTPUT = 4_000;
 
 /** Resolve an enabled role by id. Unknown or disabled ids return undefined; there is no silent fallback. */
-export function resolveRole(rt: OrchestrationRuntime, roleId: string): RoleDef | undefined {
+export function resolveRole(rt: RunRuntime, roleId: string): RoleDef | undefined {
   return rt.config.roles.find((r) => r.id === roleId && r.enabled);
 }
 

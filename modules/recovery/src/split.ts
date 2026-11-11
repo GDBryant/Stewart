@@ -1,7 +1,8 @@
 import type { RoleDef } from "@stewart/config";
 import type { ToolCall } from "@stewart/kernel";
 import type { FaultKind } from "@stewart/kernel";
-import { actionsSoFar, type OrchestrationRuntime, type RecoveryState, type RecoveryContext, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
+import { actionsSoFar } from "@stewart/agent-loop";
+import { type RunRuntime, type RecoveryState, type RecoveryContext, type RoleTaskDeps, type TaskResult } from "@stewart/run-contract";
 import type { ToolPreview } from "@stewart/permissions";
 import { ProjectPaths } from "@stewart/tools";
 import type { TaskSpec } from "@stewart/scheduling";
@@ -11,11 +12,11 @@ import { type RecoveryPlan } from "./plan.js";
 import { recoveryCall } from "./brain.js";
 
 /** Runs a task with the full recovery layers; passed in so split and recover do not import each other. */
-export type Recoverable = (rt: OrchestrationRuntime, spec: TaskSpec, deps: RoleTaskDeps, ctx: RecoveryContext) => Promise<TaskResult>;
+export type Recoverable = (rt: RunRuntime, spec: TaskSpec, deps: RoleTaskDeps, ctx: RecoveryContext) => Promise<TaskResult>;
 export type SplitContext = RecoveryContext & { recurse: Recoverable };
 
 export async function assembleFinalFile(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   role: RoleDef,
   plan: RecoveryPlan,
@@ -79,7 +80,7 @@ interface SplitRun {
 }
 
 async function runSplitSubtasks(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   plan: RecoveryPlan,
   subRole: RoleDef,
@@ -121,7 +122,7 @@ async function runSplitSubtasks(
 }
 
 async function assembleSplit(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   role: RoleDef,
   plan: RecoveryPlan,
@@ -165,7 +166,7 @@ function splitFailed(parent: TaskResult, run: SplitRun, taskDir: string): TaskRe
 
 /** Layer-1 split: planner brief, serial sub-tasks under the scratch gate, assembly, merge. */
 export async function splitTask(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   role: RoleDef,
   parent: TaskResult,

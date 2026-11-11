@@ -5,7 +5,7 @@ import type { Config } from "@stewart/roles-skills";
 import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import { RunLedger } from "@stewart/ledger";
 import { LeaseManager, type TaskSpec } from "@stewart/scheduling";
-import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { continueQuestion, createRecovery, type RecoveryPlan } from "../src/api.js";
 import { submitRecoveryTool } from "../src/plan.js";
 import { assembleFinalFile, splitTask } from "../src/split.js";
@@ -16,7 +16,7 @@ const role = (tools = ["WriteFile"]): RoleDef => ({ id: "w", name: "w", prompt: 
 const agent: AgentDef = { id: "a", channel: "c", model: "m", effort: "medium" };
 const spec: TaskSpec = { id: "t1", roleId: "w", title: "t", task: "do it", files: [], dependsOn: [] };
 
-function mkRt(over: Partial<OrchestrationRuntime> = {}) {
+function mkRt(over: Partial<RunRuntime> = {}) {
   const { host, files } = fakeHost();
   const logged: string[] = [];
   const channel = new ManagedChannel(
@@ -33,7 +33,7 @@ function mkRt(over: Partial<OrchestrationRuntime> = {}) {
     maxActionsInRecoveryBrief: 5, maxContinuations: 2, maxContinueQuestionsPerRun: 3,
     askOnTurnLimit: true, continueQuestionTimeoutMinutes: 1,
   };
-  const rt: OrchestrationRuntime = {
+  const rt: RunRuntime = {
     runId: "r1", projectId: "p", host, clock: { now: () => 0, setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; } },
     ids: { next: (p) => `${p}-1` }, bus: { emit: () => {} },
     config: { roles: [role()], agents: [agent], channels: [], settings, skills: [], errors: [] } as unknown as Config,
@@ -81,7 +81,7 @@ describe("recoveryBrain", () => {
 });
 
 describe("recoverable layers", () => {
-  const run = (resSeq: TaskResult[], rt: OrchestrationRuntime, r = role(), ctx = { depth: 0 }) => {
+  const run = (resSeq: TaskResult[], rt: RunRuntime, r = role(), ctx = { depth: 0 }) => {
     let i = 0;
     const calls: { history?: ChatMessage[]; idemOffset?: number; extra?: string }[] = [];
     const rec = createRecovery(async (_rt, _s, deps) => {
@@ -241,7 +241,7 @@ describe("submitRecoveryTool", () => {
 });
 
 describe("recoverable turn-limit branches", () => {
-  const run = (rt: OrchestrationRuntime, resSeq: TaskResult[], ctx = { depth: 0, brain: { channel: undefined as never, agent: { id: "a", channel: "c", model: "m", effort: "medium" } as AgentDef } }) => {
+  const run = (rt: RunRuntime, resSeq: TaskResult[], ctx = { depth: 0, brain: { channel: undefined as never, agent: { id: "a", channel: "c", model: "m", effort: "medium" } as AgentDef } }) => {
     let i = 0;
     const rec = createRecovery(async () => resSeq[Math.min(i++, resSeq.length - 1)]);
     return rec.runTask(rt, spec, { role: role() }, ctx as never);

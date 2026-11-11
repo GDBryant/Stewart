@@ -3,7 +3,7 @@ import type { Config } from "@stewart/roles-skills";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord } from "@stewart/scheduling";
 import { resolveRole, runRoleTask } from "@stewart/orchestration";
-import type { RunRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { loadProjectContext } from "@stewart/context";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
 import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";

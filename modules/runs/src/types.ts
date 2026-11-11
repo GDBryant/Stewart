@@ -1,4 +1,4 @@
-import type { OrchestrationRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import type { ChatMessage, Clock, EventBus, HostPort, IdGen } from "@stewart/kernel";
 import type { RunHandle } from "./handle.js";
 import type { TaskRecord } from "@stewart/scheduling";
@@ -42,5 +42,5 @@ export interface RunHost {
   saveHistory(run: Run): Promise<void>;
   ledgerFor(): Promise<RunLedger>;
   readonly permissions: Permissions;
-  prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): OrchestrationRuntime["prompt"];
+  prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): RunRuntime["prompt"];
 }

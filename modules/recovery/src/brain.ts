@@ -1,9 +1,10 @@
-import { RunCancelledError, createAgentSession, type OrchestrationRuntime, type RecoveryState, type RecoveryBrain } from "@stewart/agent-loop";
+import { RunCancelledError, createAgentSession } from "@stewart/agent-loop";
+import { type RunRuntime, type RecoveryState, type RecoveryBrain } from "@stewart/run-contract";
 import { ToolRegistry } from "@stewart/tools";
 import { logRecovery } from "./consts.js";
 import { parseRecoveryArgs, submitRecoveryTool, type RecoveryPlan } from "./plan.js";
 
-export function recoveryBrain(rt: OrchestrationRuntime): RecoveryBrain | undefined {
+export function recoveryBrain(rt: RunRuntime): RecoveryBrain | undefined {
   const orch = rt.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
   const agent = rt.config.agents.find((a) => a.id === orch?.agent);
   if (!agent) return undefined;
@@ -12,7 +13,7 @@ export function recoveryBrain(rt: OrchestrationRuntime): RecoveryBrain | undefin
 }
 
 /** Planner-route call with only `submit_recovery`; returns the validated plan or undefined. */
-export async function recoveryCall(rt: OrchestrationRuntime, brain: RecoveryBrain, brief: string, R: RecoveryState): Promise<RecoveryPlan | undefined> {
+export async function recoveryCall(rt: RunRuntime, brain: RecoveryBrain, brief: string, R: RecoveryState): Promise<RecoveryPlan | undefined> {
   let plan: RecoveryPlan | undefined;
   const ceiling = rt.maxWorkerTurnsCeiling ?? 60;
   const tool = submitRecoveryTool((args) => {
@@ -44,7 +45,7 @@ export async function recoveryCall(rt: OrchestrationRuntime, brain: RecoveryBrai
   return plan;
 }
 
-function recoveryCallError(e: unknown, rt: OrchestrationRuntime): undefined {
+function recoveryCallError(e: unknown, rt: RunRuntime): undefined {
   if (e instanceof RunCancelledError || rt.signal.aborted) throw e instanceof Error ? e : new Error("cancelled");
   logRecovery(rt, `layer 1: recovery call failed (${e instanceof Error ? e.message : e})`);
   return undefined;

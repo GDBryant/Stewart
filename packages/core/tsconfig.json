@@ -55,6 +55,9 @@
       "path": "../../modules/roles-skills"
     },
     {
+      "path": "../../modules/run-contract"
+    },
+    {
       "path": "../../modules/run-state"
     },
     {

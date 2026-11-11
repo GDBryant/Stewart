@@ -28,6 +28,7 @@
     "@stewart/protocol": "workspace:*",
     "@stewart/recovery": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
+    "@stewart/run-contract": "workspace:*",
     "@stewart/run-state": "workspace:*",
     "@stewart/runs": "workspace:*",
     "@stewart/scheduling": "workspace:*",

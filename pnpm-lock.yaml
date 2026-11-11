@@ -63,9 +63,6 @@ importers:
       '@stewart/config':
         specifier: workspace:*
         version: link:../config
-      '@stewart/interaction':
-        specifier: workspace:*
-        version: link:../interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -84,12 +81,6 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
       '@stewart/toolcall-format':
         specifier: workspace:*
         version: link:../toolcall-format
@@ -395,6 +386,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
+      '@stewart/run-contract':
+        specifier: workspace:*
+        version: link:../run-contract
       '@stewart/run-state':
         specifier: workspace:*
         version: link:../run-state
@@ -460,6 +454,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
+      '@stewart/run-contract':
+        specifier: workspace:*
+        version: link:../run-contract
       '@stewart/scheduling':
         specifier: workspace:*
         version: link:../scheduling
@@ -497,6 +494,58 @@ importers:
       yaml:
         specifier: 2.8.1
         version: 2.8.1
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
+  modules/run-contract:
+    dependencies:
+      '@stewart/budget':
+        specifier: workspace:*
+        version: link:../budget
+      '@stewart/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@stewart/config':
+        specifier: workspace:*
+        version: link:../config
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@stewart/permissions':
+        specifier: workspace:*
+        version: link:../permissions
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@stewart/roles-skills':
+        specifier: workspace:*
+        version: link:../roles-skills
+      '@stewart/run-state':
+        specifier: workspace:*
+        version: link:../run-state
+      '@stewart/scheduling':
+        specifier: workspace:*
+        version: link:../scheduling
+      '@stewart/tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -571,6 +620,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
+      '@stewart/run-contract':
+        specifier: workspace:*
+        version: link:../run-contract
       '@stewart/run-state':
         specifier: workspace:*
         version: link:../run-state
@@ -781,6 +833,9 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../../modules/roles-skills
+      '@stewart/run-contract':
+        specifier: workspace:*
+        version: link:../../modules/run-contract
       '@stewart/run-state':
         specifier: workspace:*
         version: link:../../modules/run-state

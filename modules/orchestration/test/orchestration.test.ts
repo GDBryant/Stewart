@@ -10,7 +10,7 @@ import { TaskGraph, LeaseManager } from "@stewart/scheduling";
 import { isCosting } from "@stewart/models";
 import { RunLedger, CostLimit, costOfCall } from "@stewart/ledger";
 import { IdempotencyLog } from "@stewart/run-state";
-import type { OrchestrationRuntime as _Ort, Recovery as _Recovery } from "@stewart/agent-loop";
+import type { RunRuntime as _Ort, Recovery as _Recovery } from "@stewart/run-contract";
 
 const fakeRecovery: _Recovery = {
   sizeHint: "",
@@ -26,10 +26,11 @@ import { runRoleTask } from "../src/api.js";
 import { costLimitPrompt, fallbackPrompt, planGatePrompt } from "../src/prompts.js";
 import { runOrchestrated } from "../src/api.js";
 import { orchestrationTools, type OrchestrationHandlers } from "../src/api.js";
-import type { OrchestrationRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
-import { ToolLoop, recoveryState } from "@stewart/agent-loop";
+import { ToolLoop } from "@stewart/agent-loop";
+import { recoveryState } from "@stewart/run-contract";
 import { ToolRegistry } from "@stewart/tools";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
@@ -106,8 +107,8 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
 async function runtime(
   cfg: Config,
   channel: ManagedChannel,
-  over: Partial<OrchestrationRuntime> & { files?: Record<string, string> } = {},
-): Promise<{ rt: OrchestrationRuntime; events: RunEvent[]; files: Record<string, string>; host: ReturnType<typeof fakeHost>["host"] }> {
+  over: Partial<RunRuntime> & { files?: Record<string, string> } = {},
+): Promise<{ rt: RunRuntime; events: RunEvent[]; files: Record<string, string>; host: ReturnType<typeof fakeHost>["host"] }> {
   const fake = fakeHost(over.files ?? { "a.ts": "a", "b.ts": "b" });
   const events: RunEvent[] = [];
   const bus = new EventBus((e) => events.push(e), 0);
@@ -115,7 +116,7 @@ async function runtime(
   await ledger.load();
   const idem = new IdempotencyLog(fake.host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
   await idem.load();
-  const rt: OrchestrationRuntime = {
+  const rt: RunRuntime = {
     recoveryService: fakeRecovery,
     runId: "run-1",
     projectId: "p",

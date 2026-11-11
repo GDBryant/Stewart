@@ -3,7 +3,7 @@ import type { Config } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import { runOrchestrated } from "@stewart/orchestration";
-import type { RunRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { timeCapMessage } from "./consts.js";
 import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";
 import type { Run, RunHost } from "./types.js";

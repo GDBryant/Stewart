@@ -8,7 +8,7 @@ import { ProjectPaths } from "@stewart/tools";
 import { RunCancelledError, classifyFault } from "@stewart/agent-loop";
 import { LeaseCycleError } from "@stewart/run-state";
 import { TaskGraph } from "@stewart/scheduling";
-import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { costLimitPrompt } from "./prompts.js";
 import { buildRolePrompt, compactionFor } from "./roleRunner.js";
 import { orchestrationTools, type OrchestrationHandlers } from "./tools.js";
@@ -30,7 +30,7 @@ function noDispatchMessage(messages: ChatMessage[]): string {
 }
 
 export interface RunHost {
-  readonly rt: OrchestrationRuntime;
+  readonly rt: RunRuntime;
   readonly orchestrator: RoleDef;
   readonly agent: AgentDef;
   readonly channel: ManagedChannel;
@@ -76,7 +76,7 @@ export async function buildSession(host: RunHost): Promise<AgentSession> {
   );
 }
 
-function retryInput(host: RunHost, result: LoopResult, flags: { retried: boolean; nudged: boolean }, R: ReturnType<OrchestrationRuntime["recoveryService"]["state"]>, input: ChatMessage[]): ChatMessage[] | "return" {
+function retryInput(host: RunHost, result: LoopResult, flags: { retried: boolean; nudged: boolean }, R: ReturnType<RunRuntime["recoveryService"]["state"]>, input: ChatMessage[]): ChatMessage[] | "return" {
   const rt = host.rt;
   const fault = classifyFault(result);
   if (fault && !flags.retried && R.recoveriesUsed < R.maxRecoveriesPerRun) {
@@ -170,7 +170,7 @@ async function resolveCostLimit(host: RunHost): Promise<OrchestrationOutcome | n
   return null;
 }
 
-function costSummary(rt: OrchestrationRuntime, graph: TaskGraph, parked: string[], freeFinished: string[], suggestions: Replacement[]) {
+function costSummary(rt: RunRuntime, graph: TaskGraph, parked: string[], freeFinished: string[], suggestions: Replacement[]) {
   const c = rt.ledger.cost(rt.runId);
   return {
     capUsd: rt.cost.cap,

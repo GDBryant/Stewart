@@ -1,14 +1,7 @@
 import type { ChatMessage, FaultKind } from "@stewart/kernel";
 import { isWriteCapableRole } from "@stewart/roles-skills";
-import {
-  countToolCalls,
-  type OrchestrationRuntime,
-  type RecoveryContext,
-  type RecoveryState,
-  type RoleTaskDeps,
-  type RunTaskOnce,
-  type TaskResult,
-} from "@stewart/agent-loop";
+import { countToolCalls } from "@stewart/agent-loop";
+import { type RunRuntime, type RecoveryContext, type RecoveryState, type RoleTaskDeps, type RunTaskOnce, type TaskResult } from "@stewart/run-contract";
 import type { TaskSpec } from "@stewart/scheduling";
 import { SIZE_HINT, ensureRecovery, logRecovery } from "./consts.js";
 import { splitTask, type Recoverable } from "./split.js";
@@ -22,7 +15,7 @@ export function recoverable(runOnce: RunTaskOnce): Recoverable {
 type RetryState = { retried: boolean; continuations: number; history?: ChatMessage[]; idemOffset?: number; extraBriefing?: string };
 
 async function runTaskRecoverable(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   deps: RoleTaskDeps,
   ctx: RecoveryContext,
@@ -50,7 +43,7 @@ async function runTaskRecoverable(
 }
 
 async function recoverFault(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   deps: RoleTaskDeps,
   ctx: RecoveryContext,
@@ -70,7 +63,7 @@ async function recoverFault(
 }
 
 function layer0Retry(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   fault: FaultKind,
   worker: boolean,
@@ -97,7 +90,7 @@ function layer0Retry(
 }
 
 async function askContinue(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   roleId: string,
   res: TaskResult,
@@ -136,7 +129,7 @@ function applyContinueAnswer(answer: { kind: string; text?: string }, res: TaskR
 }
 
 async function trySplit(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   deps: RoleTaskDeps,
   ctx: RecoveryContext,

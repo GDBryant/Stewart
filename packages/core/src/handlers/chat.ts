@@ -1,7 +1,7 @@
 import { expandMentions, normalizeImages } from "@stewart/context";
 import { composeRolePrompt } from "@stewart/roles-skills";
 import { budgetProfile, classifyTask } from "@stewart/budget";
-import { recoveryState } from "@stewart/agent-loop";
+import { recoveryState } from "@stewart/run-contract";
 import { parseChatCommand } from "@stewart/runs";
 import type { ChatMessage } from "@stewart/kernel";
 import type { CoreCtx } from "./types.js";

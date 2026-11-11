@@ -2,7 +2,7 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatMessage } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
 import { TaskGraph, type TaskRecord, type TaskSpec } from "@stewart/scheduling";
-import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { questionPrompt } from "@stewart/interaction";
 import { NO_ANSWER, planGatePrompt } from "./prompts.js";
 import { isWriteCapableRole } from "@stewart/roles-skills";
@@ -19,7 +19,7 @@ function taskRecordStatus(result: TaskResult): TaskRecord["status"] {
   return result.status === "done" ? "done" : result.status === "failed" ? "failed" : result.status === "parked" ? "parked" : "stopped";
 }
 
-function taskOutcomeEvent(rt: OrchestrationRuntime, rec: TaskRecord, role: RoleDef, result: TaskResult): Parameters<OrchestrationRuntime["bus"]["emit"]>[0] {
+function taskOutcomeEvent(rt: RunRuntime, rec: TaskRecord, role: RoleDef, result: TaskResult): Parameters<RunRuntime["bus"]["emit"]>[0] {
   return result.status === "done"
     ? { kind: "task.done", runId: rt.runId, taskId: rec.id, roleId: role.id, summary: result.summary.slice(0, 400) }
     : { kind: "task.failed", runId: rt.runId, taskId: rec.id, roleId: role.id, error: result.summary.slice(0, 400) };
@@ -30,7 +30,7 @@ function taskOutcomeEvent(rt: OrchestrationRuntime, rec: TaskRecord, role: RoleD
  * schedules the tasks (parallel where independent), the ledger meters cost and
  * the cap parks costing work.
  */
-export async function runOrchestrated(rt: OrchestrationRuntime, userText: string, history: ChatMessage[] = []): Promise<OrchestrationOutcome> {
+export async function runOrchestrated(rt: RunRuntime, userText: string, history: ChatMessage[] = []): Promise<OrchestrationOutcome> {
   const orchestrator = rt.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
   if (!orchestrator) return { status: "failed", error: "orchestrator role is not enabled", suggestions: [] };
   const agent = rt.config.agents.find((a) => a.id === orchestrator.agent);
@@ -60,7 +60,7 @@ export class OrchestratedRun implements RunHost {
   readonly handlers: OrchestrationHandlers;
 
   constructor(
-    readonly rt: OrchestrationRuntime,
+    readonly rt: RunRuntime,
     readonly orchestrator: RoleDef,
     readonly agent: AgentDef,
     readonly channel: ManagedChannel,

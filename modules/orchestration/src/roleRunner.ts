@@ -10,7 +10,8 @@ import { ProjectPaths } from "@stewart/tools";
 import { RunCancelledError, type LoopResult } from "@stewart/agent-loop";
 import { renderForSummary, SUMMARY_INSTRUCTIONS } from "@stewart/compaction";
 import { createAgentSession } from "@stewart/agent-loop";
-import { classifyFault, type OrchestrationRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/agent-loop";
+import { classifyFault } from "@stewart/agent-loop";
+import { type RunRuntime, type RoleTaskDeps, type TaskResult } from "@stewart/run-contract";
 import { ToolRegistry } from "@stewart/tools";
 import { costOfCall } from "@stewart/ledger";
 import { LeaseCycleError } from "@stewart/run-state";
@@ -22,7 +23,7 @@ const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateIma
 const TERMINAL = new Set(["submit_plan", "submit_verdict", "submit_replacements", "submit_health"]);
 
 /** Deterministic prefix order: role prompt + skills, bounded AGENTS.md + memory, then the briefing. */
-export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): Promise<string> {
+export async function buildRolePrompt(rt: RunRuntime, role: RoleDef): Promise<string> {
   const { prompt } = composeRolePrompt(role, rt.config.skills, rt.skillBudgetTokens);
   return `${prompt}${await loadProjectContext(rt.host)}`;
 }
@@ -32,7 +33,7 @@ export async function buildRolePrompt(rt: OrchestrationRuntime, role: RoleDef): 
  * filter, writePaths + leases, turn budget, idempotent tool calls, ledger cost.
  */
 export async function runRoleTask(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   deps: RoleTaskDeps,
 ): Promise<TaskResult> {
@@ -64,7 +65,7 @@ function roleBriefing(spec: TaskSpec, deps: RoleTaskDeps): string {
   return parts.join("\n\n");
 }
 
-function roleTaskError(e: unknown, state: { filesTouched: string[] }, rt: OrchestrationRuntime): TaskResult {
+function roleTaskError(e: unknown, state: { filesTouched: string[] }, rt: RunRuntime): TaskResult {
   if (e instanceof LeaseCycleError) {
     return { status: "cancelled", summary: e.message, filesTouched: state.filesTouched, cycleVictim: e.victim, cycleHolder: e.holder };
   }
@@ -74,11 +75,11 @@ function roleTaskError(e: unknown, state: { filesTouched: string[] }, rt: Orches
 }
 
 async function unhealthyFallback(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   role: RoleDef,
   agent: NonNullable<RoleTaskDeps["agent"]>,
-): Promise<TaskResult | { agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<OrchestrationRuntime["channelFor"]> }> {
+): Promise<TaskResult | { agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<RunRuntime["channelFor"]> }> {
   const fb = role.fallbackAgent ? rt.config.agents.find((a) => a.id === role.fallbackAgent) : undefined;
   if (!fb || !agentServesRole(fb, rt.config.channels, role.id)) {
     return { status: "parked", summary: `parked: channel ${agent.channel} unhealthy`, filesTouched: [] };
@@ -97,11 +98,11 @@ async function unhealthyFallback(
 }
 
 async function resolveAgent(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   role: RoleDef,
   override?: RoleTaskDeps["agent"],
-): Promise<{ agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<OrchestrationRuntime["channelFor"]> } | TaskResult> {
+): Promise<{ agent: NonNullable<RoleTaskDeps["agent"]>; channel: ReturnType<RunRuntime["channelFor"]> } | TaskResult> {
   const agentId = rt.roleAgentOverrides?.get(role.id) ?? role.agent;
   let agent = override ?? rt.config.agents.find((a) => a.id === agentId);
   if (!agent) return { status: "failed", summary: `role ${role.id}: enabled but no agent bound`, filesTouched: [] };
@@ -118,12 +119,12 @@ async function resolveAgent(
   return { agent, channel };
 }
 
-function imageGenFor(channel: ReturnType<OrchestrationRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>): ImageGenerator | undefined {
+function imageGenFor(channel: ReturnType<RunRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>): ImageGenerator | undefined {
   const enabled = (channel.cfg.modelCaps?.[agent.model]?.imageGen ?? DEFAULT_CAPS.imageGen) && channel.adapter.generateImage;
   return enabled ? (prompt: string) => channel.generateImage(agent.model, prompt) : undefined;
 }
 
-function leasedRegistry(rt: OrchestrationRuntime, spec: TaskSpec, role: RoleDef, base: ToolRegistry): ToolRegistry {
+function leasedRegistry(rt: RunRuntime, spec: TaskSpec, role: RoleDef, base: ToolRegistry): ToolRegistry {
   return new ToolRegistry(
     leasedTools(base.tools, {
       host: rt.host,
@@ -138,11 +139,11 @@ function leasedRegistry(rt: OrchestrationRuntime, spec: TaskSpec, role: RoleDef,
 }
 
 async function buildSessionDeps(
-  rt: OrchestrationRuntime,
+  rt: RunRuntime,
   spec: TaskSpec,
   deps: RoleTaskDeps,
   agent: NonNullable<RoleTaskDeps["agent"]>,
-  channel: ReturnType<OrchestrationRuntime["channelFor"]>,
+  channel: ReturnType<RunRuntime["channelFor"]>,
 ) {
   const { role } = deps;
   const paths = await ProjectPaths.forProject(rt.host);
@@ -215,7 +216,7 @@ function toTaskResult(
 }
 
 /** Session compaction options from `settings.compaction`; shared by worker and orchestrator loops. */
-export function compactionFor(rt: OrchestrationRuntime, taskId?: string): { prune: boolean; summarize?: (middle: ChatMessage[]) => Promise<string> } {
+export function compactionFor(rt: RunRuntime, taskId?: string): { prune: boolean; summarize?: (middle: ChatMessage[]) => Promise<string> } {
   const c = rt.config.settings.compaction;
   return { prune: c?.prune ?? false, summarize: c?.summarize ? compactorFor(rt, taskId) : undefined };
 }
@@ -224,7 +225,7 @@ export function compactionFor(rt: OrchestrationRuntime, taskId?: string): { prun
  * Summarizer bound to the enabled `compactor` role's agent; undefined (prune/clip only) when no such
  * role or agent exists. Calls are metered to the ledger under role `compactor`.
  */
-export function compactorFor(rt: OrchestrationRuntime, taskId?: string): ((middle: ChatMessage[]) => Promise<string>) | undefined {
+export function compactorFor(rt: RunRuntime, taskId?: string): ((middle: ChatMessage[]) => Promise<string>) | undefined {
   const role = rt.config.roles.find((r) => r.id === "compactor" && r.enabled);
   const agent = role && rt.config.agents.find((a) => a.id === role.agent);
   if (!agent) return undefined;
@@ -233,7 +234,7 @@ export function compactorFor(rt: OrchestrationRuntime, taskId?: string): ((middl
   return (middle) => runCompactor(rt, channel, agent, middle, taskId);
 }
 
-async function recordCompactionCost(rt: OrchestrationRuntime, agent: NonNullable<RoleTaskDeps["agent"]>, ev: { usage?: { in: number; out: number }; costUsd?: number }, taskId?: string): Promise<void> {
+async function recordCompactionCost(rt: RunRuntime, agent: NonNullable<RoleTaskDeps["agent"]>, ev: { usage?: { in: number; out: number }; costUsd?: number }, taskId?: string): Promise<void> {
   const costUsd = costOfCall(agent, ev.usage, ev.costUsd);
   await rt.ledger.record({
     runId: rt.runId,
@@ -249,7 +250,7 @@ async function recordCompactionCost(rt: OrchestrationRuntime, agent: NonNullable
   rt.cost.accrued += costUsd;
 }
 
-async function runCompactor(rt: OrchestrationRuntime, channel: ReturnType<OrchestrationRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>, middle: ChatMessage[], taskId?: string): Promise<string> {
+async function runCompactor(rt: RunRuntime, channel: ReturnType<RunRuntime["channelFor"]>, agent: NonNullable<RoleTaskDeps["agent"]>, middle: ChatMessage[], taskId?: string): Promise<string> {
   if (rt.cost.reached() && isCosting(agent)) return "";
   let text = "";
   const messages: ChatMessage[] = [

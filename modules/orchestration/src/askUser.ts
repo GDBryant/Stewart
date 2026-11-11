@@ -2,13 +2,13 @@ import type { AgentDef, RoleDef } from "@stewart/config";
 import type { ChatEvent, ManagedChannel } from "@stewart/channels";
 import { costOfCall } from "@stewart/ledger";
 import { isCosting } from "@stewart/models";
-import type { OrchestrationRuntime, TaskResult } from "@stewart/agent-loop";
+import type { RunRuntime, TaskResult } from "@stewart/run-contract";
 import { questionPrompt } from "@stewart/interaction";
 import { NO_ANSWER } from "./prompts.js";
 import { buildRolePrompt } from "./roleRunner.js";
 
 export interface AskUserHost {
-  readonly rt: OrchestrationRuntime;
+  readonly rt: RunRuntime;
   readonly channel: ManagedChannel;
   readonly agent: AgentDef;
   readonly orchestrator: RoleDef;

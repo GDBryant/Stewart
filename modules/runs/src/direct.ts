@@ -6,7 +6,7 @@ import type { ChatMessage } from "@stewart/kernel";
 import type { TaskRecord, TaskSpec } from "@stewart/scheduling";
 import { runRoleTask } from "@stewart/orchestration";
 import { continueQuestion } from "@stewart/recovery";
-import type { RecoveryState, RunRuntime, TaskResult } from "@stewart/agent-loop";
+import type { RecoveryState, RunRuntime, TaskResult } from "@stewart/run-contract";
 import { loadProjectContext } from "@stewart/context";
 import { DIRECT_TASK_ID, chatRoleDef, timeCapMessage } from "./consts.js";
 import type { PlanCtx, Refusal, RunOutcome, RunPlan, RunStrategy } from "./strategy.js";

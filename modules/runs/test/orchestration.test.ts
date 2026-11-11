@@ -17,7 +17,7 @@ import { leasedTools } from "@stewart/tools";
 import { runRoleTask } from "@stewart/orchestration";
 import { runOrchestrated } from "@stewart/orchestration";
 import { orchestrationTools, type OrchestrationHandlers } from "@stewart/orchestration";
-import type { OrchestrationRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { projectTools } from "@stewart/tools";
 import { ProjectPaths } from "@stewart/tools";
 import { ToolLoop } from "@stewart/agent-loop";
@@ -97,8 +97,8 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
 async function runtime(
   cfg: Config,
   channel: ManagedChannel,
-  over: Partial<OrchestrationRuntime> & { files?: Record<string, string> } = {},
-): Promise<{ rt: OrchestrationRuntime; events: RunEvent[]; files: Record<string, string>; host: ReturnType<typeof fakeHost>["host"] }> {
+  over: Partial<RunRuntime> & { files?: Record<string, string> } = {},
+): Promise<{ rt: RunRuntime; events: RunEvent[]; files: Record<string, string>; host: ReturnType<typeof fakeHost>["host"] }> {
   const fake = fakeHost(over.files ?? { "a.ts": "a", "b.ts": "b" });
   const events: RunEvent[] = [];
   const bus = new EventBus((e) => events.push(e), 0);
@@ -106,7 +106,7 @@ async function runtime(
   await ledger.load();
   const idem = new IdempotencyLog(fake.host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
   await idem.load();
-  const rt: OrchestrationRuntime = {
+  const rt: RunRuntime = {
     recoveryService: createRecovery(runRoleTask),
     runId: "run-1",
     projectId: "p",

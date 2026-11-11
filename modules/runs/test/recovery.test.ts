@@ -8,10 +8,10 @@ import { RunService } from "../src/api.js";
 import { LeaseManager } from "@stewart/scheduling";
 import { RunLedger, CostLimit } from "@stewart/ledger";
 import { IdempotencyLog } from "@stewart/run-state";
-import { recoveryState } from "@stewart/agent-loop";
+import { recoveryState } from "@stewart/run-contract";
 import { taskScratchDir, createRecovery } from "@stewart/recovery";
 import { runRoleTask } from "@stewart/orchestration";
-import type { OrchestrationRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { fakeHost } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 
@@ -81,8 +81,8 @@ function config(opts: { roles?: Record<string, string>; settings?: string } = {}
 async function runtime(
   cfg: Config,
   channel: ManagedChannel,
-  over: Partial<OrchestrationRuntime> & { files?: Record<string, string> } = {},
-): Promise<{ rt: OrchestrationRuntime; events: RunEvent[]; files: Record<string, string> }> {
+  over: Partial<RunRuntime> & { files?: Record<string, string> } = {},
+): Promise<{ rt: RunRuntime; events: RunEvent[]; files: Record<string, string> }> {
   const { files: extraFiles, ...rest } = over;
   const fake = fakeHost(extraFiles ?? { "a.ts": "a", "b.ts": "b" });
   const events: RunEvent[] = [];
@@ -91,7 +91,7 @@ async function runtime(
   await ledger.load();
   const idem = new IdempotencyLog(fake.host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
   await idem.load();
-  const rt: OrchestrationRuntime = {
+  const rt: RunRuntime = {
     recoveryService,
     runId: "run-1",
     projectId: "p",

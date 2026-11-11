@@ -49,6 +49,9 @@
       "path": "../roles-skills"
     },
     {
+      "path": "../run-contract"
+    },
+    {
       "path": "../run-state"
     },
     {

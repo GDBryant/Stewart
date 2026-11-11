@@ -38,6 +38,7 @@
     "@stewart/orchestration": "workspace:*",
     "@stewart/recovery": "workspace:*",
     "@stewart/context": "workspace:*",
-    "@stewart/interaction": "workspace:*"
+    "@stewart/interaction": "workspace:*",
+    "@stewart/run-contract": "workspace:*"
   }
 }

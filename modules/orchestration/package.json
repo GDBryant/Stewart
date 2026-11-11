@@ -37,6 +37,7 @@
     "@stewart/models": "workspace:*",
     "@stewart/permissions": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
+    "@stewart/run-contract": "workspace:*",
     "@stewart/run-state": "workspace:*",
     "@stewart/scheduling": "workspace:*",
     "@stewart/tools": "workspace:*"

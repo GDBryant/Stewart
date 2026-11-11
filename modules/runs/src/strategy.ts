@@ -3,7 +3,7 @@ import type { RunLedger } from "@stewart/ledger";
 import type { Config } from "@stewart/roles-skills";
 import type { BudgetProfile } from "@stewart/budget";
 import { IdempotencyLog } from "@stewart/run-state";
-import type { RunRuntime } from "@stewart/agent-loop";
+import type { RunRuntime } from "@stewart/run-contract";
 import { buildRunRuntime } from "./runtime.js";
 import { runHandle, type RunHandle } from "./handle.js";
 import type { Run, RunHost, RunStatus } from "./types.js";

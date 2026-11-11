@@ -5,7 +5,7 @@ import type { BudgetProfile } from "@stewart/budget";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage } from "@stewart/kernel";
 import { Permissions, type GrantDecision } from "@stewart/permissions";
-import type { OrchestrationRuntime, RecoveryState } from "@stewart/agent-loop";
+import type { RunRuntime, RecoveryState } from "@stewart/run-contract";
 import { RunLedger } from "@stewart/ledger";
 import { revertRunSnapshots, ChatHistoryStore } from "@stewart/run-state";
 import { runRoleTask } from "@stewart/orchestration";
@@ -65,7 +65,7 @@ export class RunService implements RunHost {
   }
 
   /** Prompt routing for one run: questions and cards queue on the run's interaction. */
-  prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): OrchestrationRuntime["prompt"] {
+  prompt(runId: string, signal: AbortSignal, defaultRoleId?: string): RunRuntime["prompt"] {
     return (p, tag) => this.interaction.ask(p, { runId, roleId: tag?.roleId ?? defaultRoleId, taskId: tag?.taskId }, signal);
   }
 
