@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { fakeHost } from "@stewart/kernel";
-import { runCheck, turnCheck, type CheckInput } from "../src/api.js";
+import { declaredCheck, isReportGoal, runCheck, turnCheck, type CheckInput } from "../src/api.js";
 
 const baseInput = (over: Partial<CheckInput> = {}): CheckInput => ({ reply: "done", writes: [], changed: [], ...over });
 
 describe("turnCheck", () => {
   it("uses the changed paths as required files", () => {
-    expect(turnCheck(baseInput({ changed: ["a.ts", "b.ts"] }))).toEqual({ files: ["a.ts", "b.ts"] });
+    expect(turnCheck(baseInput({ changed: ["a.ts", "b.ts"] }))).toEqual({ files: ["a.ts", "b.ts"], changed: ["a.ts", "b.ts"] });
   });
   it("yields no files when nothing changed", () => {
-    expect(turnCheck(baseInput())).toEqual({ files: [] });
+    expect(turnCheck(baseInput())).toEqual({ files: [], changed: [] });
   });
 });
 
@@ -163,5 +163,38 @@ describe("runCheck health schema", () => {
     expect((await health({}, "no block")).evidence).toContain("health report: expected exactly one ```json block, found 0");
     const two = `\`\`\`json\n${JSON.stringify(good)}\n\`\`\`\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``;
     expect((await health({ "src/a.ts": "x" }, two)).evidence).toContain("health report: expected exactly one ```json block, found 2");
+  });
+});
+
+describe("content-changed check", () => {
+  it("fails when the file equals its snapshot and passes when it differs", async () => {
+    const { host } = fakeHost({ "a.ts": "same", "b.ts": "new" });
+    const input = baseInput({ changed: ["a.ts", "b.ts"], before: { "a.ts": "same", "b.ts": "old" } });
+    const r = await runCheck({ check: turnCheck(input), input, host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("unchanged: a.ts");
+    expect(r.evidence).not.toContain("unchanged: b.ts");
+  });
+  it("treats a new file (before null) as changed and skips paths with no snapshot", async () => {
+    const { host } = fakeHost({ "n.ts": "x", "u.ts": "x" });
+    const input = baseInput({ changed: ["n.ts", "u.ts"], before: { "n.ts": null } });
+    expect((await runCheck({ check: turnCheck(input), input, host, cwd: "/p" })).passed).toBe(true);
+  });
+});
+
+describe("declaredCheck", () => {
+  it("adds the declared command and files to the turn check", () => {
+    const input = baseInput({ changed: ["a.ts"] });
+    expect(declaredCheck(input, { command: ["npm", "test"], files: ["b.ts"] })).toMatchObject({ files: ["a.ts", "b.ts"], command: ["npm", "test"], changed: ["a.ts"] });
+    expect(declaredCheck(input).command).toBeUndefined();
+  });
+});
+
+describe("isReportGoal", () => {
+  it("matches review-style requests only", () => {
+    expect(isReportGoal("Review the docs folder")).toBe(true);
+    expect(isReportGoal("run a code health audit")).toBe(true);
+    expect(isReportGoal("list the files in docs/")).toBe(false);
+    expect(isReportGoal("summarise this diff")).toBe(false);
   });
 });

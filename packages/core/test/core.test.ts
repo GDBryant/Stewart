@@ -81,7 +81,7 @@ describe("EventBus coalescing", () => {
 describe("loadEffectiveConfig", () => {
   const rolesYaml = "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
   const agentsYaml = "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n";
-  const channelsYaml = "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://x\n";
+  const channelsYaml = "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://x\n    modelCaps:\n      m1:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n";
 
   it("merges user and project roles by id, project fields winning", () => {
     const cfg = loadEffectiveConfig(
@@ -116,7 +116,7 @@ describe("loadEffectiveConfig", () => {
 
 describe("Core", () => {
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
     "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
   };
@@ -200,7 +200,7 @@ describe("Core", () => {
 
   describe("lead path", () => {
     const leadDefaults = {
-      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
       "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    turnBudget: 5\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
     };
@@ -242,7 +242,7 @@ describe("Core", () => {
 
 describe("Core config", () => {
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
     "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
   };

@@ -33,7 +33,7 @@ describe("Core roles + skills dispatch", () => {
   }
 
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
   };
 
@@ -54,7 +54,7 @@ describe("Core roles + skills dispatch", () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; enabled: boolean }[]; skills: { id: string; source: string }[] } };
-    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead", "explorer", "reviewer"]);
+    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead", "explorer", "reviewer", "tester", "planner"]);
     expect(r.summary.roles[0].enabled).toBe(true);
     expect(r.summary.skills.map((s) => s.id)).toContain("tdd");
     expect(r.summary.skills.every((s) => s.source === "shipped")).toBe(true);
@@ -96,6 +96,14 @@ describe("Core roles + skills dispatch", () => {
     await core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1" });
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { agent?: string }[] } };
     expect(r.summary.roles.every((x) => x.agent === "a1")).toBe(true);
+  });
+
+  it("roles.assignAgent with wizard enables only the lead role", async () => {
+    const { core } = mk();
+    await core.attachProject("p", fakeHost().host);
+    await core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1", wizard: true });
+    const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; enabled: boolean }[] } };
+    expect(r.summary.roles.filter((x) => x.enabled).map((x) => x.id)).toEqual(["lead"]);
   });
 
   it("chat.send runs the lead role: prompt + filtered tools", async () => {
@@ -181,7 +189,7 @@ describe("shipped lead role", () => {
   const shipped = () => (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items;
   it("ships lead first, all enabled", () => {
     const roles = shipped();
-    expect(roles.map((r) => r.id)).toEqual(["lead", "explorer", "reviewer"]);
+    expect(roles.map((r) => r.id)).toEqual(["lead", "explorer", "reviewer", "tester", "planner"]);
     expect(roles[0].enabled).toBe(true);
   });
   it("every shipped role references only shipped skills", () => {
@@ -192,7 +200,7 @@ describe("shipped lead role", () => {
     const user = stringifyYaml({ version: 1, items: [{ id: "orchestrator", enabled: false }, { id: "general-worker", enabled: false }] });
     const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: true });
     const ids = cfg.roles.map((x) => x.id).sort();
-    expect(ids).toEqual(["explorer", "general-worker", "lead", "orchestrator", "reviewer"]);
+    expect(ids).toEqual(["explorer", "general-worker", "lead", "orchestrator", "planner", "reviewer", "tester"]);
     expect(cfg.errors).toEqual([]);
   });
 });

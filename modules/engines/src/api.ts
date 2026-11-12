@@ -6,3 +6,5 @@ export { engineFor } from "./engineFor.js";
 export type { Engine, EngineEvent, EngineTurn, WriteRecord } from "./types.js";
 export { startMcp, mcpConfigArg } from "./mcp.js";
 export type { McpHandle } from "./mcp.js";
+export { runFunction } from "./functionRun.js";
+export type { FunctionRequest, FunctionResult } from "./functionRun.js";

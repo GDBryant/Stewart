@@ -123,7 +123,7 @@ export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Pr
   for (const r of ctx.config.roles) {
     const item = byId.get(r.id) ?? { id: r.id };
     item.agent = p.agentId;
-    if (p.wizard) item.enabled = r.id === "orchestrator" || r.id === "general-worker";
+    if (p.wizard) item.enabled = r.id === "lead";
     byId.set(r.id, item);
   }
   await writeUser(core, "roles.yaml", stringifyYaml({ version: 1, items: [...byId.values()] }));

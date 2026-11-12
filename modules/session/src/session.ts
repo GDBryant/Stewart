@@ -4,18 +4,19 @@ import type { ManagedChannel } from "@stewart/channels";
 import type { Interaction } from "@stewart/interaction";
 import type { Permissions } from "@stewart/permissions";
 import type { AgentDef } from "@stewart/config";
-import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
+import { agentContext, eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { ChatHistoryStore } from "./history.js";
 import { costOfCall, RunLedger } from "@stewart/ledger";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
 import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type EngineTurn, type WriteRecord } from "@stewart/engines";
-import { runCheck, turnCheck, type CheckInput, type CheckResult } from "@stewart/tasks";
+import { declaredCheck, isReportGoal, runCheck, type Check, type CheckInput, type CheckResult } from "@stewart/tasks";
 import { leadAgent, leadRole, systemPrompt } from "./lead.js";
-import { askUserTool, loadSkillTool } from "./sessionTools.js";
+import { askUserTool, loadSkillTool, setCheckTool, type DeclaredCheck } from "./sessionTools.js";
 import { questionPrompt } from "@stewart/interaction";
 import { ChildRunner } from "./child.js";
 import { handoverText, type Tried } from "./handover.js";
 import { PlanRunner } from "./plan.js";
+import { compactTranscript } from "./compact.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -46,6 +47,12 @@ interface RunState {
   error?: string;
   costCapped: boolean;
   tried: Tried[];
+  /** File content before its first write this turn (null = absent). */
+  before: Record<string, string | null>;
+  /** The lead's `set_check` declaration. */
+  declared: { value?: DeclaredCheck };
+  /** The turn's user request, for report detection. */
+  goal: string;
 }
 
 interface EvCtx {
@@ -55,6 +62,7 @@ interface EvCtx {
   ledger: RunLedger;
   cap: number;
   plan: PlanRunner;
+  host: HostPort;
 }
 
 /** One in-flight turn: what runTurn assembles once and drive/finish/persist share. */
@@ -72,6 +80,24 @@ interface TurnWork {
 
 function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
+const PATH_KEYS = ["path", "file_path", "notebook_path"];
+
+/** Remember a file's content before the first write to it this turn (best effort; unreadable = absent). */
+async function snapshotBefore(host: HostPort, rs: RunState, tool: string, args: unknown): Promise<void> {
+  if (!WRITE_TOOLS.has(tool)) return;
+  const a = (args ?? {}) as Record<string, unknown>;
+  const key = PATH_KEYS.find((k) => typeof a[k] === "string");
+  if (!key) return;
+  const path = a[key] as string;
+  if (path in rs.before) return;
+  try {
+    rs.before[path] = (await host.files.exists(path)) ? (await host.files.read(path)).content : null;
+  } catch {
+    /* no snapshot: the changed-content check skips this path */
+  }
 }
 
 function lastUserText(transcript: ChatMessage[]): string {
@@ -97,7 +123,7 @@ export class SessionService {
   async send(req: SendRequest): Promise<{ runId: string; sessionId: string }> {
     const sessionId = req.sessionId ?? this.deps.ids.next("sess");
     const runId = this.deps.ids.next("run");
-    const rs: RunState = { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false, tried: [] };
+    const rs: RunState = { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false, tried: [], before: {}, declared: {}, goal: req.text };
     this.active.set(runId, rs);
     const prev = this.chains.get(sessionId) ?? Promise.resolve();
     const next = prev.then(() => this.runTurn(runId, sessionId, req, rs));
@@ -198,8 +224,9 @@ export class SessionService {
       return;
     }
     const children = this.children(w, config, chain[0], ledger);
-    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), ...w.plan.tools()]);
+    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), setCheckTool(w.rs.declared), ...w.plan.tools()]);
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
+    await this.compact(w, chain[0], config);
     const goal = lastUserText(w.transcript);
     const env = { lead, tools, hostTools, ledger, config };
     let prev: AgentDef | undefined;
@@ -212,6 +239,20 @@ export class SessionService {
       prev = agent;
     }
     await this.retryOrStop(w, prev ?? chain[0], env);
+  }
+
+  /** Summarise older turns when the transcript nears the window; the plan rides in the system prompt, the open task is kept verbatim. */
+  private async compact(w: TurnWork, agent: AgentDef, config: EffectiveConfig): Promise<void> {
+    const did = await compactTranscript({
+      host: this.deps.host,
+      transcript: w.transcript,
+      channel: this.deps.channelFor(agent.channel),
+      agent,
+      window: agentContext(agent, config.channels),
+      archivePath: `${w.stateDir}/sessions/${w.sessionId}.archive.jsonl`,
+      signal: w.rs.controller.signal,
+    });
+    if (did) this.deps.host.log(`session ${w.sessionId}: transcript compacted`);
   }
 
   private escalate(w: TurnWork, prev: AgentDef, agent: AgentDef, goal: string): void {
@@ -251,7 +292,7 @@ export class SessionService {
       signal: w.rs.controller.signal,
       maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
     };
-    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan };
+    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan, host: this.deps.host };
     try {
       for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
     } catch (e) {
@@ -262,7 +303,13 @@ export class SessionService {
 
   private async attemptCheck(w: TurnWork) {
     const input = this.checkInput(w.transcript, w.rs);
-    return await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
+    return await runCheck({ check: this.turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
+  }
+
+  /** Changed files must differ and exist; the lead's declared command runs; report requests must cite real files. */
+  private turnChecks(rs: RunState, input: CheckInput): Check {
+    const check = declaredCheck(input, rs.declared.value);
+    return !input.changed.length && isReportGoal(rs.goal) ? { ...check, cites: true } : check;
   }
 
   private async retryOrStop(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
@@ -317,6 +364,7 @@ export class SessionService {
       case "reasoning":
         return bus.emit({ kind: "reasoning_delta", runId, roleId: "lead", seq: rs.seq++, text: ev.text });
       case "tool.request":
+        await snapshotBefore(c.host, rs, ev.tool, ev.args);
         rs.tried.push({ name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
         return bus.emit({ kind: "tool.request", runId, roleId: "lead", callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
       case "tool.outcome": {
@@ -359,7 +407,7 @@ export class SessionService {
       if (m.role === "user") break;
     }
     const changed = [...new Set(rs.writes.filter((w) => w.ok).map((w) => w.path))];
-    return { reply, writes: rs.writes, changed };
+    return { reply, writes: rs.writes, changed, before: rs.before };
   }
 
   private finishedEvent(runId: string, rs: RunState, res: CheckResult): RunEvent {
@@ -373,7 +421,7 @@ export class SessionService {
   private async finish(w: TurnWork): Promise<void> {
     const { runId, rs } = w;
     const input = this.checkInput(w.transcript, rs);
-    const res = await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
+    const res = await runCheck({ check: this.turnChecks(rs, input), input, host: this.deps.host, cwd: w.paths.base });
     const pending = await w.plan.sweepFinish();
     if (pending) res.evidence.push(`plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}`);
     this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed && !pending, evidence: res.evidence });

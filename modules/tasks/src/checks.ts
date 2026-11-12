@@ -4,6 +4,8 @@ import type { HostPort, ProcessHandle } from "@stewart/kernel";
 export interface Check {
   /** Workspace-relative paths that must exist after the turn. */
   files?: string[];
+  /** Paths whose content must differ from `CheckInput.before` (a path with no snapshot is not compared). */
+  changed?: string[];
   /** Argv run in the project root; must exit 0. */
   command?: string[];
   /** Every project-path citation in the reply must exist; a findings-style reply needs at least one. */
@@ -23,6 +25,8 @@ export interface CheckInput {
   reply: string;
   writes: WriteRecord[];
   changed: string[];
+  /** Content of each written file before its first write this turn; null = did not exist. */
+  before?: Record<string, string | null>;
 }
 
 export interface CheckResult {
@@ -43,7 +47,13 @@ const OUTPUT_TAIL = 1500;
 
 /** The lead turn's check: every file a write tool changed must exist afterwards. */
 export function turnCheck(input: CheckInput): Check {
-  return { files: input.changed };
+  return { files: input.changed, changed: input.changed };
+}
+
+/** The lead's turn check plus what the lead declared with `set_check` (a command, extra files). */
+export function declaredCheck(input: CheckInput, declared?: { command?: string[]; files?: string[] }): Check {
+  const base = turnCheck(input);
+  return { ...base, files: [...(base.files ?? []), ...(declared?.files ?? [])], command: declared?.command };
 }
 
 /** WriteRecord paths whose last record is a failure. */
@@ -51,6 +61,18 @@ function failedWrites(writes: WriteRecord[]): WriteRecord[] {
   const last = new Map<string, WriteRecord>();
   for (const w of writes) last.set(w.path, w);
   return [...last.values()].filter((w) => !w.ok);
+}
+
+async function checkUnchanged(args: RunCheckArgs, out: string[]): Promise<void> {
+  const before = args.input.before ?? {};
+  for (const f of args.check.changed ?? []) {
+    if (!(f in before)) continue;
+    try {
+      if (before[f] === (await args.host.files.readBack(f))) out.push(`unchanged: ${f}`);
+    } catch {
+      /* a missing file is reported by checkFiles */
+    }
+  }
 }
 
 async function checkFiles(files: string[], host: Pick<HostPort, "files">, out: string[]): Promise<void> {
@@ -205,6 +227,7 @@ export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
     evidence.push(`write to ${w.path} failed: ${w.message ?? "unknown"}`);
   }
   await checkFiles(args.check.files ?? [], args.host, evidence);
+  await checkUnchanged(args, evidence);
   await checkCommand(args, evidence);
   if (args.check.cites) await checkCites(args, evidence);
   if (args.check.schema === "health") await checkHealth(args, evidence);
@@ -213,6 +236,7 @@ export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
     (e) =>
       e.startsWith("write to ") ||
       e.startsWith("missing:") ||
+      e.startsWith("unchanged:") ||
       e.startsWith("missing citation:") ||
       e === "empty reply" ||
       e === "no file citations in reply" ||
@@ -221,4 +245,11 @@ export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
       e.includes(" timed out "),
   );
   return { passed: !failed, evidence };
+}
+
+const REPORT_GOAL = /\b(review|audit|code[- ]?health|health report|findings|code smells?|report on)\b/i;
+
+/** True when the user's request asks for a review-style report (the reply must then cite real files). */
+export function isReportGoal(goal: string): boolean {
+  return REPORT_GOAL.test(goal);
 }

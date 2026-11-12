@@ -29,7 +29,7 @@ function scripted(steps: ((turn: EngineTurn) => AsyncGenerator<EngineEvent, void
 
 function config(over: Partial<EffectiveConfig> = {}): EffectiveConfig {
   return {
-    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: {} }],
+    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } }],
     agents: [{ id: "a", channel: "c", model: "m", effort: "medium" }],
     roles: [{ id: "lead", enabled: true, prompt: "lead", skills: [], tools: [], writePaths: [], turnBudget: 5 }],
     settings: settingsFile.parse({}),

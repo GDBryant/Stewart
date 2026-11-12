@@ -30,10 +30,3 @@ export function stripImages(messages: ChatMessage[]): ChatMessage[] {
     };
   });
 }
-
-/** Replay guard: a tool call whose outcome is already recorded is not re-executed. */
-export interface IdempotencyHooks {
-  key(call: ToolCall, index: number): string;
-  lookup(key: string): string | undefined;
-  record(key: string, content: string): Promise<void>;
-}

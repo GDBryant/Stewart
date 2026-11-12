@@ -50,3 +50,37 @@ export function askUserTool(interaction: Interaction, runId: string): Tool {
     },
   };
 }
+
+/** What the lead declared for this turn's check: a command that must exit 0, extra files that must exist. */
+export interface DeclaredCheck {
+  command?: string[];
+  files?: string[];
+}
+
+/** `set_check({command?, files?})`: the lead states how code should verify this turn; the command needs approval. */
+export function setCheckTool(declared: { value?: DeclaredCheck }): Tool {
+  return {
+    spec: {
+      name: "set_check",
+      description: "Declare how this turn is verified by code after you stop: a command (argv array) that must exit 0 (tests, typecheck, lint), and optionally files that must exist.",
+      parameters: {
+        type: "object",
+        properties: { command: { type: "array", items: { type: "string" } }, files: { type: "array", items: { type: "string" } } },
+        required: ["command"],
+        additionalProperties: false,
+      },
+    },
+    requiresApproval: true,
+    preview: async (args) => {
+      const argv = Array.isArray(args.command) ? (args.command as unknown[]).map(String) : [];
+      return { kind: "command", command: argv.join(" "), cwd: "." };
+    },
+    execute: async (args) => {
+      const command = Array.isArray(args.command) ? (args.command as unknown[]).map(String).filter(Boolean) : undefined;
+      const files = Array.isArray(args.files) ? (args.files as unknown[]).map(String).filter(Boolean) : undefined;
+      if (!command?.length) throw new Error("set_check needs a command (argv array)");
+      declared.value = { command, files: files?.length ? files : undefined };
+      return "check set";
+    },
+  };
+}

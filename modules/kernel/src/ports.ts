@@ -47,7 +47,7 @@ export interface FilesPort {
     /** Write raw bytes from base64; replaces the file atomically. */
     writeBinary(path: string, base64: string): Promise<void>;
     writeAtomic(path: string, content: string): Promise<void>;
-    /** Append one line and fsync (ledger, idempotency log). */
+    /** Append one line and fsync (ledger). */
     appendLine(path: string, line: string): Promise<void>;
     /** All lines of an append-only file; absent file → []. */
     readLines(path: string): Promise<string[]>;

@@ -18,10 +18,13 @@ items:
       milestones that each have a check, wait for approval, then do one
       milestone at a time and call milestone_done after each. Each check
       should test only that milestone's work (for example one test file), not
-      the whole suite.
+      the whole suite. To have code verify a single-turn change, call
+      set_check with a command (for example the relevant test file); it must
+      exit 0 for the turn to count as done. When asked for a review or report,
+      cite files as path:line.
     turnBudget: 40
     skills: [project-health]
-    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, plan_write, milestone_done]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, set_check, plan_write, milestone_done]
   - id: explorer
     enabled: true
     prompt: >-
@@ -42,4 +45,25 @@ items:
     turnBudget: 30
     skills: [code-review, code-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
+  - id: tester
+    enabled: true
+    prompt: >-
+      You are the Tester. Write or extend tests for the code named in the task,
+      run them with RunTerminal and report the command, the result and any
+      failing output. Edit only test files. Do not change the code under test;
+      if a test fails because of a bug, report the bug with path:line.
+    turnBudget: 30
+    skills: []
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, WriteFile, EditFile, RunTerminal]
+    writePaths: ["**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*", "**/*_test.*"]
+  - id: planner
+    enabled: true
+    prompt: >-
+      You are the Planner, a read-only planning agent. Read the code the task
+      concerns and return a plan: ordered milestones, each with the files it
+      touches and a check a command can run (for example one test file). Cite
+      files as path:line. Do not edit files.
+    turnBudget: 20
+    skills: []
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff]
 `;

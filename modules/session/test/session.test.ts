@@ -36,7 +36,7 @@ function scriptedEngine(steps: ((turn: EngineTurn) => AsyncGenerator<EngineEvent
 
 function makeConfig(over: Partial<EffectiveConfig> = {}): EffectiveConfig {
   return {
-    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: {} }],
+    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } }],
     agents: [{ id: "a", channel: "c", model: "m", effort: "medium" }],
     roles: [{ id: "lead", enabled: true, prompt: "You are lead.", skills: ["sk1"], tools: [], writePaths: [], turnBudget: 5 }],
     settings: settingsFile.parse({}),
@@ -156,6 +156,82 @@ describe("SessionService", () => {
     h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
     const fin = await h.waitFor("run.finished");
     expect(fin).toMatchObject({ status: "failed", error: "missing: ghost.ts" });
+  });
+
+  it("fails an edit turn whose file content did not change", async () => {
+    const engine = scriptedEngine([
+      async function* (turn: EngineTurn) {
+        yield { kind: "tool.request", callId: "1", tool: "EditFile", args: { path: "a.ts" }, category: "FILE" };
+        turn.transcript.push({ role: "assistant", content: "edited" });
+        yield { kind: "write", record: { path: "a.ts", ok: true } };
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "a.ts": "same" } });
+    await h.svc.send({ text: "edit a.ts" });
+    const ask = await h.waitFor("ask_user");
+    h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "failed" });
+    expect((fin as { error: string }).error).toContain("unchanged: a.ts");
+  });
+
+  it("passes an edit turn whose file content changed", async () => {
+    const engine = scriptedEngine([
+      async function* (turn: EngineTurn) {
+        yield { kind: "tool.request", callId: "1", tool: "EditFile", args: { path: "a.ts" }, category: "FILE" };
+        h.files["a.ts"] = "different";
+        turn.transcript.push({ role: "assistant", content: "edited" });
+        yield { kind: "write", record: { path: "a.ts", ok: true } };
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "a.ts": "old" } });
+    await h.svc.send({ text: "edit a.ts" });
+    expect(await h.waitFor("run.finished")).toMatchObject({ status: "done" });
+  });
+
+  it("fails a review turn whose reply cites no files, and passes one that does", async () => {
+    const reply = (text: string) =>
+      scriptedEngine([
+        async function* (turn: EngineTurn) {
+          turn.transcript.push({ role: "assistant", content: text });
+          yield { kind: "finished", reason: "stop" };
+        },
+      ]);
+    const bad = harness({ engine: reply("Looks fine overall.") });
+    await bad.svc.send({ text: "review src" });
+    const ask = await bad.waitFor("ask_user");
+    bad.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
+    expect(await bad.waitFor("run.finished")).toMatchObject({ status: "failed", error: "no file citations in reply" });
+    const good = harness({ engine: reply("src/a.ts:3 has a long function"), files: { "src/a.ts": "x" } });
+    await good.svc.send({ text: "review src" });
+    expect(await good.waitFor("run.finished")).toMatchObject({ status: "done" });
+  });
+
+  it("set_check declares a command that must exit 0", async () => {
+    const mk = (code: number) => {
+      const engine = scriptedEngine([
+        async function* (turn: EngineTurn) {
+          await turn.tools.find("set_check")!.execute({ command: ["npm", "test"] }, null, turn.signal);
+          turn.transcript.push({ role: "assistant", content: "done" });
+          yield { kind: "finished", reason: "stop" };
+        },
+      ]);
+      const h = harness({ engine });
+      (h.host as unknown as { proc: { run: unknown } }).proc.run = () => ({ done: Promise.resolve({ code }), killTree: async () => {} });
+      return h;
+    };
+    const ok = mk(0);
+    await ok.svc.send({ text: "run tests" });
+    expect(await ok.waitFor("run.finished")).toMatchObject({ status: "done" });
+    const bad = mk(1);
+    await bad.svc.send({ text: "run tests" });
+    const ask = await bad.waitFor("ask_user");
+    bad.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
+    const fin = (await bad.waitFor("run.finished")) as { status: string; error: string };
+    expect(fin.status).toBe("failed");
+    expect(fin.error).toContain("npm test exited 1");
   });
 
   it("persists the transcript incl. tool messages and reloads it next turn", async () => {
@@ -426,7 +502,7 @@ describe("SessionService delegate", () => {
         expect(out).toContain("status: done");
         expect(out).toContain("src/a.ts:1");
         turn.transcript.push({ role: "tool", toolCallId: "1", content: out });
-        turn.transcript.push({ role: "assistant", content: "all done" });
+        turn.transcript.push({ role: "assistant", content: "all done: src/a.ts:1 fine" });
         yield { kind: "tool.outcome", callId: "1", ok: true, summary: "done" };
         yield { kind: "finished", reason: "stop" };
       },
@@ -450,7 +526,7 @@ describe("SessionService delegate", () => {
     expect(JSON.parse(h.files[childFile!])[0]).toMatchObject({ role: "user", content: "review src/a.ts" });
   });
 
-  it("rejects unknown, disabled and non-read-only roles as tool errors", async () => {
+  it("rejects unknown, disabled and lead roles and malformed checks as tool errors", async () => {
     const worker = { id: "general-worker", enabled: true, prompt: "", skills: [], tools: [], writePaths: [], turnBudget: 5 };
     const seeker = { id: "seeker", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5 };
     const config = makeConfig({ roles: [makeConfig().roles[0], { ...explorer, enabled: false }, worker, seeker] });
@@ -461,8 +537,8 @@ describe("SessionService delegate", () => {
         await expect(tool.execute({ role: "explorer", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
         await expect(tool.execute({ role: "seeker", task: "x", report: "health" }, null, turn.signal)).rejects.toThrow(/cannot report health.*no configured role/s);
         await expect(tool.execute({ role: "lead", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
-        await expect(tool.execute({ role: "general-worker", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
-        expect((tool.spec.parameters as { properties: { role: { enum: string[] } } }).properties.role.enum).toEqual(["seeker"]);
+        expect((tool.spec.parameters as { properties: { role: { enum: string[] } } }).properties.role.enum).toEqual(["general-worker", "seeker"]);
+        await expect(tool.execute({ role: "seeker", task: "x", check: "nope" }, null, turn.signal)).rejects.toThrow(/check must be an object/);
         turn.transcript.push({ role: "assistant", content: "checked" });
         yield { kind: "finished", reason: "stop" };
       },
@@ -472,6 +548,96 @@ describe("SessionService delegate", () => {
     expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
   });
 
+  it("serializes write-capable children and runs read-only ones in parallel", async () => {
+    const writer = { id: "wr", enabled: true, prompt: "", skills: [], tools: ["WriteFile"], writePaths: [], turnBudget: 5 };
+    const config = makeConfig({ roles: [makeConfig().roles[0], writer, reviewer] });
+    const active = { wr: 0, reviewer: 0 };
+    const peak = { wr: 0, reviewer: 0 };
+    let n = 0;
+    const engine: Engine = {
+      id: "native-loop",
+      async *run(turn: EngineTurn) {
+        if (n++ === 0) {
+          const t = turn.tools.find("delegate")!;
+          await Promise.all([
+            t.execute({ role: "wr", task: "a" }, null, turn.signal),
+            t.execute({ role: "wr", task: "b" }, null, turn.signal),
+            t.execute({ role: "reviewer", task: "c" }, null, turn.signal),
+            t.execute({ role: "reviewer", task: "d" }, null, turn.signal),
+          ]);
+          turn.transcript.push({ role: "assistant", content: "ok" });
+          yield { kind: "finished", reason: "stop" };
+          return;
+        }
+        const id = turn.system.includes("You review.") ? "reviewer" : "wr";
+        active[id]++;
+        peak[id] = Math.max(peak[id], active[id]);
+        await new Promise((r) => setTimeout(r, 20));
+        active[id]--;
+        turn.transcript.push({ role: "assistant", content: "src/a.ts:1 ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    const h = harness({ config, engine, files: { "src/a.ts": "x" } });
+    await h.svc.send({ text: "go" });
+    await h.waitFor("run.finished");
+    expect(peak.wr).toBe(1);
+    expect(peak.reviewer).toBe(2);
+  });
+
+  it("delegate check: files must exist and the command must pass the gate and exit 0", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const out: string[] = [];
+    let n = 0;
+    const engine: Engine = {
+      id: "native-loop",
+      async *run(turn: EngineTurn) {
+        if (n++ === 0) {
+          const t = turn.tools.find("delegate")!;
+          out.push(String(await t.execute({ role: "reviewer", task: "t", check: { files: ["missing.md"] } }, null, turn.signal)));
+          turn.transcript.push({ role: "assistant", content: "ok: no findings" });
+          yield { kind: "finished", reason: "stop" };
+          return;
+        }
+        turn.transcript.push({ role: "assistant", content: "src/a.ts:1 ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    const h = harness({ config, engine, files: { "src/a.ts": "x" } });
+    await h.svc.send({ text: "go" });
+    await h.waitFor("run.finished");
+    expect(out[0]).toContain("status: failed");
+    expect(out[0]).toContain("missing: missing.md");
+  });
+
+  it("runs a kind:function role as one schema-checked request, no tools", async () => {
+    const fn = { id: "scorer", enabled: true, prompt: "Score it.", skills: [], tools: [], writePaths: [], turnBudget: 1, kind: "function" as const };
+    const config = makeConfig({ roles: [makeConfig().roles[0], fn] });
+    const config2 = { ...config, channels: [{ ...config.channels[0], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 }, function: { passed: true, at: 1, version: 1 } } } } }] };
+    const out: string[] = [];
+    const schema = { type: "object", properties: { n: { type: "number" } }, required: ["n"] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const t = turn.tools.find("delegate")!;
+        await expect(t.execute({ role: "scorer", task: "x" }, null, turn.signal)).rejects.toThrow(/need a schema/);
+        out.push(String(await t.execute({ role: "scorer", task: "x", schema }, null, turn.signal)));
+        turn.transcript.push({ role: "assistant", content: "ok: no findings" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const good = harness({ config: config2, engine, channel: fakeChannel([[{ kind: "text", text: '{"n": 7}' }, { kind: "done" }]]) });
+    await good.svc.send({ text: "go" });
+    await good.waitFor("run.finished");
+    expect(out[0]).toBe('status: done\n{"n":7}');
+    expect(good.events.find((e) => e.kind === "task.done")).toMatchObject({ roleId: "scorer" });
+    out.length = 0;
+    const bad = harness({ config: config2, engine, channel: fakeChannel([[{ kind: "text", text: "nope" }, { kind: "done" }]]) });
+    await bad.svc.send({ text: "go" });
+    await bad.waitFor("run.finished");
+    expect(out[0]).toContain("status: failed");
+    expect(bad.events.find((e) => e.kind === "task.failed")).toMatchObject({ roleId: "scorer" });
+  });
+
   it("returns status failed with check evidence when the child check fails", async () => {
     const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
     let result = "";
@@ -479,7 +645,7 @@ describe("SessionService delegate", () => {
       async function* (turn) {
         const tool = turn.tools.find("delegate")!;
         result = String(await tool.execute({ role: "reviewer", task: "review nothing" }, null, turn.signal));
-        turn.transcript.push({ role: "assistant", content: "ok" });
+        turn.transcript.push({ role: "assistant", content: "ok: no findings" });
         yield { kind: "finished", reason: "stop" };
       },
       async function* (turn) {

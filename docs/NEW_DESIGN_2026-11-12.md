@@ -1,6 +1,6 @@
 # Stewart — New Design (2026-11-12)
 
-Status: **accepted; steps 0–6 built as v3.0.0 (see EVALS.md); remaining work in §8**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
+Status: **accepted; steps 0–6 built as v3.0.0 (see EVALS.md); §8 gaps closed (no version bump) except the live eval re-runs**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
 
 ## 1. What the logs show
 
@@ -142,38 +142,35 @@ claude --resume 85619c1b-bad8-4d19-bceb-d946f9e653dc'''
 
 Audit of v3.0.0 (`8f17f4f`) against this plan on 2026-11-12. Code gates pass: build, typecheck, 1,227 tests, coverage, all `check:*` scripts. Gradle and the evals were not re-run for the audit. As-built detail: `docs/ai_docs/ARCHITECTURE_NOW.md`.
 
-### 8.1 Gaps, in suggested order
+### 8.1 Gaps (closed 2026-11-12)
 
-The first three produce a wrong `done`, so they come first.
-
-| # | Plan | Built | To do |
-|---|---|---|---|
-| 1 | §4.4 report tasks: schema + citations | Only delegated children get `cites`/`schema` (`modules/session/src/child.ts`). A lead report has no such check; two chain-local evals ended as a wrong `done` (review without citations). | Apply the report check to lead turns that are reports. |
-| 2 | §4.3 a task runs on the first *qualified* agent | `eligibleChain` (`modules/roles-skills/src/chain.ts`) also tries agents with no qualification record. The 32k minimum context is enforced in setup only. | Run only agents with a passing record; enforce `minContext` at run time. |
-| 3 | §4.4 edit tasks: named files changed, optional command | `turnCheck` (`modules/tasks/src/checks.ts`) only confirms that files the write tools touched exist and read back. A command check runs only for plan milestones. | Compare content before/after; let a lead turn carry a command check. |
-| 4 | §4.2 `delegate(role, task, check)` | `delegate({role, task, report?})` | Add `check` (files, command) to `delegate`. |
-| 5 | §4.2 one writer at a time | Up to 4 children run in parallel with no writer guard. Shipped roles are read-only, but custom roles can be added (`8f17f4f`). | Serialize children whose role has write tools. |
-| 6 | §4.1 `function` kind | `kind: function` is used by qualification and assignment only; no run path. | Add a one-request, schema-constrained, no-tools run path. |
-| 7 | §4.2 shipped roles | `lead`, `explorer`, `reviewer` | Ship `tester` and `planner`. |
-| 8 | §4.5 one-step compaction | Not built (known gap in `ARCHITECTURE_NOW.md` §6). | Summarise older turns past a threshold; keep plan, open task, last turns. |
-| 9 | §5 gates become warnings; evals block | CI (`.github/workflows/ci.yml`) still blocks on file size, function limits and coverage; evals are not in CI. | Decide: wire an eval run into CI and relax the size gates, or amend §5. |
-| 10 | §5 about 8 modules + `setup` | 17 modules | Decide: merge modules or amend the target. |
-| 11 | §7 JetBrains ACP | No record of the investigation; no `acp` engine (planned "later"). | Investigate and record the result. |
+| # | Plan | Result |
+|---|---|---|
+| 1 | §4.4 report check on lead turns | Done: a turn with no file changes whose request reads as a review/report (`isReportGoal`) gets `cites: true`. |
+| 2 | §4.3 first *qualified* agent | Done: `eligibleChain` runs only agents with a passing record for the role kind and a known window ≥ `needs.minContext` (default 32k). Unqualified agents no longer run; setup/Qualify must have run. |
+| 3 | §4.4 edit check | Done: content is snapshotted before the first write and compared after (`unchanged:` fails); the lead declares a command with `set_check` (approval-gated). |
+| 4 | §4.2 `delegate(role, task, check)` | Done: `check = {files?, command?}`; the command goes through the approval gate. |
+| 5 | §4.2 one writer at a time | Done: write-capable children queue; read-only children stay parallel (cap 4). `delegate` now accepts write roles. |
+| 6 | §4.1 `function` kind | Done: `runFunction` (engines) and `delegate({role, task, schema})` for `kind: function` roles. |
+| 7 | §4.2 shipped roles | Done: `planner` (read-only) and `tester` (test paths only). |
+| 8 | §4.5 compaction | Done: `session/compact.ts` (see ARCHITECTURE_NOW §6). |
+| 9 | §5 gates vs evals | Decision: amend §5. Evals need live models and paid keys, so CI keeps the code gates blocking (size, functions, coverage, layers, cycles); the eval suite stays the manual milestone gate, recorded in EVALS.md. |
+| 10 | §5 about 8 modules | Decision: amend the target. 17 manifest-layered modules stay; further merging adds churn without removing a failure mode. `check:layers` holds the dependency-count ratchet. |
+| 11 | §7 JetBrains ACP | Investigated (web docs only, not tested in an IDE): AI Assistant has a built-in ACP client; agents are registered in `~/.jetbrains/acp.json` (`agent_servers`: command + args, stdio transport) or from the ACP registry, with `default_mcp_settings` (`use_idea_mcp`, `use_custom_mcp`) choosing which MCP tools the agent sees. Implication: Stewart can be offered as an ACP **agent** (stdio) in AI Assistant in addition to its own panel, and Claude Code run under ACP can be given Stewart's tools through MCP, which `claude-code` already does per turn (`engines/mcp.ts`). Not built; an `acp` engine/agent adapter is the next spike. Verify the exact `acp.json` keys against the 2026.2 help page first. |
 
 ### 8.2 Eval gates
 
 | Step | Result | Open |
 |---|---|---|
-| 1 | Met: 14/15 on GLM; the failure passed on recheck | — |
-| 2 | Met: 15/15 on Claude | — |
-| 3 | `packages/evals/results/2026-11-12-step3-local.json` (2/3) only | Record it in `EVALS.md`; run the full suite |
-| 4 | 13/15 on the local chain, 2 wrong `done` | Re-run after gaps 1–3 |
-| 5 | 15/15 on Claude; final `l-todo-cli` rerun ended `failed` (model chose `npm test` as the M3 check) | Re-run `l-todo-cli` |
+| 1 | Met: 14/15 on GLM; the failure passed on recheck | Re-run after §8 build |
+| 2 | Met: 15/15 on Claude | Re-run after §8 build |
+| 3 | `step3-local` 2/3 (question 1/1, report 1/2); see EVALS.md | Run the full suite |
+| 4 | 13/15 on the local chain, 2 wrong `done` (CommonJS in ESM, uncited review) | Re-run: gaps 1–3 should turn both into honest failures or escalations |
+| 5 | 15/15 on Claude; final `l-todo-cli` rerun `failed` (model chose `npm test` as the M3 check) | Re-run `l-todo-cli` |
 | 6 | Met: 15/15 after cut-over | — |
 
-### 8.3 v2 leftovers
+The §8 changes were verified by unit tests, build, typecheck and all `check:*` gates only. **No eval was re-run** (they need live models and cost money); the eval configs carry qualification records so they still resolve a chain.
 
-- `handleRolesAssignAgent` with `wizard: true` enables `orchestrator` and `general-worker`, not `lead` (`packages/core/src/handlers/config.ts:126`); no caller passes `wizard`.
-- `IdempotencyHooks` is still exported from `modules/kernel/src/wire.ts`; `ports.ts` still mentions the idempotency log.
-- The wizard welcome text names "orchestrator, planner, code-writer" (`packages/webview/src/wizardStep0Welcome.tsx:8`).
-- `docs/ai_docs/PROGRESS.md` header says branch `rebuild-v3`.
+### 8.3 v2 leftovers (closed)
+
+`wizard: true` now enables `lead`; `IdempotencyHooks` removed; wizard welcome text names lead/explorer/reviewer; `PROGRESS.md` already says `main`.

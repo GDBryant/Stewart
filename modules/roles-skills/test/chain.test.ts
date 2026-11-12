@@ -41,7 +41,7 @@ describe("eligibleChain", () => {
     expect(eligibleChain(lead, [lead], agents, [failed])).toEqual([]);
   });
 
-  it("puts unknown after qualified and uses the function kind for function roles", () => {
+  it("excludes unqualified agents, keeps chain order, and uses the kind for function roles", () => {
     const ch: ChannelDef = {
       id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [],
       modelCaps: {
@@ -56,9 +56,25 @@ describe("eligibleChain", () => {
       { id: "a3", channel: "c", model: "m3", effort: "medium" as const },
     ];
     const lead = role({ id: "lead", chain: ["a2", "a3", "a1"] });
-    expect(eligibleChain(lead, [lead], as, [ch]).map((a) => a.id)).toEqual(["a3", "a1", "a2"]);
+    expect(eligibleChain(lead, [lead], as, [ch]).map((a) => a.id)).toEqual(["a3", "a1"]);
     const fnRole = role({ id: "lead", kind: "function", chain: ["a1", "a2"] });
-    expect(eligibleChain(fnRole, [fnRole], as, [ch]).map((a) => a.id)).toEqual(["a1", "a2"]);
+    expect(eligibleChain(fnRole, [fnRole], as, [ch]).map((a) => a.id)).toEqual([]);
+  });
+
+  it("enforces the role's minimum context window at run time", () => {
+    const q = { agent: { passed: true, at: 1, version: 1 } };
+    const ch: ChannelDef = {
+      id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [],
+      modelCaps: { small: { qualified: q, contextTokens: 8000 }, big: { qualified: q, contextTokens: 64000 } },
+    };
+    const as = [
+      { id: "s", channel: "c", model: "small", effort: "medium" as const },
+      { id: "b", channel: "c", model: "big", effort: "medium" as const },
+    ];
+    const lead = role({ id: "lead", chain: ["s", "b"] });
+    expect(eligibleChain(lead, [lead], as, [ch]).map((a) => a.id)).toEqual(["b"]);
+    const lenient = role({ id: "lead", chain: ["s", "b"], needs: { minContext: 4000 } });
+    expect(eligibleChain(lenient, [lenient], as, [ch]).map((a) => a.id)).toEqual(["s", "b"]);
   });
 });
 
