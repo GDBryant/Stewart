@@ -109,7 +109,7 @@ describe("Core roles + skills dispatch", () => {
     const core = new Core({
       defaults,
       userConfig: memStore({
-        "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n    agent: a1\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
       }),
       projectConfig: async () => memStore(),
       fetcher,
@@ -133,7 +133,7 @@ describe("Core roles + skills dispatch", () => {
   it("chat.send fails on an enabled role with no agent instead of falling back", async () => {
     const core = new Core({
       defaults,
-      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n" }),
+      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n" }),
       projectConfig: async () => memStore(),
       fetcher: fakeFetcher([{ body: ['{"done":true}'] }]).fetcher,
       emitEvent: () => {},
@@ -158,7 +158,7 @@ describe("Core roles + skills dispatch", () => {
     };
     const core = new Core({
       defaults,
-      userConfig: memStore({}),
+      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n" }),
       projectConfig: async () => memStore(),
       fetcher,
       emitEvent: () => {},

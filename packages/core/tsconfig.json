@@ -70,6 +70,9 @@
       "path": "../../modules/scheduling"
     },
     {
+      "path": "../../modules/session"
+    },
+    {
       "path": "../../modules/setup"
     },
     {

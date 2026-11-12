@@ -79,6 +79,13 @@ async function directChat(t: ChatTurn, images: string[] | undefined): Promise<un
   return { runId: run.id };
 }
 
+async function leadChat(ctx: ChatCtx, req: { p: ChatParams; direct: boolean; text: string; images: string[] }): Promise<unknown | undefined> {
+  const lead = ctx.config.roles.find((r) => r.id === "lead" && r.enabled);
+  if (!lead || req.direct) return undefined;
+  const res = await ctx.sessions.send({ sessionId: req.p.sessionId, text: req.text, images: req.images.length ? req.images : undefined });
+  return { runId: res.runId };
+}
+
 export async function handleChatSend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as ChatParams;
   const ctx = core.ctx(p.projectId);
@@ -88,6 +95,8 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
   const norm = normalizeImages(p.images ?? []);
   if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
+  const led = await leadChat(ctx, { p, direct, text: mention.text, images: norm.images });
+  if (led) return led;
   const orchestrator = ctx.config.roles.find((r) => r.id === "orchestrator" && r.enabled);
   const profileName = await chatProfileName({ core, ctx, p, cmd, mentionText: mention.text, hasImages: norm.images.length > 0, orchestrated: !!orchestrator && !direct });
   const turn: ChatTurn = { core, ctx, p, mentionText: mention.text, profile: budgetProfile(ctx.config.settings, profileName), profileName };
@@ -96,7 +105,8 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
 }
 export function handleChatCancel(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; runId: string };
-  return { ok: core.ctx(p.projectId).runs.cancel(p.runId) };
+  const ctx = core.ctx(p.projectId);
+  return { ok: ctx.sessions.cancel(p.runId) || ctx.runs.cancel(p.runId) };
 }
 
 export async function handleChatResume(core: CoreCtx, params: unknown): Promise<unknown> {

@@ -33,6 +33,7 @@
     "@stewart/run-state": "workspace:*",
     "@stewart/runs": "workspace:*",
     "@stewart/scheduling": "workspace:*",
+    "@stewart/session": "workspace:*",
     "@stewart/setup": "workspace:*",
     "@stewart/toolcall-format": "workspace:*",
     "@stewart/tools": "workspace:*",

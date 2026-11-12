@@ -11,6 +11,7 @@ import { FEATURE_ROLE_TOOLS, RUN_FEATURES } from "./features.js";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
 import { RunService } from "@stewart/runs";
+import { SessionService } from "@stewart/session";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { ChannelDeps } from "@stewart/channels";
 import type { WorkspaceInfo, SetupProbeRunner } from "@stewart/setup";
@@ -103,7 +104,17 @@ export class Core implements CoreCtx {
     this.applyDebug(config);
     const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus, features: RUN_FEATURES });
     runs.historyRetentionDays = config.settings.historyRetentionDays;
-    this.projects.set(projectId, { host, config, trusted, runs, projectStore, projectGuard, userLayer, projectLayer });
+    const sessions = new SessionService({
+      host,
+      bus: this.bus,
+      ids: this.ids,
+      clock: this.clock,
+      interaction: runs.interaction,
+      permissions: runs.permissions,
+      channelFor: (id) => this.channelService.require(id),
+      config: () => this.ctx(projectId).config,
+    });
+    this.projects.set(projectId, { host, config, trusted, runs, sessions, projectStore, projectGuard, userLayer, projectLayer });
     const staleProbe = this.probeRunners.get(projectId);
     if (staleProbe) {
       staleProbe.cancel();

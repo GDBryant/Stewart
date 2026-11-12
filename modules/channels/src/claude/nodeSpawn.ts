@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export interface SpawnedProc {
+  /** Write then close stdin (single-shot mode). */
   stdin(data: string): void;
+  /** Write without closing (interactive stream-json input). */
+  write?(data: string): void;
+  /** Close stdin without writing. */
+  end?(): void;
   stdout: AsyncIterable<string>;
   stderrText(): Promise<string>;
   done: Promise<{ code: number }>;
@@ -81,6 +86,12 @@ export const nodeSpawn: SpawnFn = (argv, opts) => {
   return {
     stdin(data) {
       proc.stdin.write(data, () => proc.stdin.end());
+    },
+    write(data) {
+      proc.stdin.write(data);
+    },
+    end() {
+      proc.stdin.end();
     },
     stdout: lineIter(proc.stdout),
     stderrText: async () => {

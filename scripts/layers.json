@@ -16,6 +16,7 @@
   "run-state": 3,
   "compaction": 4,
   "context": 4,
+  "tasks": 4,
   "tools": 5,
   "agent-loop": 6,
   "orchestration": 7,
@@ -23,6 +24,8 @@
   "setup": 7,
   "runs": 8,
   "run-contract": 6,
+  "engines": 6,
   "v1-import": 2,
-  "health-check": 7
+  "health-check": 7,
+  "session": 7
 }

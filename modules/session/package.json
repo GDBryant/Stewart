@@ -1,0 +1,39 @@
+{
+  "name": "@stewart/session",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --composite false --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "@vitest/coverage-v8": "3.2.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@stewart/channels": "workspace:*",
+    "@stewart/config": "workspace:*",
+    "@stewart/context": "workspace:*",
+    "@stewart/engines": "workspace:*",
+    "@stewart/interaction": "workspace:*",
+    "@stewart/kernel": "workspace:*",
+    "@stewart/ledger": "workspace:*",
+    "@stewart/permissions": "workspace:*",
+    "@stewart/protocol": "workspace:*",
+    "@stewart/roles-skills": "workspace:*",
+    "@stewart/run-state": "workspace:*",
+    "@stewart/tasks": "workspace:*",
+    "@stewart/tools": "workspace:*"
+  }
+}

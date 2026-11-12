@@ -4,6 +4,7 @@ import type { ChannelService, ManagedChannel } from "@stewart/channels";
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ConfigStore, SelfWriteGuard } from "@stewart/config";
 import type { RunService } from "@stewart/runs";
+import type { SessionService } from "@stewart/session";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { WorkspaceInfo, SetupProbeRunner } from "@stewart/setup";
 import type { DebugLevel, DebugSink } from "@stewart/diagnostics";
@@ -28,6 +29,8 @@ export interface ProjectCtx {
   config: EffectiveConfig;
   trusted: boolean;
   runs: RunService;
+  /** Lead-path sessions (new design step 1): one SessionService per project, sharing runs' interaction/permissions. */
+  sessions: SessionService;
   projectStore: ConfigStore;
   projectGuard: SelfWriteGuard;
   /** Raw layers as last loaded (skill resolution, role reset). */

@@ -1,0 +1,52 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/protocol"
+    },
+    {
+      "path": "../channels"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../context"
+    },
+    {
+      "path": "../engines"
+    },
+    {
+      "path": "../interaction"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../ledger"
+    },
+    {
+      "path": "../permissions"
+    },
+    {
+      "path": "../roles-skills"
+    },
+    {
+      "path": "../run-state"
+    },
+    {
+      "path": "../tasks"
+    },
+    {
+      "path": "../tools"
+    }
+  ]
+}

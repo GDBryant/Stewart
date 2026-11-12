@@ -188,6 +188,52 @@ describe("Core", () => {
     await core.attachProject("p", fakeHost());
     await expect(core.dispatch("hello", { protocol: 99, capabilities: [] })).rejects.toThrow(/mismatch/);
   });
+
+  describe("lead path", () => {
+    const leadDefaults = {
+      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+      "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
+      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    turnBudget: 5\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
+    };
+
+    function mkLead(body: string[], rolesYaml?: string) {
+      const events: RunEvent[] = [];
+      const { fetcher } = fakeFetcher([{ body }]);
+      const core = new Core({
+        fetcher,
+        defaults: rolesYaml ? { ...leadDefaults, "roles.yaml": rolesYaml } : leadDefaults,
+        userConfig: memStore(),
+        projectConfig: async () => memStore(),
+        emitEvent: (e) => events.push(e),
+      });
+      return { core, events };
+    }
+
+    it("routes chat.send to the lead session when lead is enabled", async () => {
+      const { core, events } = mkLead(['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1,"eval_count":1}']);
+      await core.attachProject("p", fakeHost());
+      const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.kind === "run.finished" && e.runId === res.runId)).toBe(true);
+      });
+      expect(events.find((e) => e.kind === "run.started")).toMatchObject({ roleId: "lead" });
+      const fin = events.find((e) => e.kind === "run.finished");
+      expect(fin).toMatchObject({ status: "done", roleId: "lead" });
+      expect(events.some((e) => e.kind === "check.result")).toBe(true);
+    });
+
+    it("keeps the old path when lead is disabled", async () => {
+      const roles = "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
+      const { core, events } = mkLead(['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1,"eval_count":1}'], roles);
+      await core.attachProject("p", fakeHost());
+      const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.kind === "run.finished" && e.runId === res.runId)).toBe(true);
+      });
+      expect(events.some((e) => e.kind === "check.result")).toBe(false);
+      expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "done" });
+    });
+  });
 });
 
 describe("Core config", () => {

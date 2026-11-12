@@ -26,6 +26,17 @@ export interface ClaudeLoginState {
   detail?: string;
 }
 
+/** Child env for the CLI: host env minus direct API keys, plus cfg.extraEnv. Shared by the adapter and the claude-code engine. */
+export function claudeChildEnv(cfg: ChannelConfig, src: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(src)) if (v !== undefined) env[k] = v;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  const extra = cfg.extraEnv as Record<string, string> | undefined;
+  if (extra) Object.assign(env, extra);
+  return env;
+}
+
 function abortError(): Error {
   return Object.assign(new Error("aborted"), { name: "AbortError" });
 }
@@ -147,14 +158,7 @@ export class ClaudeCliAdapter implements ChannelAdapter {
   }
 
   private childEnv(cfg: ChannelConfig): Record<string, string> {
-    const src = this.deps.env ?? (process.env as Record<string, string | undefined>);
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(src)) if (v !== undefined) env[k] = v;
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
-    const extra = cfg.extraEnv as Record<string, string> | undefined;
-    if (extra) Object.assign(env, extra);
-    return env;
+    return claudeChildEnv(cfg, this.deps.env ?? (process.env as Record<string, string | undefined>));
   }
 
   async loginStatus(cfg: ChannelConfig): Promise<ClaudeLoginState> {

@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../catalog"
+    },
+    {
+      "path": "../channels"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../permissions"
+    },
+    {
+      "path": "../tools"
+    }
+  ]
+}

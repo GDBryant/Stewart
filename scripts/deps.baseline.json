@@ -24,5 +24,8 @@
   "setup": 6,
   "toolcall-format": 1,
   "tools": 8,
-  "v1-import": 1
+  "v1-import": 1,
+  "tasks": 1,
+  "engines": 6,
+  "session": 12
 }

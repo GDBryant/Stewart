@@ -4,8 +4,9 @@ export type { ChatEvent, ChatRequest, ChannelConfig, ChannelAdapter, ChannelDeps
 export { ManagedChannel, ChannelRegistry } from "./registry.js";
 export { OllamaAdapter, extractError, estimatePromptTokens, autoNumCtx } from "./ollama.js";
 export { OpenAICompatAdapter } from "./openai.js";
-export { ClaudeCliAdapter } from "./claude/adapter.js";
+export { ClaudeCliAdapter, claudeChildEnv } from "./claude/adapter.js";
 export type { ClaudeDeps, ClaudeLoginState } from "./claude/adapter.js";
+export { classify } from "./claude/parser.js";
 export { nodeSpawn, makeTempDir, writeTempFile, rmDir } from "./claude/nodeSpawn.js";
 export type { SpawnedProc, SpawnFn } from "./claude/nodeSpawn.js";
 export { ChannelService } from "./service.js";

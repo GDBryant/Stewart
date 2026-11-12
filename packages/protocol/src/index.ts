@@ -68,6 +68,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("task.failed"), ...base, error: z.string() }),
   z.object({ kind: z.literal("tool.request"), ...base, callId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("tool.outcome"), ...base, callId: z.string(), ok: z.boolean(), summary: z.string() }),
+  z.object({ kind: z.literal("check.result"), ...base, passed: z.boolean(), evidence: z.array(z.string()) }),
   z.object({ kind: z.literal("ask_user"), ...base, questionId: z.string(), question: z.string(), options: z.array(z.string()).optional() }),
   z.object({ kind: z.literal("question.answered"), ...base, questionId: z.string(), answer: z.string(), answeredBy: z.enum(["orchestrator", "user"]) }),
   z.object({ kind: z.literal("question.withdrawn"), ...base, questionId: z.string() }),

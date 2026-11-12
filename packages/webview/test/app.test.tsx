@@ -49,6 +49,22 @@ describe("webview chat", () => {
     expect(texts).toContain("context compacted: -10 tokens\"");
   });
 
+  it("renders check.result: pass as activity, fail as a visible line", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("check.result", { passed: true, evidence: ["changed: a.ts"] }));
+    });
+    const lastItem = store.state.items[store.state.items.length - 1];
+    expect(lastItem.activity).toContainEqual({ kind: "tool-ok", text: "check passed" });
+    act(() => {
+      bridge.inbound(ev("check.result", { passed: false, evidence: ["missing: b.ts"] }));
+    });
+    const failed = store.state.items[store.state.items.length - 1];
+    expect(failed.role).toBe("system");
+    expect(failed.text).toBe("Check failed: missing: b.ts");
+  });
+
   it("shows Stop while busy and posts chat.cancel", () => {
     const { bridge } = mk();
     act(() => {

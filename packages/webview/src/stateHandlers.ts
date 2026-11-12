@@ -75,6 +75,7 @@ export class StoreHandlers {
       }),
     "tool.request": (ev) => this.addActivity(ev.runId, "tool", ev.tool),
     "tool.outcome": (ev) => this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary),
+    "check.result": (ev) => this.onCheckResult(ev),
     ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
     "question.withdrawn": (ev) => this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) }),
     "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),
@@ -186,6 +187,13 @@ export class StoreHandlers {
 
   private onEvent(ev: RunEvent): void {
     this.dispatch(this.eventHandlers, ev.kind, ev);
+  }
+
+  private onCheckResult(ev: Extract<RunEvent, { kind: "check.result" }>): void {
+    if (ev.passed) return this.addActivity(ev.runId, "tool-ok", "check passed");
+    this.patch({
+      items: [...this.state.items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: `Check failed: ${ev.evidence.join("; ")}`, activity: [] }],
+    });
   }
 
   private onCompaction(ev: Extract<RunEvent, { kind: "compaction" }>): void {

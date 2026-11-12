@@ -58,7 +58,7 @@ export function agentServesRole(agent: AgentDef, channels: ChannelDef[], roleId:
  * capability roles must point at a capable agent.
  */
 function roleAgentErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: ChannelDef[]): string[] {
-  if (!r.agent) return [`role ${r.id}: enabled but no agent bound`];
+  if (!r.agent) return r.id === "lead" ? [] : [`role ${r.id}: enabled but no agent bound`];
   const agent = byId.get(r.agent);
   if (!agent) return [`role ${r.id}: unknown agent '${r.agent}'`];
   if (!agentServesRole(agent, channels, r.id)) return [`role ${r.id}: agent '${r.agent}' lacks ${roleCapability(r.id)}`];
@@ -82,7 +82,8 @@ export function validateRoles(roles: RoleDef[], agents: AgentDef[], channels: Ch
     errors.push(...roleFallbackErrors(r, byId, channels));
   }
   const orchestrator = roles.find((r) => r.id === "orchestrator");
-  if (enabled.some((r) => r.id !== "orchestrator") && !orchestrator?.enabled) {
+  const needsOrchestrator = enabled.some((r) => r.id !== "orchestrator" && r.id !== "lead");
+  if (needsOrchestrator && !orchestrator?.enabled) {
     errors.push("orchestrator: required when another role is enabled");
   }
   return errors;
