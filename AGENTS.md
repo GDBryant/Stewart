@@ -21,7 +21,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 ## References
 
-- New design (accepted; steps 0–2 and 6 built): `docs/NEW_DESIGN_2026-11-12.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order.
+- New design (accepted; steps 0–6 built as v3.0.0; remaining work in §8): `docs/NEW_DESIGN_2026-11-12.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
