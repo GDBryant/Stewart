@@ -3,6 +3,8 @@
 export type Outbound =
   | { type: "chat.send"; text: string; images?: string[]; sessionId?: string }
   | { type: "chat.cancel"; runId: string }
+  | { type: "chat.resume"; sessionId: string }
+  | { type: "chat.revert"; sessionId: string; checkpoint?: string }
   | { type: "chat.answer"; questionId: string; answer: string }
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }

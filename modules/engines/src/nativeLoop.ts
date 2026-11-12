@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { categoryOf, type ToolPreview } from "@stewart/permissions";
-import { outcomeMessage, type Tool, type ToolOutcome } from "@stewart/tools";
+import { outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stewart/tools";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 
 const TOOL_TIMEOUT_MS = 120_000;
@@ -184,7 +184,8 @@ async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: Pum
   }
 }
 
-async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
+async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
+  const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
   const guard: LoopGuard = { fails: new Map(), streak: 0 };
   for (let n = 0; n < turn.maxTurns; n++) {
     if (turn.signal.aborted) {

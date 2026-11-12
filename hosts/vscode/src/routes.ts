@@ -43,6 +43,9 @@ const ROUTES: Record<string, Handler> = {
       { projectId: PROJECT_ID, channelId: m.channelId, model: m.model, force: m.force, bench: m.bench },
       { type: "channel.probe.result", channelId: m.channelId, model: m.model },
     ),
+  "chat.resume": (ctx, m) => dispatchAndReply(ctx, "chat.resume", { projectId: PROJECT_ID, sessionId: m.sessionId }, { type: "chat.resume.result" }),
+  "chat.revert": (ctx, m) =>
+    dispatchAndReply(ctx, "chat.revert", { projectId: PROJECT_ID, sessionId: m.sessionId, checkpoint: m.checkpoint }, { type: "chat.revert.result" }),
   "history.list": (ctx) => dispatchAndReply(ctx, "history.list", { projectId: PROJECT_ID }, { type: "history.sessions" }),
   "history.load": (ctx, m) =>
     dispatchAndReply(ctx, "history.load", { projectId: PROJECT_ID, sessionId: m.sessionId }, { type: "history.messages", sessionId: m.sessionId }),

@@ -120,6 +120,12 @@ export class Store {
   cancel(): void {
     if (this.state.busyRunId) this.bridge.post({ type: "chat.cancel", runId: this.state.busyRunId });
   }
+  resumePlan(): void {
+    if (this.state.sessionId) this.bridge.post({ type: "chat.resume", sessionId: this.state.sessionId });
+  }
+  revert(checkpoint?: string): void {
+    if (this.state.sessionId) this.bridge.post({ type: "chat.revert", sessionId: this.state.sessionId, checkpoint });
+  }
   answer(questionId: string, answer: string): void {
     this.bridge.post({ type: "chat.answer", questionId, answer });
     this.patch({ questions: this.state.questions.filter((q) => q.questionId !== questionId) });

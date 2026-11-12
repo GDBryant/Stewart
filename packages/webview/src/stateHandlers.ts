@@ -75,6 +75,10 @@ export class StoreHandlers {
     ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
     "question.withdrawn": (ev) => this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) }),
     "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),
+    "plan.approved": () => this.patch({ plan: { active: true, milestones: [] } }),
+    "milestone.started": (ev) => this.onMilestoneStarted(ev),
+    "milestone.done": (ev) => this.onMilestoneSet(ev.milestoneId, "done"),
+    "milestone.failed": (ev) => this.onMilestoneSet(ev.milestoneId, "failed"),
     "run.reverted": (ev) =>
       this.patch({
         items: [
@@ -149,7 +153,7 @@ export class StoreHandlers {
     });
   }
 
-  private onHistoryMessages(m: { sessionId: string; messages: StoredMessage[] }): void {
+  private onHistoryMessages(m: { sessionId: string; messages: StoredMessage[]; plan?: { goal?: string; status?: string; active?: boolean; milestones?: { id: string; title: string; status: string; checkpoint?: string }[] } }): void {
     const items = m.messages.map((msg: StoredMessage): ChatItem => ({
       id: `h${this.host.nextItemSeq()}`,
       role: msg.role === "tool" ? "system" : msg.role,
@@ -165,6 +169,13 @@ export class StoreHandlers {
       tasks: [],
       cost: undefined,
       busyRunId: undefined,
+      plan: m.plan
+        ? {
+            goal: m.plan.goal,
+            active: m.plan.active ?? m.plan.status === "active",
+            milestones: (m.plan.milestones ?? []).map((x) => ({ id: x.id, title: x.title, status: x.status === "done" ? "done" : x.status === "failed" ? "failed" : "pending", checkpoint: x.checkpoint })),
+          }
+        : undefined,
     });
   }
 
@@ -183,6 +194,21 @@ export class StoreHandlers {
   private onSetupEvent(ev: Extract<RunEvent, { kind: "setup.event" }>): void {
     const e = (ev as { event?: { kind?: string; snapshot?: SetupProbeSnapshot } }).event;
     if (e?.kind === "probe.state" && e.snapshot) this.patch({ smoke: e.snapshot });
+  }
+
+  private onMilestoneStarted(ev: Extract<RunEvent, { kind: "milestone.started" }>): void {
+    const ms = this.state.plan?.milestones ?? [];
+    const next = ms.some((m) => m.id === ev.milestoneId)
+      ? ms.map((m) => (m.id === ev.milestoneId ? { ...m, status: "running" as const } : m))
+      : [...ms, { id: ev.milestoneId, title: ev.title, status: "running" as const }];
+    this.patch({ plan: { active: true, milestones: next } });
+  }
+
+  private onMilestoneSet(id: string, status: "done" | "failed"): void {
+    const plan = this.state.plan;
+    if (!plan) return;
+    const milestones = plan.milestones.map((m) => (m.id === id ? { ...m, status } : m));
+    this.patch({ plan: { ...plan, milestones, active: status === "failed" ? plan.active : milestones.some((m) => m.status !== "done") } });
   }
 
   private onTaskEvent(ev: Extract<RunEvent, { kind: `task.${string}` }>): void {

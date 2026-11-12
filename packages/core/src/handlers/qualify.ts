@@ -1,7 +1,8 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AgentDef, Qual } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
-import { qualifyAgent, qualifyFunction, type QualifyDeps } from "@stewart/setup";
+import { normalizeReason, qualifyAgent, qualifyFunction, type QualifyDeps } from "@stewart/setup";
+import { redact } from "@stewart/diagnostics";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { mergeQualified } from "./util.js";
 
@@ -21,7 +22,9 @@ async function runSuites(core: CoreCtx, ctx: ProjectCtx, channelId: string, mode
   const agent = agentFor(channelId, model);
   const deps: QualifyDeps = { clock: core.clock, engine: core.deps.engineFor?.(mc.cfg.type) };
   const [aq, fq] = await Promise.all([qualifyAgent(ch, agent, mc, deps), qualifyFunction(agent, mc, deps)]);
-  return { agent: aq, function: fq };
+  const secrets = [...core.secretValues.values()];
+  const clean = (q?: Qual): Qual | undefined => (q?.detail ? { ...q, detail: redact(normalizeReason(q.detail), secrets) } : q);
+  return { agent: clean(aq), function: clean(fq) };
 }
 
 function applyQualified(items: Record<string, unknown>[], channel: string, model: string, q: QualifiedMap): boolean {

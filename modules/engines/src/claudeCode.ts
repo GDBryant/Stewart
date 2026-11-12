@@ -2,6 +2,7 @@ import type { ToolCall } from "@stewart/kernel";
 import { categoryOf } from "@stewart/permissions";
 import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnFn } from "@stewart/channels";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
+import { mcpConfigArg, startMcp, type McpHandle } from "./mcp.js";
 import {
   arr, claudeArgv, controlError, controlResponse, FILE_TOOLS, interruptLine, num, obj, previewFor,
   recapPrefix, relPath, resultText, str, userLine, type Obj,
@@ -183,6 +184,12 @@ function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
 async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: string): AsyncGenerator<EngineEvent, Attempt | null> {
   const spawn = deps.spawn ?? nodeSpawn;
   const argv = claudeArgv(turn, str(turn.state.cliSessionId));
+  let mcp: McpHandle | undefined;
+  if (turn.hostTools) {
+    mcp = await startMcp(turn.hostTools, turn.signal);
+    const names = turn.hostTools.tools.map((t) => `mcp__stewart__${t.spec.name}`).join(" ");
+    argv.push("--mcp-config", mcpConfigArg(mcp.url, mcp.token), "--allowedTools", names);
+  }
   let proc: SpawnedProc;
   try {
     proc = spawn(argv, { cwd: turn.cwd, env: claudeChildEnv(turn.channel.cfg, deps.env ?? (process.env as Record<string, string | undefined>)) });
@@ -197,6 +204,7 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
     yield* pumpLines(a);
   } finally {
     unwatch();
+    await mcp?.close();
   }
   return a;
 }

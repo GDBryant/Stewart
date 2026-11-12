@@ -51,9 +51,23 @@ export interface CostState {
   suggestions: { role: string; agent: string; reason: string }[];
 }
 
+export interface PlanMilestone {
+  id: string;
+  title: string;
+  status: "pending" | "running" | "done" | "failed";
+  checkpoint?: string;
+}
+
+export interface PlanState {
+  goal?: string;
+  active: boolean;
+  milestones: PlanMilestone[];
+}
+
 export interface State {
   items: ChatItem[];
   tasks: TaskRow[];
+  plan?: PlanState;
   cost?: CostState;
   busyRunId?: string;
   lastRunId?: string;

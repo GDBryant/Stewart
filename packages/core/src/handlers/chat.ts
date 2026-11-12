@@ -36,9 +36,20 @@ export async function handleHistoryList(core: CoreCtx, params: unknown): Promise
   return { sessions: await (await core.ctx(p.projectId).sessions.historyStore()).list() };
 }
 
+export async function handleChatResume(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; sessionId: string };
+  return await core.ctx(p.projectId).sessions.resume(p.sessionId);
+}
+
+export async function handleChatRevert(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; sessionId: string; checkpoint?: string };
+  return await core.ctx(p.projectId).sessions.revert(p.sessionId, p.checkpoint);
+}
+
 export async function handleHistoryLoad(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
-  return { messages: (await (await core.ctx(p.projectId).sessions.historyStore()).load(p.sessionId)) ?? [] };
+  const sessions = core.ctx(p.projectId).sessions;
+  return { messages: (await (await sessions.historyStore()).load(p.sessionId)) ?? [], plan: await sessions.planFor(p.sessionId) };
 }
 
 export async function handleHistoryDelete(core: CoreCtx, params: unknown): Promise<unknown> {

@@ -13,10 +13,13 @@ items:
       error and change your approach; never repeat an identical failing call.
       Ask the user only when the request is ambiguous and a wrong guess would
       be costly. When you finish, reply with a short summary of what you did
-      and how you verified it.
+      and how you verified it. For multi-step work (several milestones, or
+      changes across more than a few files), first call plan_write with
+      milestones that each have a check, wait for approval, then do one
+      milestone at a time and call milestone_done after each.
     turnBudget: 40
     skills: [project-health]
-    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, plan_write, milestone_done]
   - id: explorer
     enabled: true
     prompt: >-

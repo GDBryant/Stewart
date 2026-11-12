@@ -20,6 +20,7 @@ export function ChatView({ store }: { store: Store }) {
         {s.items.map((it) => (
           <MessageItem key={it.id} item={it} />
         ))}
+        {s.plan ? <PlanCard plan={s.plan} store={store} /> : null}
         {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} /> : null}
         {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
@@ -56,6 +57,27 @@ function HistoryPanel({ store }: { store: Store }) {
       ) : (
         <p class="hint">No saved sessions.</p>
       )}
+    </div>
+  );
+}
+
+function PlanCard({ plan, store }: { plan: NonNullable<import("./stateTypes.js").State["plan"]>; store: Store }) {
+  return (
+    <div class="card plan">
+      <div class="card-title">Plan{plan.goal ? `: ${plan.goal}` : ""}</div>
+      {plan.milestones.map((m) => (
+        <div key={m.id} class="task-row">
+          <span class="task-role">{m.id}</span>
+          <span class="task-title">{m.title}</span>
+          <span class={`task-status ${m.status}`}>{m.status}</span>
+          {m.status === "done" && m.checkpoint ? (
+            <button class="small" onClick={() => store.revert(m.checkpoint)}>Revert</button>
+          ) : null}
+        </div>
+      ))}
+      {plan.active ? (
+        <button class="small" onClick={() => store.resumePlan()}>Resume plan</button>
+      ) : null}
     </div>
   );
 }

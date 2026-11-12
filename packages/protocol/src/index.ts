@@ -72,6 +72,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ask_user"), ...base, questionId: z.string(), question: z.string(), options: z.array(z.string()).optional() }),
   z.object({ kind: z.literal("question.withdrawn"), ...base, questionId: z.string() }),
   z.object({ kind: z.literal("approval.request"), ...base, approvalId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
+  z.object({ kind: z.literal("plan.approved"), ...base, milestoneCount: z.number() }),
   z.object({ kind: z.literal("milestone.started"), ...base, milestoneId: z.string(), title: z.string() }),
   z.object({ kind: z.literal("milestone.done"), ...base, milestoneId: z.string() }),
   z.object({ kind: z.literal("milestone.failed"), ...base, milestoneId: z.string(), error: z.string() }),
@@ -103,6 +104,8 @@ export interface CoreRequests {
   hello: { params: Hello; result: HelloResult };
   "chat.send": { params: { projectId: string; text: string; images?: string[]; sessionId?: string }; result: { runId: string; sessionId: string } };
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
+  "chat.resume": { params: { projectId: string; sessionId: string }; result: { runId?: string; ok?: boolean; reason?: string } };
+  "chat.revert": { params: { projectId: string; sessionId: string; checkpoint?: string }; result: { ok: boolean; filesRestored?: string[]; reason?: string } };
   "chat.answer": { params: { projectId: string; questionId: string; answer: string }; result: { ok: true } };
   "chat.approve": { params: { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" }; result: { ok: true } };
   "config.get": { params: { projectId: string }; result: { files: Record<string, string | undefined>; summary: unknown; errors: string[]; secrets: Record<string, boolean> } };
@@ -139,6 +142,8 @@ export const METHODS = [
   "hello",
   "chat.send",
   "chat.cancel",
+  "chat.resume",
+  "chat.revert",
   "chat.answer",
   "chat.approve",
   "history.list",

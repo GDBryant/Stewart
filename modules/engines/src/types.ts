@@ -29,6 +29,8 @@ export interface EngineTurn {
   channel: ManagedChannel;
   /** Tools the native loop executes. */
   tools: ToolRegistry;
+  /** Session tools the host owns (delegate, plan_write...): merged for the native loop, served over MCP for claude-code. */
+  hostTools?: ToolRegistry;
   /** Approval gate from @stewart/permissions. */
   approve: ApproveFn;
   /** Engine-private state, persisted by the session per chat. */

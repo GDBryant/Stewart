@@ -4,3 +4,5 @@ export { claudeCodeEngine } from "./claudeCode.js";
 export type { ClaudeCodeDeps } from "./claudeCode.js";
 export { engineFor } from "./engineFor.js";
 export type { Engine, EngineEvent, EngineTurn, WriteRecord } from "./types.js";
+export { startMcp, mcpConfigArg } from "./mcp.js";
+export type { McpHandle } from "./mcp.js";

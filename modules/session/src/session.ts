@@ -15,6 +15,7 @@ import { askUserTool, loadSkillTool } from "./sessionTools.js";
 import { questionPrompt } from "@stewart/interaction";
 import { ChildRunner } from "./child.js";
 import { handoverText, type Tried } from "./handover.js";
+import { PlanRunner } from "./plan.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -53,6 +54,7 @@ interface EvCtx {
   agent: AgentDef;
   ledger: RunLedger;
   cap: number;
+  plan: PlanRunner;
 }
 
 /** One in-flight turn: what runTurn assembles once and drive/finish/persist share. */
@@ -65,6 +67,7 @@ interface TurnWork {
   paths: ProjectPaths;
   stateDir: string;
   store: ChatHistoryStore;
+  plan: PlanRunner;
 }
 
 function err(e: unknown): string {
@@ -162,7 +165,9 @@ export class SessionService {
         transcript: (await store.load(sessionId)) ?? [],
         state: await this.engineState(stateDir, sessionId),
         paths: await ProjectPaths.forProject(host),
+      plan: undefined as unknown as PlanRunner,
       };
+      w.plan = new PlanRunner({ host, paths: w.paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction });
       w.transcript.push({ role: "user", content: req.text, images: req.images?.length ? req.images : undefined });
       bus.emit({ kind: "run.started", runId, roleId: "lead", title: req.text.slice(0, 60) });
       try {
@@ -174,7 +179,7 @@ export class SessionService {
         }
       }
       await this.persist(w);
-      await this.finish(runId, w.transcript, rs, w.paths.base);
+      await this.finish(w);
     } catch (e) {
       bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: err(e) });
     } finally {
@@ -193,10 +198,10 @@ export class SessionService {
       return;
     }
     const children = this.children(w, config, chain[0], ledger);
-    const base = projectTools(this.deps.host, w.paths).for(lead);
-    const tools = new ToolRegistry([...base.tools, loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool()]);
+    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), ...w.plan.tools()]);
+    const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
     const goal = lastUserText(w.transcript);
-    const env = { lead, tools, ledger, config };
+    const env = { lead, tools, hostTools, ledger, config };
     let prev: AgentDef | undefined;
     for (const agent of chain) {
       if (prev) this.escalate(w, prev, agent, goal);
@@ -228,24 +233,25 @@ export class SessionService {
     return false;
   }
 
-  private async attempt(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
-    const { lead, tools, ledger, config } = env;
+  private async attempt(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
+    const { lead, tools, hostTools, ledger, config } = env;
     const channel = this.deps.channelFor(agent.channel);
     const engine = (this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
     const turn: EngineTurn = {
       sessionId: w.sessionId,
       transcript: w.transcript,
-      system: await systemPrompt(this.deps.host, lead, config),
+      system: (await systemPrompt(this.deps.host, lead, config)) + (await w.plan.systemNote() ?? ""),
       agent,
       channel,
       tools,
+      hostTools,
       approve: this.deps.permissions.gate(w.runId, w.rs.controller.signal),
       state: w.state,
       cwd: w.paths.base,
       signal: w.rs.controller.signal,
       maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
     };
-    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd };
+    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan };
     try {
       for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
     } catch (e) {
@@ -259,7 +265,7 @@ export class SessionService {
     return await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
   }
 
-  private async retryOrStop(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
+  private async retryOrStop(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
     const { lead } = env;
     const evidence = w.rs.error ?? "failed";
     const question = `All agents for this task failed. ${evidence}\nReply with guidance to retry once more on ${agent.id}, or stop.`;
@@ -319,7 +325,8 @@ export class SessionService {
         return bus.emit({ kind: "tool.outcome", runId, roleId: "lead", callId: ev.callId, ok: ev.ok, summary: ev.summary });
       }
       case "write":
-        return void rs.writes.push(ev.record);
+        rs.writes.push(ev.record);
+        return void c.plan.recordWrite(ev.record);
       case "usage":
         return this.onUsage(ev, c);
       case "finished":
@@ -363,12 +370,54 @@ export class SessionService {
     return { kind: "run.finished", runId, roleId: "lead", status: "failed", error };
   }
 
-  private async finish(runId: string, transcript: ChatMessage[], rs: RunState, cwd: string): Promise<void> {
-    const input = this.checkInput(transcript, rs);
-    const res = await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd });
-    this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed, evidence: res.evidence });
+  private async finish(w: TurnWork): Promise<void> {
+    const { runId, rs } = w;
+    const input = this.checkInput(w.transcript, rs);
+    const res = await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
+    const pending = await w.plan.unfinished();
+    if (pending && !res.evidence.includes("plan incomplete")) res.evidence.push(`plan incomplete: next ${pending.id} ${pending.title}`);
+    this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed && !pending, evidence: res.evidence });
     if (rs.accrued > 0) await this.emitCost(runId, rs.accrued);
+    if (pending && rs.reason !== "cancelled" && !rs.costCapped) {
+      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: `plan incomplete: next ${pending.id} ${pending.title}` });
+      return;
+    }
     this.deps.bus.emit(this.finishedEvent(runId, rs, res));
+  }
+
+  /** Revert the session's worktree to a checkpoint (id, "baseline", or latest). */
+  async revert(sessionId: string, checkpoint?: string): Promise<{ ok: boolean; filesRestored?: string[]; reason?: string }> {
+    const stateDir = await this.deps.host.workspace.stateDir();
+    const paths = await ProjectPaths.forProject(this.deps.host);
+    const runId = this.deps.ids.next("revert");
+    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId, bus: this.deps.bus, interaction: this.deps.interaction });
+    const done = await plan.revertTo(checkpoint);
+    if (!done) return { ok: false, reason: "no checkpoint for this session" };
+    const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
+    this.deps.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
+    return { ok: true, filesRestored };
+  }
+
+  /** Latest session plan summary for history.load. */
+  async planFor(sessionId: string): Promise<unknown> {
+    const stateDir = await this.deps.host.workspace.stateDir();
+    const paths = await ProjectPaths.forProject(this.deps.host);
+    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId: "history", bus: this.deps.bus, interaction: this.deps.interaction });
+    const cps = await plan.checkpoints();
+    const text = await plan.resumeText();
+    const st = await (plan as unknown as { load(): Promise<{ plan: { goal: string; status: string; milestones: { id: string; title: string; status: string; checkpoint?: string }[] } } | undefined> }).load();
+    if (!st) return undefined;
+    return { goal: st.plan.goal, status: st.plan.status, active: text !== undefined, milestones: st.plan.milestones, latest: cps.latest, baseline: cps.baseline };
+  }
+
+  /** Start a lead turn resuming an active plan. */
+  async resume(sessionId: string): Promise<{ runId?: string; ok?: boolean; reason?: string }> {
+    const stateDir = await this.deps.host.workspace.stateDir();
+    const paths = await ProjectPaths.forProject(this.deps.host);
+    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId: "resume", bus: this.deps.bus, interaction: this.deps.interaction });
+    const text = await plan.resumeText();
+    if (!text) return { ok: false, reason: "no active plan for this session" };
+    return await this.send({ sessionId, text });
   }
 
   private async emitCost(runId: string, accrued: number): Promise<void> {

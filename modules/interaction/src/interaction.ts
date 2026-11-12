@@ -4,7 +4,7 @@ import type { RunEvent } from "@stewart/protocol";
 /** User's answer to an approval prompt; structurally identical to `GrantDecision` in `@stewart/permissions` (declared here because permissions sits above this layer). */
 export type PromptGrant = "once" | "chat" | "always" | "deny";
 
-export type PromptTopic = "ask_user" | "continue" | "plan_gate" | "cost_limit" | "fallback" | "resume";
+export type PromptTopic = "ask_user" | "continue" | "plan_gate" | "plan_write" | "cost_limit" | "fallback" | "resume";
 
 export interface PromptTag {
   runId: string;

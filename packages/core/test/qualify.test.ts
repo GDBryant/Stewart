@@ -47,6 +47,29 @@ describe("setup.qualify", () => {
     expect(ctx.config.channels[0].modelCaps.m1?.qualified?.function?.passed).toBe(true);
   });
 
+  it("sanitizes suite details: secrets and provider bodies never reach the response or persisted yaml", async () => {
+    const { fetcher } = fakeFetcher([
+      { status: 500, body: "Bearer supersecret-token-value secret-body" },
+      { status: 500, body: "Bearer supersecret-token-value secret-body" },
+    ]);
+    const layer: ConfigLayer = {
+      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    secretRef: k1\n",
+    };
+    const { host } = fakeHost();
+    const withSecrets = { ...host, secrets: { get: async (ref: string) => (ref === "k1" ? "supersecret-token-value" : undefined), set: async () => {}, delete: async () => {} } };
+    const core = new Core({ fetcher, defaults, userConfig: memStore(layer), projectConfig: async () => memStore(), emitEvent: () => {} });
+    await core.attachProject("p", withSecrets);
+    const res = (await core.dispatch("setup.qualify", { projectId: "p", channel: "c1", model: "m1" })) as {
+      agent?: { passed: boolean; detail?: string };
+      function?: { passed: boolean; detail?: string };
+    };
+    expect(res.agent?.passed).toBe(false);
+    const out = JSON.stringify(res);
+    expect(out).not.toContain("supersecret");
+    expect(JSON.stringify(layer)).not.toContain("supersecret");
+    expect(layer["channels.yaml"]).toContain("qualified:");
+  });
+
   it("records a failed suite with its detail", async () => {
     const { fetcher } = fakeFetcher([
       { body: [textMsg("no tools here")] },
