@@ -29,3 +29,6 @@ node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id
 | 2026-11-12 | 6 | v3-cutover-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | after deleting the v2 run path |
 | 2026-11-12 | 4 | step4-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.67 | regression after steps 3–4 |
 | 2026-11-12 | 4 | step4-chain-local | `configs/lead-chain-local` (qwen3.5:4b → sonnet) | 13/15 (86.7%) | 13/15 | $0.36 | 3 escalated to sonnet (rename, function+test, todo CLI), 10 finished on qwen3.5:4b; 2 wrong results reported `done`: CommonJS `greet.js` in an ESM project, folder review answered from diagnostics without citations |
+| 2026-11-12 | 5 | step5-claude | `configs/lead-claude` | 15/15 (100%) | 14/15 | $1.68 | l-todo-cli: work correct but M3 never marked done → `plan incomplete`; fixed by the end-of-turn milestone sweep |
+| 2026-11-12 | 5 | step5-chain-local | `configs/lead-chain-local` | 13/15 (86.7%) | 13/15 | $0.42 | 3 escalated; wrong `done`: rename broke `index.js` export, folder review without citations |
+| 2026-11-12 | 5 | step5-claude-todo | `configs/lead-claude`, l-todo-cli only | 1/1 | 0/1 | $0.21 | after the sweep: the model chose `npm test` as M3 check, which fails on the planted range bug → honest `failed` |

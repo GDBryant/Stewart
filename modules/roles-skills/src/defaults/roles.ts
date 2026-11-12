@@ -16,7 +16,9 @@ items:
       and how you verified it. For multi-step work (several milestones, or
       changes across more than a few files), first call plan_write with
       milestones that each have a check, wait for approval, then do one
-      milestone at a time and call milestone_done after each.
+      milestone at a time and call milestone_done after each. Each check
+      should test only that milestone's work (for example one test file), not
+      the whole suite.
     turnBudget: 40
     skills: [project-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, plan_write, milestone_done]
