@@ -59,6 +59,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Tools | `@stewart/tools` | `ToolRegistry` (validate, `for(role)` filtering, `writePaths`, read-only terminal guard), built-ins (files, search, terminal, images, CodeMetrics), session tools `load_skill`/`ask_user` added by SessionService |
 | Engines | `@stewart/engines` | §3a |
 | Checks | `@stewart/tasks` | §3a |
+| JetBrains updates | `hosts/jetbrains` | `plugin.xml` registers `StewartUpdateSettingsProvider`, which contributes the baked `https://gdbryant.github.io/Stewart/updatePlugins.xml` feed so disk installs get IDE update checks without manual repository setup |
 | Setup | `@stewart/setup` | rules + AI assignment over the shipped role set (`lead`), benchmarks; `ProbeLoop` for bench is built in `packages/core/src/probeLoop.ts` from `nativeLoop`: one-shot synthetic tool call, toolOk when the probed tool's outcome arrives |
 | Model facts | `@stewart/models` `profile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier, `contextTokens`; `mergeProbeCaps` (user > probe); `capsFor`/`userCaps` guard raw `modelCaps` reads (`check:boundaries`) |
 

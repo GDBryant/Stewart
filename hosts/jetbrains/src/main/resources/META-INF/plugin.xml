@@ -11,6 +11,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <projectService serviceImplementation="com.adb.stewart.StewartProjectService"/>
         <toolWindow id="Stewart" anchor="right" factoryClass="com.adb.stewart.StewartToolWindowFactory" canCloseContents="false"/>
+        <updateSettingsProvider implementation="com.adb.stewart.StewartUpdateSettingsProvider"/>
     </extensions>
 
     <actions>
