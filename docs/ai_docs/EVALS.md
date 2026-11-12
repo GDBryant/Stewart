@@ -27,3 +27,5 @@ node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id
 | 2026-11-12 | 2 | step2-claude-sonnet | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | lead path, claude-code engine |
 | 2026-11-12 | 1 | step1-glm | `configs/lead-glm` | not run | — | — | blocked: AI Factory `/chat/completions` → HTTP 500 (`/models` works) |
 | 2026-11-12 | 6 | v3-cutover-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | after deleting the v2 run path |
+| 2026-11-12 | 4 | step4-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.67 | regression after steps 3–4 |
+| 2026-11-12 | 4 | step4-chain-local | `configs/lead-chain-local` (qwen3.5:4b → sonnet) | 13/15 (86.7%) | 13/15 | $0.36 | 3 escalated to sonnet (rename, function+test, todo CLI), 10 finished on qwen3.5:4b; 2 wrong results reported `done`: CommonJS `greet.js` in an ESM project, folder review answered from diagnostics without citations |
