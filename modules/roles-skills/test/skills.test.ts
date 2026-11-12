@@ -111,6 +111,7 @@ describe("orchestrate skill", () => {
   const body = () => shippedSkill("orchestrate")!.body;
   it("states the project health-check procedure", () => {
     for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "Project checks"]) expect(body()).toContain(x);
+    expect(body()).toContain("never in the `files` argument");
   });
   it("covers folder-scoped checks and score-only mode", () => {
     expect(body()).toContain("path");

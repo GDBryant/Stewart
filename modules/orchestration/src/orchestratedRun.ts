@@ -274,6 +274,13 @@ export class OrchestratedRun implements RunHost {
     return `Replacements recorded: ${this.suggestions.map((s) => `${s.role}→${s.agent}`).join(", ") || "none valid"}`;
   }
 
+  async settleTasks(): Promise<void> {
+    for (let seen = -1; seen !== this.pending.size; ) {
+      seen = this.pending.size;
+      await Promise.allSettled([...this.pending.values()]);
+    }
+  }
+
   async stopParkedTasks(): Promise<void> {
     for (const taskId of this.parked) {
       const rec = this.graph.get(taskId);

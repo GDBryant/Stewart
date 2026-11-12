@@ -6,6 +6,9 @@ import { healthReportTool, submitHealthTool } from "./healthTools.js";
 /** The role id whose dispatched tasks produce health reports. */
 export const HEALTH_REVIEWER_ROLE = "code-health-reviewer";
 
+/** True once a task can no longer submit (undefined status counts as final: the host did not report one). */
+const isFinal = (status?: string): boolean => status === undefined || !["pending", "running", "waiting", "blocked"].includes(status);
+
 /** Per-run health state: reports recorded by reviewer tasks (keyed by task id) and the merge into one report. */
 export class HealthRun implements FeatureRun {
   private readonly reports = new Map<string, HealthReport>();
@@ -39,15 +42,17 @@ export class HealthRun implements FeatureRun {
   }
 
   private async report(args: { mode?: "score" | "issues" }): Promise<string> {
-    if (this.reports.size === 0) return "No health reports recorded.";
+    const unreported = this.view.tasks().filter((t) => t.roleId === HEALTH_REVIEWER_ROLE && !this.reports.has(t.id));
+    if (this.reports.size === 0 && unreported.length === 0) return "No health reports recorded.";
     const merged = mergeReports([...this.reports.values()]);
-    const missing = this.view
-      .tasks()
-      .filter((t) => t.roleId === HEALTH_REVIEWER_ROLE && !this.reports.has(t.id))
-      .map((t) => t.title);
-    const report: HealthReport = { ...merged, notChecked: [...merged.notChecked, ...missing] };
-    const measured = await this.measure(report);
-    const rendered = renderReport(aggregate(report), report, args.mode ?? "issues", measured);
+    const label = (t: { title: string; status?: string }) => (isFinal(t.status) ? t.title : `${t.title} (still running)`);
+    const report: HealthReport = { ...merged, notChecked: [...merged.notChecked, ...unreported.map(label)] };
+    const running = unreported.filter((t) => !isFinal(t.status)).length;
+    const note = running ? `\nPartial: ${running} reviewer task(s) still running; call health_report again after they finish.` : "";
+    const rendered =
+      this.reports.size === 0
+        ? `No health reports recorded. Reviewer tasks without a report: ${unreported.map(label).join(", ")}.${note}`
+        : renderReport(aggregate(report), report, args.mode ?? "issues", await this.measure(report)) + note;
     const path = `.stewart/scratch/health/${this.rt.runId}.md`;
     await this.rt.host.files.writeAtomic(path, rendered);
     if (rendered.length <= this.view.maxOutputChars) return rendered;

@@ -11,7 +11,7 @@ export interface FeatureRuntime {
 
 /** Read-only view of the running orchestration that a feature's tools may consult. */
 export interface RunView {
-  tasks(): { id: string; roleId: string; title: string }[];
+  tasks(): { id: string; roleId: string; title: string; status?: string }[];
   /** Largest tool result the orchestrator accepts, in characters. */
   maxOutputChars: number;
 }

@@ -11,6 +11,8 @@ export interface Tool {
   readonly category?: ApprovalCategory;
   /** True when execute only waits on the user: no timeout applies. */
   readonly awaitsUser?: boolean;
+  /** True when execute is bound to a dispatched task (e.g. `dispatch`): the per-call tool timeout does not apply; run caps and cancellation still do. */
+  readonly noTimeout?: boolean;
   /** Core-handled orchestration verb: never a channel side effect. */
   readonly coreHandled?: boolean;
   /** Consecutive calls may run concurrently (orchestration verbs only). */
@@ -44,6 +46,23 @@ export function outcomeMessage(o: ToolOutcome): string {
     case "rejected": return `Rejected by user: ${o.reason}`;
     case "invalid": return `Invalid tool call: ${o.reason}`;
     case "uncertain": return `${UNCERTAIN_PREFIX} ${o.reason}`;
+  }
+}
+
+/**
+ * Weaker models often send an array argument as a JSON string (`"[\"a\",\"b\"]"`). Replace such a value, in place,
+ * with the parsed array when the schema declares an array; anything else is left for validation to reject.
+ */
+export function coerceArrayArgs(args: Json, schema: Json): void {
+  const props = (schema.properties ?? {}) as Record<string, Json>;
+  for (const [key, value] of Object.entries(args)) {
+    if (props[key]?.type !== "array" || typeof value !== "string" || !value.trimStart().startsWith("[")) continue;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (Array.isArray(parsed)) args[key] = parsed as Json[];
+    } catch {
+      // not JSON: validateArgs reports the type error
+    }
   }
 }
 
@@ -172,6 +191,7 @@ function guardWritePaths(tool: Tool, writePaths: string[]): Tool {
     requiresApproval: tool.requiresApproval,
     category: tool.category,
     awaitsUser: tool.awaitsUser,
+    noTimeout: tool.noTimeout,
     coreHandled: tool.coreHandled,
     parallel: tool.parallel,
     execute: tool.execute.bind(tool),
@@ -225,6 +245,7 @@ export class ToolRegistry {
   validate(call: ToolCall): string | null {
     const tool = this.byName.get(call.name);
     if (!tool) return `unknown tool '${call.name}'`;
+    coerceArrayArgs(call.arguments as Json, tool.spec.parameters);
     return validateArgs(call.arguments as Json, tool.spec.parameters, call.name);
   }
   get specs(): ToolSpec[] {

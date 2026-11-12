@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectTools } from "../src/builtins.js";
 import { ProjectPaths } from "../src/projectPaths.js";
+import { ToolRegistry, type Tool } from "../src/types.js";
 import { fakeHost } from "@stewart/kernel";
 
 async function setup(files: Record<string, string>) {
@@ -190,6 +191,42 @@ describe("ToolRegistry validation", () => {
     expect(reg.validate({ id: "1", name: "ReadFile", arguments: { path: 5 } })).toMatch(/expected type string/);
     expect(reg.validate({ id: "1", name: "ReadFile", arguments: { path: "a", bogus: 1 } })).toMatch(/unexpected argument/);
     expect(reg.validate({ id: "1", name: "ReadFile", arguments: { path: "a" } })).toBeNull();
+  });
+});
+
+describe("ToolRegistry array-argument coercion", () => {
+  const listTool: Tool = {
+    spec: {
+      name: "List",
+      description: "",
+      parameters: { type: "object", additionalProperties: false, properties: { files: { type: "array", items: { type: "string" } }, note: { type: "string" } } },
+    },
+    requiresApproval: false,
+    execute: async () => "ok",
+  };
+  const reg = new ToolRegistry([listTool]);
+  const check = (args: Record<string, unknown>) => {
+    const call = { id: "1", name: "List", arguments: args };
+    return { err: reg.validate(call), args: call.arguments as Record<string, unknown> };
+  };
+
+  it("parses an array sent as a JSON string, in place", () => {
+    const r = check({ files: '["a.py", "b.py"]' });
+    expect(r.err).toBeNull();
+    expect(r.args.files).toEqual(["a.py", "b.py"]);
+  });
+
+  it("still rejects a non-JSON string, a JSON non-array, and wrong element types", () => {
+    expect(check({ files: "a.py" }).err).toMatch(/expected type array/);
+    expect(check({ files: '{"a":1}' }).err).toMatch(/expected type array/);
+    expect(check({ files: "[not json" }).err).toMatch(/expected type array/);
+    expect(check({ files: "[1, 2]" }).err).not.toBeNull();
+  });
+
+  it("leaves string-typed arguments that look like arrays alone", () => {
+    const r = check({ note: "[1,2]" });
+    expect(r.err).toBeNull();
+    expect(r.args.note).toBe("[1,2]");
   });
 });
 

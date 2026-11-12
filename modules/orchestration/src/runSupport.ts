@@ -47,6 +47,8 @@ export interface RunHost {
   limitAnnounced: boolean;
   rerunParkedTasks(onlyReplaced: boolean): Promise<void>;
   stopParkedTasks(): Promise<void>;
+  /** Resolves once every dispatched task has finished (including tasks started while waiting). */
+  settleTasks(): Promise<void>;
 }
 
 export async function buildSession(host: RunHost): Promise<AgentSession> {
@@ -138,6 +140,8 @@ export async function runSession(host: RunHost, session: AgentSession): Promise<
 
 export async function finalize(host: RunHost, result: LoopResult): Promise<OrchestrationOutcome> {
   const rt = host.rt;
+  // A task still running when the Orchestrator ends would report into a finished run and be lost.
+  await host.settleTasks();
   const early = await resolveCostLimit(host);
   if (early) return early;
 

@@ -192,7 +192,7 @@ export class CallExecutor {
     armTimer: (t: { cancel(): void }) => void,
   ): Promise<string | { text: string; images?: string[] }> {
     const exec = job.tool.execute(call.arguments, job.preview, child.signal);
-    if (job.tool.awaitsUser) return exec;
+    if (job.tool.awaitsUser || job.tool.noTimeout) return exec;
     return Promise.race([
       exec,
       new Promise<never>((_res, rej) => {

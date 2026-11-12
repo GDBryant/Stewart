@@ -7,7 +7,7 @@ import { HEALTH_REPORT, HEALTH_REVIEWER_ROLE, SUBMIT_HEALTH, healthCheckFeature 
 
 const cfg = (reviewerEnabled: boolean) => ({ roles: [{ id: HEALTH_REVIEWER_ROLE, enabled: reviewerEnabled }] }) as unknown as EffectiveConfig;
 
-function setup(files: Record<string, string> = {}, tasks: { id: string; roleId: string; title: string }[] = [], maxOutputChars = 20_000) {
+function setup(files: Record<string, string> = {}, tasks: { id: string; roleId: string; title: string; status?: string }[] = [], maxOutputChars = 20_000) {
   const fake = fakeHost(files);
   const rt: FeatureRuntime = { runId: "r1", host: fake.host, config: cfg(true) };
   const run = healthCheckFeature.createRun(rt, { tasks: () => tasks, maxOutputChars });
@@ -74,6 +74,39 @@ describe("HealthRun tools", () => {
     expect(out).not.toContain("not a reviewer");
     expect(out).toContain("Measured (lexical scan");
     expect(files[".stewart/scratch/health/r1.md"]).toBe(out);
+  });
+
+  it("health_report with no reports but unreported reviewer tasks names them, marks running ones, and still writes the file", async () => {
+    const { run, files } = setup({}, [
+      { id: "t1", roleId: HEALTH_REVIEWER_ROLE, title: "batch-a", status: "running" },
+      { id: "t2", roleId: HEALTH_REVIEWER_ROLE, title: "batch-b", status: "failed" },
+      { id: "t3", roleId: "investigator", title: "other", status: "running" },
+    ]);
+    const out = (await call(byName(run.orchestratorTools(), HEALTH_REPORT), {})) as string;
+    expect(out).toContain("No health reports recorded.");
+    expect(out).toContain("batch-a (still running)");
+    expect(out).toContain("batch-b");
+    expect(out).not.toContain("batch-b (still running)");
+    expect(out).not.toContain("other");
+    expect(out).toContain("Partial: 1 reviewer task(s) still running");
+    expect(files[".stewart/scratch/health/r1.md"]).toBe(out);
+  });
+
+  it("health_report flags a partial report while reviewers run, and no Partial note once all are final", async () => {
+    const tasks = [
+      { id: "t1", roleId: HEALTH_REVIEWER_ROLE, title: "batch-a", status: "done" },
+      { id: "t2", roleId: HEALTH_REVIEWER_ROLE, title: "batch-b", status: "running" },
+    ];
+    const { run } = setup({}, tasks);
+    await call(byName(run.taskTools("t1"), SUBMIT_HEALTH), report("a.ts", 3, 9));
+    const partial = (await call(byName(run.orchestratorTools(), HEALTH_REPORT), {})) as string;
+    expect(partial).toContain("batch-b (still running)");
+    expect(partial).toContain("Partial: 1 reviewer task(s) still running");
+    tasks[1].status = "failed";
+    const final = (await call(byName(run.orchestratorTools(), HEALTH_REPORT), {})) as string;
+    expect(final).not.toContain("Partial:");
+    expect(final).not.toContain("(still running)");
+    expect(final).toContain("batch-b");
   });
 
   it("health_report omits the Measured line when no reported file is readable", async () => {

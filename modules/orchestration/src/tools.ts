@@ -32,7 +32,7 @@ function dispatchTool(h: OrchestrationHandlers): Tool {
           role: { type: "string", description: "role id, e.g. investigator, planner, code-writer" },
           task: { type: "string", description: "self-contained briefing: goal, files, constraints, expected output" },
           title: { type: "string", description: "short label for the UI" },
-          files: { type: "array", items: { type: "string" }, description: "files this task will write" },
+          files: { type: "array", items: { type: "string" }, description: "files this task will WRITE (write lease only). Never list files to read or review here; name them in `task`" },
           dependsOn: { type: "array", items: { type: "string" }, description: "task ids that must finish first" },
           expect: { type: "string", description: "acceptance criterion for the result" },
         },
@@ -42,6 +42,7 @@ function dispatchTool(h: OrchestrationHandlers): Tool {
     requiresApproval: false,
     coreHandled: true,
     parallel: true,
+    noTimeout: true,
     execute: (args, _p, signal) => h.dispatch(args as never, signal),
   };
 }

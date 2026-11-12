@@ -41,7 +41,7 @@ const calls = (...c: { id: string; name: string; arguments: Record<string, unkno
 
 type Script = (role: string, call: number, req: ChatRequest) => ChatEvent[];
 
-function fakeChannel(script: Script, opts: { maxParallel?: number } = {}): { channel: ManagedChannel; calls: string[] } {
+function fakeChannel(script: Script, opts: { maxParallel?: number; delayMs?: Record<string, number> } = {}): { channel: ManagedChannel; calls: string[] } {
   const seen: string[] = [];
   const counts: Record<string, number> = {};
   const adapter: ChannelAdapter = {
@@ -54,6 +54,8 @@ function fakeChannel(script: Script, opts: { maxParallel?: number } = {}): { cha
       const role = /ROLE:([a-z-]+)/.exec(sys)?.[1] ?? "(direct)";
       const n = (counts[role] = (counts[role] ?? 0) + 1);
       seen.push(`${role}#${n}`);
+      const wait = opts.delayMs?.[role];
+      if (wait) await new Promise((r) => setTimeout(r, wait));
       for (const ev of script(role, n, req)) yield ev;
     },
   };
@@ -713,6 +715,37 @@ describe("runOrchestrated", () => {
     expect(events.find((e) => e.kind === "task.started")).toMatchObject({ roleId: "code-writer", agentId: expect.any(String) });
     expect(kinds).toContain("task.done");
     expect(events.find((e) => e.kind === "task.done")).toMatchObject({ roleId: "code-writer" });
+  });
+
+  it("waits for a dispatched task that outlives the tool timeout (no 'uncertain')", async () => {
+    const cfg = config();
+    let toolMsg = "";
+    const { channel } = fakeChannel(
+      (role, n, req) => {
+        if (role !== "orchestrator") return [text("slow result"), done()];
+        if (n === 1) return [calls(plan("investigator", "look")), done()];
+        toolMsg = [...req.messages].reverse().find((m) => m.role === "tool")?.content ?? "";
+        return [text("all done"), done()];
+      },
+      { delayMs: { investigator: 40 } },
+    );
+    // Tool-timeout timers (>= 10s) fire after 5ms; everything else keeps real timing.
+    const clock: Clock = {
+      now: systemClock.now,
+      setTimeout: (fn, ms) => systemClock.setTimeout(fn, ms >= 10_000 ? 5 : ms),
+    };
+    const { rt, events } = await runtime(cfg, channel, { clock });
+    const out = await runOrchestrated(rt, "go");
+    expect(out.status).toBe("done");
+    expect(toolMsg).not.toContain("Outcome uncertain");
+    expect(toolMsg).toContain("slow result");
+    expect(events.filter((e) => e.kind === "task.done")).toHaveLength(1);
+  });
+
+  it("still times out an ordinary tool at the tool timeout (only dispatch is exempt)", () => {
+    const tools = orchestrationTools({} as OrchestrationHandlers);
+    expect(tools.find((t) => t.spec.name === "dispatch")?.noTimeout).toBe(true);
+    expect(tools.filter((t) => t.spec.name !== "dispatch").some((t) => t.noTimeout)).toBe(false);
   });
 
   it("runs independent dispatches in parallel", async () => {

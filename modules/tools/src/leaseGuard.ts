@@ -52,6 +52,7 @@ export function leasedTools(tools: Tool[], deps: LeaseDeps): Tool[] {
       requiresApproval: tool.requiresApproval,
       category: tool.category,
       awaitsUser: tool.awaitsUser,
+      noTimeout: tool.noTimeout,
       coreHandled: tool.coreHandled,
       parallel: tool.parallel,
       preview: basePreview ? (args: Json) => basePreview(args) : undefined,

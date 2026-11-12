@@ -123,6 +123,22 @@ describe("ToolLoop", () => {
     expect(r.messages[1].content).toMatch(/Outcome uncertain: timed out/);
   });
 
+  it("does not time out a task-bound (noTimeout) tool that outlives toolTimeoutMs", async () => {
+    const bound = {
+      spec: { name: "Bound", description: "", parameters: { type: "object", properties: {} } },
+      requiresApproval: false,
+      noTimeout: true,
+      execute: () => new Promise<string>((res) => setTimeout(() => res("finished late"), 30)),
+    };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [{ id: "b", name: "Bound", arguments: {} }] }, { kind: "done" }],
+      [{ kind: "text", text: "next" }, { kind: "done" }],
+    ]);
+    const loop = new ToolLoop(ch, registryOf([bound as never]) as never, approve, { limits: { ...DEFAULT_LIMITS, toolTimeoutMs: 5 }, toolsMode: "native" });
+    const r = await loop.run("m", hist, {}, sig());
+    expect(r.messages[1].content).toBe("finished late");
+  });
+
   it("throws RunCancelledError with uncertain outcome when cancelled mid-tool", async () => {
     const slow = {
       spec: { name: "Slow", description: "", parameters: { type: "object", properties: {} } },
