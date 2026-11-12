@@ -16,6 +16,9 @@
       "path": "../channels"
     },
     {
+      "path": "../code-health"
+    },
+    {
       "path": "../config"
     },
     {

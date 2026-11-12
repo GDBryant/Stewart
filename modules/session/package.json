@@ -33,6 +33,7 @@
     "@stewart/protocol": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
     "@stewart/tasks": "workspace:*",
-    "@stewart/tools": "workspace:*"
+    "@stewart/tools": "workspace:*",
+    "@stewart/code-health": "workspace:*"
   }
 }

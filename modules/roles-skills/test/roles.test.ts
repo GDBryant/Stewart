@@ -25,10 +25,8 @@ describe("validateRoles", () => {
     ({ id: "c1", type: "ollama", enabled: true, discoverModels: true, extraModels: [], modelCaps: caps }) as never;
   const visionAgent = agent({ id: "va", model: "v" });
 
-  it("flags an enabled role with no agent bound", () => {
-    expect(validateRoles([role({ id: "general-worker" })], [agent()], [channel()])).toContain(
-      "role general-worker: enabled but no agent bound",
-    );
+  it("accepts an enabled role with no agent bound (falls back to the lead's agent)", () => {
+    expect(validateRoles([role({ id: "general-worker" })], [agent()], [channel()])).toEqual([]);
   });
 
   it("flags an unknown agent; old role ids validate without an orchestrator", () => {
@@ -47,7 +45,7 @@ describe("validateRoles", () => {
     expect(agentServesRole(visionAgent, chans, "image-writer")).toBe(false);
   });
 
-  it("lead may be enabled with no agent bound", () => {
+  it("lead may be enabled with no agents configured", () => {
     expect(validateRoles([role({ id: "lead" })], [], [])).toEqual([]);
   });
 

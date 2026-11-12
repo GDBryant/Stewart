@@ -403,3 +403,226 @@ describe("send", () => {
     await h.waitFor("run.finished");
   });
 });
+
+describe("SessionService delegate", () => {
+  const reviewer = { id: "reviewer", enabled: true, prompt: "You review.", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5 };
+  const explorer = { id: "explorer", enabled: true, prompt: "You explore.", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5 };
+
+  function delegateCall(task: string, role = "reviewer", report?: string) {
+    return { id: `d-${Math.random()}`, name: "delegate", arguments: { role, task, ...(report ? { report } : {}) } };
+  }
+
+  it("runs a child turn to task.done and returns status done to the lead", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        yield { kind: "tool.request", callId: "1", tool: "delegate", args: {}, category: "OTHER" };
+        const tool = turn.tools.find("delegate")!;
+        const out = String(await tool.execute({ role: "reviewer", task: "review src/a.ts" }, null, turn.signal));
+        expect(out).toContain("status: done");
+        expect(out).toContain("src/a.ts:1");
+        turn.transcript.push({ role: "tool", toolCallId: "1", content: out });
+        turn.transcript.push({ role: "assistant", content: "all done" });
+        yield { kind: "tool.outcome", callId: "1", ok: true, summary: "done" };
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield { kind: "text", text: "src/a.ts:1 — fine" };
+        turn.transcript.push({ role: "assistant", content: "src/a.ts:1 — fine" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "x" } });
+    await h.svc.send({ text: "review it" });
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "done" });
+    const created = h.events.find((e) => e.kind === "task.created");
+    expect(created).toMatchObject({ roleId: "reviewer", title: "review src/a.ts" });
+    expect(h.events.some((e) => e.kind === "task.started")).toBe(true);
+    const done = h.events.find((e) => e.kind === "task.done");
+    expect(done).toMatchObject({ roleId: "reviewer" });
+    const childFile = Object.keys(h.files).find((k) => k.includes("/sessions/") && k.includes("/task-"));
+    expect(childFile).toBeTruthy();
+    expect(JSON.parse(h.files[childFile!])[0]).toMatchObject({ role: "user", content: "review src/a.ts" });
+  });
+
+  it("rejects unknown and disabled roles as tool errors", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], { ...explorer, enabled: false }] });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await expect(tool.execute({ role: "ghost", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
+        await expect(tool.execute({ role: "explorer", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
+        await expect(tool.execute({ role: "lead", task: "x" }, null, turn.signal)).rejects.toThrow(/unknown delegate role/);
+        turn.transcript.push({ role: "assistant", content: "checked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+  });
+
+  it("returns status failed with check evidence when the child check fails", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    let result = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        result = String(await tool.execute({ role: "reviewer", task: "review nothing" }, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        turn.transcript.push({ role: "assistant", content: "Everything looks great." });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "review" });
+    await h.waitFor("run.finished");
+    expect(h.events.find((e) => e.kind === "task.failed")).toMatchObject({ roleId: "reviewer" });
+    expect(result).toContain("status: failed");
+    expect(result).toContain("check:");
+  });
+
+  it("child registry has no delegate or write tools for a read-only role", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await tool.execute({ role: "reviewer", task: "look" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        const names = turn.tools.specs.map((s) => s.name);
+        expect(names).toContain("ReadFile");
+        expect(names).not.toContain("delegate");
+        expect(names).not.toContain("WriteFile");
+        expect(names).not.toContain("health_report");
+        turn.transcript.push({ role: "assistant", content: "found nothing" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+  });
+
+  it("denies file edits and mutating commands to read-only child roles", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    let h: Harness;
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await tool.execute({ role: "reviewer", task: "check" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        const file = await turn.approve({ id: "1", name: "Edit", arguments: {} }, { kind: "file", path: "a.ts", before: null, after: "x" }, {});
+        expect(file.kind).toBe("rejected");
+        const cmd = await turn.approve({ id: "2", name: "Bash", arguments: {} }, { kind: "command", command: "rm -rf x" }, {});
+        expect(cmd.kind).toBe("rejected");
+        const reqP = h.waitFor("approval.request");
+        const ro = turn.approve({ id: "3", name: "Bash", arguments: {} }, { kind: "command", command: "git status" }, {});
+        const req = await reqP;
+        h.interaction.resolveApproval((req as { approvalId: string }).approvalId, "once");
+        expect((await ro).kind).toBe("approved");
+        turn.transcript.push({ role: "assistant", content: "found nothing" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+  });
+
+  it("caps concurrent children at 4 and runs them in parallel", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], explorer] });
+    const started: number[] = [];
+    let active = 0;
+    let maxActive = 0;
+    let step = 0;
+    const engine: Engine = {
+      id: "native-loop",
+      async *run(turn) {
+        if (step++ === 0) {
+          const tool = turn.tools.find("delegate")!;
+          const results = await Promise.all(
+            [1, 2, 3, 4, 5, 6].map((n) => tool.execute({ role: "explorer", task: `t${n}` }, null, turn.signal)),
+          );
+          expect(results.every((r) => String(r).startsWith("status: done"))).toBe(true);
+          turn.transcript.push({ role: "assistant", content: "ok" });
+          yield { kind: "finished", reason: "stop" };
+          return;
+        }
+        active++;
+        started.push(active);
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 10));
+        active--;
+        turn.transcript.push({ role: "assistant", content: "nothing found" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(maxActive).toBe(4);
+    expect(h.events.filter((e) => e.kind === "task.done")).toHaveLength(6);
+  });
+
+  it("meters child usage under the child role and counts it toward the cap", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    config.settings = settingsFile.parse({ costLimit: { perRunUsd: 0.000001 } });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await tool.execute({ role: "reviewer", task: "x" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "cancelled" };
+      },
+      async function* (turn) {
+        turn.transcript.push({ role: "assistant", content: "nothing found" });
+        yield { kind: "usage", inTokens: 10, outTokens: 10, costUsd: 5 };
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "failed", error: "cost cap reached" });
+    expect(h.events.some((e) => e.kind === "cost.limit_reached")).toBe(true);
+  });
+
+  it("health_report merges reports, writes the file, and fails with no reports", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const report = { files: [{ path: "src/a.ts", loc: 5, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 2, smell: "nesting", severity: "med", refactor: "extract" }], notChecked: [] };
+    let merged = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        const hr = turn.tools.find("health_report")!;
+        await expect(hr.execute({}, null, turn.signal)).rejects.toThrow(/no health reports/);
+        const out = String(await tool.execute({ role: "reviewer", task: "health src/a.ts", report: "health" }, null, turn.signal));
+        expect(out).toContain("status: done");
+        merged = String(await hr.execute({}, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "const a = 1;\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(merged).toContain("Report: .stewart/reports/health-");
+    const reportFile = Object.keys(h.files).find((k) => k.includes(".stewart/reports/health-"));
+    expect(reportFile).toBeTruthy();
+    expect(h.files[reportFile!]).toContain("src/a.ts");
+  });
+});

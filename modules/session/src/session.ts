@@ -12,6 +12,7 @@ import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type Engi
 import { runCheck, turnCheck, type CheckInput, type CheckResult } from "@stewart/tasks";
 import { leadAgent, leadRole, systemPrompt } from "./lead.js";
 import { askUserTool, loadSkillTool } from "./sessionTools.js";
+import { ChildRunner } from "./child.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -175,7 +176,9 @@ export class SessionService {
     const channel = this.deps.channelFor(agent.channel);
     const engine = (this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
     const base = projectTools(this.deps.host, w.paths).for(lead);
-    const tools = new ToolRegistry([...base.tools, loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId)]);
+    const ledger = await this.ledgerFor();
+    const children = this.children(w, config, agent, ledger);
+    const tools = new ToolRegistry([...base.tools, loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool()]);
     const turn: EngineTurn = {
       sessionId: w.sessionId,
       transcript: w.transcript,
@@ -189,8 +192,28 @@ export class SessionService {
       signal: w.rs.controller.signal,
       maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
     };
-    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger: await this.ledgerFor(), cap: config.settings.costLimit.perRunUsd };
+    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd };
     for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
+  }
+
+  private children(w: TurnWork, config: EffectiveConfig, agent: AgentDef, ledger: RunLedger): ChildRunner {
+    return new ChildRunner({
+      host: this.deps.host,
+      bus: this.deps.bus,
+      ids: this.deps.ids,
+      permissions: this.deps.permissions,
+      channelFor: this.deps.channelFor,
+      config: this.deps.config,
+      engineFor: this.deps.engineFor,
+      paths: w.paths,
+      stateDir: w.stateDir,
+      runId: w.runId,
+      sessionId: w.sessionId,
+      agent,
+      ledger,
+      parent: w.rs,
+      costCapUsd: config.settings.costLimit.perRunUsd,
+    });
   }
 
   private async onEvent(ev: EngineEvent, c: EvCtx): Promise<void> {

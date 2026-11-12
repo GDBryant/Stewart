@@ -163,8 +163,13 @@ export function checkReadOnlyCommand(command: string, roleId: string): void {
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 
+/** True when the role's tool list has entries but no write tools. */
+export function roleIsReadOnly(role: RoleDef): boolean {
+  return role.tools.length > 0 && !role.tools.some((t) => WRITE_TOOLS.has(t));
+}
+
 function guardReadOnlyTerminal(tool: Tool, role: RoleDef): Tool {
-  const readOnly = role.tools.length > 0 && !role.tools.some((t) => WRITE_TOOLS.has(t));
+  const readOnly = roleIsReadOnly(role);
   if (!readOnly || tool.spec.name !== "RunTerminal") return tool;
   const basePreview = tool.preview?.bind(tool);
   const baseExec = tool.execute.bind(tool);

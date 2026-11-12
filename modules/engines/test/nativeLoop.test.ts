@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import type { AgentDef } from "@stewart/config";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
@@ -250,5 +250,64 @@ describe("engineFor", () => {
   });
   it("returns claude-code for claude-cli channels", () => {
     expect(engineFor("claude-cli").id).toBe("claude-code");
+  });
+});
+
+describe("native-loop parallel calls", () => {
+  const slowTool = (name: string, gate: { started: string[]; release: () => Promise<void> }): Tool => ({
+    spec: { name, description: name, parameters: { type: "object", properties: {}, additionalProperties: false } },
+    requiresApproval: false,
+    parallel: true,
+    execute: async () => {
+      gate.started.push(name);
+      await gate.release();
+      return name;
+    },
+  });
+
+  it("runs consecutive parallel-flagged calls concurrently and keeps tool message order", async () => {
+    const resolvers: (() => void)[] = [];
+    const gate = {
+      started: [] as string[],
+      release: () => new Promise<void>((r) => resolvers.push(r)),
+    };
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [call("P1", {}, "a"), call("P2", {}, "b")] }, { kind: "done" }],
+      [{ kind: "text", text: "done" }, { kind: "done" }],
+    ]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([slowTool("P1", gate), slowTool("P2", gate)]) });
+    const evsP = collect(nativeLoop.run(t));
+    await vi.waitFor(() => expect(gate.started.sort()).toEqual(["P1", "P2"]));
+    resolvers.forEach((r) => r());
+    const evs = await evsP;
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    const toolMsgs = t.transcript.filter((m) => m.role === "tool").map((m) => m.toolCallId);
+    expect(toolMsgs).toEqual(["a", "b"]);
+  });
+
+  it("keeps non-parallel calls sequential even when mixed with parallel ones", async () => {
+    const order: string[] = [];
+    const seq = (name: string): Tool => ({
+      spec: { name, description: name, parameters: { type: "object", properties: {}, additionalProperties: false } },
+      requiresApproval: false,
+      execute: async () => {
+        order.push(`start:${name}`);
+        await new Promise((r) => setTimeout(r, 5));
+        order.push(`end:${name}`);
+        return name;
+      },
+    });
+    const par = (name: string): Tool => ({ ...seq(name), parallel: true });
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [call("S1", {}, "a"), call("P1", {}, "b"), call("P2", {}, "c"), call("S2", {}, "d")] }, { kind: "done" }],
+      [{ kind: "text", text: "done" }, { kind: "done" }],
+    ]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([seq("S1"), par("P1"), par("P2"), seq("S2")]) });
+    await collect(nativeLoop.run(t));
+    expect(order.indexOf("end:S1")).toBeLessThan(order.indexOf("start:P1"));
+    expect(order.indexOf("start:P2")).toBeLessThan(order.indexOf("end:P1"));
+    expect(order.indexOf("end:P2")).toBeLessThan(order.indexOf("start:S2"));
+    const toolMsgs = t.transcript.filter((m) => m.role === "tool").map((m) => m.toolCallId);
+    expect(toolMsgs).toEqual(["a", "b", "c", "d"]);
   });
 });

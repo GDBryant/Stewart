@@ -52,8 +52,12 @@ interface Profile {
   parallelism?: "high" | "low";
 }
 
+const LEAD_LIKE: Profile = { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, wantsReasoning: true, latency: "interactive", typicalTurns: [5, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" };
+
 export const ROLE_PROFILES: Record<string, Profile> = {
-  lead: { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, wantsReasoning: true, latency: "interactive", typicalTurns: [5, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
+  lead: LEAD_LIKE,
+  explorer: LEAD_LIKE,
+  reviewer: LEAD_LIKE,
 };
 
 const DEFAULT_PROFILE: Profile = { needs: { tools: true }, latency: "interactive", typicalTurns: [1, 10], costSensitivity: "medium" };

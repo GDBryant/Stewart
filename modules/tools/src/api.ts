@@ -1,6 +1,6 @@
 // Public surface of @stewart/tools. Only this file is importable from outside.
 export {
-  ToolRegistry, checkReadOnlyCommand, outcomeMessage, validateArgs, UNCERTAIN_PREFIX, NOT_ANSWERED_CANCELLED,
+  ToolRegistry, checkReadOnlyCommand, roleIsReadOnly, outcomeMessage, validateArgs, UNCERTAIN_PREFIX, NOT_ANSWERED_CANCELLED,
 } from "./types.js";
 export type { Tool, ToolProvider, ToolOutcome } from "./types.js";
 export { projectTools } from "./builtins.js";

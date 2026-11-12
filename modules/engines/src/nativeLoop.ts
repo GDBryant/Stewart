@@ -111,7 +111,7 @@ function writeRecord(call: ToolCall, outcome: ToolOutcome): { path: string; ok: 
   return { path: call.arguments.path, ok, message: ok ? undefined : outcomeMessage(outcome) };
 }
 
-async function* executeCall(turn: EngineTurn, call: ToolCall): AsyncGenerator<EngineEvent, void> {
+async function* executeCall(turn: EngineTurn, call: ToolCall, transcript: ChatMessage[] = turn.transcript): AsyncGenerator<EngineEvent, void> {
   const tool = turn.tools.find(call.name);
   const invalid = tool ? turn.tools.validate(call) : `unknown tool '${call.name}'`;
   const { preview, error: previewErr } = tool && !invalid ? await previewOf(tool, call) : { preview: null };
@@ -122,13 +122,59 @@ async function* executeCall(turn: EngineTurn, call: ToolCall): AsyncGenerator<En
     : invalid
       ? { kind: "invalid", reason: invalid }
       : await invoke(turn, call, tool as Tool, preview);
-  turn.transcript.push({ role: "tool", toolCallId: call.id, content: outcomeMessage(outcome) });
+  transcript.push({ role: "tool", toolCallId: call.id, content: outcomeMessage(outcome) });
   if (outcome.kind === "success" && outcome.images?.length) {
-    turn.transcript.push({ role: "user", content: `[image from ${call.name}]`, images: outcome.images });
+    transcript.push({ role: "user", content: `[image from ${call.name}]`, images: outcome.images });
   }
   yield { kind: "tool.outcome", callId: call.id, ok: outcome.kind === "success", summary: summaryOf(outcome) };
   const rec = writeRecord(call, outcome);
   if (rec) yield { kind: "write", record: rec };
+}
+
+function isParallel(turn: EngineTurn, call: ToolCall): boolean {
+  return turn.tools.find(call.name)?.parallel === true;
+}
+
+/** Consecutive calls flagged `parallel` run concurrently; tool messages join the transcript in call order. */
+async function* executeBatch(turn: EngineTurn, calls: ToolCall[]): AsyncGenerator<EngineEvent, void> {
+  if (calls.length === 1 || !calls.every((c) => isParallel(turn, c))) {
+    for (const call of calls) {
+      if (turn.signal.aborted) turn.transcript.push({ role: "tool", toolCallId: call.id, content: "Not executed: cancelled" });
+      else yield* executeCall(turn, call);
+    }
+    return;
+  }
+  const queue: EngineEvent[] = [];
+  const buffers = calls.map(() => [] as ChatMessage[]);
+  let wake: (() => void) | undefined;
+  let pending = calls.length;
+  const c: PumpCtx = { queue, done: () => pending--, wake: () => wake?.() };
+  calls.forEach((call, i) => {
+    void pump(turn, call, buffers[i], c);
+  });
+  while (pending > 0 || queue.length) {
+    while (queue.length) yield queue.shift()!;
+    if (pending > 0) await new Promise<void>((r) => (wake = r));
+  }
+  for (const buf of buffers) turn.transcript.push(...buf);
+}
+
+interface PumpCtx {
+  queue: EngineEvent[];
+  done: () => void;
+  wake: () => void;
+}
+
+async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: PumpCtx): Promise<void> {
+  try {
+    for await (const ev of executeCall(turn, call, buf)) {
+      c.queue.push(ev);
+      c.wake();
+    }
+  } finally {
+    c.done();
+    c.wake();
+  }
 }
 
 async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
@@ -143,16 +189,27 @@ async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
       yield { kind: "finished", reason: "stop" };
       return;
     }
-    for (const call of out.calls) {
-      if (turn.signal.aborted) turn.transcript.push({ role: "tool", toolCallId: call.id, content: "Not executed: cancelled" });
-      else yield* executeCall(turn, call);
-    }
+    yield* runBatches(turn, out.calls);
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
       return;
     }
   }
   yield { kind: "finished", reason: "turn_limit" };
+}
+
+async function* runBatches(turn: EngineTurn, calls: ToolCall[]): AsyncGenerator<EngineEvent, void> {
+  for (let i = 0; i < calls.length; ) {
+    let j = i;
+    while (j < calls.length && isParallel(turn, calls[j]) === isParallel(turn, calls[i])) j++;
+    const batch = calls.slice(i, j);
+    i = j;
+    if (turn.signal.aborted) {
+      for (const call of batch) turn.transcript.push({ role: "tool", toolCallId: call.id, content: "Not executed: cancelled" });
+    } else {
+      yield* executeBatch(turn, batch);
+    }
+  }
 }
 
 /** Stewart's own tool loop over a channel's native tool calling. */

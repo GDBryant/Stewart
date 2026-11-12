@@ -54,7 +54,7 @@ describe("Core roles + skills dispatch", () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; enabled: boolean }[]; skills: { id: string; source: string }[] } };
-    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead"]);
+    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead", "explorer", "reviewer"]);
     expect(r.summary.roles[0].enabled).toBe(true);
     expect(r.summary.skills.map((s) => s.id)).toContain("tdd");
     expect(r.summary.skills.every((s) => s.source === "shipped")).toBe(true);
@@ -143,11 +143,11 @@ describe("Core roles + skills dispatch", () => {
     await expect(core.dispatch("chat.send", { projectId: "p", text: "hi" })).rejects.toThrow(/lead role is disabled/);
   });
 
-  it("surfaces role binding problems as config errors", async () => {
-    const { core } = mk({ "roles.yaml": "version: 1\nitems:\n  - id: planner\n    enabled: true\n" });
+  it("surfaces unknown bound agents as config errors", async () => {
+    const { core } = mk({ "roles.yaml": "version: 1\nitems:\n  - id: planner\n    enabled: true\n    agent: nope\n" });
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { errors: string[] };
-    expect(r.errors).toContain("role planner: enabled but no agent bound");
+    expect(r.errors).toContain("role planner: unknown agent 'nope'");
   });
 
   it("chat.send falls back to the first agent when lead has no binding", async () => {
@@ -179,10 +179,9 @@ describe("Core roles + skills dispatch", () => {
 
 describe("shipped lead role", () => {
   const shipped = () => (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items;
-  it("ships enabled as the only role", () => {
+  it("ships lead first, all enabled", () => {
     const roles = shipped();
-    expect(roles).toHaveLength(1);
-    expect(roles[0].id).toBe("lead");
+    expect(roles.map((r) => r.id)).toEqual(["lead", "explorer", "reviewer"]);
     expect(roles[0].enabled).toBe(true);
   });
   it("every shipped role references only shipped skills", () => {
@@ -193,7 +192,7 @@ describe("shipped lead role", () => {
     const user = stringifyYaml({ version: 1, items: [{ id: "orchestrator", enabled: false }, { id: "general-worker", enabled: false }] });
     const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: true });
     const ids = cfg.roles.map((x) => x.id).sort();
-    expect(ids).toEqual(["general-worker", "lead", "orchestrator"]);
+    expect(ids).toEqual(["explorer", "general-worker", "lead", "orchestrator", "reviewer"]);
     expect(cfg.errors).toEqual([]);
   });
 });

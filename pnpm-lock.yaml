@@ -335,6 +335,9 @@ importers:
       '@stewart/channels':
         specifier: workspace:*
         version: link:../channels
+      '@stewart/code-health':
+        specifier: workspace:*
+        version: link:../code-health
       '@stewart/config':
         specifier: workspace:*
         version: link:../config

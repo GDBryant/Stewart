@@ -102,3 +102,66 @@ describe("runCheck reply rule", () => {
     expect(r.passed).toBe(true);
   });
 });
+
+describe("runCheck cites rule", () => {
+  const cited = async (files: Record<string, string>, reply: string) => {
+    const { host } = fakeHost(files);
+    return runCheck({ check: { cites: true }, input: baseInput({ reply }), host, cwd: "/p" });
+  };
+  it("passes when every cited path exists", async () => {
+    const r = await cited({ "src/a.ts": "x", "lib/b.py": "y" }, "Found it in src/a.ts:12 and lib/b.py.");
+    expect(r.passed).toBe(true);
+    expect(r.evidence).toEqual(["cited: src/a.ts", "cited: lib/b.py"]);
+  });
+  it("fails when a cited path is missing", async () => {
+    const r = await cited({ "src/a.ts": "x" }, "See src/a.ts and src/gone.ts.");
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("missing citation: src/gone.ts");
+  });
+  it("fails a findings-style reply with no citations", async () => {
+    const r = await cited({}, "The function does three things wrong.");
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("no file citations in reply");
+  });
+  it("passes an empty-handed reply that says so", async () => {
+    const r = await cited({}, "Could not find any matches for the symbol.");
+    expect(r.passed).toBe(true);
+  });
+  it("ignores bare filenames without a directory", async () => {
+    const r = await cited({}, "Nothing wrong. no matches found.");
+    expect(r.passed).toBe(true);
+  });
+});
+
+describe("runCheck health schema", () => {
+  const health = async (files: Record<string, string>, reply: string) => {
+    const { host } = fakeHost(files);
+    return runCheck({ check: { schema: "health" }, input: baseInput({ reply }), host, cwd: "/p" });
+  };
+  const good = { files: [{ path: "src/a.ts", loc: 10, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 3, smell: "deep nesting", severity: "med", refactor: "extract" }], notChecked: ["src/x.ts"], checks: [] };
+  it("passes a valid report", async () => {
+    const r = await health({ "src/a.ts": "x" }, `Review done.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``);
+    expect(r.passed).toBe(true);
+    expect(r.evidence).toContain("health: 1 files, 1 findings");
+  });
+  it("fails on invalid JSON", async () => {
+    const r = await health({}, "```json\n{nope\n```");
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("health report: invalid JSON");
+  });
+  it("fails on the wrong shape", async () => {
+    const r = await health({}, `\`\`\`json\n${JSON.stringify({ files: [{ path: 1 }] })}\n\`\`\``);
+    expect(r.passed).toBe(false);
+    expect(r.evidence[0]).toContain("health report: files[0]");
+  });
+  it("fails when a reported path is missing", async () => {
+    const r = await health({}, `\`\`\`json\n${JSON.stringify(good)}\n\`\`\``);
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("health report: missing file src/a.ts");
+  });
+  it("fails with zero or two json blocks", async () => {
+    expect((await health({}, "no block")).evidence).toContain("health report: expected exactly one ```json block, found 0");
+    const two = `\`\`\`json\n${JSON.stringify(good)}\n\`\`\`\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``;
+    expect((await health({ "src/a.ts": "x" }, two)).evidence).toContain("health report: expected exactly one ```json block, found 2");
+  });
+});

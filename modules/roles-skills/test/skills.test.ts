@@ -108,10 +108,11 @@ describe("code-health skill", () => {
     expect(body()).toContain("/10 (");
   });
   it("stays under the size budget", () => {
-    expect(body().length).toBeLessThan(2600);
+    expect(body().length).toBeLessThan(2900);
   });
-  it("covers listed-file scope and the submit_health path", () => {
+  it("covers listed-file scope and the health JSON block", () => {
     expect(body()).toContain("every listed file");
-    expect(body()).toContain("submit_health");
+    expect(body()).toContain("```json");
+    expect(body()).toContain('"notChecked"');
   });
 });
