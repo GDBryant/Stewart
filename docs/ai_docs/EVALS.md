@@ -26,3 +26,4 @@ node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id
 | 2026-11-12 | 0 | baseline | user config, `--disable-lead` (orchestrator path) | 11/15 (73.3%) | 8/15 | $0 | AI Factory returned HTTP 500 on every chat request during the run, so roles bound to it failed. 3 passes ended `no_dispatch`; 2 ended `timeout`; fails: diff summary, rename (broke `strings.js`), function+test (no test), todo CLI |
 | 2026-11-12 | 2 | step2-claude-sonnet | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | lead path, claude-code engine |
 | 2026-11-12 | 1 | step1-glm | `configs/lead-glm` | not run | — | — | blocked: AI Factory `/chat/completions` → HTTP 500 (`/models` works) |
+| 2026-11-12 | 6 | v3-cutover-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | after deleting the v2 run path |

@@ -1,0 +1,310 @@
+{
+  "label": "v3-cutover-claude",
+  "startedAt": "2026-11-12T11:34:31.994Z",
+  "commit": "49056d7",
+  "config": "/media/gdb/Data/Projects/Stewart/packages/evals/configs/lead-claude",
+  "summary": {
+    "passed": 15,
+    "total": 15,
+    "rate": 100,
+    "statusAgrees": 15,
+    "byKind": {
+      "question": {
+        "passed": 5,
+        "total": 5
+      },
+      "edit": {
+        "passed": 7,
+        "total": 7
+      },
+      "report": {
+        "passed": 2,
+        "total": 2
+      },
+      "long": {
+        "passed": 1,
+        "total": 1
+      }
+    },
+    "costUsd": 1.6501
+  },
+  "tasks": [
+    {
+      "id": "q-list-docs",
+      "kind": "question",
+      "pass": true,
+      "evidence": "reply -1 has /guide\\.md/, /api\\.md/, /changelog\\.md/; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "The `docs/` folder has three files:\n\n- `api.md` (347 bytes)\n- `changelog.md` (42 bytes)\n- `guide.md` (190 bytes)",
+          "costUsd": 0.0922593,
+          "durationMs": 5172
+        }
+      ],
+      "durationMs": 5250,
+      "costUsd": 0.0922593
+    },
+    {
+      "id": "q-no-tools",
+      "kind": "question",
+      "pass": true,
+      "evidence": "reply -1 has /\\b51\\b/; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "51",
+          "costUsd": 0.0753012,
+          "durationMs": 3108
+        }
+      ],
+      "durationMs": 3204,
+      "costUsd": 0.0753012
+    },
+    {
+      "id": "q-explain-function",
+      "kind": "question",
+      "pass": true,
+      "evidence": "reply -1 has /\\b5,?400\\b/, /second/i; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "`parseDuration` converts a duration string like `\"1h30m\"` into a total number of seconds.\n\n1. It scans the string with the regex `/(\\d+)([hms])/g`, which finds each number followed by a unit (`h`, `m` or `s`).\n2. For each match it multiplies the number by the unit's value in seconds (`h` = 3600, `m` = 60, `s` = 1) and adds it to `total`. It also appends the matched text to `matched`.\n3. After the loop it checks that something matched and that the matched pieces rebuild the whole input exactly. If not, it throws `invalid duration: <text>`. This rejects stray characters such as `\"1h xyz\"` and empty strings. Because a match must be a number followed by a unit, `\"5\"` also throws.\n4. Otherwise it returns `total`.\n\nFor `\"1h30m\"` the regex matches `1h` and `30m`:\n- `1 × 3600 = 3600`\n- `30 × 60 = 1800`\n- The matched pieces `\"1h\" + \"30m\"` equal the input, so validation passes.\n\nIt returns **5400**, which is 90 minutes in seconds.\n\nI worked this out by reading the code, not by running it.\n\nTwo behaviours to be aware of. The units can appear in any order and repeat, so `\"30m1h\"` and `\"1h1h\"` are both accepted (`\"1h1h\"` gives 7200). Decimals like `\"1.5h\"` are rejected.",
+          "costUsd": 0.09682620000000002,
+          "durationMs": 7639
+        }
+      ],
+      "durationMs": 7728,
+      "costUsd": 0.09682620000000002
+    },
+    {
+      "id": "q-find-definition",
+      "kind": "question",
+      "pass": true,
+      "evidence": "reply -1 has /cart\\.js/; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "`applyDiscount` is defined in `src/cart.js` (line 1). `src/index.js` re-exports it, and `src/cart.js` also calls it at line 8.",
+          "costUsd": 0.0917051,
+          "durationMs": 4536
+        }
+      ],
+      "durationMs": 4615,
+      "costUsd": 0.0917051
+    },
+    {
+      "id": "q-summarise-diff",
+      "kind": "question",
+      "pass": true,
+      "evidence": "reply -1 has /truncate/, /strings/; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "Commit `4c21f74` (\"Add truncate helper\") adds a new `truncate` function and a test for it. It touches two files, with 10 lines added and 1 removed.\n\n- **`src/strings.js`**: adds `truncate(s, max)`.\n  - If `s` is `max` characters or shorter, it returns `s` unchanged.\n  - Otherwise it keeps the first `max - 1` characters and appends `…`, so the result is exactly `max` characters long.\n- **`test/strings.test.js`**:\n  - The import now includes `truncate`.\n  - A new test checks that `truncate(\"abcdef\", 4)` gives `\"abc…\"` and that `truncate(\"abc\", 4)` stays `\"abc\"`.\n\nThe test only covers the two basic cases. It doesn't cover `max` of 0 or a negative number. In that case `slice(0, max - 1)` would behave oddly, for example `truncate(\"abc\", 0)` returns `\"abc…\"`. I only read the diff and didn't run the tests.",
+          "costUsd": 0.09645010000000001,
+          "durationMs": 6091
+        }
+      ],
+      "durationMs": 6157,
+      "costUsd": 0.09645010000000001
+    },
+    {
+      "id": "e-append-line",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "README.md: ending with the licence line; README.md: keeping its content; changes within README.md",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I added \"Licensed under MIT.\" as the last line of `README.md`. The file already ended in a newline, so the new line follows directly. I checked by printing the last lines of the file.\n\nIt now sits directly under \"Run the tests with `npm test`.\" with no blank line between them. If you want a blank line there, I can add one.",
+          "costUsd": 0.09622290000000001,
+          "durationMs": 6630
+        }
+      ],
+      "durationMs": 6697,
+      "costUsd": 0.09622290000000001
+    },
+    {
+      "id": "e-follow-up",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "reply 0 has /8080/; config.json: port 9090 with other keys kept; changes within config.json",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "The port in `config.json` is **8080**.",
+          "costUsd": 0.09059940000000001,
+          "durationMs": 4345
+        },
+        {
+          "runId": "run-2",
+          "status": "done",
+          "reply": "I changed `port` in `config.json` from 8080 to 9090. `name` (\"shopkit\") and `debug` (false) are unchanged. `git diff --stat` shows one line changed, and I read the file back to confirm.",
+          "costUsd": 0.11423300000000002,
+          "durationMs": 4927
+        }
+      ],
+      "durationMs": 9314,
+      "costUsd": 0.20483240000000003
+    },
+    {
+      "id": "e-rename",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "index exports capitalizeFirst only; `! grep -rnw capitalize src test` ok; `node --test test/strings.test.js` ok",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I renamed `capitalize` to `capitalizeFirst` in all five files that used it:\n\n- `src/strings.js`: the definition.\n- `src/index.js`: the re-export.\n- `test/strings.test.js`: the import, the test name and the call.\n- `docs/api.md` and `docs/guide.md`: the docs.\n\nA grep for `capitalize` now only finds `capitalizeFirst`.\n\n`npm test` gives 6 passing and 1 failing. The failure is \"range excludes the end\" in `test/range.test.js`, which has nothing to do with `capitalize`. With my changes stashed, the suite gave the same 6 passing and 1 failing, so I left it alone.",
+          "costUsd": 0.10871629999999999,
+          "durationMs": 8922
+        }
+      ],
+      "durationMs": 9107,
+      "costUsd": 0.10871629999999999
+    },
+    {
+      "id": "e-new-file",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "greet(\"Ada\") is \"Hello, Ada!\"; changes within src/greet.js",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I created `src/greet.js`. It exports `greet(name)`, which returns `Hello, <name>!`. I used ES module syntax because `package.json` sets `\"type\": \"module\"`.\n\nI checked it by importing the module and calling `greet(\"World\")`, which printed `Hello, World!`. I didn't add a test file or run the project's test suite.",
+          "costUsd": 0.0999899,
+          "durationMs": 7350
+        }
+      ],
+      "durationMs": 7428,
+      "costUsd": 0.0999899
+    },
+    {
+      "id": "e-fix-failing-test",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "`node --test test/range.test.js` ok; unchanged: test/range.test.js",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I fixed an off-by-one error in `src/range.js`. The loop condition was `i < end - 1`, which dropped the last element. It's now `i < end`, so the end stays exclusive as the test expects. `npm test` now passes all 7 tests, and I didn't touch the test file.",
+          "costUsd": 0.10531369999999998,
+          "durationMs": 7486
+        }
+      ],
+      "durationMs": 7615,
+      "costUsd": 0.10531369999999998
+    },
+    {
+      "id": "e-function-with-test",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "slugify behaves; test/strings.test.js: testing slugify; `node --test test/strings.test.js` ok",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I added `slugify(text)` to `src/strings.js` and four tests for it in `test/strings.test.js`. The new tests pass, but the full suite has one failing test that isn't mine.\n\n- **Function:** `slugify` lowercases, trims, replaces each run of non-alphanumeric characters with a single `-`, then strips leading and trailing hyphens.\n- **Tests:** they cover the basic case, collapsing runs of punctuation, trimming and stripping hyphens, and digits plus empty and symbol-only input.\n- **Failing test:** `npm test` reports 10 of 11 passing. The failure is \"range excludes the end\" in `test/range.test.js`, where the result is missing its last element (`[0, 1]` instead of `[0, 1, 2]`). I didn't touch that file or fix the failure, and I didn't run the suite before my change to confirm it was already failing.",
+          "costUsd": 0.1126241,
+          "durationMs": 11389
+        }
+      ],
+      "durationMs": 11571,
+      "costUsd": 0.1126241
+    },
+    {
+      "id": "e-two-files",
+      "kind": "edit",
+      "pass": true,
+      "evidence": "package.json: version 1.1.0; docs/changelog.md: 1.1.0 section above 1.0.0 mentioning truncate; changes within package.json, docs/changelog.md",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I made both changes and checked them with `git diff`. I didn't run the tests, since nothing in the code changed.\n\n- **`package.json`:** the version is now `1.1.0`.\n- **`docs/changelog.md`:** there's a new `## 1.1.0` section above `## 1.0.0`, with the line \"Added the `truncate` helper.\"\n\nI didn't open the `truncate` helper's source, so the changelog line is a generic mention. If you'd like it to describe what the helper does, tell me and I'll expand it.",
+          "costUsd": 0.1049467,
+          "durationMs": 9233
+        }
+      ],
+      "durationMs": 9309,
+      "costUsd": 0.1049467
+    },
+    {
+      "id": "r-review-file",
+      "kind": "report",
+      "pass": true,
+      "evidence": "reply -1 has /cart\\.js/, /twice|double|two times|squared|compound|again|second time|applied .*(both|two)/i; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "Findings in `src/cart.js`. I didn't edit any files.\n\n- `src/cart.js:3 — applyDiscount applies the discount twice. Line 2 already computes total * (1 - rate), and line 3 multiplies by (1 - rate) again. A 10% discount on 100 returns 81 instead of 90. It should return `discounted`.`\n- `src/cart.js:2 — rate isn't validated. A rate above 1 gives a negative total, and a negative rate raises the price. Nothing checks that it's a number in [0, 1].`\n- `src/cart.js:7 — cartTotal doesn't validate its input. A null or undefined items throws. An item with a missing or non-numeric price or qty makes the total NaN, and a negative qty silently lowers it.`\n- `src/cart.js:7 — money is summed as floating-point numbers, so cent totals can be off by rounding (for example 0.1 + 0.2). The result is never rounded to cents, or computed in integer cents.` This is lower severity.",
+          "costUsd": 0.09593979999999999,
+          "durationMs": 8984
+        }
+      ],
+      "durationMs": 9027,
+      "costUsd": 0.09593979999999999
+    },
+    {
+      "id": "r-review-folder",
+      "kind": "report",
+      "pass": true,
+      "evidence": "5 citations resolve; reply -1 has /range\\.js/, /off.by.one|end - 1|exclud|last (element|item|value)|one short|missing/i; changes within nothing",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "Bugs found in `src/`. I read every file but did not run any code, and no files were edited.\n\n- `src/range.js:3`: the loop condition `i < end - 1` stops one short, so `range(0, 3)` returns `[0, 1]` when it should return `[0, 1, 2]`. It should be `i < end`.\n- `src/cart.js:2`: `applyDiscount` applies the discount rate twice. `discounted * (1 - rate)` is applied on top of the first discount, so a 10% rate gives 19% off. It should return `total * (1 - rate)`.\n- `src/index.js:1`: `truncate` is defined in `strings.js`, but the public entry point only re-exports `capitalize` and `words`, so package consumers cannot use it.\n- `src/strings.js:10`: `truncate` mishandles `max <= 0`. With `max = 0`, `s.slice(0, -1)` plus `\"…\"` returns a string longer than `max`.\n- `src/config.js:4`: `loadConfig` reads `../config.json`, which resolves to the repo root. If the file isn't shipped with the package, or the package is bundled, this throws at runtime. This one is a risk rather than a confirmed bug.",
+          "costUsd": 0.1018761,
+          "durationMs": 10607
+        }
+      ],
+      "durationMs": 10655,
+      "costUsd": 0.1018761
+    },
+    {
+      "id": "l-todo-cli",
+      "kind": "long",
+      "pass": true,
+      "evidence": "todo add/list/done behave; test/todo.test.js: covering add, list and done; `node --test test/todo.test.js` ok",
+      "statusAgrees": true,
+      "turns": [
+        {
+          "runId": "run-1",
+          "status": "done",
+          "reply": "I built the todo CLI and its tests. All 6 new tests in `test/todo.test.js` pass, but `npm test` still fails overall because of an existing test in `test/range.test.js` that I did not touch.\n\nThe failing test is \"range excludes the end\". It expects `[0, 1, 2]` and gets `[0, 1]`. This is unrelated to my changes, and I left it alone since fixing it wasn't part of the task. The other 6 tests in the run (outside `todo.test.js`) pass.\n\nI wrote `bin/todo.js` one milestone at a time and ran each command by hand in a fresh temp directory before moving on:\n1. **`add <text>`**: creates `todo.json` in the current directory if it's missing and appends the item. Two adds gave `[\"buy milk\", \"walk dog\"]`. `add` with no text exits with an error.\n2. **`list`**: prints `1. <text>`, one per line. With no `todo.json` it prints nothing.\n3. **`done <n>`**: removes item n, and the remaining items renumber (adding a, b, c and running `done 2` left `1. a` and `2. c`). An out-of-range or non-numeric n exits with status 1 and leaves the file unchanged.\n\nThe tests run the real CLI in a temp directory. They cover creating the file and appending, `add` with no text, numbered `list` output, `list` with no file, `done` removing and renumbering, and `done` rejecting `0`, `2` and `x`.\n\nNothing is committed.",
+          "costUsd": 0.16709640000000003,
+          "durationMs": 29922
+        }
+      ],
+      "durationMs": 30754,
+      "costUsd": 0.16709640000000003
+    }
+  ]
+}
