@@ -45,6 +45,8 @@ export class StoreHandlers {
     "setup.review.result": (m) => this.onReviewResult(m),
     "setup.approve.result": (m) => this.patch({ setupSaved: m.ok, setupError: m.error }),
     "setup.undo.result": (m) => this.patch({ setupSaved: false, setupError: m.error }),
+    "setup.qualify.result": (m) =>
+      this.patch({ qualResults: { ...this.state.qualResults, [`${m.channel}:${m.model}`]: { agent: m.agent, function: m.function, error: m.error } } }),
     "setup.recommend.result": (m) => this.onRecommendResult(m),
     error: (m) => this.onErrorReply(m),
   };
@@ -69,6 +71,7 @@ export class StoreHandlers {
     "tool.request": (ev) => this.addActivity(ev.runId, "tool", ev.tool),
     "tool.outcome": (ev) => this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary),
     "check.result": (ev) => this.onCheckResult(ev),
+    "run.escalated": (ev) => this.addActivity(ev.runId, "escalated", `${ev.from} → ${ev.to}: ${ev.reason}`),
     ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
     "question.withdrawn": (ev) => this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) }),
     "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),

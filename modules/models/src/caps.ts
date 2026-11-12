@@ -12,6 +12,14 @@ export interface ModelPerf {
 
 export type ToolsMode = "native" | "shim" | "none";
 
+/** Result of one qualification run (CONFORMANCE_VERSION-stamped). */
+export interface Qual {
+  passed: boolean;
+  at: number;
+  version: number;
+  detail?: string;
+}
+
 export type ModelCaps = {
   tools: ToolsMode;
   vision: boolean;
@@ -20,6 +28,7 @@ export type ModelCaps = {
   contextTokens: number;
   numCtx?: number;
   perf?: ModelPerf;
+  qualified?: { agent?: Qual; function?: Qual };
 };
 
 export const DEFAULT_CAPS: ModelCaps = { tools: "shim", vision: false, reasoning: false, imageGen: false, contextTokens: 32768 };

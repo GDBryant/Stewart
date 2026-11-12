@@ -64,7 +64,7 @@ describe("scoreAssignments", () => {
   it("treats hosted models with no size as large and penalises small context", () => {
     const hosted = pick("lead", [c("gpt-x", { tools: "native" }, "openai-compatible")]);
     expect(hosted.warnings.filter((w) => w.includes("context") || w.includes("recommended"))).toEqual([]);
-    expect(pick("lead", [c("m:16b", { contextTokens: 2048 })]).warnings.join()).toContain("context 2048");
+    expect(scoreAssignments(["lead"], [c("m:16b", { contextTokens: 2048 })]).unfilled[0].reason).toContain("context 2048 < 32000");
   });
 });
 

@@ -5,15 +5,15 @@
   "config": 0,
   "context": 1,
   "diagnostics": 0,
+  "engines": 6,
   "interaction": 1,
   "kernel": 0,
   "ledger": 1,
   "models": 2,
   "permissions": 2,
   "roles-skills": 2,
-  "setup": 6,
-  "tools": 8,
+  "session": 12,
+  "setup": 8,
   "tasks": 1,
-  "engines": 6,
-  "session": 12
+  "tools": 6
 }

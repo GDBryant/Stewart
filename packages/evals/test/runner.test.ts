@@ -27,6 +27,15 @@ describe("EventLog", () => {
     expect(calls).toContainEqual(["chat.answer", { projectId: PROJECT_ID, questionId: "q2", answer: "Proceed with your best judgment." }]);
   });
 
+  it("collects run-level escalations only", () => {
+    const log = new EventLog();
+    log.push({ kind: "run.escalated", runId: "r1", roleId: "lead", from: "a", to: "b", reason: "check" } as unknown as RunEvent);
+    log.push({ kind: "run.escalated", runId: "r1", taskId: "t-1", roleId: "reviewer", from: "c", to: "d", reason: "check" } as unknown as RunEvent);
+    log.push({ kind: "run.escalated", runId: "r2", roleId: "lead", from: "x", to: "y", reason: "check" } as unknown as RunEvent);
+    expect(log.escalations("r1")).toEqual(["a->b"]);
+    expect(log.escalations("r3")).toEqual([]);
+  });
+
   it("wait resolves on run.finished and ignores task-scoped finishes", async () => {
     const log = new EventLog();
     const w = log.wait("r1", 5000);

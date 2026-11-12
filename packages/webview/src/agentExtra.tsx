@@ -30,6 +30,15 @@ function AgentBadges({ item, ch, channels, caps }: { item: AgentSummary; ch: Cha
   );
 }
 
+function QualStatus({ qual }: { qual: { agent?: { passed: boolean; detail?: string }; function?: { passed: boolean; detail?: string }; error?: string } | undefined }) {
+  if (!qual) return null;
+  if (qual.error) return <span class="fail">✗ {qual.error}</span>;
+  const a = qual.agent?.passed;
+  const f = qual.function?.passed;
+  const d = qual.agent?.detail ?? qual.function?.detail;
+  return <span class={a === false && f === false ? "fail" : "ok"} title={d}>qual:{a === undefined ? "" : a ? "A✓" : "A✗"}{f === undefined ? "" : f ? " F✓" : " F✗"}</span>;
+}
+
 function ProbeStatus({ probe, waiting }: { probe: { ok: boolean; error?: string; cached?: boolean; probedAt?: number } | undefined; waiting: boolean }) {
   if (waiting) return <span class="hint">probing…</span>;
   if (!probe) return null;
@@ -43,12 +52,16 @@ export function AgentExtra({ item, channels, store }: { item: AgentSummary; chan
   const probe = store.state.probeResults[`${item.channel}:${item.model}`];
   const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
   const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
+  const qualStored = (ch?.modelCaps?.[item.model] as Record<string, unknown> | undefined)?.qualified as { agent?: { passed: boolean }; function?: { passed: boolean } } | undefined;
+  const qual = store.state.qualResults[`${item.channel}:${item.model}`] ?? qualStored;
   const [pending, setPending] = useState<{ prev: unknown } | null>(null);
   const waiting = pending !== null && pending.prev === probe;
   return (
     <span class="extra">
       <AgentBadges item={item} ch={ch} channels={channels} caps={caps} />
       <ProbeStatus probe={probe} waiting={waiting} />
+      <QualStatus qual={qual} />
+      <button class="small" onClick={() => { store.qualifyModel(item.channel, item.model); store.requestConfig(); }}>Qualify</button>
       <button class="small" disabled={waiting} onClick={() => { setPending({ prev: probe }); store.probeModel(item.channel, item.model, true); }}>
         {probe ? "Re-probe" : "Probe"}
       </button>

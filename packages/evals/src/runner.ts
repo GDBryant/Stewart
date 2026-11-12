@@ -17,6 +17,7 @@ export interface TurnResult {
   reply: string;
   costUsd: number;
   durationMs: number;
+  escalations: string[];
 }
 
 export interface TaskResult {
@@ -72,6 +73,13 @@ export class EventLog {
     return this.events.flatMap((e) => (e.kind === "text_delta" && e.runId === runId ? [e.text] : [])).join("");
   }
 
+  escalations(runId: string): string[] {
+    return this.events.flatMap((e) => {
+      const x = e as unknown as { kind: string; runId: string; from?: string; to?: string; taskId?: string };
+      return x.kind === "run.escalated" && x.runId === runId && !x.taskId ? [`${x.from}->${x.to}`] : [];
+    });
+  }
+
   cost(runId: string): number {
     return this.events.reduce((sum, e) => (e.kind === "cost.summary" && e.runId === runId ? Math.max(sum, e.accruedUsd) : sum), 0);
   }
@@ -96,7 +104,7 @@ export async function runTurn(t: TurnCtx, text: string): Promise<TurnResult> {
   try {
     runId = ((await t.dispatch("chat.send", { projectId: PROJECT_ID, text, sessionId: t.sessionId })) as { runId: string }).runId;
   } catch (e) {
-    return { runId, status: "error", error: e instanceof Error ? e.message : String(e), reply: "", costUsd: 0, durationMs: Date.now() - started };
+    return { runId, status: "error", error: e instanceof Error ? e.message : String(e), reply: "", costUsd: 0, durationMs: Date.now() - started, escalations: [] };
   }
   const done = await t.log.wait(runId, t.timeoutMs);
   if (!done) {
@@ -106,7 +114,7 @@ export async function runTurn(t: TurnCtx, text: string): Promise<TurnResult> {
   const fin = t.log.finished(runId);
   const reply = await finalReply(t.dispatch, t.sessionId, t.log.text(runId));
   const status = done ? (fin?.status ?? "unknown") : "timeout";
-  return { runId, status, error: fin?.error, reply, costUsd: t.log.cost(runId), durationMs: Date.now() - started };
+  return { runId, status, error: fin?.error, reply, costUsd: t.log.cost(runId), durationMs: Date.now() - started, escalations: t.log.escalations(runId) };
 }
 
 export async function startCore(ws: Workspace, opts: RunOpts): Promise<{ log: EventLog; dispatch: Dispatch }> {

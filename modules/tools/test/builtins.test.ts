@@ -21,6 +21,17 @@ describe("ReadFile", () => {
     expect(await t.execute({ path: "a.ts", start_line: 2, end_line: 3 }, null, sig)).toBe("2: l2\n3: l3");
   });
 
+  it("does not emit a phantom line after a trailing newline and handles empty files", async () => {
+    const { reg } = await setup({ "t.ts": "l1\nl2\n", "empty.ts": "" });
+    const t = reg.find("ReadFile")!;
+    expect(await t.execute({ path: "t.ts" }, null, sig)).toBe("1: l1\n2: l2");
+    expect(await t.execute({ path: "t.ts", start_line: 2 }, null, sig)).toBe("2: l2");
+    await expect(t.execute({ path: "t.ts", start_line: 3 }, null, sig)).rejects.toThrow(/has 2 lines/);
+    expect(await t.execute({ path: "empty.ts" }, null, sig)).toBe("(empty file)");
+    const s = reg.find("Search")!;
+    expect(await s.execute({ query: "l" }, null, sig)).toBe("t.ts:1: l1\nt.ts:2: l2");
+  });
+
   it("rejects escapes, denied dirs, missing, binary and huge files", async () => {
     const { reg } = await setup({ "a.ts": "x", "b.bin": "a\0b", ".git/cfg": "x" });
     const t = reg.find("ReadFile")!;

@@ -23,7 +23,9 @@ v2 rebuild (now developed on `main`), per `docs/archived_v2/ARCHITECTURE.md`. On
 | 1 | `@stewart/session` + `native-loop` engine + `lead` role + `@stewart/tasks` code-run checks | Done |
 | 2 | `claude-code` engine (Claude Code CLI as supervised full agent) | Done |
 | 6 | Cut-over: old orchestration stack deleted, lead session is the only chat path | Done early |
-| 3–5 | Delegated roles, model chains + escalation, long builds, plan/checkpoint resume | Pending |
+| 3 | Delegated roles (`explorer`/`reviewer`, `delegate`/`health_report`, cites + health-schema checks) | Done |
+| 4 | Qualification suites + model chains + escalation + loop guard | Done |
+| 5 | Long builds, plan/checkpoint resume | Pending |
 
 ## Notes
 - Debug logging v2 (`settings.log` calls/full): `core/src/debug/` gating + redaction, adapter hooks (Ollama, OpenAI-compatible, Claude CLI), `FileDebugSink` + retention in the sidecar, `log.dir` from JetBrains. Tests: core +19, sidecar +10. See `docs/ai_docs/DEBUG_LOGGING.md`.

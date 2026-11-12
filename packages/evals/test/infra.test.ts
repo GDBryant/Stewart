@@ -174,7 +174,7 @@ describe("createWorkspace/removeWorkspace", () => {
 describe("results", () => {
   const tr = (id: string, pass: boolean, kind: "question" | "edit" = "question", statusAgrees = true, cost = 0.01): TaskResult => ({
     id, kind, pass, evidence: pass ? "ok" : "bad", statusAgrees,
-    turns: [{ runId: "r", status: pass ? "done" : "failed", reply: "x", costUsd: cost, durationMs: 100 }],
+    turns: [{ runId: "r", status: pass ? "done" : "failed", reply: "x", costUsd: cost, durationMs: 100, escalations: pass ? [] : ["a->b"] }],
     durationMs: 100, costUsd: cost,
   });
 
@@ -184,6 +184,7 @@ describe("results", () => {
     expect(s.total).toBe(3);
     expect(s.rate).toBeCloseTo(66.7);
     expect(s.statusAgrees).toBe(2);
+    expect(s.escalated).toBe(1);
     expect(s.byKind.question).toEqual({ passed: 2, total: 2 });
     expect(s.byKind.edit).toEqual({ passed: 0, total: 1 });
     expect(s.costUsd).toBeCloseTo(0.023);

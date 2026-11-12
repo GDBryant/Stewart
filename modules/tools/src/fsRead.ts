@@ -66,7 +66,8 @@ export class ReadFile extends ProjectTool {
     if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
     const { content } = await this.paths.read(rel);
     if (isBinary(content)) throw new Error(`binary file: ${rel}`);
-    const lines = content.split("\n");
+    if (content === "") return "(empty file)";
+    const lines = contentLines(content);
     const start = optInt(args, "start_line") ?? 1;
     const end = optInt(args, "end_line") ?? lines.length;
     if (start < 1 || end < start || start > lines.length) {
@@ -74,6 +75,12 @@ export class ReadFile extends ProjectTool {
     }
     return lines.slice(start - 1, Math.min(end, lines.length)).map((l, i) => `${start + i}: ${l}`).join("\n");
   }
+}
+
+function contentLines(content: string): string[] {
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
 }
 
 function findMatcher(glob: string): RegExp {
@@ -172,7 +179,7 @@ interface ScanOpts {
 /** Appends matching `rel:line: text` rows to `results` up to `max`; returns how many matches did not fit. */
 function scanContent(o: ScanOpts, results: string[]): number {
   let overflow = 0;
-  o.content.split("\n").forEach((line, i) => {
+  contentLines(o.content).forEach((line, i) => {
     const hit = o.regex ? o.regex.test(line) : line.includes(o.query);
     if (hit) {
       if (results.length < o.max) results.push(`${o.rel}:${i + 1}: ${line}`);

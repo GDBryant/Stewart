@@ -32,6 +32,12 @@ export function applyProbes(core: CoreCtx, config: EffectiveConfig): EffectiveCo
   return config;
 }
 
+/** Merge qualification records into one model's caps on a caps-carrying object (channel def or channel cfg). */
+export function mergeQualified(target: { modelCaps: Record<string, { qualified?: Record<string, unknown> }> }, model: string, q: Record<string, unknown>): void {
+  const caps = (target.modelCaps[model] ??= {});
+  caps.qualified = { ...caps.qualified, ...q };
+}
+
 /** Live provider pricing wins over the bundled catalog; either may be absent. */
 export async function catalogFor(core: CoreCtx, ch: ManagedChannel, model: string): Promise<(ModelInfo & { source: string }) | undefined> {
   if (!core.priceCache.has(ch.cfg.id)) {

@@ -1,0 +1,12 @@
+version: 1
+items:
+  - id: local-qwen4b
+    channel: local-ollama
+    model: qwen3.5:4b
+    effort: medium
+    billing: free
+  - id: Claude-sonnet
+    channel: Claude
+    model: sonnet
+    effort: medium
+    billing: reported

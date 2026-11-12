@@ -24,6 +24,7 @@ export interface SmokeCandidate {
 
 export interface ProbeItem extends SmokeCandidate {
   state: SmokeState;
+  qualified?: { agent?: boolean; function?: boolean; detail?: string };
   reason?: string;
   /** Reason from the previous attempt, kept after a retry re-queues the candidate. */
   lastReason?: string;
@@ -64,8 +65,16 @@ export interface SmokeOptions {
   onSettle?(settled: Promise<void>): void;
 }
 
+export interface QualifyResult {
+  agent?: boolean;
+  function?: boolean;
+  detail?: string;
+}
+
 export interface ProbeRunnerDeps {
   channelFor(id: string): SmokeChannel | undefined;
+  /** Runs the conformance suites for a green candidate; results land on the item. */
+  qualify?(c: SmokeCandidate): Promise<QualifyResult | undefined>;
   onEvent?(ev: { kind: "probe.state"; snapshot: ProbeSnapshot }): void;
   now?(): number;
   timeoutMs?: number;

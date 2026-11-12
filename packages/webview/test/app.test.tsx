@@ -54,6 +54,17 @@ describe("webview chat", () => {
     expect(failed.text).toBe("Check failed: missing: b.ts");
   });
 
+  it("renders run.escalated as an activity line", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("text_delta", { seq: 0, text: "trying" }));
+      bridge.inbound(ev("run.escalated", { roleId: "lead", from: "a1", to: "a2", reason: "turn_limit" }));
+    });
+    const lastItem = store.state.items[store.state.items.length - 1];
+    expect(lastItem.activity).toContainEqual({ kind: "escalated", text: "a1 → a2: turn_limit" });
+  });
+
   it("shows Stop while busy and posts chat.cancel", () => {
     const { bridge } = mk();
     act(() => {

@@ -7,6 +7,7 @@ export interface Summary {
   total: number;
   rate: number;
   statusAgrees: number;
+  escalated: number;
   byKind: Record<string, { passed: number; total: number }>;
   costUsd: number;
 }
@@ -33,6 +34,7 @@ export function summarize(tasks: TaskResult[]): Summary {
     total: tasks.length,
     rate: tasks.length ? Math.round((passed / tasks.length) * 1000) / 10 : 0,
     statusAgrees: tasks.filter((t) => t.statusAgrees).length,
+    escalated: tasks.filter((t) => t.turns.some((x) => x.escalations?.length)).length,
     byKind,
     costUsd: Math.round(tasks.reduce((s, t) => s + t.costUsd, 0) * 10_000) / 10_000,
   };
@@ -45,7 +47,7 @@ export function formatTable(r: ResultsFile): string {
   });
   const s = r.summary;
   const kinds = Object.entries(s.byKind).map(([k, v]) => `${k} ${v.passed}/${v.total}`).join(", ");
-  return [...rows, `${r.label}: ${s.passed}/${s.total} (${s.rate}%) — ${kinds}; status agrees ${s.statusAgrees}/${s.total}; cost $${s.costUsd}`].join("\n");
+  return [...rows, `${r.label}: ${s.passed}/${s.total} (${s.rate}%) — ${kinds}; status agrees ${s.statusAgrees}/${s.total}; escalated ${s.escalated}; cost $${s.costUsd}`].join("\n");
 }
 
 export async function writeResults(dir: string, r: ResultsFile): Promise<string> {

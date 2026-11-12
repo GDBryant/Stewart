@@ -1,0 +1,22 @@
+version: 1
+items:
+  - id: lead
+    enabled: true
+    agent: local-qwen4b
+    chain: [local-qwen4b, Claude-sonnet]
+    skills: [project-health]
+    turnBudget: 40
+  - id: explorer
+    enabled: true
+    agent: local-qwen4b
+    chain: [local-qwen4b, Claude-sonnet]
+    skills: [code-search]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, ReadImage, RunTerminal]
+    turnBudget: 25
+  - id: reviewer
+    enabled: true
+    agent: local-qwen4b
+    chain: [local-qwen4b, Claude-sonnet]
+    skills: [code-review, code-health]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
+    turnBudget: 30

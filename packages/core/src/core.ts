@@ -8,7 +8,7 @@ import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
 import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
-import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
+import { SelfWriteGuard, type ConfigStore, type Qual } from "@stewart/config";
 import { Interaction } from "@stewart/interaction";
 import { Permissions } from "@stewart/permissions";
 import { SessionService } from "@stewart/session";
@@ -20,6 +20,7 @@ import * as chat from "./handlers/chat.js";
 import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
 import * as setupProbe from "./handlers/setupProbe.js";
+import * as qualify from "./handlers/qualify.js";
 import { createProbeLoop } from "./probeLoop.js";
 import { applyProbes } from "./handlers/util.js";
 import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
@@ -37,6 +38,7 @@ export class Core implements CoreCtx {
   /** Workspace scan cache, 24h TTL — shared by setup.recommend and the task classifier. */
   wsScan = new Map<string, { info: WorkspaceInfo; at: number }>();
   readonly probeRunners = new Map<string, SetupProbeRunner>();
+  readonly qualRecords = new Map<string, Map<string, { agent?: Qual; function?: Qual }>>();
   readonly probeLoop: ProbeLoop<ManagedChannel>;
   userGuard = new SelfWriteGuard();
   private chDeps: ChannelDeps;
@@ -113,6 +115,7 @@ export class Core implements CoreCtx {
       permissions,
       channelFor: (id) => this.channelService.require(id),
       config: () => this.ctx(projectId).config,
+      engineFor: this.deps.engineFor,
     });
     this.projects.set(projectId, { host, config, trusted, interaction, permissions, sessions, projectStore, projectGuard, userLayer, projectLayer });
     const staleProbe = this.probeRunners.get(projectId);
@@ -174,6 +177,7 @@ export class Core implements CoreCtx {
     "channel.probe": (p) => setup.handleChannelProbe(this, p),
     "setup.recommend": (p) => setup.handleSetupRecommend(this, p),
     "setup.probe.start": (p) => setupProbe.handleSetupProbeStart(this, p),
+    "setup.qualify": (p) => qualify.handleSetupQualify(this, p),
     "setup.probe.status": (p) => setupProbe.handleSetupProbeStatus(this, p),
     "setup.probe.cancel": (p) => setupProbe.handleSetupProbeCancel(this, p),
     "setup.probe.retry": (p) => setupProbe.handleSetupProbeRetry(this, p),

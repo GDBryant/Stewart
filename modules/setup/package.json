@@ -28,6 +28,8 @@
     "@stewart/channels": "workspace:*",
     "@stewart/catalog": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
-    "yaml": "2.8.1"
+    "yaml": "2.8.1",
+    "@stewart/tools": "workspace:*",
+    "@stewart/engines": "workspace:*"
   }
 }

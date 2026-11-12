@@ -23,6 +23,8 @@ export interface CoreDeps {
   emitEvent(ev: RunEvent): void;
   /** Built when settings.log.level is not `off`; rebuilt when level or retainDays change. Default: no-op. */
   debugSinkFactory?: (opts: { level: Exclude<DebugLevel, "off">; retainDays: number }) => DebugSink;
+  /** Engine override (tests); defaults to @stewart/engines' engineFor. */
+  engineFor?: (channelType: string) => import("@stewart/engines").Engine;
 }
 
 export interface ProjectCtx {
@@ -49,6 +51,8 @@ export interface CoreCtx {
   readonly wsScan: Map<string, { info: WorkspaceInfo; at: number }>;
   /** Per-project setup quick-probe queues (smoke tests), created on first setup.probe.* call. */
   readonly probeRunners: Map<string, SetupProbeRunner>;
+  /** Full qualification records collected during the wizard probe, keyed `channel:model`; persisted on setup.approve. */
+  readonly qualRecords: Map<string, Map<string, { agent?: import("@stewart/config").Qual; function?: import("@stewart/config").Qual }>>;
   readonly probeLoop: ProbeLoop<ManagedChannel>;
   readonly userGuard: SelfWriteGuard;
   readonly secretValues: Map<string, string>;

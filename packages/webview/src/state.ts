@@ -24,6 +24,7 @@ export class Store {
     questions: [],
     channelTest: {},
     probeResults: {},
+    qualResults: {},
     view: "chat",
     sessions: [],
     historyOpen: false,
@@ -138,6 +139,9 @@ export class Store {
   }
   probeModel(channelId: string, model: string, force = false, bench = false): void {
     this.bridge.post({ type: "channel.probe", channelId, model, force, ...(bench ? { bench: true } : {}) });
+  }
+  qualifyModel(channel: string, model: string): void {
+    this.bridge.post({ type: "setup.qualify", channel, model });
   }
   setSecret(ref: string, value: string): void {
     this.bridge.post({ type: "secret.set", ref, value });

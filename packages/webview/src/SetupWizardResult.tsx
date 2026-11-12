@@ -9,7 +9,7 @@ type Assignment = NonNullable<State["recommendation"]>["assignments"][number];
 type Recommendation = NonNullable<State["recommendation"]>;
 
 function ReviewRoleRow({
-  role, assignment, unfilled, chosen, edit, catalog, options, onChange,
+  role, assignment, unfilled, chosen, edit, catalog, options, onChange, chain, onChainMove, onChainRemove,
 }: {
   role: RoleSummary;
   assignment?: Assignment;
@@ -19,6 +19,9 @@ function ReviewRoleRow({
   catalog?: CatalogInfo;
   options: { channel: string; model: string }[];
   onChange(ref: string): void;
+  chain: string[];
+  onChainMove(ref: string, dir: -1 | 1): void;
+  onChainRemove(ref: string): void;
 }) {
   const ci = chosen.indexOf(":");
   const chId = ci > 0 ? chosen.slice(0, ci) : "";
@@ -38,6 +41,23 @@ function ReviewRoleRow({
       ) : null}
       {unfilled && !edit ? <span class="hint"> — disabled: {unfilled.reason}</span> : null}
       {assignment?.warnings?.map((w) => <div key={w} class="fail">⚠ {w}</div>)}
+      <ChainRow chain={chain} onMove={onChainMove} onRemove={onChainRemove} />
+    </div>
+  );
+}
+
+function ChainRow({ chain, onMove, onRemove }: { chain: string[]; onMove(ref: string, dir: -1 | 1): void; onRemove(ref: string): void }) {
+  if (chain.length < 2) return null;
+  return (
+    <div class="hint">
+      chain:{" "}
+      {chain.map((r, i) => (
+        <span key={r}>
+          {i > 0 ? " → " : ""}{r}
+          {i > 0 ? <button class="small" aria-label={`earlier ${r}`} onClick={() => onMove(r, -1)}>↑</button> : null}
+          {i > 0 ? <button class="small" aria-label={`remove ${r}`} onClick={() => onRemove(r)}>×</button> : null}
+        </span>
+      ))}
     </div>
   );
 }
@@ -52,6 +72,9 @@ type ReviewProps = {
   eligiblePairs: { channel: string; model: string }[];
   rowFor(roleId: string): string;
   edits: Record<string, string>;
+  chainFor(role: string): string[];
+  onChainMove(role: string, ref: string, dir: -1 | 1): void;
+  onChainRemove(role: string, ref: string): void;
   probeResults: State["probeResults"];
   onEditRole(roleId: string, ref: string): void;
   onApply(): void;
@@ -64,9 +87,9 @@ function busyLabel(bench: boolean, evalMode: "rules" | "ai"): string {
   return evalMode === "ai" ? "AI evaluator is refining the proposal — this can take a few minutes…" : "Matching models to roles…";
 }
 
-type ReviewRowsProps = Pick<ReviewProps, "roles" | "rowFor" | "edits" | "probeResults" | "eligiblePairs" | "onEditRole"> & { rec: Recommendation };
+type ReviewRowsProps = Pick<ReviewProps, "roles" | "rowFor" | "edits" | "probeResults" | "eligiblePairs" | "onEditRole" | "chainFor" | "onChainMove" | "onChainRemove"> & { rec: Recommendation };
 
-function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, onEditRole }: ReviewRowsProps) {
+function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, onEditRole, chainFor, onChainMove, onChainRemove }: ReviewRowsProps) {
   return (
     <div>
       {rec.researcher ? <div class="hint">Refined by {rec.researcher.channel}:{rec.researcher.model}</div> : null}
@@ -86,6 +109,9 @@ function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, on
             catalog={catalog}
             options={eligiblePairs}
             onChange={(ref) => onEditRole(r.id, ref)}
+            chain={chainFor(r.id)}
+            onChainMove={(ref, dir) => onChainMove(r.id, ref, dir)}
+            onChainRemove={(ref) => onChainRemove(r.id, ref)}
           />
         );
       })}
@@ -95,7 +121,7 @@ function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, on
 }
 
 export function ReviewStep({
-  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, onApply, onBack, onUseRules,
+  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, chainFor, onChainMove, onChainRemove, onApply, onBack, onUseRules,
 }: ReviewProps) {
   return (
     <div class="form">
@@ -108,7 +134,7 @@ export function ReviewStep({
         </div>
       ) : null}
       {rec ? (
-        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} />
+        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} chainFor={chainFor} onChainMove={onChainMove} onChainRemove={onChainRemove} />
       ) : null}
       <div class="row">
         <button class="small" onClick={onBack}>Back</button>

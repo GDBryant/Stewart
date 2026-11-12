@@ -5,6 +5,11 @@ import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupS
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
+import { persistAllQualified } from "./qualify.js";
+
+function ctxFor(core: CoreCtx, projectId: string): ProjectCtx {
+  return core.ctx(projectId);
+}
 
 const sessions = new Map<string, SetupSession>();
 
@@ -115,7 +120,10 @@ export async function handleSetupApprove(core: CoreCtx, params: unknown): Promis
   const p = params as { projectId: string; token: string };
   const { session } = await sessionFor(core, p);
   const res = await session.approveAndSave(p.token);
-  if (res.ok) await core.reload(p.projectId);
+  if (res.ok) {
+    await persistAllQualified(core, ctxFor(core, p.projectId));
+    await core.reload(p.projectId);
+  }
   return res;
 }
 export async function handleSetupUndo(core: CoreCtx, params: unknown): Promise<unknown> {

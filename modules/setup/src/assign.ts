@@ -17,6 +17,8 @@ export interface ScoredAssignment {
   role: string;
   channel: string;
   model: string;
+  /** Qualified candidates for this role's chain, cheapest first (max 3), always starting with the assignment. */
+  chain: { channel: string; model: string }[];
   reason: string;
   score: number;
   warnings: string[];
@@ -29,6 +31,10 @@ export interface Unfilled {
 }
 
 interface Profile {
+  /** Role kind for qualification records; default agent. */
+  kind?: "agent" | "function";
+  /** Hard minimum context when known (from role needs). */
+  hardMinCtx?: number;
   /** Hard: candidate is ineligible without these. */
   needs?: { tools?: boolean; vision?: boolean; imageGen?: boolean };
   /** Soft requirement: still assignable, but with a warning. */
@@ -88,7 +94,19 @@ function effectiveSize(c: Candidate): number | undefined {
 const CODER = /coder|code|devstral|codestral|deepseek|qwen.*instruct/i;
 
 function eligible(c: Candidate, p: Profile): string | undefined {
-  return capabilityRefusal(c, p) ?? perfRefusal(c, p);
+  return capabilityRefusal(c, p) ?? perfRefusal(c, p) ?? qualRefusal(c, p) ?? contextRefusal(c, p);
+}
+
+function qualRefusal(c: Candidate, p: Profile): string | undefined {
+  const kind = p.kind ?? "agent";
+  if (c.caps.qualified?.[kind]?.passed === false) return `failed ${kind} qualification`;
+  return undefined;
+}
+
+function contextRefusal(c: Candidate, p: Profile): string | undefined {
+  const ctx = c.caps.numCtx ?? c.caps.contextTokens;
+  if (p.hardMinCtx && ctx !== undefined && ctx < p.hardMinCtx) return `context ${ctx} < ${p.hardMinCtx}`;
+  return undefined;
 }
 
 function capabilityRefusal(c: Candidate, p: Profile): string | undefined {
@@ -192,6 +210,13 @@ function perfScore(c: Candidate, p: Profile, speedPriority: number): Term {
   return term(delta, why, warnings);
 }
 
+function qualScore(c: Candidate, p: Profile): Term {
+  const kind = p.kind ?? "agent";
+  const q = c.caps.qualified?.[kind];
+  if (q?.passed === true) return term(2, [`${kind} qualified`]);
+  return term(0, [], ["not qualified"]);
+}
+
 function costScore(c: Candidate, p: Profile, costPriority: number): Term {
   if (!c.costTier) return term();
   const idx = { free: 0, low: 1, mid: 2, high: 3 }[c.costTier];
@@ -220,6 +245,7 @@ function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; 
     localityScore(c),
     perfScore(c, p, priorities.speed),
     costScore(c, p, priorities.cost),
+    qualScore(c, p),
   ];
   return {
     score: 10 + terms.reduce((a, t) => a + t.delta, 0),
@@ -232,21 +258,52 @@ function score(c: Candidate, p: Profile, sctx?: SetupContext): { score: number; 
  * Deterministic best-match of candidates to roles. Hard requirements filter; soft weights rank.
  * A role nobody can fill is reported in `unfilled` instead of getting a bad model.
  */
-export function scoreAssignments(roleIds: string[], candidates: Candidate[], ctx?: SetupContext): { assignments: ScoredAssignment[]; unfilled: Unfilled[] } {
+export function scoreAssignments(
+  roleIds: string[],
+  candidates: Candidate[],
+  ctx?: SetupContext,
+  roleMeta: Record<string, { kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number } }> = {},
+): { assignments: ScoredAssignment[]; unfilled: Unfilled[] } {
   const assignments: ScoredAssignment[] = [];
   const unfilled: Unfilled[] = [];
   const uses = new Map<string, number>();
   for (const role of roleIds) {
-    const { best, reasons } = bestFor(ROLE_PROFILES[role] ?? DEFAULT_PROFILE, candidates, ctx, uses);
+    const p = profileFor(role, roleMeta[role]);
+    const { best, reasons } = bestFor(p, candidates, ctx, uses);
     if (!best) {
       unfilled.push({ role, reason: unfilledReason(candidates, reasons) });
       continue;
     }
     const key = `${best.c.channel}:${best.c.model}`;
     uses.set(key, (uses.get(key) ?? 0) + 1);
-    assignments.push(toAssignment(role, best));
+    assignments.push({ ...toAssignment(role, best), chain: proposeChain(p, candidates, best.c) });
   }
   return { assignments, unfilled };
+}
+
+function profileFor(role: string, meta?: { kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number } }): Profile {
+  const p: Profile = { ...(ROLE_PROFILES[role] ?? DEFAULT_PROFILE), needs: { ...(ROLE_PROFILES[role] ?? DEFAULT_PROFILE).needs } };
+  p.kind = meta?.kind ?? "agent";
+  if (meta?.needs?.vision) p.needs = { ...p.needs, vision: true };
+  p.hardMinCtx = meta?.needs?.minContext ?? (p.kind === "agent" ? 32_000 : undefined);
+  return p;
+}
+
+/** Cost bucket for chain ordering: free/local first, then priced by blended cost, claude-cli last. */
+function chainBucket(c: Candidate): number {
+  if (c.channelType === "claude-cli") return 2;
+  return c.costTier === "free" || c.channelType === "ollama" || c.price?.inPerMTok === 0 ? 0 : 1;
+}
+
+/** Qualified candidates for a role, cheapest first, capped at 3, always starting with the chosen candidate. */
+export function proposeChain(p: Profile, candidates: Candidate[], chosen: Candidate): { channel: string; model: string }[] {
+  const kind = p.kind ?? "agent";
+  const ok = candidates.filter((c) => c.caps.qualified?.[kind]?.passed === true && contextRefusal(c, p) === undefined);
+  ok.sort((a, b) => chainBucket(a) - chainBucket(b) || (a.costBlended ?? Number.MAX_SAFE_INTEGER) - (b.costBlended ?? Number.MAX_SAFE_INTEGER));
+  const refs = ok.slice(0, 3).map((c) => ({ channel: c.channel, model: c.model }));
+  const first = { channel: chosen.channel, model: chosen.model };
+  if (!refs.some((r) => r.channel === first.channel && r.model === first.model)) refs.unshift(first);
+  return refs.slice(0, 3);
 }
 
 type Best = { c: Candidate; eff: number; raw: ReturnType<typeof score> };
@@ -278,6 +335,7 @@ function toAssignment(role: string, best: Best): ScoredAssignment {
     role,
     channel: best.c.channel,
     model: best.c.model,
+    chain: [],
     reason: best.raw.why.join(", ") || "best available",
     score: Math.round(best.raw.score * 10) / 10,
     warnings: best.raw.warnings,

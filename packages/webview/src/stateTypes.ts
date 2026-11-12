@@ -78,11 +78,12 @@ export interface State {
   smoke?: SetupProbeSnapshot;
   setupPhase?: string;
   setupSaved?: boolean;
+  qualResults: Record<string, { agent?: { passed: boolean; detail?: string }; function?: { passed: boolean; detail?: string }; error?: string }>;
   setupError?: string;
   /** Why the last wizard add/remove-channel request failed; cleared when the next one starts. */
   setupChannelError?: string;
   recommendation?: {
-    assignments: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
+    assignments: { role: string; channel: string; model: string; chain?: { channel: string; model: string }[]; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
     researcher?: { channel: string; model: string };
     unfilled?: { role: string; reason: string }[];
     dropped?: string[];

@@ -43,11 +43,13 @@ export function buildAgentsForRoles(input: {
   roles: RoleSummary[];
   chosen: { role: string; ref: string }[];
   probeResults: State["probeResults"];
+  chains?: { role: string; refs: string[] }[];
 }): { agents: AgentSummary[]; roles: RoleSummary[] } {
-  const { agents, channels, roles, chosen, probeResults } = input;
+  const { agents, channels, roles, chosen, probeResults, chains } = input;
   const pairToAgent = new Map<string, string>();
   const nextAgents = new Map(agents.map((a) => [a.id, { ...a }] as const));
-  for (const { ref } of chosen) {
+  const allRefs = [...chosen.map((c) => c.ref), ...(chains ?? []).flatMap((c) => c.refs)];
+  for (const ref of allRefs) {
     if (!ref || pairToAgent.has(ref)) continue;
     const i = ref.indexOf(":");
     const ch = ref.slice(0, i);
@@ -65,7 +67,10 @@ export function buildAgentsForRoles(input: {
   }
   const nextRoles = roles.map((r) => {
     const ref = chosen.find((c) => c.role === r.id)?.ref;
-    return ref ? { ...r, agent: pairToAgent.get(ref), enabled: true } : { ...r, enabled: false };
+    if (!ref) return { ...r, enabled: false };
+    const chainRefs = chains?.find((c) => c.role === r.id)?.refs;
+    const chain = chainRefs?.map((x) => pairToAgent.get(x)).filter((x): x is string => x !== undefined);
+    return { ...r, agent: pairToAgent.get(ref), chain: chain?.length ? chain : undefined, enabled: true };
   });
   return { agents: [...nextAgents.values()], roles: nextRoles };
 }

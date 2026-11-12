@@ -101,6 +101,7 @@ function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, togg
       {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
       <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
       <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />
+      <CsvField label="chain (csv)" values={role.chain} onSave={(v) => save({ chain: v.length ? v : undefined })} />
       <CsvField label="writePaths (csv)" values={role.writePaths} onSave={(v) => save({ writePaths: v })} />
       <SkillTicks skills={role.skills} allSkills={allSkills} needsWrite={needsWrite} onToggle={toggleSkill} />
     </div>

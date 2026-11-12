@@ -2,6 +2,7 @@ import { fallbackOrder, modelSizeB, normalizeReason, orderSmokeCandidates, rankC
 import { resolveModelProfile } from "@stewart/models";
 import { redact } from "@stewart/diagnostics";
 import type { CoreCtx, ProjectCtx } from "./types.js";
+import { qualifyForProbe } from "./qualify.js";
 
 interface RichCandidate extends SmokeCandidate {
   channelType: string;
@@ -19,6 +20,7 @@ function probeRunnerFor(core: CoreCtx, projectId: string): SetupProbeRunner {
         if (core.probeRunners.get(projectId) === self) core.deps.emitEvent({ kind: "setup.event", projectId, event: ev });
       },
       now: () => core.clock.now(),
+      qualify: (c) => qualifyForProbe(core, core.ctx(projectId), c.channel, c.model),
       sanitizeReason: (reason) => redact(normalizeReason(reason), [...core.secretValues.values()]),
     });
     r = self;

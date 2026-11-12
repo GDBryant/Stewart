@@ -111,7 +111,12 @@ function writeRecord(call: ToolCall, outcome: ToolOutcome): { path: string; ok: 
   return { path: call.arguments.path, ok, message: ok ? undefined : outcomeMessage(outcome) };
 }
 
-async function* executeCall(turn: EngineTurn, call: ToolCall, transcript: ChatMessage[] = turn.transcript): AsyncGenerator<EngineEvent, void> {
+async function* executeCall(
+  turn: EngineTurn,
+  call: ToolCall,
+  transcript: ChatMessage[] = turn.transcript,
+  seen?: Map<string, { call: ToolCall; ok: boolean }>,
+): AsyncGenerator<EngineEvent, void> {
   const tool = turn.tools.find(call.name);
   const invalid = tool ? turn.tools.validate(call) : `unknown tool '${call.name}'`;
   const { preview, error: previewErr } = tool && !invalid ? await previewOf(tool, call) : { preview: null };
@@ -126,6 +131,7 @@ async function* executeCall(turn: EngineTurn, call: ToolCall, transcript: ChatMe
   if (outcome.kind === "success" && outcome.images?.length) {
     transcript.push({ role: "user", content: `[image from ${call.name}]`, images: outcome.images });
   }
+  seen?.set(call.id, { call, ok: outcome.kind === "success" });
   yield { kind: "tool.outcome", callId: call.id, ok: outcome.kind === "success", summary: summaryOf(outcome) };
   const rec = writeRecord(call, outcome);
   if (rec) yield { kind: "write", record: rec };
@@ -136,11 +142,11 @@ function isParallel(turn: EngineTurn, call: ToolCall): boolean {
 }
 
 /** Consecutive calls flagged `parallel` run concurrently; tool messages join the transcript in call order. */
-async function* executeBatch(turn: EngineTurn, calls: ToolCall[]): AsyncGenerator<EngineEvent, void> {
+async function* executeBatch(turn: EngineTurn, calls: ToolCall[], seen?: Map<string, { call: ToolCall; ok: boolean }>): AsyncGenerator<EngineEvent, void> {
   if (calls.length === 1 || !calls.every((c) => isParallel(turn, c))) {
     for (const call of calls) {
       if (turn.signal.aborted) turn.transcript.push({ role: "tool", toolCallId: call.id, content: "Not executed: cancelled" });
-      else yield* executeCall(turn, call);
+      else yield* executeCall(turn, call, turn.transcript, seen);
     }
     return;
   }
@@ -148,7 +154,7 @@ async function* executeBatch(turn: EngineTurn, calls: ToolCall[]): AsyncGenerato
   const buffers = calls.map(() => [] as ChatMessage[]);
   let wake: (() => void) | undefined;
   let pending = calls.length;
-  const c: PumpCtx = { queue, done: () => pending--, wake: () => wake?.() };
+  const c: PumpCtx = { queue, done: () => pending--, wake: () => wake?.(), seen };
   calls.forEach((call, i) => {
     void pump(turn, call, buffers[i], c);
   });
@@ -163,11 +169,12 @@ interface PumpCtx {
   queue: EngineEvent[];
   done: () => void;
   wake: () => void;
+  seen?: Map<string, { call: ToolCall; ok: boolean }>;
 }
 
 async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: PumpCtx): Promise<void> {
   try {
-    for await (const ev of executeCall(turn, call, buf)) {
+    for await (const ev of executeCall(turn, call, buf, c.seen)) {
       c.queue.push(ev);
       c.wake();
     }
@@ -178,6 +185,7 @@ async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: Pum
 }
 
 async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
+  const guard: LoopGuard = { fails: new Map(), streak: 0 };
   for (let n = 0; n < turn.maxTurns; n++) {
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
@@ -189,7 +197,11 @@ async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
       yield { kind: "finished", reason: "stop" };
       return;
     }
-    yield* runBatches(turn, out.calls);
+    yield* runBatches(turn, out.calls, guard);
+    if (guard.trip) {
+      yield { kind: "finished", reason: "loop_guard", error: guard.trip };
+      return;
+    }
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
       return;
@@ -198,7 +210,33 @@ async function* run(turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
   yield { kind: "finished", reason: "turn_limit" };
 }
 
-async function* runBatches(turn: EngineTurn, calls: ToolCall[]): AsyncGenerator<EngineEvent, void> {
+interface LoopGuard {
+  fails: Map<string, number>;
+  streak: number;
+  trip?: string;
+}
+
+function canonicalArgs(args: unknown): string {
+  return JSON.stringify(args, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort()) : v));
+}
+
+function countFailures(guard: LoopGuard, seen: Map<string, { call: ToolCall; ok: boolean }>): boolean {
+  let allFailed = seen.size > 0;
+  for (const { call, ok } of seen.values()) {
+    if (ok) {
+      allFailed = false;
+      continue;
+    }
+    const key = `${call.name} ${canonicalArgs(call.arguments)}`;
+    const n = (guard.fails.get(key) ?? 0) + 1;
+    guard.fails.set(key, n);
+    if (n >= 2) guard.trip ??= `same call failed twice: ${key}`;
+  }
+  return allFailed;
+}
+
+async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard): AsyncGenerator<EngineEvent, void> {
+  const seen = new Map<string, { call: ToolCall; ok: boolean }>();
   for (let i = 0; i < calls.length; ) {
     let j = i;
     while (j < calls.length && isParallel(turn, calls[j]) === isParallel(turn, calls[i])) j++;
@@ -207,8 +245,14 @@ async function* runBatches(turn: EngineTurn, calls: ToolCall[]): AsyncGenerator<
     if (turn.signal.aborted) {
       for (const call of batch) turn.transcript.push({ role: "tool", toolCallId: call.id, content: "Not executed: cancelled" });
     } else {
-      yield* executeBatch(turn, batch);
+      yield* executeBatch(turn, batch, seen);
     }
+  }
+  if (countFailures(guard, seen)) {
+    guard.streak = (guard.streak ?? 0) + 1;
+    if (guard.streak >= 6) guard.trip ??= "6 consecutive model turns with no successful tool call";
+  } else {
+    guard.streak = 0;
   }
 }
 

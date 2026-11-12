@@ -18,7 +18,7 @@ export type EngineEvent =
   | { kind: "tool.outcome"; callId: string; ok: boolean; summary: string }
   | { kind: "write"; record: WriteRecord }
   | { kind: "usage"; inTokens: number; outTokens: number; costUsd?: number }
-  | { kind: "finished"; reason: "stop" | "turn_limit" | "cancelled" | "error"; error?: string };
+  | { kind: "finished"; reason: "stop" | "turn_limit" | "cancelled" | "loop_guard" | "error"; error?: string };
 
 export interface EngineTurn {
   sessionId: string;

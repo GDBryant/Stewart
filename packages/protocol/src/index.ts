@@ -40,6 +40,7 @@ export interface SetupProbeItem {
   attempts?: number;
   waitMs?: number;
   durationMs?: number;
+  qualified?: { agent?: boolean; function?: boolean; detail?: string };
 }
 export type SetupProbeCounts = Record<SetupProbeState, number>;
 export interface SetupProbeSnapshot {
@@ -74,6 +75,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("milestone.started"), ...base, milestoneId: z.string(), title: z.string() }),
   z.object({ kind: z.literal("milestone.done"), ...base, milestoneId: z.string() }),
   z.object({ kind: z.literal("milestone.failed"), ...base, milestoneId: z.string(), error: z.string() }),
+  z.object({ kind: z.literal("run.escalated"), ...base, from: z.string(), to: z.string(), reason: z.string() }),
   z.object({ kind: z.literal("run.reverted"), ...base, filesRestored: z.array(z.string()) }),
   z.object({
     kind: z.literal("cost.summary"),
@@ -108,6 +110,7 @@ export interface CoreRequests {
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
   "channel.probe": { params: { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean }; result: { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: Record<string, unknown>; error?: string } };
   "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
+  "setup.qualify": { params: { projectId: string; channel: string; model: string }; result: { agent?: { passed: boolean; detail?: string }; function?: { passed: boolean; detail?: string } } };
   "setup.probe.start": { params: { projectId: string; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string }; retry?: boolean }; result: SetupProbeSnapshot };
   "setup.probe.status": { params: { projectId: string }; result: SetupProbeSnapshot };
   "setup.probe.cancel": { params: { projectId: string }; result: SetupProbeSnapshot };
@@ -151,6 +154,7 @@ export const METHODS = [
   "channel.test",
   "channel.probe",
   "setup.recommend",
+  "setup.qualify",
   "setup.probe.start",
   "setup.probe.status",
   "setup.probe.cancel",

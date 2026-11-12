@@ -21,6 +21,7 @@ export type Outbound =
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
   | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
   | { type: "setup.probe.start"; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string } }
+  | { type: "setup.qualify"; channel: string; model: string }
   | { type: "setup.probe.status" }
   | { type: "setup.probe.cancel" }
   | { type: "setup.probe.retry" }
@@ -45,7 +46,8 @@ export interface AgentSummary {
   price?: { inPerMTok: number; outPerMTok: number };
 }
 export interface RoleSummary {
-  id: string; enabled: boolean; agent?: string; skills?: string[];
+  id: string; enabled: boolean; agent?: string; chain?: string[]; skills?: string[];
+  kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number };
   tools?: string[]; writePaths?: string[]; turnBudget?: number | string; prompt?: string;
 }
 export interface SkillSummary {
@@ -97,6 +99,7 @@ export interface SetupProbeItem {
   attempts?: number;
   waitMs?: number;
   durationMs?: number;
+  qualified?: { agent?: boolean; function?: boolean; detail?: string };
 }
 export type SetupProbeCounts = Record<SetupProbeState, number>;
 export interface SetupProbeSnapshot {
@@ -135,7 +138,7 @@ export type Inbound =
   | {
       type: "setup.recommend.result";
       ok: boolean;
-      assignments?: { role: string; channel: string; model: string; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
+      assignments?: { role: string; channel: string; model: string; chain?: { channel: string; model: string }[]; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
       researcher?: { channel: string; model: string };
       unfilled?: { role: string; reason: string }[];
       dropped?: string[];
@@ -148,6 +151,7 @@ export type Inbound =
   | { type: "setup.review.result"; token?: string; error?: string }
   | { type: "setup.approve.result"; ok: boolean; error?: string }
   | { type: "setup.undo.result"; ok: boolean; error?: string }
+  | { type: "setup.qualify.result"; channel: string; model: string; agent?: { passed: boolean; detail?: string }; function?: { passed: boolean; detail?: string }; error?: string }
   | { type: "error"; message: string };
 
 export interface Bridge {

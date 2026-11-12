@@ -79,24 +79,36 @@ export async function recommendAssignments(
   }
 
   const candidates = await buildCandidates(config, channels, opts);
-  const rules = scoreAssignments(config.roles.map((r) => r.id), candidates, opts.context);
+  const rules = scoreAssignments(
+    config.roles.map((r) => r.id),
+    candidates,
+    opts.context,
+    Object.fromEntries(config.roles.map((r) => [r.id, { kind: r.kind, needs: r.needs }])),
+  );
   if (opts.mode === "rules") {
     return { ok: true, assignments: rules.assignments, channels, unfilled: rules.unfilled };
   }
   const researcher = pickResearcher(config, channels, allModels, opts);
   const prompt = buildRecommendPrompt({ config, channels, candidates, rules, context: opts.context });
 
-  const mc = managed.get(researcher.channel)!;
+  const text = await researcherReply(managed, researcher, prompt);
+  if (text === undefined) return { ok: false, error: "researcher failed", channels };
+
+  return parseAndValidate(text, { config, channels, candidates, researcher, unfilled: rules.unfilled });
+}
+
+async function researcherReply(managed: { get(id: string): RecommendChannel | undefined }, researcher: { channel: string; model: string }, prompt: string): Promise<string | undefined> {
+  const mc = managed.get(researcher.channel);
+  if (!mc) return undefined;
   let text = "";
   try {
     for await (const ev of mc.chat({ model: researcher.model, messages: [{ role: "user", content: prompt }], signal: AbortSignal.timeout(60_000) })) {
       if (ev.kind === "text") text += ev.text;
     }
-  } catch (e) {
-    return { ok: false, error: `researcher failed: ${e instanceof Error ? e.message : String(e)}`, channels };
+    return text;
+  } catch {
+    return undefined;
   }
-
-  return parseAndValidate(text, { config, channels, candidates, researcher, unfilled: rules.unfilled });
 }
 
 async function discoverChannels(

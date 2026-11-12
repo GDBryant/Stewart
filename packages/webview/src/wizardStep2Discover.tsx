@@ -8,7 +8,12 @@ import { capBadges, key } from "./wizardShared.js";
 const PROBE_STATE_VIEWS: Record<SetupProbeState, (item: SetupProbeItem, badges: string) => ComponentChildren> = {
   queued: () => <span class="hint">queued</span>,
   running: () => <span class="hint"><Spinner /> probing…</span>,
-  green: (_item, badges) => <span>✓ passed{badges ? ` · ${badges}` : ""}</span>,
+  green: (item, badges) => (
+    <span>
+      ✓ passed{badges ? ` · ${badges}` : ""}
+      {item.qualified ? ` · qual:${item.qualified.agent === true ? "A✓" : item.qualified.agent === false ? "A✗" : ""}${item.qualified.function === true ? " F✓" : item.qualified.function === false ? " F✗" : ""}` : ""}
+    </span>
+  ),
   orange: (item) => <span class="hint">timed out{item.reason ? ` — ${item.reason}` : ""}{(item.attempts ?? 0) > 1 ? ` (try ${item.attempts})` : ""}</span>,
   red: (item) => <span class="fail">✗ {item.reason ?? item.lastReason ?? "failed"}{(item.attempts ?? 0) > 1 ? ` (try ${item.attempts})` : ""}</span>,
   skipped: (item) => <span class="hint">skipped{item.reason ? ` — ${item.reason}` : ""}</span>,

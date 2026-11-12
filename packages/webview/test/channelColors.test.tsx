@@ -153,6 +153,9 @@ describe("channel colour badges", () => {
 
 describe("review step channel colour", () => {
   const reviewProps = (rowFor: (roleId: string) => string) => ({
+    chainFor: () => [] as string[],
+    onChainMove: () => {},
+    onChainRemove: () => { },
     rec: { assignments: [{ role: "general-worker", channel: "c1", model: "m" }], unfilled: [] },
     recommendBusy: false,
     recommendError: undefined,

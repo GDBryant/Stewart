@@ -19,6 +19,9 @@
       "path": "../config"
     },
     {
+      "path": "../engines"
+    },
+    {
       "path": "../kernel"
     },
     {
@@ -26,6 +29,9 @@
     },
     {
       "path": "../roles-skills"
+    },
+    {
+      "path": "../tools"
     }
   ]
 }

@@ -42,10 +42,18 @@ type Snap = {
 
 describe("setup.probe", () => {
   it("probes ollama before openai-compatible, marks red on HTTP error, and recommend uses only green", async () => {
+    const fnReply = ['{"message":{"content":"{\\"sum\\":42,\\"word\\":\\"trawets\\"}"},"done":true}'];
+    const agentReply = ['{"message":{"content":"It printed 3"},"done":true}'];
+    const sseFn = ['data: {"choices":[{"delta":{"content":"{\"sum\":42,\"word\":\"trawets\"}"}}]}', "data: [DONE]"];
+    const sseAgent = ['data: {"choices":[{"delta":{"content":"It printed 3"}}]}', "data: [DONE]"];
     const { core, calls } = mk([
       { body: ollamaOk }, // smoke c1:m1
+      { body: fnReply }, // qualify c1:m1 function
+      { body: agentReply }, // qualify c1:m1 agent
       { status: 500, body: "boom" }, // smoke c1:m2 → red
       { body: sseOk }, // smoke c2:r1
+      { body: sseFn }, // qualify c2:r1 function
+      { body: sseAgent }, // qualify c2:r1 agent
       { body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }, // recommend: c1 listModels
       { body: ['{"data":[{"id":"r1"}]}'] }, // recommend: c2 listModels (rules mode: no chat)
     ]);
@@ -71,7 +79,13 @@ describe("setup.probe", () => {
     ]);
     // smoke calls went to /api/chat (ollama) before /chat/completions (openai)
     const chatCalls = calls.filter((c) => c.url.includes("/api/chat") || c.url.includes("/chat/completions"));
-    expect(chatCalls.map((c) => c.url)).toEqual(["http://oll/api/chat", "http://oll/api/chat", "http://api/chat/completions"]);
+    expect(chatCalls.map((c) => c.url)).toEqual([
+      "http://oll/api/chat", "http://oll/api/chat", "http://oll/api/chat",
+      "http://oll/api/chat",
+      "http://api/chat/completions", "http://api/chat/completions", "http://api/chat/completions",
+    ]);
+    const m1 = snap.items.find((i) => i.model === "m1");
+    expect((m1 as { qualified?: { function?: boolean } }).qualified?.function).toBe(true);
 
     const rec = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as {
       ok: boolean;

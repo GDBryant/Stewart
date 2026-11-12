@@ -1,5 +1,6 @@
 import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
 import { resolveModelProfile } from "@stewart/models";
+import { chainErrors } from "./chain.js";
 
 /** Glob match: `**` crosses directories, `*` and `?` stay within a segment. */
 export function matchGlob(pattern: string, path: string): boolean {
@@ -56,6 +57,7 @@ export function validateRoles(roles: RoleDef[], agents: AgentDef[], channels: Ch
   const enabled = roles.filter((r) => r.enabled);
   for (const r of enabled) {
     errors.push(...roleAgentErrors(r, byId, channels));
+    errors.push(...chainErrors(r, agents, channels));
   }
   return errors;
 }

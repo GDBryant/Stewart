@@ -12,6 +12,13 @@ const modelPerf = z.object({
   benchVersion: z.number().int(),
 });
 
+const qual = z.object({
+  passed: z.boolean(),
+  at: z.number(),
+  version: z.number().int(),
+  detail: z.string().optional(),
+});
+
 const modelCaps = z.object({
   tools: z.enum(["native", "shim", "none"]).optional(),
   vision: z.boolean().optional(),
@@ -20,7 +27,9 @@ const modelCaps = z.object({
   contextTokens: z.number().int().positive().optional(),
   numCtx: z.number().int().positive().optional(),
   perf: modelPerf.optional(),
+  qualified: z.object({ agent: qual.optional(), function: qual.optional() }).optional(),
 });
+export type Qual = z.infer<typeof qual>;
 
 export const channelSchema = z.object({
   id: z.string().min(1),
@@ -52,7 +61,10 @@ export const roleSchema = z.object({
   id: z.string().min(1),
   enabled: z.boolean().default(false),
   prompt: z.string().optional(),
+  kind: z.enum(["agent", "function"]).default("agent"),
   agent: z.string().optional(),
+  chain: z.array(z.string()).optional(),
+  needs: z.object({ vision: z.boolean().optional(), minContext: z.number().int().positive().optional() }).optional(),
   skills: z.array(z.string()).default([]),
   tools: z.array(z.string()).default([]),
   writePaths: z.array(z.string()).default([]),

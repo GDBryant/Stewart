@@ -101,3 +101,23 @@ describe("store helpers", () => {
     expect(isProjectFile("channels.yaml")).toBe(false);
   });
 });
+
+describe("qualification + role chain schema", () => {
+  it("parses modelCaps.qualified and role kind/needs/chain with defaults", () => {
+    const channels = `version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      m:\n        qualified:\n          agent: { passed: true, at: 1, version: 1, detail: ok }\n          function: { passed: false, at: 2, version: 1 }\n`;
+    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    kind: function\n    needs: { vision: true, minContext: 8000 }\n    chain: [a1, a2]\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n  - id: plain\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n`;
+    const c = loadConfig({ "channels.yaml": channels, "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.channels[0].modelCaps.m.qualified).toMatchObject({ agent: { passed: true, detail: "ok" }, function: { passed: false } });
+    expect(c.roles[0]).toMatchObject({ kind: "function", needs: { vision: true, minContext: 8000 }, chain: ["a1", "a2"] });
+    expect(c.roles[1].kind).toBe("agent");
+    expect(c.roles[1].needs).toBeUndefined();
+    expect(c.roles[1].chain).toBeUndefined();
+  });
+
+  it("an agent-only role keeps working with no kind/chain fields", () => {
+    const c = loadConfig({ "roles.yaml": role("lead") }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0].kind).toBe("agent");
+  });
+});

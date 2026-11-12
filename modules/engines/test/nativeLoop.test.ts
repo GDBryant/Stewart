@@ -311,3 +311,72 @@ describe("native-loop parallel calls", () => {
     expect(toolMsgs).toEqual(["a", "b", "c", "d"]);
   });
 });
+
+describe("native-loop loop guard", () => {
+  const failTool: Tool = {
+    spec: { name: "Fail", description: "fails", parameters: { type: "object", properties: { x: { type: "string" } }, additionalProperties: false } },
+    requiresApproval: false,
+    execute: async () => {
+      throw new Error("nope");
+    },
+  };
+
+  it("trips when the same call fails twice in one run", async () => {
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c1")] }],
+      [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c2")] }],
+      [{ kind: "done" }],
+    ]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([failTool]), maxTurns: 8 });
+    const evs = await collect(nativeLoop.run(t));
+    const fin = last(evs);
+    expect(fin).toMatchObject({ kind: "finished", reason: "loop_guard" });
+    expect((fin as { error?: string }).error).toContain("same call failed twice");
+    expect((fin as { error?: string }).error).toContain("Fail");
+  });
+
+  it("does not trip on the same tool with different args, then stops normally", async () => {
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c1")] }],
+      [{ kind: "tool_calls", calls: [call("Fail", { x: "b" }, "c2")] }],
+      [{ kind: "text", text: "done" }, { kind: "done" }],
+    ]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([failTool]), maxTurns: 8 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+  });
+
+  it("trips after 6 consecutive turns where every call fails", async () => {
+    const turns = Array.from({ length: 6 }, (_, i) => [{ kind: "tool_calls" as const, calls: [call("Fail", { x: String(i) }, `c${i}`)] }]);
+    turns.push([{ kind: "done" }]);
+    const ch = fakeChannel(turns);
+    const t = turn({ channel: ch, tools: new ToolRegistry([failTool]), maxTurns: 10 });
+    const evs = await collect(nativeLoop.run(t));
+    const fin = last(evs);
+    expect(fin).toMatchObject({ kind: "finished", reason: "loop_guard" });
+    expect((fin as { error?: string }).error).toContain("6 consecutive");
+  });
+
+  it("resets the failure streak on a successful call", async () => {
+    const okTool: Tool = { ...echoTool };
+    const turns = [
+      ...Array.from({ length: 5 }, (_, i) => [{ kind: "tool_calls" as const, calls: [call("Fail", { x: String(i) }, `f${i}`)] }]),
+      [{ kind: "tool_calls" as const, calls: [call("Echo", { text: "ok" }, "e1")] }],
+      ...Array.from({ length: 5 }, (_, i) => [{ kind: "tool_calls" as const, calls: [call("Fail", { x: `g${i}` }, `g${i}`)] }]),
+      [{ kind: "text" as const, text: "end" }, { kind: "done" as const }],
+    ];
+    const ch = fakeChannel(turns);
+    const t = turn({ channel: ch, tools: new ToolRegistry([failTool, okTool]), maxTurns: 20 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+  });
+
+  it("invalid calls count toward the streak but not the same-call rule", async () => {
+    const turns = Array.from({ length: 6 }, (_, i) => [{ kind: "tool_calls" as const, calls: [call("Nope", { i }, `n${i}`)] }]);
+    turns.push([{ kind: "done" }]);
+    const ch = fakeChannel(turns);
+    const t = turn({ channel: ch, tools: new ToolRegistry([]), maxTurns: 10 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toMatchObject({ kind: "finished", reason: "loop_guard" });
+  });
+});

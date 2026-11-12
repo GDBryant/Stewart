@@ -4,7 +4,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import type { Interaction } from "@stewart/interaction";
 import type { Permissions } from "@stewart/permissions";
 import type { AgentDef } from "@stewart/config";
-import type { EffectiveConfig } from "@stewart/roles-skills";
+import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { ChatHistoryStore } from "./history.js";
 import { costOfCall, RunLedger } from "@stewart/ledger";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
@@ -12,7 +12,9 @@ import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type Engi
 import { runCheck, turnCheck, type CheckInput, type CheckResult } from "@stewart/tasks";
 import { leadAgent, leadRole, systemPrompt } from "./lead.js";
 import { askUserTool, loadSkillTool } from "./sessionTools.js";
+import { questionPrompt } from "@stewart/interaction";
 import { ChildRunner } from "./child.js";
+import { handoverText, type Tried } from "./handover.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -32,7 +34,7 @@ export interface SendRequest {
   images?: string[];
 }
 
-type FinishReason = "stop" | "turn_limit" | "cancelled" | "error" | "";
+type FinishReason = "stop" | "turn_limit" | "cancelled" | "loop_guard" | "error" | "";
 
 interface RunState {
   controller: AbortController;
@@ -42,6 +44,7 @@ interface RunState {
   reason: FinishReason;
   error?: string;
   costCapped: boolean;
+  tried: Tried[];
 }
 
 interface EvCtx {
@@ -68,6 +71,16 @@ function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+function lastUserText(transcript: ChatMessage[]): string {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const m = transcript[i];
+    if (m.role === "user" && typeof m.content === "string") return m.content;
+  }
+  return "";
+}
+
+
+
 /** One session service per project: a chat's full transcript, the lead's turn, and the after-turn check. */
 export class SessionService {
   private ledger?: RunLedger;
@@ -81,7 +94,7 @@ export class SessionService {
   async send(req: SendRequest): Promise<{ runId: string; sessionId: string }> {
     const sessionId = req.sessionId ?? this.deps.ids.next("sess");
     const runId = this.deps.ids.next("run");
-    const rs: RunState = { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false };
+    const rs: RunState = { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false, tried: [] };
     this.active.set(runId, rs);
     const prev = this.chains.get(sessionId) ?? Promise.resolve();
     const next = prev.then(() => this.runTurn(runId, sessionId, req, rs));
@@ -172,13 +185,53 @@ export class SessionService {
   private async drive(w: TurnWork): Promise<void> {
     const config = this.deps.config();
     const lead = leadRole(config);
-    const agent = leadAgent(config, lead);
+    const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
+    const ledger = await this.ledgerFor();
+    if (!chain.length) {
+      w.rs.reason = "error";
+      w.rs.error = "no qualified agent for role lead: run Qualify in settings";
+      return;
+    }
+    const children = this.children(w, config, chain[0], ledger);
+    const base = projectTools(this.deps.host, w.paths).for(lead);
+    const tools = new ToolRegistry([...base.tools, loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool()]);
+    const goal = lastUserText(w.transcript);
+    const env = { lead, tools, ledger, config };
+    let prev: AgentDef | undefined;
+    for (const agent of chain) {
+      if (prev) this.escalate(w, prev, agent, goal);
+      w.rs.reason = "" as FinishReason;
+      w.rs.error = undefined;
+      await this.attempt(w, agent, env);
+      if (await this.attemptDone(w)) return;
+      prev = agent;
+    }
+    await this.retryOrStop(w, prev ?? chain[0], env);
+  }
+
+  private escalate(w: TurnWork, prev: AgentDef, agent: AgentDef, goal: string): void {
+    w.transcript.push({ role: "user", content: handoverText(prev.id, goal, w.rs.tried, w.rs.error ?? "unknown") });
+    const reason = w.rs.reason === "stop" || !w.rs.reason ? "check_failed" : w.rs.reason;
+    this.deps.bus.emit({ kind: "run.escalated", runId: w.runId, roleId: "lead", from: prev.id, to: agent.id, reason });
+  }
+
+  /** true when the chain should stop (cancel, cap, or a passed check); records the failure otherwise. */
+  private async attemptDone(w: TurnWork): Promise<boolean> {
+    if (w.rs.reason === "cancelled" || w.rs.costCapped) return true;
+    if (w.rs.reason !== "stop") {
+      if (!w.rs.error) w.rs.error = w.rs.reason;
+      return false;
+    }
+    const res = await this.attemptCheck(w);
+    if (res.passed) return true;
+    w.rs.error = res.evidence.join("; ");
+    return false;
+  }
+
+  private async attempt(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
+    const { lead, tools, ledger, config } = env;
     const channel = this.deps.channelFor(agent.channel);
     const engine = (this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
-    const base = projectTools(this.deps.host, w.paths).for(lead);
-    const ledger = await this.ledgerFor();
-    const children = this.children(w, config, agent, ledger);
-    const tools = new ToolRegistry([...base.tools, loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool()]);
     const turn: EngineTurn = {
       sessionId: w.sessionId,
       transcript: w.transcript,
@@ -193,7 +246,40 @@ export class SessionService {
       maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
     };
     const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd };
-    for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
+    try {
+      for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
+    } catch (e) {
+      w.rs.reason = "error";
+      w.rs.error = err(e);
+    }
+  }
+
+  private async attemptCheck(w: TurnWork) {
+    const input = this.checkInput(w.transcript, w.rs);
+    return await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
+  }
+
+  private async retryOrStop(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
+    const { lead } = env;
+    const evidence = w.rs.error ?? "failed";
+    const question = `All agents for this task failed. ${evidence}\nReply with guidance to retry once more on ${agent.id}, or stop.`;
+    const o = await this.deps.interaction.ask(questionPrompt("fallback", question, ["Stop"]), { runId: w.runId, roleId: "lead" }, w.rs.controller.signal);
+    if (o.kind === "answered" && o.value !== "Stop") {
+      w.transcript.push({ role: "user", content: o.value });
+      w.rs.reason = "" as FinishReason;
+      w.rs.error = undefined;
+      await this.attempt(w, agent, env);
+      if (w.rs.reason === "cancelled" || w.rs.costCapped) return;
+      if (w.rs.reason === "stop") {
+        const res = await this.attemptCheck(w);
+        if (!res.passed) {
+          w.rs.reason = "error";
+          w.rs.error = res.evidence.join("; ");
+        }
+      }
+      return;
+    }
+    w.rs.error = evidence;
   }
 
   private children(w: TurnWork, config: EffectiveConfig, agent: AgentDef, ledger: RunLedger): ChildRunner {
@@ -225,9 +311,13 @@ export class SessionService {
       case "reasoning":
         return bus.emit({ kind: "reasoning_delta", runId, roleId: "lead", seq: rs.seq++, text: ev.text });
       case "tool.request":
+        rs.tried.push({ name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
         return bus.emit({ kind: "tool.request", runId, roleId: "lead", callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
-      case "tool.outcome":
+      case "tool.outcome": {
+        const t = rs.tried[rs.tried.length - 1];
+        if (t) t.ok = ev.ok;
         return bus.emit({ kind: "tool.outcome", runId, roleId: "lead", callId: ev.callId, ok: ev.ok, summary: ev.summary });
+      }
       case "write":
         return void rs.writes.push(ev.record);
       case "usage":

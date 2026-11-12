@@ -10,10 +10,11 @@ import { projectTools } from "@stewart/tools";
 import type { Engine, EngineEvent, WriteRecord } from "@stewart/engines";
 import { engineFor as defaultEngineFor } from "@stewart/engines";
 import { runCheck, turnCheck, type CheckInput } from "@stewart/tasks";
-import type { EffectiveConfig } from "@stewart/roles-skills";
+import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { aggregate, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthReport } from "@stewart/code-health";
 import { loadSkillTool } from "./sessionTools.js";
 import { systemPrompt } from "./lead.js";
+import { handoverText, type Tried } from "./handover.js";
 
 function lastReply(transcript: ChatMessage[]): string {
   for (let i = transcript.length - 1; i >= 0; i--) {
@@ -51,6 +52,8 @@ interface ChildCtx extends ChildDeps {
   taskId: string;
   agent: AgentDef;
   ledger: RunLedger;
+  tried?: Tried[];
+  fin?: { reason: string; error?: string };
 }
 
 function err(e: unknown): string {
@@ -64,7 +67,7 @@ function capReply(raw: string): string {
 }
 
 /** Deny reason for calls a read-only role must not make, or null. Applies to claude-code children (no tool registry). */
-function readOnlyDeny(role: RoleDef, call: { name: string }, preview: { kind: string; command?: string } | null): string | null {
+function readOnlyDeny(role: RoleDef, preview: { kind: string; command?: string } | null): string | null {
   if (!roleIsReadOnly(role)) return null;
   if (preview?.kind === "file") return `read-only role '${role.id}' cannot edit files`;
   if (preview?.kind === "command" && typeof preview.command === "string") {
@@ -74,7 +77,6 @@ function readOnlyDeny(role: RoleDef, call: { name: string }, preview: { kind: st
       return err(e);
     }
   }
-  void call;
   return null;
 }
 
@@ -95,7 +97,7 @@ export class ChildRunner {
   constructor(private readonly d: ChildDeps) {}
 
   delegateTool(): Tool {
-    const roles = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead").map((r) => r.id);
+    const roles = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead" && roleIsReadOnly(r)).map((r) => r.id);
     return {
       spec: {
         name: "delegate",
@@ -146,14 +148,22 @@ export class ChildRunner {
   private async delegate(args: Json): Promise<string> {
     const roleId = String(args.role ?? "");
     const role = this.d.config().roles.find((r) => r.id === roleId);
-    if (!role || role.id === "lead" || !role.enabled) throw new Error(`unknown delegate role '${roleId}'`);
+    if (!role || role.id === "lead" || !role.enabled || !roleIsReadOnly(role)) throw new Error(`unknown delegate role '${roleId}'`);
     const report = args.report === undefined ? "text" : String(args.report);
-    if (report !== "text" && report !== "health") throw new Error(`unknown report mode '${report}'`);
+    this.checkReport(role, report);
     await this.acquire();
     try {
-      return await this.childTurn(role, String(args.task ?? ""), report);
+      return await this.childTurn(role, String(args.task ?? ""), report as "text" | "health");
     } finally {
       this.release();
+    }
+  }
+
+  private checkReport(role: RoleDef, report: string): void {
+    if (report !== "text" && report !== "health") throw new Error(`unknown report mode '${report}'`);
+    if (report === "health" && !role.skills.includes("code-health")) {
+      const able = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead" && roleIsReadOnly(r) && r.skills.includes("code-health")).map((r) => r.id);
+      throw new Error(`role '${role.id}' cannot report health (no code-health skill); use ${able.length ? able.join(", ") : "no configured role"}`);
     }
   }
 
@@ -165,7 +175,7 @@ export class ChildRunner {
   private childApprove(role: RoleDef): ApproveFn {
     const gate = this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal);
     return async (call, preview, meta) => {
-      const deny = readOnlyDeny(role, call, preview as { kind: string; command?: string } | null);
+      const deny = readOnlyDeny(role, preview as { kind: string; command?: string } | null);
       if (deny) return { kind: "rejected", reason: deny };
       return gate(call, preview, { ...meta, roleId: role.id });
     };
@@ -180,14 +190,19 @@ export class ChildRunner {
       case "reasoning":
         return bus.emit({ kind: "reasoning_delta", ...base, seq: parent.seq++, text: ev.text });
       case "tool.request":
+        c.tried?.push({ name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
         return bus.emit({ kind: "tool.request", ...base, callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
-      case "tool.outcome":
+      case "tool.outcome": {
+        const t = c.tried?.[c.tried.length - 1];
+        if (t) t.ok = ev.ok;
         return bus.emit({ kind: "tool.outcome", ...base, callId: ev.callId, ok: ev.ok, summary: ev.summary });
+      }
       case "write":
         return void writes.push(ev.record);
       case "usage":
         return this.childUsage(ev, c);
       case "finished":
+        c.fin = { reason: ev.reason, error: ev.error };
         return;
     }
   }
@@ -206,26 +221,52 @@ export class ChildRunner {
   private async childTurn(role: RoleDef, task: string, report: "text" | "health"): Promise<string> {
     const { host, bus, ids } = this.d;
     const taskId = ids.next("task");
-    const agent = this.childAgent(role);
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80), dependsOn: [] });
-    bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: agent.id });
-    const outcome = await this.runChild({ role, taskId, agent, task, report });
+    bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role).id });
+    const outcome = await this.runChild({ role, taskId, agent: this.childAgent(role), task, report });
     const reply = capReply(outcome.reply);
     const line = `status: ${outcome.ok ? "done" : "failed"}`;
     return outcome.ok ? `${line}\n${reply}` : `${line}\n${reply}\ncheck: ${outcome.evidence}`;
   }
 
   private async runChild(job: ChildJob): Promise<{ ok: boolean; reply: string; evidence: string }> {
-    const { role, taskId, agent, task, report } = job;
+    const { role, taskId, task } = job;
+    const cfg = this.d.config();
+    const chain = eligibleChain(role, cfg.roles, cfg.agents, cfg.channels);
+    const transcript: ChatMessage[] = [{ role: "user", content: task }];
+    const writes: WriteRecord[] = [];
+    const tried: Tried[] = [];
+    let fin: { reason: string; engineErr?: string } = { reason: "error", engineErr: `no qualified agent for role ${role.id}: run Qualify in settings` };
+    let res: { passed: boolean; evidence: string[] } = { passed: false, evidence: [fin.engineErr!] };
+    let prev: AgentDef | undefined;
+    for (const agent of chain) {
+      const j = { ...job, agent };
+      if (prev) {
+        const reason = fin.engineErr ?? (fin.reason === "stop" ? res.evidence.join("; ") : fin.reason);
+        transcript.push({ role: "user", content: handoverText(prev.id, task, tried, reason) });
+        this.d.bus.emit({ kind: "run.escalated", runId: this.d.runId, taskId, roleId: role.id, from: prev.id, to: agent.id, reason });
+      }
+      fin = await this.attemptChild(j, transcript, writes, tried);
+      if (fin.reason === "cancelled") {
+        res = { passed: false, evidence: ["cancelled"] };
+        break;
+      }
+      if (fin.reason === "stop") {
+        res = await this.childCheck(j, transcript, writes);
+        if (res.passed) break;
+      }
+      prev = agent;
+    }
+    return this.finishChild(job, transcript, { fin, res });
+  }
+
+  private async attemptChild(job: ChildJob, transcript: ChatMessage[], writes: WriteRecord[], tried: Tried[]): Promise<{ reason: string; engineErr?: string }> {
+    const { role, taskId, agent } = job;
     const channel = this.d.channelFor(agent.channel);
     const engine = (this.d.engineFor ?? defaultEngineFor)(channel.cfg.type);
     const base = projectTools(this.d.host, this.d.paths).for(role);
     const tools = new ToolRegistry([...base.tools, loadSkillTool(this.d.config().skills)]);
-    const transcript: ChatMessage[] = [{ role: "user", content: task }];
-    const writes: WriteRecord[] = [];
-    const c: ChildCtx = { ...this.d, role, taskId, agent, ledger: this.d.ledger };
-    let reason = "stop";
-    let engineErr: string | undefined;
+    const c: ChildCtx = { ...this.d, role, taskId, agent, ledger: this.d.ledger, tried };
     const turn = {
       sessionId: `${this.d.sessionId}/${taskId}`,
       transcript,
@@ -241,24 +282,28 @@ export class ChildRunner {
     };
     try {
       for await (const ev of engine.run(turn)) await this.onChildEvent(ev, c, writes);
+      return { reason: c.fin?.reason ?? "stop", engineErr: c.fin?.error };
     } catch (e) {
-      reason = "error";
-      engineErr = err(e);
+      return { reason: "error", engineErr: err(e) };
     }
-    return this.finishChild(job, transcript, writes, { reason, engineErr });
+  }
+
+  private async childCheck(job: ChildJob, transcript: ChatMessage[], writes: WriteRecord[]): Promise<{ passed: boolean; evidence: string[] }> {
+    const { role, report } = job;
+    const reply = lastReply(transcript);
+    const input: CheckInput = { reply, writes, changed: [...new Set(writes.filter((w) => w.ok).map((w) => w.path))] };
+    const check = { ...turnCheck(input), cites: roleIsReadOnly(role), ...(report === "health" ? { schema: "health" as const } : {}) };
+    return await runCheck({ check, input, host: this.d.host, cwd: this.d.paths.base });
   }
 
   private async finishChild(
     job: ChildJob,
     transcript: ChatMessage[],
-    writes: WriteRecord[],
-    fin: { reason: string; engineErr?: string },
+    out: { fin: { reason: string; engineErr?: string }; res: { passed: boolean; evidence: string[] } },
   ): Promise<{ ok: boolean; reply: string; evidence: string }> {
+    const { fin, res } = out;
     const { role, taskId, report } = job;
     const reply = lastReply(transcript);
-    const input: CheckInput = { reply, writes, changed: [...new Set(writes.filter((w) => w.ok).map((w) => w.path))] };
-    const check = { ...turnCheck(input), cites: roleIsReadOnly(role), ...(report === "health" ? { schema: "health" as const } : {}) };
-    const res = await runCheck({ check, input, host: this.d.host, cwd: this.d.paths.base });
     await this.persistChild(taskId, transcript);
     const ok = fin.reason === "stop" && res.passed;
     if (ok && report === "health") this.keepReport(taskId, reply);

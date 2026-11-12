@@ -20,6 +20,7 @@ function useWizardInputs({ store, channels, agents }: SetupWizardProps) {
   const [evaluator, setEvaluator] = useState("");
   const [bench, setBench] = useState(false);
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [chainEdits, setChainEdits] = useState<Record<string, string[]>>({});
   const [source, setSource] = useState<"existing" | "new">(channels.length > 0 ? "existing" : "new");
   const [evalChannel, setEvalChannel] = useState("");
   const channelForm = useWizardChannelForm({ store, channels });
@@ -28,13 +29,22 @@ function useWizardInputs({ store, channels, agents }: SetupWizardProps) {
   useWizardProbes({ store, step, enabled: derived.enabled, tests: derived.tests, probeSig: derived.probeSig, pairs: derived.pairs, evalSel: derived.evalSel });
   return {
     step, setStep, evalMode, setEvalMode, evaluator, setEvaluator, bench, setBench,
-    edits, setEdits, source, setSource, evalChannel, setEvalChannel, ...channelForm, ...prefs, ...derived,
+    edits, setEdits, chainEdits, setChainEdits, source, setSource, evalChannel, setEvalChannel, ...channelForm, ...prefs, ...derived,
   };
 }
 
 type WizardInputs = ReturnType<typeof useWizardInputs>;
 
 /** Recommendation/apply actions built on the inputs. Plain functions, no hooks. */
+function moveRef(cur: string[], ref: string, dir: -1 | 1): string[] {
+  const i = cur.indexOf(ref);
+  const j = i + dir;
+  if (i < 1 || j < 1 || j >= cur.length) return cur;
+  const next = [...cur];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next;
+}
+
 function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, m: WizardInputs) {
   const rec = store.state.recommendation;
   const row = (role: string) => rowRef(rec, m.edits, role);
@@ -43,10 +53,17 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
     store.recommend(recommendArgs({ evalMode: m.evalMode, evaluator: m.evaluator, evalSel: m.evalSel, eligiblePairs: m.eligiblePairs, priorities: m.priorities, typicalWork: m.typicalWork, bench: m.bench }));
     m.setStep(4);
   };
+  const chainFor = (role: string): string[] => {
+    const primary = row(role);
+    const base = m.chainEdits[role] ?? (rec?.assignments.find((a) => a.role === role)?.chain ?? []).map((c) => `${c.channel}:${c.model}`);
+    const rest = base.filter((r) => r && r !== primary);
+    return primary ? [primary, ...rest].slice(0, 3) : rest;
+  };
   const apply = () => {
     if (!rec) return;
     const chosen = roles.map((r) => ({ role: r.id, ref: row(r.id) }));
-    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults });
+    const chains = roles.map((r) => ({ role: r.id, refs: chainFor(r.id) })).filter((c) => c.refs.length > 0);
+    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults, chains });
     store.setupApply({
       "agents.yaml": stringify({ version: 1, items: nextAgents }, null, 2),
       "roles.yaml": stringify({ version: 1, items: nextRoles }, null, 2),
@@ -55,7 +72,10 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
     m.setStep(5);
   };
   const statusChannels = m.source === "existing" ? m.enabled : m.enabled.filter((c) => m.added.has(c.id));
-  return { rec, row, buildProposal, apply, statusChannels };
+  const onChainEdit = (role: string, next: string[]) => m.setChainEdits({ ...m.chainEdits, [role]: next });
+  return { rec, row, buildProposal, apply, statusChannels, chainFor,
+    onChainMove: (role: string, ref: string, dir: -1 | 1) => onChainEdit(role, moveRef(chainFor(role), ref, dir)),
+    onChainRemove: (role: string, ref: string) => onChainEdit(role, chainFor(role).filter((r) => r !== ref)) };
 }
 
 export function useSetupWizardModel(props: SetupWizardProps) {

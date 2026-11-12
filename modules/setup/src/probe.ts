@@ -237,6 +237,18 @@ export class SetupProbeRunner {
     const { state, reason } = this.settle(r, prior);
     this.results.set(k, { ...base, state, reason, waitMs, durationMs: Math.max(0, now() - t0) });
     this.emit();
+    if (state === "green") await this.qualifyGreen(runId, k, c);
+  }
+
+  private async qualifyGreen(runId: number, k: string, c: SmokeCandidate): Promise<void> {
+    if (!this.deps.qualify) return;
+    const q = await this.deps.qualify(c).catch(() => undefined);
+    if (runId !== this.runId) return;
+    const cur = this.results.get(k);
+    if (q && cur?.state === "green") {
+      this.results.set(k, { ...cur, qualified: q });
+      this.emit();
+    }
   }
 
   /** Map an attempt verdict to the stored state; an aborted attempt is reported as skipped. */
