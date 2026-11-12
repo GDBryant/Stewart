@@ -21,6 +21,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 ## References
 
+- New design (proposed): `docs/NEW_DESIGN_2026-11-12.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order.
+
 `docs/building/` — active build/design docs (open or still-referenced):
 - Modular design: `docs/building/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–8 done: function-limit gate built, baseline empty), §11 sketch-vs-build deviations.
 - Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints, function-limit refactor notes (living).
@@ -31,6 +33,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
 - Progress: `docs/ai_docs/PROGRESS.md` — milestone status table; update on every milestone commit.
 - Compatibility: `docs/ai_docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
+- Evals: `docs/ai_docs/EVALS.md` — outcome eval suite (`packages/evals`), how to run, recorded pass rates per build step.
 - Debug logging: `docs/ai_docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
 - Fault recovery: `docs/ai_docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 - Images: `docs/ai_docs/IMAGES.md` — image attachments (paste/drop/picker//image), provider wire formats, vision gate, persistence, known gaps.

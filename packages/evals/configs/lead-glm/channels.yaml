@@ -1,0 +1,10 @@
+version: 1
+items:
+  - id: AI Factory
+    type: openai-compatible
+    name: AI Factory
+    enabled: true
+    baseUrl: https://aifportal-staging-b4c5bcg3c4fjh5aa.southafricanorth-01.azurewebsites.net/api/proxy/v1
+    secretRef: channel-AI Factory
+    discoverModels: true
+    maxParallel: 3

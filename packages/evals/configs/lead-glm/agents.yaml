@@ -1,0 +1,10 @@
+version: 1
+items:
+  - id: AI Factory-glm-5-3-flash
+    channel: AI Factory
+    model: glm-5-3-flash
+    effort: medium
+    billing: priced
+    price:
+      inPerMTok: 0.6
+      outPerMTok: 2.2

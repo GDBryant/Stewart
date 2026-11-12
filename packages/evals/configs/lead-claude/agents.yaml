@@ -1,0 +1,7 @@
+version: 1
+items:
+  - id: Claude-sonnet
+    channel: Claude
+    model: sonnet
+    effort: medium
+    billing: reported

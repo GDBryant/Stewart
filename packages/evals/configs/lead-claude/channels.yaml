@@ -1,0 +1,6 @@
+version: 1
+items:
+  - id: Claude
+    type: claude-cli
+    name: Claude
+    enabled: true

@@ -1,0 +1,6 @@
+version: 1
+items:
+  - id: lead
+    enabled: true
+    agent: Claude-sonnet
+    turnBudget: 40

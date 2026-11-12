@@ -1,0 +1,6 @@
+version: 1
+items:
+  - id: lead
+    enabled: true
+    agent: AI Factory-glm-5-3-flash
+    turnBudget: 40
