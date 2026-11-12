@@ -29,6 +29,7 @@ const fakeHost = (trusted = true): HostPort => ({
     writeAtomic: async () => {},
     appendLine: async () => {},
     readLines: async () => [],
+    delete: async () => {},
   } as unknown as HostPort["files"],
   proc: { run: () => { throw new Error("no proc in test"); } },
   diff: { preview: async () => {} },

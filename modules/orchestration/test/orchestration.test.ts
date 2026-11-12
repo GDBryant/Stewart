@@ -318,14 +318,51 @@ describe("IdempotencyLog", () => {
     expect(b.size).toBe(1);
   });
 
-  it("keys by run, task and call index", async () => {
+  it("keys by run, task, call index, tool and arguments", async () => {
     const { host } = fakeHost();
     const log = new IdempotencyLog(host, "/tmp/st/x.jsonl", "run-9");
     const hooks = log.hooks("task-3");
-    const key = hooks.key({ id: "c1", name: "WriteFile", arguments: {} }, 2);
-    expect(key).toBe("run-9:task-3:2");
+    const call = { id: "c1", name: "WriteFile", arguments: { path: "a.ts", content: "x" } };
+    const key = hooks.key(call, 2);
+    expect(key).toMatch(/^run-9:task-3:2:WriteFile:[0-9a-z]+$/);
+    expect(hooks.key({ ...call, id: "other", arguments: { content: "x", path: "a.ts" } }, 2)).toBe(key);
     await hooks.record(key, "ok");
     expect(hooks.lookup(key)).toBe("ok");
+  });
+
+  it("never replays an outcome for a different tool or different arguments at the same index", async () => {
+    const { host } = fakeHost();
+    const hooks = new IdempotencyLog(host, "/tmp/st/x.jsonl", "run-1").hooks("task-2");
+    const recorded = { id: "c1", name: "FindFiles", arguments: { glob: "**/*", path: "docs" } };
+    await hooks.record(hooks.key(recorded, 0), "docs/a.md");
+    expect(hooks.lookup(hooks.key(recorded, 0))).toBe("docs/a.md");
+    expect(hooks.lookup(hooks.key({ ...recorded, name: "ListCodeFiles" }, 0))).toBeUndefined();
+    expect(hooks.lookup(hooks.key({ ...recorded, arguments: { glob: "**/*", path: "models" } }, 0))).toBeUndefined();
+    expect(hooks.lookup(hooks.key(recorded, 1))).toBeUndefined();
+  });
+
+  it("reset drops in-memory outcomes and deletes the persisted file", async () => {
+    const { host, files } = fakeHost();
+    const path = "/tmp/st/scratch/run-1/executed.jsonl";
+    const old = new IdempotencyLog(host, path, "run-1");
+    await old.record("run-1:t1:0:X:1", "stale");
+    expect(files[path]).toBeDefined();
+    const fresh = new IdempotencyLog(host, path, "run-1");
+    await fresh.load();
+    expect(fresh.size).toBe(1);
+    await fresh.reset();
+    expect(fresh.size).toBe(0);
+    expect(files[path]).toBeUndefined();
+    const again = new IdempotencyLog(host, path, "run-1");
+    await again.load();
+    expect(again.size).toBe(0);
+  });
+
+  it("reset is harmless when no file exists", async () => {
+    const { host } = fakeHost();
+    const log = new IdempotencyLog(host, "/tmp/st/none.jsonl", "run-1");
+    await expect(log.reset()).resolves.toBeUndefined();
+    expect(log.size).toBe(0);
   });
 
   it("a resumed tool loop replays the recorded outcome instead of re-executing", async () => {
@@ -335,8 +372,9 @@ describe("IdempotencyLog", () => {
       n === 1 ? [calls({ id: "c1", name: "WriteFile", arguments: { path: "a.ts", content: "two" } }), done()] : [text("done"), done()],
     );
     const log = new IdempotencyLog(host, "/tmp/st/scratch/run-1/executed.jsonl", "run-1");
-    await log.record("run-1:t1:0", "wrote a.ts (1 lines)");
-    const loop = new ToolLoop(channel, new ToolRegistry(projectTools(host, paths).tools), async () => ({ kind: "approved" }), { clock: systemClock, terminalTools: new Set(), toolsMode: "native", idempotency: log.hooks("t1") });
+    const hooks = log.hooks("t1");
+    await hooks.record(hooks.key({ id: "c1", name: "WriteFile", arguments: { path: "a.ts", content: "two" } }, 0), "wrote a.ts (1 lines)");
+    const loop = new ToolLoop(channel, new ToolRegistry(projectTools(host, paths).tools), async () => ({ kind: "approved" }), { clock: systemClock, terminalTools: new Set(), toolsMode: "native", idempotency: hooks });
     const res = await loop.run("m", [{ role: "user", content: "go" }], {}, new AbortController().signal);
     expect(res.kind).toBe("completed");
     expect(files["a.ts"]).toBe("one");

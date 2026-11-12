@@ -42,6 +42,8 @@ export interface RunStrategy<Req> {
   plan(svc: RunHost, projectId: string, req: Req, ctx: PlanCtx): Promise<RunPlan | Refusal>;
   /** Drives the run on the shared runtime; must not emit run.finished or journal the final state (the pipeline does). */
   execute(c: ExecCtx<Req>): Promise<RunOutcome>;
+  /** True only for `/resume`: replay recorded tool outcomes. Fresh runs start with an empty log (run ids repeat across restarts). */
+  replaysOutcomes?: boolean;
 }
 
 /** The one pipeline: plan → register + run.started → idem + journal + runtime → execute → finish (status, costUsd, journal, saveHistory, run.finished). Exceptions → failed. */
@@ -73,7 +75,8 @@ async function drive<Req>({ svc, strategy, plan, req, ctx }: DriveArgs<Req>): Pr
   const { run } = plan;
   const bus = svc.deps.bus;
   const idem = new IdempotencyLog(svc.deps.host, `${ctx.stateDir}/scratch/${run.id}/executed.jsonl`, run.id);
-  await idem.load();
+  if (strategy.replaysOutcomes) await idem.load();
+  else await idem.reset();
   await svc.journal(run, ctx.stateDir);
   const rt = buildRunRuntime(svc, run, {
     config: plan.config,

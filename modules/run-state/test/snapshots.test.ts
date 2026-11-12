@@ -33,7 +33,7 @@ describe("IdempotencyLog", () => {
     const log = new IdempotencyLog(host, "idem.jsonl", "r1");
     const hooks = log.hooks("t1", 2);
     const key = hooks.key({ id: "c", name: "x", arguments: {} }, 1);
-    expect(key).toBe("r1:t1:3");
+    expect(key).toMatch(/^r1:t1:3:x:[0-9a-z]+$/);
     expect(hooks.lookup(key)).toBeUndefined();
     await hooks.record(key, "done");
     const again = new IdempotencyLog(host, "idem.jsonl", "r1");

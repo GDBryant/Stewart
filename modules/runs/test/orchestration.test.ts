@@ -386,7 +386,10 @@ describe("RunService resume", () => {
         },
       ],
     });
-    fake.files["/tmp/st/scratch/run-crash/executed.jsonl"] = `${JSON.stringify({ key: "run-crash:task-1:0", content: "wrote a.ts (1 lines)" })}\n`;
+    const crashKey = new IdempotencyLog(fake.host, "/unused", "run-crash")
+      .hooks("task-1")
+      .key({ id: "w1", name: "WriteFile", arguments: { path: "a.ts", content: "written-once" } }, 0);
+    fake.files["/tmp/st/scratch/run-crash/executed.jsonl"] = `${JSON.stringify({ key: crashKey, content: "wrote a.ts (1 lines)" })}\n`;
     const events: RunEvent[] = [];
     const bus = new EventBus((e) => events.push(e), 0);
     const manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
@@ -446,5 +449,30 @@ describe("RunService resume", () => {
     expect(fake.files["created.ts"]).toBeUndefined();
     expect(events.some((e) => e.kind === "run.reverted" && e.runId === run.id)).toBe(true);
     expect((await manager.revert("run-missing")).ok).toBe(false);
+  });
+
+  it("a fresh run ignores and clears a stale executed.jsonl left by an earlier run with the same id", async () => {
+    const cfg = config({ roles: { "code-writer": "enabled: true\n    agent: a-free\n    tools: [WriteFile]" } });
+    const { channel } = fakeChannel((role, n) => {
+      if (role === "orchestrator") {
+        return n === 1 ? [calls({ id: "d1", name: "dispatch", arguments: { role: "code-writer", task: "write" } }), done()] : [text("done"), done()];
+      }
+      if (role === "code-writer" && n === 1) return [calls({ id: "w1", name: "WriteFile", arguments: { path: "a.ts", content: "fresh" } }), done()];
+      return [text("ok"), done()];
+    });
+    const fake = fakeHost({ "a.ts": "original" });
+    const stale = new IdempotencyLog(fake.host, "/unused", "run-1");
+    const staleKey = stale.hooks("task-2").key({ id: "w1", name: "WriteFile", arguments: { path: "a.ts", content: "fresh" } }, 0);
+    fake.files["/tmp/st/scratch/run-1/executed.jsonl"] = `${JSON.stringify({ key: staleKey, content: "wrote a.ts (stale)" })}\n`;
+    let manager!: RunService;
+    const bus = new EventBus((e) => {
+      if (e.kind === "approval.request") manager.approve(e.approvalId, "always");
+    }, 0);
+    manager = new RunService({ host: fake.host, clock: systemClock, ids: counterIds(), bus });
+    const run = await manager.orchestrated("p", { config: cfg, channelFor: () => channel, text: "edit" });
+    await vi.waitFor(() => expect(manager.get(run.id)?.status).toBe("done"));
+    expect(run.id).toBe("run-1");
+    expect(fake.files["a.ts"]).toBe("fresh");
+    expect(fake.files["/tmp/st/scratch/run-1/executed.jsonl"]).not.toContain("stale");
   });
 });

@@ -60,12 +60,45 @@ describe("IdempotencyLog edge cases", () => {
     expect(log.size).toBe(2);
   });
 
+  it("fingerprints by tool and arguments (key order, nesting, null and undefined values)", () => {
+    const hooks = new IdempotencyLog(fakeHost().host, "i.jsonl", "r1").hooks("t1");
+    const k = (name: string, args: Record<string, unknown>) => hooks.key({ id: "c", name, arguments: args as never }, 0);
+    expect(k("T", { a: 1, b: { c: [1, 2], d: null } })).toBe(k("T", { b: { d: null, c: [1, 2] }, a: 1 }));
+    expect(k("T", { a: 1 })).not.toBe(k("T", { a: 2 }));
+    expect(k("T", { a: [1, 2] })).not.toBe(k("T", { a: [2, 1] }));
+    expect(k("T", { a: 1 })).not.toBe(k("U", { a: 1 }));
+    expect(k("T", { a: undefined })).toBe(k("T", { a: undefined }));
+  });
+
+  it("reset clears memory and removes the file; a later load sees nothing", async () => {
+    const { host, files } = fakeHost({ "i.jsonl": JSON.stringify({ key: "k", content: "v" }) + "\n" });
+    const log = new IdempotencyLog(host, "i.jsonl", "r1");
+    await log.load();
+    expect(log.size).toBe(1);
+    await log.reset();
+    expect(log.size).toBe(0);
+    expect(files["i.jsonl"]).toBeUndefined();
+    await log.load();
+    expect(log.size).toBe(0);
+  });
+
+  it("reset survives a failing delete and still starts empty", async () => {
+    const { host } = fakeHost();
+    host.files.delete = async () => {
+      throw new Error("denied");
+    };
+    const log = new IdempotencyLog(host, "i.jsonl", "r1");
+    await log.record("k", "v");
+    await expect(log.reset()).resolves.toBeUndefined();
+    expect(log.size).toBe(0);
+  });
+
   it("records and looks up through task hooks", async () => {
     const { host } = fakeHost();
     const log = new IdempotencyLog(host, "i.jsonl", "r1");
     const hooks = log.hooks("t1");
     const key = hooks.key({ id: "c", name: "x", arguments: {} }, 0);
-    expect(key).toBe("r1:t1:0");
+    expect(key).toMatch(/^r1:t1:0:x:[0-9a-z]+$/);
     expect(hooks.lookup(key)).toBeUndefined();
     await hooks.record(key, "done");
     expect(hooks.lookup(key)).toBe("done");

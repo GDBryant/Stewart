@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.adb.stewart"
-version = providers.gradleProperty("version").orNull ?: "2.1.4"
+version = providers.gradleProperty("version").orNull ?: "2.1.5"
 
 repositories {
     mavenCentral()
@@ -46,18 +46,18 @@ sourceSets {
 }
 
 /** Copy the built webview bundle and sidecar into the plugin resources. */
-val syncWebview by tasks.registering(Copy::class) {
+val syncWebview = tasks.register<Copy>("syncWebview") {
     from("packages/webview/dist")
     into(layout.buildDirectory.dir("generated/resources/webview"))
 }
 
-val syncSidecar by tasks.registering(Copy::class) {
+val syncSidecar = tasks.register<Copy>("syncSidecar") {
     from("packages/sidecar/dist") { include("sidecar.cjs") }
     into(layout.buildDirectory.dir("generated/resources/sidecar"))
 }
 
 /** Per-OS bundled Node binaries staged by scripts/bundle-node.mjs into dist/node/<os>-<arch>/. */
-val syncNode by tasks.registering(Copy::class) {
+val syncNode = tasks.register<Copy>("syncNode") {
     from("dist/node")
     into(layout.buildDirectory.dir("generated/resources/node"))
 }

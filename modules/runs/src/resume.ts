@@ -33,6 +33,7 @@ const REPLAY_UNAVAILABLE = "resume unavailable: task graph replay is not impleme
 export function resumeStrategy(runId: string): RunStrategy<ResumeRequest> {
   const state: ResumeState = { interrupted: [], text: "" };
   return {
+    replaysOutcomes: true,
     plan: (svc, projectId, req, ctx) => planResume({ runId, state, svc, projectId, req, ctx }),
     execute: (c) => executeResume(state, c),
   };
