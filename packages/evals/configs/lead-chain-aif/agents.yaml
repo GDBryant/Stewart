@@ -1,0 +1,25 @@
+version: 1
+items:
+- id: local-qwen4b
+  channel: local-ollama
+  model: qwen3.5:4b
+  effort: medium
+  billing: free
+- id: AI Factory-qwen3-8-27b
+  channel: AI Factory
+  model: qwen3-8-27b
+  effort: medium
+  billing: free
+- id: AI Factory-glm-5-3-flash
+  channel: AI Factory
+  model: glm-5-3-flash
+  effort: medium
+  billing: priced
+  price:
+    inPerMTok: 0.6
+    outPerMTok: 2.2
+- id: Claude-sonnet
+  channel: Claude
+  model: sonnet
+  effort: medium
+  billing: reported

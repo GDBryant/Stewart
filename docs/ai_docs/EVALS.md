@@ -17,7 +17,7 @@ cd packages/evals
 node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id] [--parallel n] [--keep never|failed|always]
 ```
 
-`--config` defaults to `~/.config/stewart` (copied per task). Shipped eval configs: `configs/lead-glm` (native-loop, AI Factory glm-5-3-flash), `configs/lead-claude` (claude-code, sonnet). Results: `packages/evals/results/<date>-<label>.json`; failed task workspaces are kept under `/tmp/stewart-eval-*`.
+`--config` defaults to `~/.config/stewart` (copied per task). Shipped eval configs: `configs/lead-glm` (native-loop, AI Factory glm-5-3-flash), `configs/lead-claude` (claude-code, sonnet), `configs/lead-chain-local` (local qwen → sonnet), `configs/lead-chain-aif` (local qwen → AI Factory → sonnet). Results: `packages/evals/results/<date>-<label>.json`; failed task workspaces are kept under `/tmp/stewart-eval-*`.
 
 ## Results
 
@@ -25,7 +25,8 @@ node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id
 |---|---|---|---|---|---|---|---|
 | 2026-11-12 | 0 | baseline | user config, `--disable-lead` (orchestrator path) | 11/15 (73.3%) | 8/15 | $0 | AI Factory returned HTTP 500 on every chat request during the run, so roles bound to it failed. 3 passes ended `no_dispatch`; 2 ended `timeout`; fails: diff summary, rename (broke `strings.js`), function+test (no test), todo CLI |
 | 2026-11-12 | 2 | step2-claude-sonnet | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | lead path, claude-code engine |
-| 2026-11-12 | 1 | step1-glm | `configs/lead-glm` | not run | — | — | blocked: AI Factory `/chat/completions` → HTTP 500 (`/models` works) |
+| 2026-11-12 | 1 | step1-glm | `configs/lead-glm` | 14/15 (93.3%) | 13/15 | $0.33 | e-new-file failed on default-export `greet`; l-todo-cli passed but status disagreed |
+| 2026-11-12 | 1 | step1-glm-newfile-recheck | `configs/lead-glm`, e-new-file only | 1/1 (100%) | 1/1 | $0.02 | after `e-new-file` check accepted default exports |
 | 2026-11-12 | 6 | v3-cutover-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.65 | after deleting the v2 run path |
 | 2026-11-12 | 4 | step4-claude | `configs/lead-claude` | 15/15 (100%) | 15/15 | $1.67 | regression after steps 3–4 |
 | 2026-11-12 | 4 | step4-chain-local | `configs/lead-chain-local` (qwen3.5:4b → sonnet) | 13/15 (86.7%) | 13/15 | $0.36 | 3 escalated to sonnet (rename, function+test, todo CLI), 10 finished on qwen3.5:4b; 2 wrong results reported `done`: CommonJS `greet.js` in an ESM project, folder review answered from diagnostics without citations |

@@ -1,6 +1,38 @@
 version: 1
 items:
-  - id: lead
-    enabled: true
-    agent: AI Factory-glm-5-3-flash
-    turnBudget: 40
+- id: lead
+  enabled: true
+  agent: AI Factory-glm-5-3-flash
+  turnBudget: 40
+  skills:
+  - project-health
+- id: explorer
+  enabled: true
+  agent: AI Factory-glm-5-3-flash
+  skills:
+  - code-search
+  tools:
+  - ReadFile
+  - FindFiles
+  - ListCodeFiles
+  - Search
+  - GetDiff
+  - ReadImage
+  - RunTerminal
+  turnBudget: 25
+- id: reviewer
+  enabled: true
+  agent: AI Factory-glm-5-3-flash
+  skills:
+  - code-review
+  - code-health
+  tools:
+  - ReadFile
+  - FindFiles
+  - ListCodeFiles
+  - Search
+  - GetDiff
+  - GetProblems
+  - CodeMetrics
+  - RunTerminal
+  turnBudget: 30

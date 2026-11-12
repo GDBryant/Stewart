@@ -8,3 +8,24 @@ items:
     secretRef: channel-AI Factory
     discoverModels: true
     maxParallel: 3
+    modelCaps:
+      glm-5-3-flash:
+        qualified:
+          agent:
+            passed: true
+            at: 1794488785446
+            version: 1
+          function:
+            passed: true
+            at: 1794488782101
+            version: 1
+      qwen3-8-27b:
+        qualified:
+          agent:
+            passed: true
+            at: 1794488791677
+            version: 1
+          function:
+            passed: true
+            at: 1794488787049
+            version: 1

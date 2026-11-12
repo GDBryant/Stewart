@@ -151,6 +151,15 @@ describe("tasks", () => {
     expect(v.evidence).toMatch(/README\.md/);
   });
 
+  it("new-file accepts a default export and rejects CommonJS", async () => {
+    const task = TASKS.find((t) => t.id === "e-new-file")!;
+    const repo = await freshRepo();
+    await writeFile(join(repo, "src/greet.js"), "export default function greet(n) {\n  return `Hello, ${n}!`;\n}\n");
+    expect((await task.check(checkCtx(repo, ["done"]))).pass).toBe(true);
+    await writeFile(join(repo, "src/greet.js"), "function greet(n) {\n  return `Hello, ${n}!`;\n}\nmodule.exports = greet;\n");
+    expect((await task.check(checkCtx(repo, ["done"]))).pass).toBe(false);
+  });
+
   it("fix-failing-test fails when the test file is edited", async () => {
     const repo = await freshRepo();
     await writeFile(join(repo, "test/range.test.js"), 'import { test } from "node:test";\ntest("x", () => {});\n');

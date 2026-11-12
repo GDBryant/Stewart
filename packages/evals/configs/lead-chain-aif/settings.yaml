@@ -1,0 +1,6 @@
+version: 1
+costLimit:
+  perRunUsd: 2
+  onLimit: stop
+log:
+  level: "off"

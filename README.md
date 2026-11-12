@@ -142,6 +142,8 @@ JetBrains only:
 ./gradlew runIde        # disposable IDE with the plugin
 ```
 
+JetBrains plugin updates use the baked repository feed `https://gdbryant.github.io/Stewart/updatePlugins.xml`; installed plugins pick it up automatically, no **Manage Plugin Repositories** setup required. To install directly from that repository, add the URL once via Settings → Plugins → gear → **Manage Plugin Repositories** → `+`.
+
 VS Code produces `hosts/vscode/stewart.vsix`; install via `code --install-extension` or the Extensions view. CI (`.github/workflows/ci.yml`) runs build/typecheck/test/coverage plus VSIX and Gradle packaging; releases are tag-driven (`release.yml`).
 
 After changing any sidecar dependency, re-bundle the sidecar before Gradle packaging:

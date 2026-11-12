@@ -1,0 +1,59 @@
+version: 1
+items:
+- id: local-ollama
+  type: ollama
+  name: Local Ollama
+  enabled: true
+  baseUrl: http://localhost:11434
+  modelCaps:
+    qwen3.5:4b:
+      qualified:
+        agent:
+          passed: true
+          at: 1794488785446
+          version: 1
+        function:
+          passed: true
+          at: 1794488785446
+          version: 1
+- id: AI Factory
+  type: openai-compatible
+  name: AI Factory
+  enabled: true
+  baseUrl: https://aifportal-staging-b4c5bcg3c4fjh5aa.southafricanorth-01.azurewebsites.net/api/proxy/v1
+  secretRef: channel-AI Factory
+  discoverModels: true
+  maxParallel: 3
+  modelCaps:
+    glm-5-3-flash:
+      qualified:
+        agent:
+          passed: true
+          at: 1794488785446
+          version: 1
+        function:
+          passed: true
+          at: 1794488785446
+          version: 1
+    qwen3-8-27b:
+      qualified:
+        agent:
+          passed: true
+          at: 1794488785446
+          version: 1
+        function:
+          passed: true
+          at: 1794488785446
+          version: 1
+- id: Claude
+  type: claude-cli
+  name: Claude
+  enabled: true
+  modelCaps:
+    sonnet:
+      qualified:
+        agent:
+          passed: true
+          at: 1794488785446
+          version: 1
+          detail: claude-code engine

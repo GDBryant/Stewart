@@ -124,7 +124,7 @@ export const TASKS: EvalTask[] = [
     kind: "edit",
     turns: ['Create src/greet.js that exports a function greet(name) returning "Hello, <name>!".'],
     check: allOf(
-      nodeEval(importCheck("src/greet.js", 'if (m.greet("Ada") !== "Hello, Ada!") process.exit(1);'), 'greet("Ada") is "Hello, Ada!"'),
+      nodeEval(importCheck("src/greet.js", 'const f = typeof m.greet === "function" ? m.greet : m.default; if (typeof f !== "function" || f("Ada") !== "Hello, Ada!") process.exit(1);'), 'greet("Ada") is "Hello, Ada!"'),
       onlyChanged("src/greet.js"),
     ),
   },
