@@ -37,8 +37,8 @@ function fakeChannel(
 
 const text = (t: string): ChatEvent => ({ kind: "text", text: t });
 const done = (out?: number): ChatEvent => ({ kind: "done", usage: out === undefined ? undefined : { in: 10, out } });
-const pingCall = '<tool_call>{"name":"bench_ping","arguments":{"ok":true}}</tool_call>';
-const editCall = '<tool_call>{"name":"EditFile","arguments":{"path":"notes.txt","old_string":"line3","new_string":"three"}}</tool_call>';
+const pingCall: ChatEvent = { kind: "tool_calls", calls: [{ id: "p1", name: "bench_ping", arguments: { ok: true } }] };
+const editCall: ChatEvent = { kind: "tool_calls", calls: [{ id: "e1", name: "EditFile", arguments: { path: "notes.txt", old_string: "line3", new_string: "three" } }] };
 
 function memStore(): ConfigStore {
   const layer: Record<string, string | undefined> = {};
@@ -87,10 +87,10 @@ describe("channel.probe bench", () => {
   it("runs the bench on request, merges perf into caps and caches it", async () => {
     const { adapter } = fakeChannel([
       [text("hi"), done(8)],
-      [text(pingCall), done()],
-      [text(pingCall), done()],
-      [text(pingCall), done()],
-      [text(editCall), done()],
+      [pingCall, done()],
+      [pingCall, done()],
+      [pingCall, done()],
+      [editCall, done()],
       [text('{"ok": true, "n": 1}'), done()],
     ]);
     const core = benchCore(adapter);

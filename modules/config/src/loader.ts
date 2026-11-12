@@ -2,8 +2,6 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { agentsFile, channelsFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
 
-/** Tools unioned into non-empty shipped role tool lists at load, keyed by role id. */
-export type RequiredRoleTools = Readonly<Record<string, readonly string[]>>;
 
 /** Raw YAML text per file name, per layer. Host supplies reads + writes. */
 export type ConfigLayer = Record<string, string | undefined>;
@@ -71,22 +69,9 @@ function mergeSettingsLayers(docs: (z.infer<typeof settingsFile> | undefined)[])
   };
 }
 
-/**
- * Tools a shipped role must hold to do its job (supplied by plugged-in features): user roles.yaml snapshots
- * taken before a verb/tool shipped lack them, so they are unioned in at load time
- * (non-empty lists only — an empty list means all/default).
- */
-function applyRequiredTools(roles: RoleDef[], requiredByRole: RequiredRoleTools): void {
-  for (const r of roles) {
-    const required = requiredByRole[r.id];
-    if (required && r.tools.length) r.tools = [...new Set([...r.tools, ...required])];
-  }
-}
-
-/** Options for `loadConfig`: trust gate for the project layer and the shipped-role tool union. */
+/** Options for `loadConfig`: trust gate for the project layer. */
 export interface LoadConfigOptions {
   trusted: boolean;
-  requiredRoleTools?: RequiredRoleTools;
 }
 
 /** Records (does not throw) when an untrusted workspace carries project config that is being ignored. */
@@ -105,7 +90,6 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
   const st = loadLayerFile(settingsFile, "settings.yaml", [defaults["settings.yaml"], user["settings.yaml"], proj["settings.yaml"]], errors);
 
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
-  applyRequiredTools(roles, opts.requiredRoleTools ?? {});
 
   return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), errors };
 }

@@ -32,7 +32,6 @@
     "@stewart/permissions": "workspace:*",
     "@stewart/protocol": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
-    "@stewart/run-state": "workspace:*",
     "@stewart/tasks": "workspace:*",
     "@stewart/tools": "workspace:*"
   }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { DEFAULT_SKILLS, EXECUTION_CONTRACT, SIDE_EFFECT_TOOLS, type ShippedSkill } from "./defaults/skills.js";
+import { DEFAULT_SKILLS, type ShippedSkill } from "./defaults/skills.js";
 import { DEFAULT_ROLES_YAML } from "./defaults/roles.js";
 import type { ConfigLayer } from "@stewart/config";
 import type { RoleDef } from "@stewart/config";
@@ -113,39 +113,4 @@ export function shippedSkill(id: string): ShippedSkill | undefined {
 export function baseHashFor(id: string): string | undefined {
   const s = shippedSkill(id);
   return s ? hashBody(s.body) : undefined;
-}
-
-export const CHARS_PER_TOKEN = 4;
-export const TRUNCATED_MARKER = "\n[skill truncated — increase skillBudgetTokens]";
-
-/**
- * Compose the role system prompt: role prompt first, then ticked skills in tick
- * order, bounded by budgetTokens. execution-contract is force-included for any
- * role holding write/command tools and cannot be unticked.
- */
-export function composeRolePrompt(role: RoleDef, skills: ResolvedSkill[], budgetTokens: number): { prompt: string; truncated: boolean } {
-  const byId = new Map(skills.map((s) => [s.id, s]));
-  const ticked = [...role.skills];
-  const hasWrite = role.tools.some((t) => SIDE_EFFECT_TOOLS.has(t));
-  if (hasWrite && !ticked.includes(EXECUTION_CONTRACT)) ticked.push(EXECUTION_CONTRACT);
-  const budget = budgetTokens * CHARS_PER_TOKEN;
-  const parts: string[] = [];
-  if (role.prompt) parts.push(role.prompt.trim());
-  let used = parts.join("\n\n").length;
-  let truncated = false;
-  for (const id of ticked) {
-    const s = byId.get(id);
-    if (!s) continue;
-    const block = `# Skill: ${s.id}\n${s.body}`;
-    if (used + block.length + 2 <= budget) {
-      parts.push(block);
-      used += block.length + 2;
-    } else {
-      const room = budget - used - TRUNCATED_MARKER.length - 2;
-      if (room > 0) parts.push(block.slice(0, room) + TRUNCATED_MARKER);
-      truncated = true;
-      break;
-    }
-  }
-  return { prompt: parts.join("\n\n"), truncated };
 }

@@ -7,10 +7,10 @@ import { OllamaAdapter } from "@stewart/channels";
 import { OpenAICompatAdapter } from "@stewart/channels";
 import { ClaudeCliAdapter } from "@stewart/channels";
 import { loadEffectiveConfig, type EffectiveConfig } from "@stewart/roles-skills";
-import { FEATURE_ROLE_TOOLS, RUN_FEATURES } from "./features.js";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { SelfWriteGuard, type ConfigStore } from "@stewart/config";
-import { RunService } from "@stewart/runs";
+import { Interaction } from "@stewart/interaction";
+import { Permissions } from "@stewart/permissions";
 import { SessionService } from "@stewart/session";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { ChannelDeps } from "@stewart/channels";
@@ -20,7 +20,7 @@ import * as chat from "./handlers/chat.js";
 import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
 import * as setupProbe from "./handlers/setupProbe.js";
-import { createProbeLoop } from "@stewart/agent-loop";
+import { createProbeLoop } from "./probeLoop.js";
 import { applyProbes } from "./handlers/util.js";
 import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
 
@@ -100,21 +100,21 @@ export class Core implements CoreCtx {
     this.userGuard.syncLayer(userLayer);
     const projectGuard = new SelfWriteGuard();
     projectGuard.syncLayer(projectLayer);
-    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, { trusted, requiredRoleTools: FEATURE_ROLE_TOOLS }));
+    const config = applyProbes(this, loadEffectiveConfig(userLayer, projectLayer, this.defaults, { trusted }));
     this.applyDebug(config);
-    const runs = new RunService({ host, clock: this.clock, ids: this.ids, bus: this.bus, features: RUN_FEATURES });
-    runs.historyRetentionDays = config.settings.historyRetentionDays;
+    const interaction = new Interaction({ ids: this.ids, clock: this.clock, bus: this.bus });
+    const permissions = new Permissions(interaction);
     const sessions = new SessionService({
       host,
       bus: this.bus,
       ids: this.ids,
       clock: this.clock,
-      interaction: runs.interaction,
-      permissions: runs.permissions,
+      interaction,
+      permissions,
       channelFor: (id) => this.channelService.require(id),
       config: () => this.ctx(projectId).config,
     });
-    this.projects.set(projectId, { host, config, trusted, runs, sessions, projectStore, projectGuard, userLayer, projectLayer });
+    this.projects.set(projectId, { host, config, trusted, interaction, permissions, sessions, projectStore, projectGuard, userLayer, projectLayer });
     const staleProbe = this.probeRunners.get(projectId);
     if (staleProbe) {
       staleProbe.cancel();
@@ -146,7 +146,7 @@ export class Core implements CoreCtx {
     ctx.projectLayer = nextProj;
     this.userGuard.syncLayer(nextUser);
     ctx.projectGuard.syncLayer(nextProj);
-    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, { trusted: ctx.trusted, requiredRoleTools: FEATURE_ROLE_TOOLS }));
+    const nextConfig = applyProbes(this, loadEffectiveConfig(ctx.userLayer, ctx.projectLayer, this.defaults, { trusted: ctx.trusted }));
     const fatalParse = nextConfig.errors.some((e) => /^(channels|agents|roles|settings)\.yaml:/.test(e));
     if (fatalParse && fromWatcher) {
       ctx.config = { ...ctx.config, errors: nextConfig.errors };
@@ -154,7 +154,6 @@ export class Core implements CoreCtx {
     }
     ctx.config = nextConfig;
     this.applyDebug(nextConfig);
-    ctx.runs.historyRetentionDays = nextConfig.settings.historyRetentionDays;
     await this.rebuildChannels(ctx.config, ctx.host);
     return { config: ctx.config, suppressed: false };
   }
@@ -163,8 +162,6 @@ export class Core implements CoreCtx {
     hello: (p) => setup.handleHello(p),
     "chat.send": (p) => chat.handleChatSend(this, p),
     "chat.cancel": (p) => chat.handleChatCancel(this, p),
-    "chat.resume": (p) => chat.handleChatResume(this, p),
-    "chat.revert": (p) => chat.handleChatRevert(this, p),
     "chat.answer": (p) => chat.handleChatAnswer(this, p),
     "chat.approve": (p) => chat.handleChatApprove(this, p),
     "history.list": (p) => chat.handleHistoryList(this, p),
@@ -173,7 +170,6 @@ export class Core implements CoreCtx {
     "config.get": (p) => cfg.handleConfigGet(this, p),
     "config.reload": (p) => cfg.handleConfigReload(this, p),
     "config.set": (p) => cfg.handleConfigSet(this, p),
-    "config.importV1": (p) => cfg.handleConfigImportV1(this, p),
     "channel.test": (p) => setup.handleChannelTest(this, p),
     "channel.probe": (p) => setup.handleChannelProbe(this, p),
     "setup.recommend": (p) => setup.handleSetupRecommend(this, p),

@@ -118,7 +118,7 @@ describe("Core", () => {
   const defaults = {
     "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
-    "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
+    "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
   };
 
   function mkCore(body: string[]) {
@@ -170,7 +170,16 @@ describe("Core", () => {
   it("cancels a running stream", async () => {
     const ctl = new AbortController();
     const events: RunEvent[] = [];
-    const fetcher = async () => ({ status: 200, headers: {}, body: streamOf(['{"message":{"content":"x"},"done":false}'], 50) });
+    const fetcher = async (_u: string, init: { signal?: AbortSignal }) => ({
+      status: 200,
+      headers: {},
+      body: new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode('{"message":{"content":"x"},"done":false}\n'));
+          init.signal?.addEventListener("abort", () => c.error(new Error("aborted")));
+        },
+      }),
+    });
     const core = new Core({ fetcher, defaults, userConfig: memStore(), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
     await core.attachProject("p", fakeHost());
     const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
@@ -222,16 +231,11 @@ describe("Core", () => {
       expect(events.some((e) => e.kind === "check.result")).toBe(true);
     });
 
-    it("keeps the old path when lead is disabled", async () => {
+    it("rejects chat.send when lead is disabled", async () => {
       const roles = "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
-      const { core, events } = mkLead(['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1,"eval_count":1}'], roles);
+      const { core } = mkLead(['{"done":true}'], roles);
       await core.attachProject("p", fakeHost());
-      const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
-      await vi.waitFor(() => {
-        expect(events.some((e) => e.kind === "run.finished" && e.runId === res.runId)).toBe(true);
-      });
-      expect(events.some((e) => e.kind === "check.result")).toBe(false);
-      expect(events.find((e) => e.kind === "run.finished")).toMatchObject({ status: "done" });
+      await expect(core.dispatch("chat.send", { projectId: "p", text: "yo" })).rejects.toThrow(/lead role is disabled/);
     });
   });
 });

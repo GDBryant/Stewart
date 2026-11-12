@@ -26,12 +26,6 @@
     },
     {
       "path": "../roles-skills"
-    },
-    {
-      "path": "../run-state"
-    },
-    {
-      "path": "../scheduling"
     }
   ]
 }

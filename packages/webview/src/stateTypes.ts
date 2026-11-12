@@ -11,12 +11,6 @@ export interface ChatItem {
   activity: { kind: string; text: string }[];
 }
 
-export interface V1Draft {
-  files: Record<string, string>;
-  warnings: string[];
-  xml?: string;
-}
-
 export const MAX_PENDING_IMAGES = 5;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -39,9 +33,8 @@ export interface TaskRow {
   taskId: string;
   roleId: string;
   title: string;
-  status: "pending" | "running" | "waiting" | "done" | "failed";
+  status: "pending" | "running" | "done" | "failed";
   summary?: string;
-  waitingOn?: string;
   agentId?: string;
   /** Epoch ms when the task last entered running; drives the active-task timer. */
   startedAt?: number;
@@ -58,21 +51,12 @@ export interface CostState {
   suggestions: { role: string; agent: string; reason: string }[];
 }
 
-export interface PlanState {
-  milestoneCount: number;
-  verdict?: "approve" | "revise";
-  reasons: string[];
-  approved: boolean;
-}
-
 export interface State {
   items: ChatItem[];
   tasks: TaskRow[];
   cost?: CostState;
-  plan?: PlanState;
   busyRunId?: string;
   lastRunId?: string;
-  revertedRuns: string[];
   approvals: PendingApproval[];
   questions: PendingQuestion[];
   config?: ConfigReply;
@@ -85,15 +69,10 @@ export interface State {
   historyOpen: boolean;
   pendingImages: string[];
   attachError?: string;
-  v1Draft?: V1Draft;
   /** Host pushed text into the composer (e.g. "Add selection to chat"). */
   composerInsert?: { text: string; seq: number };
   /** Last {type:"error"} message; shown in Settings since it may carry no chat context. */
   lastError?: string;
-  /** User profile override for the next run; "auto" = server-side classifier. */
-  profileChoice: "auto" | "quick" | "normal" | "deep";
-  /** Profile the current/last run used, from run.started. */
-  runProfile?: string;
   recommendBusy?: boolean;
   /** Server-owned setup quick-probe queue snapshot (queued/running/green/orange/red/skipped). */
   smoke?: SetupProbeSnapshot;

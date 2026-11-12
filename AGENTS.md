@@ -14,20 +14,14 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Typecheck: `pnpm -r typecheck`
 - Module boundaries: `pnpm check:layers` (manifest layers, single `.` export, per-module dep-count ratchet `scripts/deps.baseline.json`; `--report` lists counts, `--update` accepts), `pnpm check:boundaries` (file size, all packages: >300 warns, >500 fails; `forbidden` pattern rules, e.g. raw `modelCaps` reads), `pnpm check:cycles` (dependency-cruiser), `pnpm check:tsrefs` (tsconfig references; fix with `node scripts/sync-tsrefs.mjs`), `pnpm check:docs` (ARCHITECTURE_NOW version + module table vs code), `pnpm check:functions` (per-function limits: ≤40 code lines, complexity ≤10, depth ≤3, ≤4 params; baseline `scripts/functions.baseline.json` is empty, any offender fails; `--report` lists worst, `--update` drops fixed entries); all run in CI
 - Coverage: `pnpm test:coverage` (per package ≥90% line, ≥80% branch)
-- pnpm is at `~/.nvm/versions/node/*/bin` (add to PATH); per package alternative: `cd modules/<name>` (or `packages/<name>`) then `./node_modules/.bin/vitest run` (tests), `./node_modules/.bin/tsc -p tsconfig.json --composite false --noEmit` (typecheck), `./node_modules/.bin/tsc -p tsconfig.json` (build). After changing `modules/toolcall-format` (or any sidecar dep), re-bundle + repackage: `cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && ./node_modules/.bin/esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs`, then `./gradlew buildPlugin` → `build/distributions/stewart-X.Y.Z.zip`.
+- pnpm is at `~/.nvm/versions/node/*/bin` (add to PATH); per package alternative: `cd modules/<name>` (or `packages/<name>`) then `./node_modules/.bin/vitest run` (tests), `./node_modules/.bin/tsc -p tsconfig.json --composite false --noEmit` (typecheck), `./node_modules/.bin/tsc -p tsconfig.json` (build). After changing any sidecar dep, re-bundle + repackage: `cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && ./node_modules/.bin/esbuild src/main.ts --bundle --format=cjs --platform=node --outfile=dist/sidecar.cjs`, then `./gradlew buildPlugin` → `build/distributions/stewart-X.Y.Z.zip`.
 - New module: `node scripts/new-module.mjs <name> "<purpose>"`, then add it to `scripts/layers.json` and fill its `README.md`
 - JetBrains: `./gradlew test koverVerify buildPlugin`; JCEF e2e: `./gradlew test -Pe2e` (needs display/xvfb)
 - Build + install: `./scripts/build-install.sh`
 
 ## References
 
-- New design (proposed): `docs/NEW_DESIGN_2026-11-12.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order.
-
-`docs/building/` — active build/design docs (open or still-referenced):
-- Modular design: `docs/building/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–8 done: function-limit gate built, baseline empty), §11 sketch-vs-build deviations.
-- Refactoring: `docs/building/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints, function-limit refactor notes (living).
-- Project health check: `docs/building/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (`ListCodeFiles` inventory, batched `code-health-reviewer` dispatch, `submit_health`/`health_report` verbs, deterministic aggregation) (built; manual smoke runs pending).
-- Architecture refactoring: `docs/building/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder (done), R2 one run pipeline (done), R3 integrated context compaction (partial); steps, tests, done-when.
+- New design (accepted; steps 0–2 and 6 built): `docs/NEW_DESIGN_2026-11-12.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
@@ -35,7 +29,6 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Compatibility: `docs/ai_docs/COMPATIBILITY.md` — platform matrix, pinned tool versions, verifyPlugin result.
 - Evals: `docs/ai_docs/EVALS.md` — outcome eval suite (`packages/evals`), how to run, recorded pass rates per build step.
 - Debug logging: `docs/ai_docs/DEBUG_LOGGING.md` — settings, log format, redaction, retention, provider coverage.
-- Fault recovery: `docs/ai_docs/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 - Images: `docs/ai_docs/IMAGES.md` — image attachments (paste/drop/picker//image), provider wire formats, vision gate, persistence, known gaps.
 - Permissions: `docs/ai_docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
 - Releasing: `docs/ai_docs/RELEASING.md` — VSIX packaging, per-OS bundled-Node zips, CI/release workflows, secrets-gated signing/publishing.
@@ -43,6 +36,11 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Health reports: `docs/health_reports/` — dated repository code-health scores and verification results.
 
 `docs/archived_v2/` — superseded or completed v2-era plans and builds:
+- Modular design: `docs/archived_v2/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–8 done), §11 sketch-vs-build deviations.
+- Refactoring: `docs/archived_v2/REFACTORING.md` — healthy-code refactor targets, strategies, behavior-preservation constraints, function-limit refactor notes.
+- Project health check: `docs/archived_v2/PROJECT_HEALTH_CHECK.md` — orchestrated whole-codebase code-health run (ListCodeFiles inventory, batched reviewer dispatch, submit_health/health_report verbs).
+- Architecture refactoring: `docs/archived_v2/ARCHITECTURE_REFACTORING.md` — R1 model profile + agent-session builder, R2 one run pipeline, R3 integrated context compaction.
+- Fault recovery: `docs/archived_v2/FAULT_RECOVERY.md` — fault kinds, layers 0–2, continue question, scratch dir, settings, limits, log tags.
 - Migration status (done): `docs/archived_v2/MODULAR_MIGRATION_STATUS.md` — verified state and what each §7 step landed; all steps 0–8 complete.
 - §11 build (done): `docs/archived_v2/modular-design-refactor-num11.md` — audit, scoping of the §11 deviations, per-item status and commits.
 - Architecture improvements (done): `docs/archived_v2/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins, `userCaps`/`capsFor` guard, setup-owned channel adds (built; deviations inline).

@@ -275,7 +275,7 @@ describe("recommendAssignments prompt and validation", () => {
     );
     const answer = JSON.stringify({
       assignments: [
-        { role: "image-reader", channel: "c1", model: "m1" },
+        { role: "no-tools-role", channel: "c1", model: "m1" },
         { role: "general-worker", channel: "c1", model: "m1" },
       ],
     });
@@ -283,7 +283,7 @@ describe("recommendAssignments prompt and validation", () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.assignments.map((a) => a.role)).toEqual(["general-worker"]);
-      expect(r.dropped).toContain("image-reader: c1:m1 fails hard requirements");
+      expect(r.dropped[0]).toContain("no-tools-role");
     }
   });
 });

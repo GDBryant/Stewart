@@ -3,7 +3,8 @@ import type { Clock, Fetcher, HostPort, IdGen } from "@stewart/kernel";
 import type { ChannelService, ManagedChannel } from "@stewart/channels";
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ConfigStore, SelfWriteGuard } from "@stewart/config";
-import type { RunService } from "@stewart/runs";
+import type { Interaction } from "@stewart/interaction";
+import type { Permissions } from "@stewart/permissions";
 import type { SessionService } from "@stewart/session";
 import type { ModelCaps, ProbeLoop } from "@stewart/models";
 import type { WorkspaceInfo, SetupProbeRunner } from "@stewart/setup";
@@ -28,8 +29,8 @@ export interface ProjectCtx {
   host: HostPort;
   config: EffectiveConfig;
   trusted: boolean;
-  runs: RunService;
-  /** Lead-path sessions (new design step 1): one SessionService per project, sharing runs' interaction/permissions. */
+  interaction: Interaction;
+  permissions: Permissions;
   sessions: SessionService;
   projectStore: ConfigStore;
   projectGuard: SelfWriteGuard;

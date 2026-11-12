@@ -21,7 +21,6 @@ class WebviewRouter(
     private val send: (JsonObject) -> Unit,
     private val userConfigDir: () -> File,
     private val openInEditor: (File) -> Unit = {},
-    private val pickV1Xml: () -> String? = { null },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val routeLock = Any()
@@ -91,26 +90,6 @@ class WebviewRouter(
                     request("history.delete", withProject(m)).get()
                     val r = request("history.list", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("history.sessions"))))
-                }
-                "config.importV1" -> {
-                    val applied = (m["apply"] as? JsonPrimitive)?.content == "true"
-                    val r = request("config.importV1", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
-                    send(
-                        JsonObject(
-                            r +
-                                ("type" to JsonPrimitive("v1.draft")) +
-                                ("xml" to (m["xml"] ?: JsonPrimitive(""))) +
-                                ("applied" to JsonPrimitive(applied)),
-                        ),
-                    )
-                }
-                "v1.import" -> {
-                    val xml = pickV1Xml() ?: return
-                    val r = request(
-                        "config.importV1",
-                        withProject(buildJsonObject { put("xml", JsonPrimitive(xml)) }),
-                    ).get()?.jsonObject ?: JsonObject(emptyMap())
-                    send(JsonObject(r + ("type" to JsonPrimitive("v1.draft")) + ("xml" to JsonPrimitive(xml))))
                 }
                 "skills.open" -> openSkill(m["id"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("missing skill id"))
                 else -> {

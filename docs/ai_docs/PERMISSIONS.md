@@ -67,4 +67,4 @@ Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `
 
 - `WriteFile` and `EditFile` strictly inside the current run's registered scratch task dir (`.stewart/scratch/<runId>/task-<m>-<t>/`) are auto-approved. Registration lasts from split start until the task finishes.
 - Everything else, including `final_file`, uses normal approval. Bypass and grants apply as usual.
-- Code: `ScratchApprovalGate` in `agents/Scratch.kt`. See `docs/ai_docs/FAULT_RECOVERY.md`.
+- Code: `ScratchApprovalGate` in `agents/Scratch.kt`. See `docs/archived_v2/FAULT_RECOVERY.md`.

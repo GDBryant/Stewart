@@ -7,7 +7,6 @@ describe("loadEffectiveConfig", () => {
   it("adds role-validation errors from the merged layers to the base errors", () => {
     const cfg = loadEffectiveConfig({ "roles.yaml": roles("  - id: general-worker\n    enabled: true\n    agent: nope\n") }, undefined, {}, { trusted: true });
     expect(cfg.errors).toContain("role general-worker: unknown agent 'nope'");
-    expect(cfg.errors).toContain("orchestrator: required when another role is enabled");
   });
 
   it("resolves skills next to the base config and returns the base fields", () => {

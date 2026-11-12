@@ -39,7 +39,7 @@ function mk(userLayer: ConfigLayer = {}, projectLayer: ConfigLayer = {}, default
     defaults: {
       "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: fake\n    enabled: true\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
-      "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n    tools: []\n",
+      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
       ...defaults,
     },
     userConfig: user,
@@ -114,16 +114,6 @@ describe("config handlers", () => {
     await expect(core.dispatch("config.set", { projectId: "p", file: "roles.yaml", yaml: "version: 1\nitems: []\n", layer: "project" })).rejects.toThrow("trusted");
   });
 
-  it("config.importV1 parses and applies on request", async () => {
-    const { core, uLayer } = mk();
-    await attach(core);
-    const xml = '<application><component name="StewartSettings"><option name="ollamaUrl" value="http://x" /><option name="chatModel" value="ollama/llama3" /></component></application>';
-    const dry = (await core.dispatch("config.importV1", { projectId: "p", xml })) as { files: Record<string, string> };
-    expect(Object.keys(dry.files).length).toBeGreaterThanOrEqual(0);
-    const applied = (await core.dispatch("config.importV1", { projectId: "p", xml, apply: true })) as { files: Record<string, string> };
-    expect(Object.keys(uLayer).filter((k) => k.endsWith(".yaml")).length).toBeGreaterThanOrEqual(1);
-  });
-
   it("skills.save/reset and roles.reset/assign round-trip through layers", async () => {
     const { core, uLayer } = mk({ "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n" });
     await attach(core);
@@ -140,30 +130,16 @@ describe("config handlers", () => {
 });
 
 describe("chat handlers", () => {
-  it("chat.send runs a direct session and cancel/answer/approve/report handlers respond", async () => {
+  it("chat.send starts a lead session and cancel/answer/approve/history handlers respond", async () => {
     const { core } = mk();
     await attach(core);
-    const r = (await core.dispatch("chat.send", { projectId: "p", text: "hi", direct: true })) as { runId: string };
+    const r = (await core.dispatch("chat.send", { projectId: "p", text: "hi" })) as { runId: string };
     expect(r.runId).toBeTruthy();
     expect(((await core.dispatch("chat.cancel", { projectId: "p", runId: r.runId })) as { ok: boolean }).ok).toBeDefined();
     expect(((await core.dispatch("chat.answer", { projectId: "p", questionId: "q", answer: "a" })) as { ok: boolean }).ok).toBe(false);
     expect(((await core.dispatch("chat.approve", { projectId: "p", approvalId: "a", grant: "once" })) as { ok: boolean }).ok).toBe(false);
-    expect(((await core.dispatch("history.list", { projectId: "p" })) as { sessions: unknown[] }).sessions).toEqual([]);
     expect(((await core.dispatch("history.load", { projectId: "p", sessionId: "none" })) as { messages: unknown[] }).messages).toEqual([]);
     expect(((await core.dispatch("history.delete", { projectId: "p", sessionId: "none" })) as { ok: boolean }).ok).toBe(true);
-    const rev = (await core.dispatch("chat.revert", { projectId: "p", runId: r.runId })) as { ok: boolean };
-    expect(rev.ok).toBeDefined();
-    const res = (await core.dispatch("chat.resume", { projectId: "p", runId: "nope" })) as { ok: boolean };
-    expect(res.ok).toBe(false);
-  });
-
-  it("chat.send without direct routes through the orchestrator role", async () => {
-    const { core } = mk({}, {}, { "roles.yaml": "version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    agent: a1\n    tools: []\n" });
-    await attach(core);
-    const r = (await core.dispatch("chat.send", { projectId: "p", text: "plan this" })) as { runId: string };
-    expect(r.runId).toBeTruthy();
-    const c = (await core.dispatch("chat.cancel", { projectId: "p", runId: r.runId })) as { ok: boolean };
-    expect(typeof c.ok).toBe("boolean");
   });
 });
 

@@ -15,6 +15,16 @@ v2 rebuild (now developed on `main`), per `docs/archived_v2/ARCHITECTURE.md`. On
 | 8 | Images, memory, editor actions, diagnostics, history, v1 import | Done |
 | 9 | Packaging: VSIX + per-OS JetBrains zips, signing, releases | Done |
 
+## v3 rebuild (`rebuild-v3`, per `docs/NEW_DESIGN_2026-11-12.md`)
+
+| Step | Scope | Status |
+|---|---|---|
+| 0 | Eval suite (`packages/evals`, fixture + code-scored tasks, Node HostPort runner) | Done |
+| 1 | `@stewart/session` + `native-loop` engine + `lead` role + `@stewart/tasks` code-run checks | Done |
+| 2 | `claude-code` engine (Claude Code CLI as supervised full agent) | Done |
+| 6 | Cut-over: old orchestration stack deleted, lead session is the only chat path | Done early |
+| 3–5 | Delegated roles, model chains + escalation, long builds, plan/checkpoint resume | Pending |
+
 ## Notes
 - Debug logging v2 (`settings.log` calls/full): `core/src/debug/` gating + redaction, adapter hooks (Ollama, OpenAI-compatible, Claude CLI), `FileDebugSink` + retention in the sidecar, `log.dir` from JetBrains. Tests: core +19, sidecar +10. See `docs/ai_docs/DEBUG_LOGGING.md`.
 - Conformance fixtures carried from v1 history (`src/test/resources/claude/*`); shim/tool-call formats to be ported from v1 Kotlin tests.

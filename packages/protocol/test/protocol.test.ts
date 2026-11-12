@@ -5,13 +5,13 @@ describe("protocol", () => {
   it("accepts every declared run event kind", () => {
     for (const kind of [
       "run.started", "run.finished", "text_delta", "reasoning_delta", "terminal_output",
-      "task.created", "task.started", "task.blocked", "task.done", "task.failed",
-      "tool.request", "tool.outcome", "ask_user", "question.answered", "approval.request",
-      "milestone.started", "milestone.done", "milestone.failed", "plan.created", "plan.validated", "plan.approved",
-      "review.done", "run.reverted",
-      "cost.limit_reached", "cost.limit_raised", "cost.replaced", "compaction", "check.result",
+      "task.created", "task.started", "task.done", "task.failed",
+      "tool.request", "tool.outcome", "ask_user", "question.withdrawn", "approval.request",
+      "milestone.started", "milestone.done", "milestone.failed",
+      "run.reverted", "cost.summary",
+      "cost.limit_reached", "cost.limit_raised", "check.result",
     ]) {
-      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", answer: "a", answeredBy: "orchestrator", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", dependsOn: [], waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], findings: 0, filesRestored: ["a.ts"], capUsd: 1, accruedUsd: 1, agentId: "a", reason: "r", roleId: "ro", droppedTokens: 0, error: "e", status: "done", question: "q?", options: [], passed: true, evidence: ["e1"] };
+      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", answer: "a", answeredBy: "orchestrator", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", dependsOn: [], waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], findings: 0, filesRestored: ["a.ts"], capUsd: 1, accruedUsd: 1, overshootUsd: 0, byRole: {}, byAgent: {}, parked: [], freeFinished: [], suggestions: [], agentId: "a", reason: "r", roleId: "ro", error: "e", status: "done", question: "q?", options: [], passed: true, evidence: ["e1"] };
       expect(runEventSchema.safeParse(ev).success, kind).toBe(true);
     }
   });
@@ -34,7 +34,9 @@ describe("protocol", () => {
 
   it("declares all RPC methods", () => {
     expect(METHODS).toContain("chat.send");
-    expect(METHODS).toContain("chat.revert");
+    expect(METHODS).toContain("history.list");
+    expect(METHODS).toContain("history.load");
+    expect(METHODS).toContain("history.delete");
     expect(METHODS).toContain("channel.probe");
     expect(METHODS).toContain("setup.probe.start");
     expect(METHODS).toContain("setup.probe.status");
@@ -42,6 +44,6 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.retry");
     expect(METHODS).toContain("setup.session.addChannel");
     expect(METHODS).toContain("setup.session.removeChannel");
-    expect(METHODS.length).toBe(28);
+    expect(METHODS.length).toBe(35);
   });
 });

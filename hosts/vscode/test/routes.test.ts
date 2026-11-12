@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:fs/promises", () => ({ access: vi.fn(), readFile: vi.fn() }));
+vi.mock("node:fs/promises", () => ({ access: vi.fn() }));
 
 import * as fsp from "node:fs/promises";
 import { PROJECT_ID, route } from "../src/routes.js";
 
 const accessMock = vi.mocked(fsp.access);
-const readFileMock = vi.mocked(fsp.readFile);
 
 function setup() {
   const log: string[] = [];
@@ -50,7 +49,6 @@ function setup() {
 
 beforeEach(() => {
   accessMock.mockReset();
-  readFileMock.mockReset();
 });
 
 describe("routes", () => {
@@ -124,39 +122,6 @@ describe("routes", () => {
     expect(s.log).toEqual(["dispatch:history.delete", "dispatch:history.list", "post:history.sessions"]);
     expect(s.dispatchCalls[0]).toEqual({ method: "history.delete", params: { projectId: PROJECT_ID, sessionId: "s1" } });
     expect(s.posted[0]).toEqual({ type: "history.sessions", sessions: [] });
-  });
-
-  it("config.importV1 picks xml/apply and marks applied only for exact true", async () => {
-    const s = setup();
-    s.results.set("config.importV1", { files: { "agents.yaml": "x" }, warnings: ["w"] });
-    await s.run({ type: "config.importV1", xml: "<a/>", apply: "yes", projectId: "spoof" });
-    expect(s.dispatchCalls[0]).toEqual({ method: "config.importV1", params: { projectId: PROJECT_ID, xml: "<a/>", apply: "yes" } });
-    expect(s.posted[0]).toEqual({ type: "v1.draft", files: { "agents.yaml": "x" }, warnings: ["w"], xml: "<a/>", applied: false });
-    const s2 = setup();
-    s2.results.set("config.importV1", { files: {}, warnings: [] });
-    await s2.run({ type: "config.importV1", xml: "<b/>", apply: true });
-    expect(s2.posted[0]).toEqual({ type: "v1.draft", files: {}, warnings: [], xml: "<b/>", applied: true });
-  });
-
-  it("v1.import reads picked file and posts draft without applied", async () => {
-    const s = setup();
-    s.api.window.showOpenDialog.mockResolvedValue([{ fsPath: "/tmp/stewart.xml" }]);
-    readFileMock.mockResolvedValue("<xml/>");
-    s.results.set("config.importV1", { files: { f: "y" }, warnings: ["w1"] });
-    await s.run({ type: "v1.import" });
-    expect(readFileMock).toHaveBeenCalledWith("/tmp/stewart.xml", "utf8");
-    expect(s.dispatchCalls[0]).toEqual({ method: "config.importV1", params: { projectId: PROJECT_ID, xml: "<xml/>" } });
-    expect(s.posted[0]).toEqual({ type: "v1.draft", files: { f: "y" }, warnings: ["w1"], xml: "<xml/>" });
-    expect(s.posted[0]).not.toHaveProperty("applied");
-  });
-
-  it("v1.import dialog cancel dispatches nothing", async () => {
-    const s = setup();
-    s.api.window.showOpenDialog.mockResolvedValue(undefined);
-    await s.run({ type: "v1.import" });
-    expect(s.dispatchCalls).toHaveLength(0);
-    expect(s.posted).toHaveLength(0);
-    expect(readFileMock).not.toHaveBeenCalled();
   });
 
   it("setup.recommend picks fields and posts result", async () => {

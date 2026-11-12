@@ -30,13 +30,10 @@ describe("ToolRegistry.for", () => {
     expect(reg.tools.length).toBe(all.tools.length);
   });
 
-  it("the shipped code-health-reviewer registry exposes CodeMetrics and RunTerminal", async () => {
-    const cfg = loadConfig({}, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: false });
-    const reviewer = cfg.roles.find((r) => r.id === "code-health-reviewer")!;
-    const reg = (await mk()).for(reviewer);
+  it("a read-only role registry exposes the listed tools", async () => {
+    const reg = (await mk()).for(role({ tools: ["CodeMetrics", "RunTerminal", "ReadFile"] }));
     const names = reg.tools.map((t) => t.spec.name);
-    expect(names).toContain("CodeMetrics");
-    expect(names).toContain("RunTerminal");
+    expect(names).toEqual(["ReadFile", "CodeMetrics", "RunTerminal"]);
   });
 
   it("enforces the investigator read-only program allow-list on RunTerminal", async () => {

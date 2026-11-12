@@ -117,3 +117,10 @@ export async function writeTempFile(prefix: string, content: string): Promise<st
 export async function rmDir(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true }).catch(() => {});
 }
+
+export function classify(message: string): string {
+  if (/not logged in|log ?in|authenticat|oauth|unauthori[sz]ed|\b401\b|token.*expired/i.test(message)) return "auth";
+  if (/issue with the selected model/i.test(message)) return "model_unavailable";
+  if (/rate limit|\b429\b|usage limit/i.test(message)) return "rate_limited";
+  return "cli_error";
+}

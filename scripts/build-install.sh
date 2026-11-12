@@ -39,7 +39,7 @@ else
     echo "== tsc -b $d"
     (cd "$d" && ../../node_modules/.bin/tsc -b tsconfig.json)
   done
-  for d in packages/sidecar packages/webview packages/conformance hosts/vscode; do
+  for d in packages/sidecar packages/webview hosts/vscode; do
     [ -f "$d/package.json" ] || continue
     has_build_script "$d" || continue
     echo "== npm run build $d"

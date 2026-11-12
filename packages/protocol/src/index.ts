@@ -57,29 +57,23 @@ const base = { runId: z.string(), taskId: z.string().optional(), roleId: z.strin
 
 export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("run.started"), ...base, title: z.string(), profile: z.string().optional() }),
-  z.object({ kind: z.literal("run.finished"), ...base, status: z.enum(["done", "failed", "cancelled", "stopped", "no_dispatch"]), error: z.string().optional() }),
+  z.object({ kind: z.literal("run.finished"), ...base, status: z.enum(["done", "failed", "cancelled"]), error: z.string().optional() }),
   z.object({ kind: z.literal("text_delta"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("reasoning_delta"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("terminal_output"), ...base, seq: z.number(), text: z.string() }),
   z.object({ kind: z.literal("task.created"), ...base, title: z.string(), dependsOn: z.array(z.string()).default([]) }),
   z.object({ kind: z.literal("task.started"), ...base, agentId: z.string().optional() }),
-  z.object({ kind: z.literal("task.blocked"), ...base, waitingOn: z.string() }),
   z.object({ kind: z.literal("task.done"), ...base, summary: z.string() }),
   z.object({ kind: z.literal("task.failed"), ...base, error: z.string() }),
   z.object({ kind: z.literal("tool.request"), ...base, callId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("tool.outcome"), ...base, callId: z.string(), ok: z.boolean(), summary: z.string() }),
   z.object({ kind: z.literal("check.result"), ...base, passed: z.boolean(), evidence: z.array(z.string()) }),
   z.object({ kind: z.literal("ask_user"), ...base, questionId: z.string(), question: z.string(), options: z.array(z.string()).optional() }),
-  z.object({ kind: z.literal("question.answered"), ...base, questionId: z.string(), answer: z.string(), answeredBy: z.enum(["orchestrator", "user"]) }),
   z.object({ kind: z.literal("question.withdrawn"), ...base, questionId: z.string() }),
   z.object({ kind: z.literal("approval.request"), ...base, approvalId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("milestone.started"), ...base, milestoneId: z.string(), title: z.string() }),
   z.object({ kind: z.literal("milestone.done"), ...base, milestoneId: z.string() }),
   z.object({ kind: z.literal("milestone.failed"), ...base, milestoneId: z.string(), error: z.string() }),
-  z.object({ kind: z.literal("plan.created"), ...base, milestoneCount: z.number() }),
-  z.object({ kind: z.literal("plan.validated"), ...base, verdict: z.enum(["approve", "revise"]), reasons: z.array(z.string()) }),
-  z.object({ kind: z.literal("plan.approved"), ...base, milestoneCount: z.number() }),
-  z.object({ kind: z.literal("review.done"), ...base, findings: z.number() }),
   z.object({ kind: z.literal("run.reverted"), ...base, filesRestored: z.array(z.string()) }),
   z.object({
     kind: z.literal("cost.summary"),
@@ -95,8 +89,6 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("cost.limit_reached"), ...base, capUsd: z.number(), accruedUsd: z.number() }),
   z.object({ kind: z.literal("cost.limit_raised"), ...base, capUsd: z.number() }),
-  z.object({ kind: z.literal("cost.replaced"), ...base, roleId: z.string(), agentId: z.string(), reason: z.string() }),
-  z.object({ kind: z.literal("compaction"), ...base, droppedTokens: z.number(), beforeTokens: z.number().optional(), afterTokens: z.number().optional(), pruned: z.number().optional(), summarized: z.boolean().optional() }),
   z.object({ kind: z.literal("setup.event"), projectId: z.string(), event: z.unknown() }),
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
@@ -107,10 +99,8 @@ export type RunEventKind = RunEvent["kind"];
 /** Host -> core requests (params). Every method carries projectId. */
 export interface CoreRequests {
   hello: { params: Hello; result: HelloResult };
-  "chat.send": { params: { projectId: string; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: string }; result: { runId: string } };
+  "chat.send": { params: { projectId: string; text: string; images?: string[]; sessionId?: string }; result: { runId: string; sessionId: string } };
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
-  "chat.resume": { params: { projectId: string; runId: string }; result: { ok: true } };
-  "chat.revert": { params: { projectId: string; runId: string }; result: { ok: boolean; filesRestored: string[]; reason?: string } };
   "chat.answer": { params: { projectId: string; questionId: string; answer: string }; result: { ok: true } };
   "chat.approve": { params: { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" }; result: { ok: true } };
   "config.get": { params: { projectId: string }; result: { files: Record<string, string | undefined>; summary: unknown; errors: string[]; secrets: Record<string, boolean> } };
@@ -146,14 +136,21 @@ export const METHODS = [
   "hello",
   "chat.send",
   "chat.cancel",
-  "chat.resume",
-  "chat.revert",
   "chat.answer",
   "chat.approve",
+  "history.list",
+  "history.load",
+  "history.delete",
   "config.get",
   "config.set",
+  "config.reload",
+  "skills.save",
+  "skills.reset",
+  "roles.reset",
+  "roles.assignAgent",
   "channel.test",
   "channel.probe",
+  "setup.recommend",
   "setup.probe.start",
   "setup.probe.status",
   "setup.probe.cancel",

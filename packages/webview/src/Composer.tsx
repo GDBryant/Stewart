@@ -113,23 +113,6 @@ function AttachButton({ onFiles }: { onFiles(files: FileList | File[]): void }) 
   );
 }
 
-function ProfileSelect({ choice, onChoose }: { choice: string; onChoose(p: "auto" | "quick" | "normal" | "deep"): void }) {
-  return (
-    <div class="profile-select" role="group" aria-label="budget profile" title="Budget profile">
-      {(["auto", "quick", "normal", "deep"] as const).map((p) => (
-        <button
-          key={p}
-          class={`small profile-opt ${choice === p ? "active" : ""}`}
-          aria-pressed={choice === p}
-          onClick={() => onChoose(p)}
-        >
-          {p}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function Composer({ store }: { store: Store }) {
   const s = store.state;
   const [draft, setDraft] = useState("");
@@ -152,7 +135,6 @@ export function Composer({ store }: { store: Store }) {
       {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
       <ComposerTextarea draft={draft} busy={!!s.busyRunId} onDraft={setDraft} onAttach={attach} onSend={send} />
       <AttachButton onFiles={attach} />
-      <ProfileSelect choice={s.profileChoice} onChoose={(p) => store.setProfileChoice(p)} />
       <ComposerAction busy={!!s.busyRunId} canSend={!!draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
     </div>
   );

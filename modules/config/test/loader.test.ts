@@ -25,42 +25,66 @@ describe("loadConfig", () => {
   });
 });
 
-describe("required role tools union", () => {
-  const REQUIRED = { orchestrator: ["ListCodeFiles", "health_report"], "code-health-reviewer": ["ListCodeFiles", "submit_health", "CodeMetrics", "RunTerminal"] };
-  const shipped = (tools: string) => `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [${tools}]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, submit_health]\n  - id: investigator\n    enabled: true\n    tools: [ReadFile]\n`;
-
-  it("appends required tools to a stale user roles.yaml and leaves other roles untouched", () => {
-    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ask_user, ReadFile, FindFiles]\n  - id: code-health-reviewer\n    enabled: true\n    tools: [ReadFile, Search]\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, { trusted: true, requiredRoleTools: REQUIRED });
-    const o = c.roles.find((r) => r.id === "orchestrator")!;
-    expect(o.tools).toEqual(["dispatch", "ask_user", "ReadFile", "FindFiles", "ListCodeFiles", "health_report"]);
-    const h = c.roles.find((r) => r.id === "code-health-reviewer")!;
-    expect(h.tools).toEqual(["ReadFile", "Search", "ListCodeFiles", "submit_health", "CodeMetrics", "RunTerminal"]);
-    expect(c.roles.find((r) => r.id === "investigator")!.tools).toEqual(["ReadFile"]);
+describe("old v2 yaml still parses", () => {
+  it("settings with removed keys are stripped, not rejected", () => {
+    const old = `version: 1
+maxRunHours: 4
+maxWorkerTurnsCeiling: 60
+budgets: { quick: { turnMultiplier: 0.4 } }
+planGate: true
+compaction: { prune: true }
+leaseWaitSeconds: 300
+maxNestedDispatches: 3
+maxReplans: 2
+askOnTurnLimit: false
+continueQuestionTimeoutMinutes: 5
+maxRecoveryDepth: 2
+maxRecoveriesPerRun: 4
+maxSubTasks: 5
+recoverySummaryChars: 500
+maxActionsInRecoveryBrief: 20
+maxContinuations: 2
+maxContinueQuestionsPerRun: 4
+costLimit: { perRunUsd: 2 }
+skillBudgetTokens: 4000
+historyRetentionDays: 7
+`;
+    const c = loadConfig({ "settings.yaml": old }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.settings.costLimit.perRunUsd).toBe(2);
+    expect(c.settings.skillBudgetTokens).toBe(4000);
+    expect(c.settings.historyRetentionDays).toBe(7);
+    expect("budgets" in c.settings).toBe(false);
   });
 
-  it("adds nothing when no required tools are supplied", () => {
-    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ask_user]\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, { trusted: true });
-    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual(["dispatch", "ask_user"]);
+  it("roles with fallbackAgent and old role ids load as inert profiles", () => {
+    const old = `version: 1
+items:
+  - id: orchestrator
+    enabled: false
+    fallbackAgent: a1
+    tools: [dispatch, ask_user]
+  - id: general-worker
+    enabled: false
+    skills: [orchestrate]
+`;
+    const c = loadConfig({ "roles.yaml": old }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles.map((r) => r.id)).toEqual(["orchestrator", "general-worker"]);
+    expect("fallbackAgent" in c.roles[0]).toBe(false);
   });
 
-  it("does not duplicate tools already present", () => {
-    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: [dispatch, ListCodeFiles, health_report]\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, { trusted: true, requiredRoleTools: REQUIRED });
-    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual(["dispatch", "ListCodeFiles", "health_report"]);
-  });
-
-  it("leaves a role with an empty tools list empty", () => {
-    const user = `version: 1\nitems:\n  - id: orchestrator\n    enabled: true\n    tools: []\n`;
-    const c = loadConfig({ "roles.yaml": user }, undefined, { "roles.yaml": shipped("dispatch") }, { trusted: true, requiredRoleTools: REQUIRED });
-    expect(c.roles.find((r) => r.id === "orchestrator")!.tools).toEqual([]);
-  });
-
-  it("does not add the shipped ids when absent from all layers", () => {
-    const c = loadConfig({ "roles.yaml": "version: 1\nitems:\n  - id: custom\n    enabled: true\n    tools: [ReadFile, ListCodeFiles, submit_health]\n" }, undefined, {}, { trusted: true, requiredRoleTools: REQUIRED });
-    expect(c.roles).toHaveLength(1);
-    expect(c.roles[0].tools).toEqual(["ReadFile", "ListCodeFiles", "submit_health"]);
+  it("agents with a budget block still parse", () => {
+    const old = `version: 1
+items:
+  - id: a1
+    channel: c
+    model: m
+    budget: { turnFactor: 2 }
+`;
+    const c = loadConfig({ "agents.yaml": old }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.agents[0].id).toBe("a1");
   });
 });
 

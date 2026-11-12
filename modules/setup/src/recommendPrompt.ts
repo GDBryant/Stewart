@@ -69,7 +69,7 @@ export function buildRecommendPrompt(input: RecommendPromptInput): string {
     rules.assignments.map((a) => `- ${a.role}: ${a.channel}:${a.model}`).join("\n") || "(none)",
     "",
     "Choose the best model for each role. Every role must appear; channel and model must come from the candidates above.",
-    "Prefer reasoning models for orchestrator, planner, plan-validator, code-reviewer and code-health-reviewer; vision-capable models for image-reader; imageGen for image-writer; strong tool-use coding models for code-writer, general-worker and tester; cheaper fast models are acceptable for document-writer.",
+    "Prefer strong tool-use coding models with good reasoning for the lead role.",
   ].join("\n");
 }
 

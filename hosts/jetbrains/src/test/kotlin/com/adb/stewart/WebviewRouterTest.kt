@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit
 
 class WebviewRouterTest {
     private class Rig(
-        pickV1Xml: () -> String? = { null },
         responder: (String, JsonObject?) -> kotlinx.serialization.json.JsonElement? = { _, _ -> JsonObject(emptyMap()) },
     ) {
         val sent = LinkedBlockingQueue<JsonObject>()
@@ -34,7 +33,6 @@ class WebviewRouterTest {
             send = { sent.add(it) },
             userConfigDir = { configDir },
             openInEditor = { opened.add(it) },
-            pickV1Xml = pickV1Xml,
         )
     }
 
@@ -278,10 +276,10 @@ class WebviewRouterTest {
     @Test
     fun `all remaining message types forward with project id`() {
         val rig = Rig()
-        for (t in listOf("chat.resume", "chat.revert", "chat.answer", "secret.set", "secret.delete", "skills.save", "skills.reset", "roles.reset", "roles.assignAgent")) {
+        for (t in listOf("chat.answer", "secret.set", "secret.delete", "skills.save", "skills.reset", "roles.reset", "roles.assignAgent")) {
             rig.router.route("""{"type":"$t","x":1}""")
         }
-        assertEquals(9, rig.calls.size)
+        assertEquals(7, rig.calls.size)
         rig.calls.forEachIndexed { i, (m, p) ->
             assertEquals(p!!["projectId"]!!.jsonPrimitive.content, "p1")
             assertEquals(1, p["x"]!!.jsonPrimitive.content.toInt())
@@ -289,12 +287,12 @@ class WebviewRouterTest {
     }
 
     @Test
-    fun `chat send with images and direct`() {
+    fun `chat send forwards text images and session id`() {
         val rig = Rig()
-        rig.router.route("""{"type":"chat.send","text":"hi","images":["d1"],"direct":true}""")
+        rig.router.route("""{"type":"chat.send","text":"hi","images":["d1"],"sessionId":"s1"}""")
         val p = rig.calls[0].second!!
         assertTrue(p.containsKey("images"))
-        assertTrue(p.containsKey("direct"))
+        assertTrue(p.containsKey("sessionId"))
     }
 
     @Test
@@ -423,39 +421,6 @@ class WebviewRouterTest {
     }
 
     @Test
-    fun `config importV1 apply reply carries applied flag and xml`() {
-        val rig = Rig { m, _ ->
-            if (m == "config.importV1") Json.parseToJsonElement("""{"files":{"channels.yaml":"v:1"},"warnings":[]}""")
-            else JsonObject(emptyMap())
-        }
-        rig.router.route("""{"type":"config.importV1","xml":"<x/>","apply":true}""")
-        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
-        assertEquals("v1.draft", m.type())
-        assertEquals("true", m["applied"]!!.jsonPrimitive.content)
-        assertEquals("<x/>", m["xml"]!!.jsonPrimitive.content)
-        assertEquals("<x/>", rig.calls[0].second!!["xml"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `v1 import picks xml and replies draft`() {
-        val rig = Rig(pickV1Xml = { "<v1/>" }) { _, _ -> Json.parseToJsonElement("""{"files":{},"warnings":[]}""") }
-        rig.router.route("""{"type":"v1.import"}""")
-        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
-        assertEquals("v1.draft", m.type())
-        assertEquals("<v1/>", m["xml"]!!.jsonPrimitive.content)
-        assertEquals("config.importV1", rig.calls[0].first)
-        assertEquals("<v1/>", rig.calls[0].second!!["xml"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `v1 import does nothing when the picker is cancelled`() {
-        val rig = Rig()
-        rig.router.route("""{"type":"v1.import"}""")
-        assertTrue(rig.calls.isEmpty())
-        assertTrue(rig.sent.isEmpty())
-    }
-
-    @Test
     fun `shaped replies tolerate a null core response`() {
         val rig = Rig { _, _ -> null }
         rig.router.route("""{"type":"config.get"}""")
@@ -472,26 +437,10 @@ class WebviewRouterTest {
         assertEquals("s", lm["sessionId"]!!.jsonPrimitive.content)
         rig.router.route("""{"type":"history.delete","sessionId":"s"}""")
         assertEquals("history.sessions", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
-        rig.router.route("""{"type":"config.importV1","xml":"<x/>"}""")
-        val d = rig.sent.poll(2, TimeUnit.SECONDS)!!
-        assertEquals("v1.draft", d.type())
-        assertEquals("false", d["applied"]!!.jsonPrimitive.content)
         rig.router.route("""{"type":"config.set","file":"f.yaml","yaml":"v: 1"}""")
         assertEquals("config", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
         rig.router.route("""{"type":"setup.recommend"}""")
         assertEquals("setup.recommend.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
-    }
-
-    @Test
-    fun `config importV1 without xml key sends empty xml`() {
-        val rig = Rig { m, _ ->
-            if (m == "config.importV1") Json.parseToJsonElement("""{"files":{},"warnings":[]}""")
-            else JsonObject(emptyMap())
-        }
-        rig.router.route("""{"type":"config.importV1"}""")
-        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
-        assertEquals("v1.draft", m.type())
-        assertEquals("", m["xml"]!!.jsonPrimitive.content)
     }
 
     @Test

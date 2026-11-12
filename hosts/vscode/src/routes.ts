@@ -50,28 +50,6 @@ const ROUTES: Record<string, Handler> = {
     await ctx.core.dispatch("history.delete", { projectId: PROJECT_ID, sessionId: m.sessionId });
     await dispatchAndReply(ctx, "history.list", { projectId: PROJECT_ID }, { type: "history.sessions" });
   },
-  "config.importV1": async (ctx, m) => {
-    const r = (await ctx.core.dispatch("config.importV1", { projectId: PROJECT_ID, xml: m.xml, apply: m.apply })) as {
-      files: Record<string, string>;
-      warnings: string[];
-    };
-    await ctx.panel.webview.postMessage({ type: "v1.draft", files: r.files, warnings: r.warnings, xml: m.xml, applied: m.apply === true });
-  },
-  "v1.import": async (ctx) => {
-    const picked = await ctx.api.window.showOpenDialog({
-      canSelectFiles: true,
-      canSelectMany: false,
-      filters: { "IntelliJ settings": ["xml"] },
-      title: "Pick stewart.xml",
-    });
-    if (!picked?.length) return;
-    const xml = await fs.readFile(picked[0].fsPath, "utf8");
-    const r = (await ctx.core.dispatch("config.importV1", { projectId: PROJECT_ID, xml })) as {
-      files: Record<string, string>;
-      warnings: string[];
-    };
-    await ctx.panel.webview.postMessage({ type: "v1.draft", files: r.files, warnings: r.warnings, xml });
-  },
   "setup.recommend": (ctx, m) =>
     dispatchAndReply(
       ctx,

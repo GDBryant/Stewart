@@ -53,19 +53,7 @@ interface Profile {
 }
 
 export const ROLE_PROFILES: Record<string, Profile> = {
-  orchestrator: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
-  planner: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
-  "plan-validator": { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [1, 4], costSensitivity: "low" },
-  investigator: { needs: { tools: true }, minCtx: 16384, latency: "interactive", typicalTurns: [5, 20], costSensitivity: "high", parallelism: "high" },
-  architect: { needs: { tools: true }, minCtx: 16384, minSizeB: 8, wantsReasoning: true, latency: "batch", typicalTurns: [3, 8], costSensitivity: "low" },
-  "general-worker": { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
-  "code-writer": { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
-  "code-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true, latency: "batch", typicalTurns: [5, 15], costSensitivity: "medium" },
-  "code-health-reviewer": { needs: { tools: true }, minCtx: 16384, wantsReasoning: true, latency: "batch", typicalTurns: [5, 15], costSensitivity: "medium" },
-  tester: { needs: { tools: true }, minCtx: 16384, wantsCoder: true, latency: "batch", typicalTurns: [10, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
-  "document-writer": { cheap: true, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "high" },
-  "image-reader": { needs: { vision: true }, latency: "interactive", typicalTurns: [1, 5], costSensitivity: "medium" },
-  "image-writer": { needs: { imageGen: true }, latency: "interactive", typicalTurns: [1, 3], costSensitivity: "medium" },
+  lead: { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, wantsReasoning: true, latency: "interactive", typicalTurns: [5, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" },
 };
 
 const DEFAULT_PROFILE: Profile = { needs: { tools: true }, latency: "interactive", typicalTurns: [1, 10], costSensitivity: "medium" };

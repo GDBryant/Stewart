@@ -2,7 +2,7 @@
 
 **A cross-IDE AI coding assistant — a shared TypeScript core with VS Code and JetBrains hosts, talking to Ollama, OpenAI-compatible providers (including AI Factory), or the Claude Code CLI.**
 
-Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. It can read, search and edit project files, run shell commands, attach images, and orchestrate multi-role work — with configurable channels, agents, roles and skills. File edits and commands require approval unless covered by a grant.
+Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. One lead agent per chat session reads, searches and edits project files, runs shell commands and attaches images — with configurable channels, agents, roles and skills. File edits and commands require approval unless covered by a grant.
 
 [![CI](https://github.com/GDBryant/Stewart/actions/workflows/ci.yml/badge.svg)](https://github.com/GDBryant/Stewart/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-JetBrains%202026.1%2B%20%C2%B7%20VS%20Code-blue)
@@ -20,12 +20,9 @@ Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. It can
   - **Claude CLI** — enterprise SSO via the `claude` binary; no API key stored in the IDE.
 - Multiple **agents** bind a channel+model pair with price/billing and capability metadata; the model picker shows tested/green candidates.
 
-### Run modes
+### Run mode
 
-- **Direct** — a single agent loop on your message (default for ordinary chat).
-- **Orchestrated** — an Orchestrator role dispatches tasks to worker roles on a task graph, with leases, a ledger, cost caps, plan gates and nested `ask_user`.
-- **Resume** — interrupted runs replay from a durable journal (`run.json`), skipping already-executed tool calls.
-- Prefixes: `/direct`, `/quick`, `/deep` select mode/budget profile per message.
+- **Lead session** — one lead agent runs your message end to end in a persisted session: the `native-loop` engine (native tool calling) for ordinary channels, the `claude-code` engine (the Claude Code CLI as a supervised full agent in the project root) for `claude-cli` channels. Each turn ends with a code-run check (`@stewart/tasks`: failed writes, required files, exit code, empty reply) and the result is reported with the run.
 
 ### Tools
 
@@ -37,17 +34,16 @@ Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. It can
 | `RunTerminal` | Shell commands in the project | gated |
 | `GenerateImage` | Image generation where the channel supports it | gated |
 
-File tools are confined to project roots (symlinks resolved); role `writePaths` further restrict writes. Native tool calls are the default; a text `<tool_call>` shim parser remains as a fallback for providers that cannot emit native calls.
+File tools are confined to project roots (symlinks resolved); role `writePaths` further restrict writes. Tool calls are always native — there is no text shim.
 
 ### Approvals and permissions
 
 Approval prompts offer three scopes: **once**, **this chat** (run grant), **always** (session grant). Command grants can be scoped to parsed program names; unparseable commands cannot receive program grants and always prompt unless a category-wide grant is active. Grants live in memory per run/session — they are not persisted to the repository.
 
-### Recovery, budgets and compaction
+### Checks and cost
 
-- **Fault recovery**: classified faults (truncated stream, turn limit, incomplete stream) trigger layer-0 retries, a continue question, or layer-1 task splitting with scratch state.
-- **Budgets**: `quick`/`normal`/`deep` profiles scale turn budgets, timeouts and compaction thresholds by model speed/cost; per-run cost caps park paid work while free agents continue.
-- **Compaction**: automatic context management — stale tool-result pruning and middle-message summarization via a `compactor` role, with thresholds from the budget profile.
+- **Checks**: every turn carries a check code can run — failed writes, files that must exist, an optional command, a non-empty reply. `run.finished` reports `done` only when the check passed.
+- **Cost**: usage meters into a per-project ledger; `costLimit.perRunUsd` aborts a turn past the cap.
 
 ### Setup wizard, health check, observability
 
@@ -72,27 +68,25 @@ Shared config lives in one directory for every IDE and project (`$STEWART_CONFIG
   skills/         SKILL.md skill bodies (shipped < user < project merge)
 ```
 
-Per-project overrides: `.stewart/roles.yaml`, `.stewart/skills/`, `.stewart/scratch/` (trusted workspaces). Secrets are referenced by `secretRef` and stored in the IDE secret store — never in YAML. Legacy v1 `stewart.xml` config can be imported via the webview.
+Per-project overrides: `.stewart/roles.yaml`, `.stewart/skills/` (trusted workspaces). Secrets are referenced by `secretRef` and stored in the IDE secret store — never in YAML.
 
 ## Repository layout
 
 ```
 packages/
   protocol/    JSON-RPC types + capability negotiation
-  core/        all logic; no host imports (handlers/, channels wiring, runs)
+  core/        all logic; no host imports (handlers/, channels wiring, sessions)
   sidecar/     Node stdio JSON-RPC server for the JetBrains host
   webview/     Preact chat + settings + setup wizard (one bundle, both hosts)
-  conformance/ golden fixtures replayed through parsers
-modules/       23 @stewart/* packages in layers: kernel (ports/types), config,
-               channels, tools, agent-loop, orchestration, recovery, runs,
-               run-state, scheduling, permissions, roles-skills, context,
-               compaction, budget, models, ledger, interaction, diagnostics,
-               catalog, code-health, setup, toolcall-format
+modules/       17 @stewart/* packages in layers: kernel (ports/types), config,
+               channels, tools, engines, session, tasks, permissions,
+               roles-skills, context, models, ledger, interaction,
+               diagnostics, catalog, code-health, setup
 hosts/
   vscode/      VS Code extension (extension.ts, webview host, routes)
   jetbrains/   IntelliJ platform plugin (Kotlin): tool window, JCEF webview,
                HostPort impls, sidecar supervisor
-docs/          ai_docs/ (living), building/ (plans), health_reports/, archived_*/
+docs/          ai_docs/ (living), health_reports/, archived_*/
 scripts/       build-install.sh, ollama-local.sh, checks (layers/boundaries/cycles/tsrefs), tests
 ```
 
@@ -150,7 +144,7 @@ JetBrains only:
 
 VS Code produces `hosts/vscode/stewart.vsix`; install via `code --install-extension` or the Extensions view. CI (`.github/workflows/ci.yml`) runs build/typecheck/test/coverage plus VSIX and Gradle packaging; releases are tag-driven (`release.yml`).
 
-After changing `modules/toolcall-format` (or any sidecar dep), re-bundle the sidecar before Gradle packaging:
+After changing any sidecar dependency, re-bundle the sidecar before Gradle packaging:
 
 ```bash
 cd packages/sidecar && ./node_modules/.bin/tsc -p tsconfig.json && \
@@ -202,11 +196,9 @@ Latest report: [`docs/health_reports/2026-11-09-code-health.md`](docs/health_rep
 | [`docs/ai_docs/SETUP.md`](docs/ai_docs/SETUP.md) | Setup wizard steps, probe queue, assignment |
 | [`docs/ai_docs/PERMISSIONS.md`](docs/ai_docs/PERMISSIONS.md) | Approval categories, grants, shell parsing, storage |
 | [`docs/ai_docs/IMAGES.md`](docs/ai_docs/IMAGES.md) | Image attachments, provider wire formats, vision gating |
-| [`docs/ai_docs/FAULT_RECOVERY.md`](docs/ai_docs/FAULT_RECOVERY.md) | Fault kinds, recovery layers, continue question |
 | [`docs/ai_docs/DEBUG_LOGGING.md`](docs/ai_docs/DEBUG_LOGGING.md) | Log format, redaction, retention |
 | [`docs/ai_docs/COMPATIBILITY.md`](docs/ai_docs/COMPATIBILITY.md) | Verified IDEs, pinned toolchain |
 | [`docs/ai_docs/RELEASING.md`](docs/ai_docs/RELEASING.md) | VSIX/zip packaging, signing, release workflows |
-| [`docs/building/`](docs/building/) | Design and migration plans (MODULAR_DESIGN, REFACTORING, health check) |
 | [`docs/health_reports/`](docs/health_reports/) | Dated code-health reports |
 | `docs/archived_v1/`, `docs/archived_v2/` | Superseded plans, kept for history |
 

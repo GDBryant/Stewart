@@ -42,15 +42,3 @@ export async function catalogFor(core: CoreCtx, ch: ManagedChannel, model: strin
   const info = lookupModelInfo(ch.cfg.type, model);
   return info ? { ...info, source: `catalog ${CATALOG_UPDATED}` } : undefined;
 }
-
-export function pickChatAgent(config: EffectiveConfig, role?: EffectiveConfig["roles"][number]): EffectiveConfig["agents"][number] {
-  if (role) {
-    if (!role.agent) throw new Error(`role ${role.id}: enabled but no agent bound`);
-    const bound = config.agents.find((a) => a.id === role.agent);
-    if (!bound) throw new Error(`role ${role.id}: unknown agent '${role.agent}'`);
-    return bound;
-  }
-  const agent = config.agents[0];
-  if (!agent) throw new Error("no agent configured — run setup to add a channel and agent");
-  return agent;
-}

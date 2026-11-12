@@ -37,17 +37,6 @@ describe("webview chat", () => {
     expect(store.state.busyRunId).toBeUndefined();
   });
 
-  it("records compaction savings as an activity line", () => {
-    const { bridge, store } = mk();
-    act(() => {
-      bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("compaction", { droppedTokens: 300, pruned: 2, summarized: true }));
-      bridge.inbound(ev("compaction", { droppedTokens: 10 }));
-    });
-    const texts = JSON.stringify(store.state);
-    expect(texts).toContain("context compacted: -300 tokens, 2 pruned, summarized");
-    expect(texts).toContain("context compacted: -10 tokens\"");
-  });
 
   it("renders check.result: pass as activity, fail as a visible line", () => {
     const { bridge, store } = mk();
@@ -108,7 +97,6 @@ describe("webview chat", () => {
     expect(screen.getByText("pending")).toBeTruthy();
     act(() => {
       bridge.inbound(ev("task.done", { taskId: "t1", roleId: "code-writer", summary: "wrote it" }));
-      bridge.inbound(ev("task.blocked", { taskId: "t2", roleId: "tester", waitingOn: "t1" }));
       bridge.inbound(ev("task.failed", { taskId: "t2", roleId: "tester", error: "tests failed" }));
     });
     expect(screen.getByText("done")).toBeTruthy();
@@ -140,31 +128,14 @@ describe("webview chat", () => {
     }
   });
 
-  it("hides the task rows for a single direct task but keeps them for orchestrated runs", () => {
+  it("renders task rows for delegated tasks", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("task.created", { taskId: "direct", roleId: "chat", title: "only-direct-title", dependsOn: [] }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "general-worker", title: "second-task", dependsOn: [] }));
     });
-    expect(screen.queryByText("only-direct-title")).toBeNull();
-    expect(screen.queryByText("Tasks")).toBeNull();
-    act(() => bridge.inbound(ev("task.created", { taskId: "t1", roleId: "general-worker", title: "second-task", dependsOn: [] })));
     expect(screen.getByText("Tasks")).toBeTruthy();
     expect(screen.getByText("second-task")).toBeTruthy();
-  });
-
-  it("shows the plan state and its validator verdict", () => {
-    const { bridge } = mk();
-    act(() => {
-      bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("plan.created", { milestoneCount: 3 }));
-      bridge.inbound(ev("plan.validated", { verdict: "revise", reasons: ["missing tests"] }));
-    });
-    expect(screen.getByText("3 milestone(s)")).toBeTruthy();
-    expect(screen.getByText("revise")).toBeTruthy();
-    expect(screen.getByText("missing tests")).toBeTruthy();
-    act(() => bridge.inbound(ev("plan.approved", { milestoneCount: 3 })));
-    expect(screen.getByText("approved")).toBeTruthy();
   });
 
   it("renders the cost panel with parked work and suggestions", () => {
@@ -201,18 +172,16 @@ describe("webview chat", () => {
     expect(screen.getByText("$1.10 of $2.00")).toBeTruthy();
   });
 
-  it("clears tasks, plan and cost when a new run starts", () => {
+  it("clears tasks and cost when a new run starts", () => {
     const { bridge, store } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
       bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write", dependsOn: [] }));
-      bridge.inbound(ev("plan.created", { milestoneCount: 1 }));
       bridge.inbound(ev("cost.limit_reached", { capUsd: 1, accruedUsd: 0.5 }));
       bridge.inbound(ev("run.finished", { status: "done" }));
       bridge.inbound({ type: "event", ev: { kind: "run.started", runId: "r2", title: "y" } as never });
     });
     expect(store.state.tasks).toHaveLength(0);
-    expect(store.state.plan).toBeUndefined();
     expect(store.state.cost).toBeUndefined();
   });
 
@@ -225,20 +194,14 @@ describe("webview chat", () => {
     expect(screen.getByText("boom")).toBeTruthy();
   });
 
-  it("shows Revert run changes after a run finishes and hides it once reverted", () => {
+  it("shows a system line when a run is reverted", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
       bridge.inbound(ev("run.finished", { status: "done" }));
-    });
-    const btn = screen.getByText("Revert run changes");
-    fireEvent.click(btn);
-    expect(bridge.sent).toContainEqual({ type: "chat.revert", runId: "r1" });
-    act(() => {
       bridge.inbound(ev("run.reverted", { filesRestored: ["a.ts", "b.ts"] }));
     });
     expect(screen.getByText("Reverted: a.ts, b.ts")).toBeTruthy();
-    expect(screen.queryByText("Revert run changes")).toBeNull();
   });
 
   it("posts the chosen grant for each approval button", () => {
@@ -295,22 +258,6 @@ describe("webview chat", () => {
     expect(ta.value).toBe("keep me");
   });
 
-  it("sets the budget profile when a profile button is clicked", () => {
-    const { store } = mk();
-    const group = screen.getByRole("group", { name: "budget profile" });
-    const deep = within(group).getByRole("button", { name: "deep" });
-    fireEvent.click(deep);
-    expect(store.state.profileChoice).toBe("deep");
-    expect(deep.getAttribute("aria-pressed")).toBe("true");
-  });
-
-  it("presses auto by default and leaves the other profile buttons unpressed", () => {
-    mk();
-    const group = screen.getByRole("group", { name: "budget profile" });
-    for (const [name, pressed] of [["auto", "true"], ["quick", "false"], ["normal", "false"], ["deep", "false"]] as const) {
-      expect(within(group).getByRole("button", { name }).getAttribute("aria-pressed")).toBe(pressed);
-    }
-  });
 });
 
 describe("webview history", () => {
@@ -434,6 +381,12 @@ describe("webview editor insert", () => {
 });
 
 describe("webview settings", () => {
+  const openAgents = (bridge: MockBridge, reply: typeof configReply = configReply) => {
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(reply));
+    fireEvent.click(screen.getByText("agents"));
+  };
+
   const configReply: { type: "config" } & ConfigReply = {
     type: "config" as const,
     files: { "channels.yaml": "version: 1\nitems: []\n" },
@@ -513,7 +466,7 @@ describe("webview settings", () => {
     openRoles(bridge);
     fireEvent.click(screen.getAllByText("Edit")[1]);
     const selects = document.querySelectorAll("select");
-    const opts = [...selects[selects.length - 2].options].map((o) => o.value);
+    const opts = [...selects[selects.length - 1].options].map((o) => o.value);
     expect(opts).toContain("va");
     expect(opts).not.toContain("a1");
   });
@@ -642,33 +595,6 @@ describe("webview settings", () => {
     expect(screen.getByText("Re-probe")).toBeTruthy();
   });
 
-  it("imports v1 settings through the draft card", () => {
-    const { bridge, store } = mk();
-    fireEvent.click(screen.getAllByText("Settings")[0]);
-    act(() => bridge.inbound(configReply));
-    fireEvent.click(screen.getByText("settings"));
-    fireEvent.click(screen.getByText("Pick stewart.xml…"));
-    expect(bridge.sent).toContainEqual({ type: "v1.import" });
-
-    act(() =>
-      bridge.inbound({
-        type: "v1.draft",
-        files: { "channels.yaml": "version: 1\nitems: []" },
-        warnings: ["skipped secrets"],
-        xml: "<stewart/>",
-      }),
-    );
-    expect(screen.getByText(/skipped secrets/)).toBeTruthy();
-    expect(screen.getByText(/produces: channels\.yaml/)).toBeTruthy();
-
-    fireEvent.click(screen.getByText("Apply"));
-    expect(bridge.sent).toContainEqual({ type: "config.importV1", xml: "<stewart/>", apply: true });
-    act(() => bridge.inbound({ type: "v1.draft", files: {}, warnings: [], applied: true }));
-    expect(store.state.v1Draft).toBeUndefined();
-    fireEvent.click(screen.getAllByText("Chat")[0]);
-    expect(screen.getByText("v1 settings imported.")).toBeTruthy();
-  });
-
   it("+ Add opens a draft card and saves config.set only after an id is entered", () => {
     const { bridge } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);
@@ -710,6 +636,7 @@ describe("webview settings", () => {
   });
 
   describe("channel API key", () => {
+
     const withChannels = (channels: unknown[], secrets: Record<string, boolean>) =>
       ({ ...configReply, summary: { ...configReply.summary, channels }, secrets }) as typeof configReply;
     const KEY = "sk-live-0123456789abcdef";
@@ -1203,23 +1130,6 @@ describe("webview settings", () => {
     fireEvent.click(screen.getByText("Close"));
     expect(store.state.wizardOpen).toBe(false);
   });
-
-  it("dismisses a v1 draft without applying", () => {
-    const { bridge, store } = mk();
-    fireEvent.click(screen.getAllByText("Settings")[0]);
-    act(() => bridge.inbound(configReply));
-    fireEvent.click(screen.getByText("settings"));
-    act(() => bridge.inbound({ type: "v1.draft", files: { "agents.yaml": "x" }, warnings: [] }));
-    fireEvent.click(screen.getByText("Dismiss"));
-    expect(store.state.v1Draft).toBeUndefined();
-    expect(bridge.sent.some((m) => m.type === "config.importV1")).toBe(false);
-  });
-
-  const openAgents = (bridge: MockBridge, reply: typeof configReply = configReply) => {
-    fireEvent.click(screen.getAllByText("Settings")[0]);
-    act(() => bridge.inbound(reply));
-    fireEvent.click(screen.getByText("agents"));
-  };
 
   it("agents tab sends channel.test for enabled channels only", () => {
     const { bridge } = mk();

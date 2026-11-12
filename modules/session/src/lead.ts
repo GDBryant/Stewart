@@ -13,14 +13,9 @@ export function leadRole(config: EffectiveConfig): RoleDef {
   return r;
 }
 
-function roleAgentId(config: EffectiveConfig, roleId: string): string | undefined {
-  return config.roles.find((r) => r.id === roleId)?.agent;
-}
-
-/** Agent for the lead turn: lead's own binding, then orchestrator's, then general-worker's, then the first agent. */
+/** Agent for the lead turn: lead's own binding, else the first configured agent. */
 export function leadAgent(config: EffectiveConfig, lead: RoleDef): AgentDef {
-  const candidates = [lead.agent, roleAgentId(config, "orchestrator"), roleAgentId(config, "general-worker"), config.agents[0]?.id];
-  for (const id of candidates) {
+  for (const id of [lead.agent, config.agents[0]?.id]) {
     const a = config.agents.find((x) => x.id === id);
     if (a) return a;
   }

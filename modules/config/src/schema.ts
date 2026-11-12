@@ -45,7 +45,6 @@ export const agentSchema = z.object({
   billing: z.enum(["free", "reported", "priced", "unmetered"]).optional(),
   price: z.object({ inPerMTok: z.number(), outPerMTok: z.number() }).optional(),
   costs: z.boolean().optional(), // known cost flag shown on assigned roles; default derived (claude-cli, reported/priced billing)
-  budget: z.object({ turnFactor: z.number().positive().optional(), timeoutFactor: z.number().positive().optional() }).optional(),
 });
 export type AgentDef = z.infer<typeof agentSchema>;
 
@@ -54,7 +53,6 @@ export const roleSchema = z.object({
   enabled: z.boolean().default(false),
   prompt: z.string().optional(),
   agent: z.string().optional(),
-  fallbackAgent: z.string().optional(),
   skills: z.array(z.string()).default([]),
   tools: z.array(z.string()).default([]),
   writePaths: z.array(z.string()).default([]),
@@ -69,50 +67,6 @@ export const settingsSchema = z.object({
       onLimit: z.enum(["ask", "stop"]).default("ask"),
     })
     .default({}),
-  maxRunHours: z.number().min(0).default(0),
-  maxWorkerTurnsCeiling: z.number().int().min(1).default(60),
-  budgets: z
-    .object({
-      quick: z
-        .object({
-          turnMultiplier: z.number().positive().default(0.4),
-          timeoutMultiplier: z.number().positive().default(0.5),
-          allowSplit: z.boolean().default(false),
-          maxRunMinutes: z.number().min(0).default(10),
-        })
-        .default({}),
-      normal: z
-        .object({
-          turnMultiplier: z.number().positive().default(1),
-          timeoutMultiplier: z.number().positive().default(1),
-          allowSplit: z.boolean().default(true),
-          maxRunMinutes: z.number().min(0).default(60),
-        })
-        .default({}),
-      deep: z
-        .object({
-          turnMultiplier: z.number().positive().default(2),
-          timeoutMultiplier: z.number().positive().default(3),
-          allowSplit: z.boolean().default(true),
-          maxRunMinutes: z.number().min(0).default(0),
-        })
-        .default({}),
-    })
-    .default({}),
-  planGate: z.boolean().default(false),
-  compaction: z.object({ prune: z.boolean().default(false), summarize: z.boolean().default(false) }).default({}),
-  leaseWaitSeconds: z.number().min(1).default(300),
-  maxNestedDispatches: z.number().int().min(0).default(3),
-  maxReplans: z.number().int().min(0).default(2),
-  askOnTurnLimit: z.boolean().default(true),
-  continueQuestionTimeoutMinutes: z.number().min(0).default(5),
-  maxRecoveryDepth: z.number().int().min(0).default(2),
-  maxRecoveriesPerRun: z.number().int().min(0).default(4),
-  maxSubTasks: z.number().int().min(2).default(5),
-  recoverySummaryChars: z.number().int().positive().default(500),
-  maxActionsInRecoveryBrief: z.number().int().positive().default(20),
-  maxContinuations: z.number().int().min(0).default(2),
-  maxContinueQuestionsPerRun: z.number().int().min(0).default(4),
   skillBudgetTokens: z.number().int().positive().default(8000),
   historyRetentionDays: z.number().int().min(0).default(30),
   setupPriorities: z

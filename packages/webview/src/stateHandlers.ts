@@ -33,7 +33,6 @@ export class StoreHandlers {
       }),
     "history.sessions": (m) => this.patch({ sessions: m.sessions }),
     "history.messages": (m) => this.onHistoryMessages(m),
-    "v1.draft": (m) => this.onV1Draft(m),
     insertText: (m) => this.patch({ composerInsert: { text: m.text, seq: this.host.nextInsertSeq() } }),
     ready: () => {},
     "setup.probe.result": (m) => {
@@ -51,20 +50,14 @@ export class StoreHandlers {
   };
 
   private eventHandlers: EventHandlers = {
-    "run.started": (ev) => this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined, plan: undefined, runProfile: ev.profile }),
+    "run.started": (ev) => this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined }),
     "task.created": (ev) => this.onTaskEvent(ev),
     "task.started": (ev) => this.onTaskEvent(ev),
-    "task.blocked": (ev) => this.onTaskEvent(ev),
     "task.done": (ev) => this.onTaskEvent(ev),
     "task.failed": (ev) => this.onTaskEvent(ev),
-    "plan.created": (ev) => this.onPlanEvent(ev),
-    "plan.validated": (ev) => this.onPlanEvent(ev),
-    "plan.approved": (ev) => this.onPlanEvent(ev),
     "cost.limit_reached": (ev) => this.onCostEvent(ev),
     "cost.limit_raised": (ev) => this.onCostEvent(ev),
     "cost.summary": (ev) => this.onCostEvent(ev),
-    "cost.replaced": (ev) => this.addActivity(ev.runId, "tool-ok", `replaced ${ev.roleId} → ${ev.agentId}`),
-    compaction: (ev) => this.onCompaction(ev),
     "text_delta": (ev) =>
       this.mutateAssistant(ev.runId, (it) => {
         it.text += ev.text;
@@ -81,7 +74,6 @@ export class StoreHandlers {
     "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),
     "run.reverted": (ev) =>
       this.patch({
-        revertedRuns: [...this.state.revertedRuns, ev.runId],
         items: [
           ...this.state.items,
           { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: `Reverted: ${ev.filesRestored.join(", ")}`, activity: [] },
@@ -169,21 +161,10 @@ export class StoreHandlers {
       view: "chat",
       tasks: [],
       cost: undefined,
-      plan: undefined,
       busyRunId: undefined,
     });
   }
 
-  private onV1Draft(m: { files: Record<string, string>; warnings: string[]; xml?: string; applied?: boolean }): void {
-    if (m.applied) {
-      this.requestConfig();
-      return this.patch({
-        v1Draft: undefined,
-        items: [...this.state.items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: "v1 settings imported.", activity: [] }],
-      });
-    }
-    this.patch({ v1Draft: { files: m.files, warnings: m.warnings, xml: m.xml } });
-  }
 
   private onEvent(ev: RunEvent): void {
     this.dispatch(this.eventHandlers, ev.kind, ev);
@@ -194,10 +175,6 @@ export class StoreHandlers {
     this.patch({
       items: [...this.state.items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: `Check failed: ${ev.evidence.join("; ")}`, activity: [] }],
     });
-  }
-
-  private onCompaction(ev: Extract<RunEvent, { kind: "compaction" }>): void {
-    this.addActivity(ev.runId, "tool-ok", `context compacted: -${ev.droppedTokens} tokens${ev.pruned ? `, ${ev.pruned} pruned` : ""}${ev.summarized ? ", summarized" : ""}`);
   }
 
   private onSetupEvent(ev: Extract<RunEvent, { kind: "setup.event" }>): void {
@@ -213,32 +190,10 @@ export class StoreHandlers {
         });
       case "task.started":
         return this.patchTask(ev.taskId, (t) => ({ status: "running", agentId: ev.agentId ?? t.agentId, startedAt: Date.now() }));
-      case "task.blocked":
-        return this.patchTask(ev.taskId, () => ({ status: "waiting", waitingOn: ev.waitingOn }));
       case "task.done":
         return this.patchTask(ev.taskId, () => ({ status: "done", summary: ev.summary }));
       case "task.failed":
         return this.patchTask(ev.taskId, () => ({ status: "failed", summary: ev.error }));
-    }
-  }
-
-  private onPlanEvent(ev: Extract<RunEvent, { kind: `plan.${string}` }>): void {
-    switch (ev.kind) {
-      case "plan.created":
-        return this.patch({ plan: { milestoneCount: ev.milestoneCount, reasons: [], approved: false } });
-      case "plan.validated":
-        return this.patch({
-          plan: { milestoneCount: this.state.plan?.milestoneCount ?? 0, verdict: ev.verdict, reasons: ev.reasons, approved: false },
-        });
-      case "plan.approved":
-        return this.patch({
-          plan: {
-            milestoneCount: ev.milestoneCount,
-            verdict: "approve",
-            reasons: this.state.plan?.reasons ?? [],
-            approved: true,
-          },
-        });
     }
   }
 

@@ -4,8 +4,6 @@ import { OpenAICompatAdapter } from "../src/openai.js";
 import { ChannelRegistry, ManagedChannel } from "../src/registry.js";
 import { ChannelError, type ChannelAdapter, type ChannelConfig, type ChatRequest } from "../src/types.js";
 import { sseData } from "../src/stream.js";
-import { classify, mapStopReason } from "../src/claude/parser.js";
-import { render } from "../src/claude/transcript.js";
 import { makeTempDir, nodeSpawn, rmDir, writeTempFile } from "../src/claude/nodeSpawn.js";
 import { collect, fakeFetcher } from "@stewart/kernel";
 
@@ -264,30 +262,6 @@ describe("ManagedChannel edge cases", () => {
     const mc = new ManagedChannel(ad, cfg);
     await expect(collect(mc.chat(req()))).rejects.toThrow("rate");
     expect(mc.health).toBe("backoff");
-  });
-});
-
-describe("claude parser classify/mapStopReason", () => {
-  it("classifies error messages", () => {
-    expect(classify("401 unauthorized")).toBe("auth");
-    expect(classify("not logged in")).toBe("auth");
-    expect(classify("issue with the selected model")).toBe("model_unavailable");
-    expect(classify("rate limit hit")).toBe("rate_limited");
-    expect(classify("usage limit")).toBe("rate_limited");
-    expect(classify("something else")).toBe("cli_error");
-    expect(mapStopReason("end_turn")).toBe("stop");
-    expect(mapStopReason("max_tokens")).toBe("length");
-    expect(mapStopReason("refusal")).toBe("content_filter");
-    expect(mapStopReason("other")).toBe("other");
-    expect(mapStopReason(undefined)).toBeUndefined();
-  });
-});
-
-describe("claude transcript render/argv", () => {
-  it("uses the default system prompt when none is given", () => {
-    const [sys, body] = render([{ role: "user", content: "hi" }]);
-    expect(sys).toBe("You are a helpful assistant.");
-    expect(body).toBe("hi");
   });
 });
 

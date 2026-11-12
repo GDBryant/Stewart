@@ -34,7 +34,7 @@ function mk(responses: { status?: number; body?: string | string[] }[]) {
 
 describe("setup.recommend", () => {
   it("returns parsed assignments from a streamed JSON answer", async () => {
-    const answer = JSON.stringify({ assignments: [{ role: "general-worker", channel: "c1", model: "m2", reason: "strong tools" }] });
+    const answer = JSON.stringify({ assignments: [{ role: "lead", channel: "c1", model: "m2", reason: "strong tools" }] });
     const { core, calls } = mk([{ body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }, { body: chatReply(answer) }]);
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("setup.recommend", { projectId: "p" })) as {
@@ -44,19 +44,19 @@ describe("setup.recommend", () => {
       channels: { id: string; models: string[] }[];
     };
     expect(r.ok).toBe(true);
-    expect(r.assignments).toEqual([{ role: "general-worker", channel: "c1", model: "m2", reason: "strong tools" }]);
+    expect(r.assignments).toEqual([{ role: "lead", channel: "c1", model: "m2", reason: "strong tools" }]);
     expect(r.researcher).toEqual({ channel: "c1", model: "m1" });
     expect(r.channels[0].models).toEqual(["m1", "m2"]);
     expect(calls.map((c) => c.url)).toEqual(["http://oll/api/tags", "http://oll/api/chat"]);
   });
 
   it("parses a fenced reply wrapped in prose", async () => {
-    const answer = `Here is the plan:\n\`\`\`json\n{"assignments":[{"role":"tester","channel":"c1","model":"m1"}]}\n\`\`\`\nHope that helps.`;
+    const answer = `Here is the plan:\n\`\`\`json\n{"assignments":[{"role":"lead","channel":"c1","model":"m1"}]}\n\`\`\`\nHope that helps.`;
     const { core } = mk([{ body: ['{"models":[{"name":"m1"}]}'] }, { body: chatReply(answer) }]);
     await core.attachProject("p", fakeHost().host);
-    const r = (await core.dispatch("setup.recommend", { projectId: "p" })) as { ok: boolean; assignments: { role: string }[] };
+    const r = (await core.dispatch("setup.recommend", { projectId: "p" })) as { ok: boolean; error?: string; assignments: { role: string }[] };
     expect(r.ok).toBe(true);
-    expect(r.assignments).toEqual([{ role: "tester", channel: "c1", model: "m1", reason: undefined }]);
+    expect(r.assignments).toEqual([{ role: "lead", channel: "c1", model: "m1", reason: undefined }]);
   });
 
   it("fails with the raw reply when no JSON object is found", async () => {
@@ -71,10 +71,10 @@ describe("setup.recommend", () => {
   it("drops assignments to unknown roles or models with reasons", async () => {
     const answer = JSON.stringify({
       assignments: [
-        { role: "general-worker", channel: "c1", model: "m2" },
+        { role: "lead", channel: "c1", model: "m2" },
         { role: "ghost-role", channel: "c1", model: "m1" },
-        { role: "tester", channel: "c1", model: "nope" },
-        { role: "planner", channel: "gone", model: "m1" },
+        { role: "lead", channel: "c1", model: "nope" },
+        { role: "lead", channel: "gone", model: "m1" },
       ],
     });
     const { core } = mk([{ body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }, { body: chatReply(answer) }]);
@@ -86,7 +86,7 @@ describe("setup.recommend", () => {
     };
     expect(r.ok).toBe(true);
     expect(r.assignments).toHaveLength(1);
-    expect(r.assignments[0].role).toBe("general-worker");
+    expect(r.assignments[0].role).toBe("lead");
     expect(r.dropped).toHaveLength(3);
     expect(r.dropped.join(" ")).toContain("unknown role");
     expect(r.dropped.join(" ")).toContain("unknown model");

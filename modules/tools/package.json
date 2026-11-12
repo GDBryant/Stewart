@@ -27,8 +27,6 @@
     "@stewart/context": "workspace:*",
     "@stewart/kernel": "workspace:*",
     "@stewart/permissions": "workspace:*",
-    "@stewart/roles-skills": "workspace:*",
-    "@stewart/run-state": "workspace:*",
-    "@stewart/scheduling": "workspace:*"
+    "@stewart/roles-skills": "workspace:*"
   }
 }

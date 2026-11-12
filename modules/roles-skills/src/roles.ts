@@ -17,21 +17,6 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp("^" + body + "$");
 }
 
-export const WRITE_ROLE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal", "GenerateImage"]);
-export const READONLY_ROLES = new Set(["orchestrator", "planner", "plan-validator", "investigator", "code-reviewer", "code-health-reviewer", "image-reader"]);
-
-/** Write-capable roles run as workers: eligible for the continue question and splits. */
-export function isWriteCapableRole(role: RoleDef): boolean {
-  if (READONLY_ROLES.has(role.id)) return false;
-  if (role.tools.length === 0) return true;
-  return role.tools.some((t) => WRITE_ROLE_TOOLS.has(t));
-}
-
-/** Loop turn cap from the role ("unlimited" → effectively unbounded). */
-export function roleTurnBudget(role: RoleDef): number {
-  return role.turnBudget === "unlimited" ? Number.MAX_SAFE_INTEGER : role.turnBudget;
-}
-
 /** Capability an agent must have to serve a role (undefined = any agent). */
 export const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = {
   "image-reader": "vision",
@@ -53,9 +38,9 @@ export function agentServesRole(agent: AgentDef, channels: ChannelDef[], roleId:
 }
 
 /**
- * Configuration errors for roles. An enabled role must have an agent bound (no
- * silent fallback), the Orchestrator must be enabled once another role is, and
- * capability roles must point at a capable agent.
+ * Configuration errors for roles: an enabled role must have an agent bound
+ * (except lead, which falls back to the first agent), and capability roles
+ * must point at a capable agent.
  */
 function roleAgentErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: ChannelDef[]): string[] {
   if (!r.agent) return r.id === "lead" ? [] : [`role ${r.id}: enabled but no agent bound`];
@@ -65,26 +50,12 @@ function roleAgentErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: Chan
   return [];
 }
 
-function roleFallbackErrors(r: RoleDef, byId: Map<string, AgentDef>, channels: ChannelDef[]): string[] {
-  if (!r.fallbackAgent) return [];
-  const fb = byId.get(r.fallbackAgent);
-  if (!fb) return [`role ${r.id}: unknown fallbackAgent '${r.fallbackAgent}'`];
-  if (!agentServesRole(fb, channels, r.id)) return [`role ${r.id}: fallbackAgent '${r.fallbackAgent}' lacks ${roleCapability(r.id)}`];
-  return [];
-}
-
 export function validateRoles(roles: RoleDef[], agents: AgentDef[], channels: ChannelDef[]): string[] {
   const errors: string[] = [];
   const byId = new Map(agents.map((a) => [a.id, a]));
   const enabled = roles.filter((r) => r.enabled);
   for (const r of enabled) {
     errors.push(...roleAgentErrors(r, byId, channels));
-    errors.push(...roleFallbackErrors(r, byId, channels));
-  }
-  const orchestrator = roles.find((r) => r.id === "orchestrator");
-  const needsOrchestrator = enabled.some((r) => r.id !== "orchestrator" && r.id !== "lead");
-  if (needsOrchestrator && !orchestrator?.enabled) {
-    errors.push("orchestrator: required when another role is enabled");
   }
   return errors;
 }

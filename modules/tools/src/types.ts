@@ -139,7 +139,7 @@ function typeError(value: unknown, schema: Json): string | null {
 /** File-writing tools whose `path` arg is checked against role writePaths. */
 export const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
 
-const INVESTIGATOR_READONLY_PROGRAMS = new Set([
+const READONLY_PROGRAMS = new Set([
   "ls", "cat", "head", "tail", "wc", "stat", "file", "find", "grep", "rg", "git",
   "pwd", "which", "echo", "uname", "printenv", "diff", "du", "df",
 ]);
@@ -147,37 +147,35 @@ const GIT_READONLY_SUBCOMMANDS = new Set([
   "status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "describe",
 ]);
 
-export function checkInvestigatorCommand(command: string): void {
-  if (/[><]/.test(command)) {
-    throw new Error(`command '${command}' is not allowed for read-only role investigator`);
-  }
+export function checkReadOnlyCommand(command: string, roleId: string): void {
+  const err = (what: string) => new Error(`${what} is not allowed for read-only role ${roleId}`);
+  if (/[><]/.test(command)) throw err(`command '${command}'`);
   const progs = splitShellPrograms(command);
-  if (!progs || !progs.every((p) => INVESTIGATOR_READONLY_PROGRAMS.has(p))) {
-    throw new Error(`command '${command}' is not allowed for read-only role investigator`);
-  }
+  if (!progs || !progs.every((p) => READONLY_PROGRAMS.has(p))) throw err(`command '${command}'`);
   for (const seg of command.split(/[|;&\n]+/)) {
     const words = seg.trim().split(/\s+/).filter(Boolean);
     if (words[0] === "git") {
       const sub = words.slice(1).find((w) => !w.startsWith("-"));
-      if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) {
-        throw new Error(`git subcommand '${sub ?? ""}' is not allowed for read-only role investigator`);
-      }
+      if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) throw err(`git subcommand '${sub ?? ""}'`);
     }
   }
 }
 
-function guardInvestigatorTerminal(tool: Tool, roleId: string): Tool {
-  if (roleId !== "investigator" || tool.spec.name !== "RunTerminal") return tool;
+const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
+
+function guardReadOnlyTerminal(tool: Tool, role: RoleDef): Tool {
+  const readOnly = role.tools.length > 0 && !role.tools.some((t) => WRITE_TOOLS.has(t));
+  if (!readOnly || tool.spec.name !== "RunTerminal") return tool;
   const basePreview = tool.preview?.bind(tool);
   const baseExec = tool.execute.bind(tool);
   return {
     ...tool,
     async preview(args: Json): Promise<ToolPreview | null> {
-      if (typeof args.command === "string") checkInvestigatorCommand(args.command);
+      if (typeof args.command === "string") checkReadOnlyCommand(args.command, role.id);
       return basePreview ? basePreview(args) : null;
     },
     async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }> {
-      if (typeof args.command === "string") checkInvestigatorCommand(args.command);
+      if (typeof args.command === "string") checkReadOnlyCommand(args.command, role.id);
       return baseExec(args, preview, signal);
     },
   };
@@ -219,7 +217,7 @@ export class ToolRegistry {
    */
   for(role: RoleDef): ToolRegistry {
     const allowed = role.tools.length ? this.tools.filter((t) => role.tools.includes(t.spec.name)) : this.tools;
-    return new ToolRegistry(allowed.map((t) => guardInvestigatorTerminal(guardWritePaths(t, role.writePaths), role.id)));
+    return new ToolRegistry(allowed.map((t) => guardReadOnlyTerminal(guardWritePaths(t, role.writePaths), role)));
   }
   registerProvider(provider: ToolProvider): void {
     const defaultCat: ApprovalCategory = provider.category ?? `MCP:${provider.id}`;

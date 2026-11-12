@@ -1,16 +1,12 @@
 /** Host messaging seam. VS Code injects acquireVsCodeApi; JCEF injects
  * window.stewartHost { post(string) }; tests pass a MockBridge. */
 export type Outbound =
-  | { type: "chat.send"; text: string; images?: string[]; direct?: boolean; sessionId?: string; profile?: "quick" | "normal" | "deep" }
+  | { type: "chat.send"; text: string; images?: string[]; sessionId?: string }
   | { type: "chat.cancel"; runId: string }
-  | { type: "chat.resume"; runId: string }
-  | { type: "chat.revert"; runId: string }
   | { type: "chat.answer"; questionId: string; answer: string }
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }
   | { type: "config.set"; file: string; yaml: string; layer?: "user" | "project" }
-  | { type: "config.importV1"; xml: string; apply?: boolean }
-  | { type: "v1.import" }
   | { type: "history.list" }
   | { type: "history.load"; sessionId: string }
   | { type: "history.delete"; sessionId: string }
@@ -49,7 +45,7 @@ export interface AgentSummary {
   price?: { inPerMTok: number; outPerMTok: number };
 }
 export interface RoleSummary {
-  id: string; enabled: boolean; agent?: string; fallbackAgent?: string; skills?: string[];
+  id: string; enabled: boolean; agent?: string; skills?: string[];
   tools?: string[]; writePaths?: string[]; turnBudget?: number | string; prompt?: string;
 }
 export interface SkillSummary {
@@ -58,11 +54,6 @@ export interface SkillSummary {
 }
 export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
-  maxRunHours?: number;
-  planGate?: boolean;
-  leaseWaitSeconds?: number;
-  maxNestedDispatches?: number;
-  maxReplans?: number;
   skillBudgetTokens?: number;
   setupPriorities?: { speed?: number; cost?: number; quality?: number };
   setupTypicalWork?: string;
@@ -139,7 +130,6 @@ export type Inbound =
   | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: CatalogInfo; error?: string }
   | { type: "history.sessions"; sessions: SessionSummary[] }
   | { type: "history.messages"; sessionId: string; messages: StoredMessage[] }
-  | { type: "v1.draft"; files: Record<string, string>; warnings: string[]; xml?: string; applied?: boolean }
   | { type: "insertText"; text: string }
   | { type: "ready" }
   | {

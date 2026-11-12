@@ -8,7 +8,6 @@ export function ChatView({ store }: { store: Store }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text]);
   const approve: Store["approve"] = (approvalId, grant) => store.approve(approvalId, grant);
-  const singleDirect = s.tasks.length === 1 && s.tasks[0]!.taskId === "direct";
   return (
     <div class="chat">
       <div class="chat-bar">
@@ -21,9 +20,8 @@ export function ChatView({ store }: { store: Store }) {
         {s.items.map((it) => (
           <MessageItem key={it.id} item={it} />
         ))}
-        {s.plan ? <PlanCard plan={s.plan} /> : null}
-        {!singleDirect && s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} profile={s.runProfile} /> : null}
-        {s.tasks.length && !singleDirect ? <TaskCard tasks={s.tasks} /> : null}
+        {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} /> : null}
+        {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}
         {s.cost ? <CostCard cost={s.cost} /> : null}
         {s.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} approval={a} onApprove={approve} />
@@ -62,18 +60,6 @@ function HistoryPanel({ store }: { store: Store }) {
   );
 }
 
-function PlanCard({ plan }: { plan: { milestoneCount: number; verdict?: "approve" | "revise"; reasons: string[]; approved: boolean } }) {
-  return (
-    <div class="card plan">
-      <div class="card-title">
-        Plan <span class="badge">{plan.milestoneCount} milestone(s)</span>
-        {plan.approved ? <span class="badge ok">approved</span> : plan.verdict === "revise" ? <span class="badge warn">revise</span> : null}
-      </div>
-      {plan.reasons.length ? <ul class="reasons">{plan.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
-    </div>
-  );
-}
-
 export function fmtElapsed(ms: number): string {
   const sec = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(sec / 60);
@@ -82,7 +68,7 @@ export function fmtElapsed(ms: number): string {
   return h ? `${h}:${pad(m % 60)}:${pad(sec % 60)}` : `${m}:${pad(sec % 60)}`;
 }
 
-function ActiveTasks({ tasks, profile }: { tasks: { taskId: string; roleId: string; agentId?: string; title: string; status: string; startedAt?: number }[]; profile?: string }) {
+function ActiveTasks({ tasks }: { tasks: { taskId: string; roleId: string; agentId?: string; title: string; status: string; startedAt?: number }[] }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -91,7 +77,7 @@ function ActiveTasks({ tasks, profile }: { tasks: { taskId: string; roleId: stri
   return (
     <div class="card active-tasks">
       <div class="card-title">
-        Active{profile ? <span class="badge profile"> {profile}</span> : null}
+        Active
       </div>
       {tasks
         .filter((t) => t.status === "running")

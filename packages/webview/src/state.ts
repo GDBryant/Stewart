@@ -9,10 +9,8 @@ export type {
   CostState,
   PendingApproval,
   PendingQuestion,
-  PlanState,
   State,
   TaskRow,
-  V1Draft,
 } from "./stateTypes.js";
 
 type Listener = () => void;
@@ -22,7 +20,6 @@ export class Store {
   state: State = {
     items: [],
     tasks: [],
-    revertedRuns: [],
     approvals: [],
     questions: [],
     channelTest: {},
@@ -31,7 +28,6 @@ export class Store {
     sessions: [],
     historyOpen: false,
     pendingImages: [],
-    profileChoice: "auto",
   };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
@@ -83,13 +79,9 @@ export class Store {
       text,
       images: images.length ? images : undefined,
       sessionId,
-      ...(this.state.profileChoice !== "auto" ? { profile: this.state.profileChoice } : {}),
     });
   }
 
-  setProfileChoice(profileChoice: State["profileChoice"]): void {
-    this.patch({ profileChoice });
-  }
   rejectAttachment(reason: string): void {
     this.patch({ attachError: reason });
   }
@@ -124,22 +116,8 @@ export class Store {
     if (this.state.busyRunId) return;
     this.patch({ sessionId: undefined, items: [], historyOpen: false });
   }
-  requestV1Import(): void {
-    this.bridge.post({ type: "v1.import" });
-  }
-  applyV1Draft(): void {
-    const xml = this.state.v1Draft?.xml;
-    if (xml) this.bridge.post({ type: "config.importV1", xml, apply: true });
-  }
-  dismissV1Draft(): void {
-    this.patch({ v1Draft: undefined });
-  }
   cancel(): void {
     if (this.state.busyRunId) this.bridge.post({ type: "chat.cancel", runId: this.state.busyRunId });
-  }
-  revert(runId?: string): void {
-    const id = runId ?? this.state.lastRunId;
-    if (id && !this.state.busyRunId) this.bridge.post({ type: "chat.revert", runId: id });
   }
   answer(questionId: string, answer: string): void {
     this.bridge.post({ type: "chat.answer", questionId, answer });

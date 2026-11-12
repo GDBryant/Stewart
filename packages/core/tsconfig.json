@@ -10,19 +10,10 @@
   ],
   "references": [
     {
-      "path": "../../modules/agent-loop"
-    },
-    {
-      "path": "../../modules/budget"
-    },
-    {
       "path": "../../modules/catalog"
     },
     {
       "path": "../../modules/channels"
-    },
-    {
-      "path": "../../modules/compaction"
     },
     {
       "path": "../../modules/config"
@@ -34,7 +25,10 @@
       "path": "../../modules/diagnostics"
     },
     {
-      "path": "../../modules/health-check"
+      "path": "../../modules/engines"
+    },
+    {
+      "path": "../../modules/interaction"
     },
     {
       "path": "../../modules/kernel"
@@ -46,28 +40,10 @@
       "path": "../../modules/models"
     },
     {
-      "path": "../../modules/orchestration"
-    },
-    {
       "path": "../../modules/permissions"
     },
     {
-      "path": "../../modules/recovery"
-    },
-    {
       "path": "../../modules/roles-skills"
-    },
-    {
-      "path": "../../modules/run-contract"
-    },
-    {
-      "path": "../../modules/run-state"
-    },
-    {
-      "path": "../../modules/runs"
-    },
-    {
-      "path": "../../modules/scheduling"
     },
     {
       "path": "../../modules/session"
@@ -76,13 +52,10 @@
       "path": "../../modules/setup"
     },
     {
-      "path": "../../modules/toolcall-format"
+      "path": "../../modules/tasks"
     },
     {
       "path": "../../modules/tools"
-    },
-    {
-      "path": "../../modules/v1-import"
     },
     {
       "path": "../protocol"

@@ -13,7 +13,6 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import { DEFAULT_SKILLS } from "@stewart/roles-skills";
 import { loadEffectiveConfig } from "@stewart/roles-skills";
-import { isWriteCapableRole } from "@stewart/roles-skills";
 import type { RunEvent } from "@stewart/protocol";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -51,13 +50,13 @@ describe("Core roles + skills dispatch", () => {
     return { core, layer, events };
   }
 
-  it("shipped defaults provide the full role set and skills", async () => {
+  it("shipped defaults provide the lead role and the generic skill set", async () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);
-    const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string }[]; skills: { id: string; source: string }[] } };
-    const ids = r.summary.roles.map((x) => x.id);
-    for (const id of ["orchestrator", "planner", "general-worker", "code-writer", "image-reader"]) expect(ids).toContain(id);
-    expect(r.summary.skills.map((s) => s.id)).toContain("execution-contract");
+    const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; enabled: boolean }[]; skills: { id: string; source: string }[] } };
+    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead"]);
+    expect(r.summary.roles[0].enabled).toBe(true);
+    expect(r.summary.skills.map((s) => s.id)).toContain("tdd");
     expect(r.summary.skills.every((s) => s.source === "shipped")).toBe(true);
   });
 
@@ -78,14 +77,14 @@ describe("Core roles + skills dispatch", () => {
 
   it("roles.reset removes the user override for one role or all", async () => {
     const { core, layer } = mk({
-      "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    agent: a1\n    turnBudget: 3\n  - id: planner\n    enabled: true\n",
+      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    agent: a1\n    turnBudget: 3\n",
     });
     await core.attachProject("p", fakeHost().host);
     let r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; turnBudget: number }[] } };
-    expect(r.summary.roles.find((x) => x.id === "general-worker")!.turnBudget).toBe(3);
-    await core.dispatch("roles.reset", { projectId: "p", roleId: "general-worker" });
+    expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(3);
+    await core.dispatch("roles.reset", { projectId: "p", roleId: "lead" });
     r = (await core.dispatch("config.get", { projectId: "p" })) as typeof r;
-    expect(r.summary.roles.find((x) => x.id === "general-worker")!.turnBudget).toBe(25); // shipped default
+    expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(40); // shipped default
     await core.dispatch("roles.reset", { projectId: "p" });
     expect(layer["roles.yaml"]).toContain("items: []");
   });
@@ -99,7 +98,7 @@ describe("Core roles + skills dispatch", () => {
     expect(r.summary.roles.every((x) => x.agent === "a1")).toBe(true);
   });
 
-  it("chat.send runs the general-worker role: prompt + filtered tools + turn budget", async () => {
+  it("chat.send runs the lead role: prompt + filtered tools", async () => {
     const bodies: string[] = [];
     const fetcher = async (_u: string, init: { body?: string }) => {
       bodies.push(init.body ?? "");
@@ -109,7 +108,7 @@ describe("Core roles + skills dispatch", () => {
     const core = new Core({
       defaults,
       userConfig: memStore({
-        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n    agent: a1\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
       }),
       projectConfig: async () => memStore(),
       fetcher,
@@ -123,23 +122,25 @@ describe("Core roles + skills dispatch", () => {
       /* run fails after request is made */
     }
     await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
-    const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: string }[] };
+    const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] };
     expect(sent.messages[0].role).toBe("system");
-    expect(sent.messages[0].content).toContain("General Worker");
-    expect(sent.messages[0].content).toContain("# Skill: execution-contract");
+    expect(sent.messages[0].content).toContain("You are Stewart");
     expect(sent.messages[1].content).toBe("hi");
+    const names = (sent.tools ?? []).map((t) => t.function.name);
+    expect(names).toContain("ReadFile");
+    expect(names).not.toContain("RunTerminal");
   });
 
-  it("chat.send fails on an enabled role with no agent instead of falling back", async () => {
+  it("chat.send fails when the lead role is disabled", async () => {
     const core = new Core({
       defaults,
-      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n" }),
+      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n" }),
       projectConfig: async () => memStore(),
       fetcher: fakeFetcher([{ body: ['{"done":true}'] }]).fetcher,
       emitEvent: () => {},
     });
     await core.attachProject("p", fakeHost().host);
-    await expect(core.dispatch("chat.send", { projectId: "p", text: "hi" })).rejects.toThrow(/enabled but no agent bound/);
+    await expect(core.dispatch("chat.send", { projectId: "p", text: "hi" })).rejects.toThrow(/lead role is disabled/);
   });
 
   it("surfaces role binding problems as config errors", async () => {
@@ -147,10 +148,9 @@ describe("Core roles + skills dispatch", () => {
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { errors: string[] };
     expect(r.errors).toContain("role planner: enabled but no agent bound");
-    expect(r.errors).toContain("orchestrator: required when another role is enabled");
   });
 
-  it("chat.send runs role-less when general-worker is disabled", async () => {
+  it("chat.send falls back to the first agent when lead has no binding", async () => {
     const bodies: string[] = [];
     const fetcher = async (_u: string, init: { body?: string }) => {
       bodies.push(init.body ?? "");
@@ -158,7 +158,7 @@ describe("Core roles + skills dispatch", () => {
     };
     const core = new Core({
       defaults,
-      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: false\n" }),
+      userConfig: memStore(),
       projectConfig: async () => memStore(),
       fetcher,
       emitEvent: () => {},
@@ -171,39 +171,29 @@ describe("Core roles + skills dispatch", () => {
     }
     await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
     const sent = JSON.parse(bodies[0]) as { messages: { role: string; content: string }[] };
-    // No role prompt: the only system message is the workspace context plus the shim-mode tools block.
-    expect(sent.messages).toHaveLength(2);
     expect(sent.messages[0].role).toBe("system");
-    expect(sent.messages[0].content).toContain("# Workspace\nProject root: /p");
-    expect(sent.messages[0].content).toContain("<tools>");
-    expect(sent.messages[0].content).not.toContain("ROLE:");
+    expect(sent.messages[0].content).toContain("You are Stewart");
     expect(sent.messages[1]).toMatchObject({ role: "user", content: "hi" });
   });
 });
 
-describe("code-health-reviewer role", () => {
+describe("shipped lead role", () => {
   const shipped = () => (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items;
-  const r = () => shipped().find((x) => x.id === "code-health-reviewer")!;
-  it("ships disabled and read-only", () => {
-    expect(r()).toBeDefined();
-    expect(r().enabled).toBe(false);
-    expect(r().skills).toContain("code-health");
-    for (const t of ["WriteFile", "EditFile", "ApplyPatch"]) expect(r().tools).not.toContain(t);
-  });
-  it("has the read tools its input scopes need plus CodeMetrics and RunTerminal for project checks", () => {
-    for (const t of ["ReadFile", "FindFiles", "Search", "CodeMetrics", "RunTerminal"]) expect(r().tools).toContain(t);
+  it("ships enabled as the only role", () => {
+    const roles = shipped();
+    expect(roles).toHaveLength(1);
+    expect(roles[0].id).toBe("lead");
+    expect(roles[0].enabled).toBe(true);
   });
   it("every shipped role references only shipped skills", () => {
     const ids = new Set(DEFAULT_SKILLS.map((s) => s.id));
     for (const x of shipped()) for (const s of x.skills) expect(ids.has(s), `${x.id}:${s}`).toBe(true);
   });
-  it("existing user roles.yaml still receives the shipped role", () => {
-    const user = stringifyYaml({ version: 1, items: [{ id: "tester", enabled: true }] });
+  it("user roles.yaml with old role ids loads them as inert profiles alongside lead", () => {
+    const user = stringifyYaml({ version: 1, items: [{ id: "orchestrator", enabled: false }, { id: "general-worker", enabled: false }] });
     const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: true });
-    expect(cfg.roles.some((x) => x.id === "code-health-reviewer")).toBe(true);
-  });
-  it("is not write-capable; tester still is", () => {
-    expect(isWriteCapableRole(r())).toBe(false);
-    expect(isWriteCapableRole(shipped().find((x) => x.id === "tester")!)).toBe(true);
+    const ids = cfg.roles.map((x) => x.id).sort();
+    expect(ids).toEqual(["general-worker", "lead", "orchestrator"]);
+    expect(cfg.errors).toEqual([]);
   });
 });

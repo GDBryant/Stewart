@@ -5,7 +5,7 @@ import type { Interaction } from "@stewart/interaction";
 import type { Permissions } from "@stewart/permissions";
 import type { AgentDef } from "@stewart/config";
 import type { EffectiveConfig } from "@stewart/roles-skills";
-import { ChatHistoryStore } from "@stewart/run-state";
+import { ChatHistoryStore } from "./history.js";
 import { costOfCall, RunLedger } from "@stewart/ledger";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
 import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type EngineTurn, type WriteRecord } from "@stewart/engines";
@@ -70,6 +70,7 @@ function err(e: unknown): string {
 /** One session service per project: a chat's full transcript, the lead's turn, and the after-turn check. */
 export class SessionService {
   private ledger?: RunLedger;
+  private history?: ChatHistoryStore;
   private readonly active = new Map<string, RunState>();
   private readonly chains = new Map<string, Promise<void>>();
 
@@ -92,6 +93,15 @@ export class SessionService {
     if (!rs) return false;
     rs.controller.abort();
     return true;
+  }
+
+  /** Shared per-project history store; also backs the history.* handlers. */
+  async historyStore(): Promise<ChatHistoryStore> {
+    if (!this.history) {
+      const stateDir = await this.deps.host.workspace.stateDir();
+      this.history = new ChatHistoryStore(this.deps.host, `${stateDir}/history`, this.deps.config().settings.historyRetentionDays);
+    }
+    return this.history;
   }
 
   private async ledgerFor(): Promise<RunLedger> {
@@ -132,7 +142,7 @@ export class SessionService {
     const { host, bus } = this.deps;
     try {
       const stateDir = await host.workspace.stateDir();
-      const store = new ChatHistoryStore(host, `${stateDir}/history`, this.deps.config().settings.historyRetentionDays);
+      const store = await this.historyStore();
       const w: TurnWork = {
         runId, sessionId, rs, stateDir, store,
         transcript: (await store.load(sessionId)) ?? [],

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  baseHashFor, composeRolePrompt, hashBody, parseSkillMd, resolveSkills, serializeSkillMd, shippedSkill, TRUNCATED_MARKER,
-} from "../src/api.js";
-import { DEFAULT_SKILLS, DEFAULT_ROLES_YAML } from "../src/api.js";
-import { parse as parseYaml } from "yaml";
+import { baseHashFor, hashBody, parseSkillMd, resolveSkills, serializeSkillMd, shippedSkill } from "../src/api.js";
+import { DEFAULT_SKILLS } from "../src/api.js";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -75,59 +72,6 @@ describe("resolveSkills", () => {
   });
 });
 
-describe("composeRolePrompt", () => {
-  const skills = resolveSkills({}, undefined);
-
-  it("orders role prompt then ticked skills", () => {
-    const { prompt } = composeRolePrompt(role({ prompt: "PROMPT", skills: ["tdd", "adr"] }), skills, 8000);
-    const pi = prompt.indexOf("PROMPT");
-    expect(pi).toBe(0);
-    expect(prompt.indexOf("# Skill: tdd")).toBeLessThan(prompt.indexOf("# Skill: adr"));
-  });
-
-  it("force-includes execution-contract for write-tool roles", () => {
-    const { prompt } = composeRolePrompt(role({ tools: ["ReadFile", "WriteFile"], skills: ["tdd"] }), skills, 8000);
-    expect(prompt).toContain("# Skill: execution-contract");
-  });
-
-  it("does not force execution-contract for read-only roles", () => {
-    const { prompt } = composeRolePrompt(role({ tools: ["ReadFile", "Search"], skills: ["tdd"] }), skills, 8000);
-    expect(prompt).not.toContain("execution-contract");
-  });
-
-  it("truncates the last skill at the token budget with a marker", () => {
-    const { prompt, truncated } = composeRolePrompt(role({ prompt: "P", skills: ["tdd", "adr", "orchestrate"] }), skills, 30);
-    expect(truncated).toBe(true);
-    expect(prompt).toContain(TRUNCATED_MARKER.trim());
-  });
-
-  it("skips unknown skill ids", () => {
-    const { prompt } = composeRolePrompt(role({ skills: ["nope", "tdd"] }), skills, 8000);
-    expect(prompt).toContain("# Skill: tdd");
-  });
-});
-
-describe("orchestrate skill", () => {
-  const body = () => shippedSkill("orchestrate")!.body;
-  it("states the project health-check procedure", () => {
-    for (const x of ["ListCodeFiles", "health_report", "code-health-reviewer", "never read docs", "Project checks"]) expect(body()).toContain(x);
-    expect(body()).toContain("never in the `files` argument");
-  });
-  it("covers folder-scoped checks and score-only mode", () => {
-    expect(body()).toContain("path");
-    expect(body()).toContain(`mode "score"`);
-  });
-  it("does not mention phases", () => {
-    expect(body()).not.toContain("phase");
-  });
-  it("the shipped orchestrator prompt is not truncated at the default budget", () => {
-    const skills = resolveSkills({}, undefined);
-    const orchestrator = (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items.find((r) => r.id === "orchestrator")!;
-    const { truncated } = composeRolePrompt(orchestrator, skills, 8000);
-    expect(truncated).toBe(false);
-  });
-});
-
 describe("code-health skill", () => {
   const body = () => shippedSkill("code-health")!.body;
   it("ships with a non-empty body distinct from code-review", () => {
@@ -159,12 +103,6 @@ describe("code-health skill", () => {
     expect(body()).not.toContain("Stewart");
   });
 
-  it("the shipped reviewer prompt is not truncated at the default budget", () => {
-    const skills = resolveSkills({}, undefined);
-    const reviewer = (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items.find((r) => r.id === "code-health-reviewer")!;
-    const { truncated } = composeRolePrompt(reviewer, skills, 8000);
-    expect(truncated).toBe(false);
-  });
   it("contains the exact output line formats", () => {
     expect(body()).toContain("path:line | smell | high/med/low | refactor");
     expect(body()).toContain("/10 (");

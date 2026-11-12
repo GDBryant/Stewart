@@ -21,7 +21,7 @@ const candidate: Candidate = { channel: "c1", channelType: "ollama", model: "m1"
 describe("buildRecommendPrompt", () => {
   it("lists roles with normalised prompt text, channel models, cost and the rules baseline", () => {
     const p = buildRecommendPrompt({ config: cfg(), channels: [{ id: "c1", type: "ollama", models: ["m1"] }], candidates: [candidate], rules });
-    expect(p).toMatch(/- general-worker \(~\d+-\d+ turns\): Writes code carefully/);
+    expect(p).toContain("- general-worker: Writes code carefully");
     expect(p).toContain("- c1 (ollama): m1 ($1.50/MTok(low))");
     expect(p).toContain("- general-worker: c1:m1");
     expect(p).not.toContain("Context:");

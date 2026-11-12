@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentServesRole, matchGlob, roleTurnBudget, validateRoles } from "../src/api.js";
+import { agentServesRole, matchGlob, validateRoles } from "../src/api.js";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -31,34 +31,24 @@ describe("validateRoles", () => {
     );
   });
 
-  it("flags an unknown agent and fallback agent", () => {
-    const errs = validateRoles([role({ id: "general-worker", agent: "nope", fallbackAgent: "gone" })], [agent()], [channel()]);
+  it("flags an unknown agent; old role ids validate without an orchestrator", () => {
+    const errs = validateRoles([role({ id: "general-worker", agent: "nope" })], [agent()], [channel()]);
     expect(errs).toContain("role general-worker: unknown agent 'nope'");
-    expect(errs).toContain("role general-worker: unknown fallbackAgent 'gone'");
-  });
-
-  it("requires the orchestrator once another role is enabled", () => {
-    const errs = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel()]);
-    expect(errs).toContain("orchestrator: required when another role is enabled");
-    const ok = validateRoles([role({ id: "orchestrator", agent: "a1" }), role({ id: "general-worker", agent: "a1" })], [agent()], [channel()]);
+    const ok = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel()]);
     expect(ok).toEqual([]);
   });
 
-  it("enforces role capabilities on agent and fallback agent", () => {
+  it("enforces role capabilities on the bound agent", () => {
     const chans = [channel({ v: { vision: true } })];
-    const errs = validateRoles(
-      [role({ id: "orchestrator", agent: "a1" }), role({ id: "image-reader", agent: "a1", fallbackAgent: "va" })],
-      [agent(), visionAgent],
-      chans,
-    );
+    const errs = validateRoles([role({ id: "image-reader", agent: "a1" })], [agent(), visionAgent], chans);
     expect(errs).toContain("role image-reader: agent 'a1' lacks vision");
-    const ok = validateRoles(
-      [role({ id: "orchestrator", agent: "a1" }), role({ id: "image-reader", agent: "va" })],
-      [agent(), visionAgent],
-      chans,
-    );
+    const ok = validateRoles([role({ id: "image-reader", agent: "va" })], [agent(), visionAgent], chans);
     expect(ok).toEqual([]);
     expect(agentServesRole(visionAgent, chans, "image-writer")).toBe(false);
+  });
+
+  it("lead may be enabled with no agent bound", () => {
+    expect(validateRoles([role({ id: "lead" })], [], [])).toEqual([]);
   });
 
   it("disabled roles produce no errors", () => {
@@ -66,9 +56,4 @@ describe("validateRoles", () => {
   });
 });
 
-describe("roleTurnBudget", () => {
-  it("maps numbers and unlimited", () => {
-    expect(roleTurnBudget(role({ turnBudget: 7 }))).toBe(7);
-    expect(roleTurnBudget(role({ turnBudget: "unlimited" }))).toBe(Number.MAX_SAFE_INTEGER);
-  });
-});
+

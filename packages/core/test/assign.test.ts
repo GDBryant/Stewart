@@ -25,13 +25,12 @@ describe("setup.recommend modes", () => {
     expect(r.ok).toBe(true);
     expect(r.researcher).toBeUndefined();
     expect(r.assignments.every((a) => a.source === "rules" && typeof a.score === "number")).toBe(true);
-    expect(r.assignments.find((a) => a.role === "orchestrator")?.model).toBe("qwen3:32b");
-    expect(r.unfilled.map((u) => u.role)).toContain("image-reader");
+    expect(r.assignments.find((a) => a.role === "lead")?.model).toBe("qwen3:32b");
     expect(calls.map((x) => x.url)).toEqual(["http://oll/api/tags"]);
   });
 
   it("ai mode uses the chosen evaluator and rejects picks that fail hard requirements", async () => {
-    const answer = JSON.stringify({ assignments: [{ role: "image-reader", channel: "c1", model: "m2" }, { role: "tester", channel: "c1", model: "m2" }] });
+    const answer = JSON.stringify({ assignments: [{ role: "bogus-role", channel: "c1", model: "m2" }, { role: "lead", channel: "c1", model: "m2" }] });
     const { core } = mk([{ body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }, { body: ['{"message":{"content":' + JSON.stringify(answer) + '},"done":false}', '{"done":true}'] }]);
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "ai", evaluator: { channel: "c1", model: "m2" } })) as {
@@ -41,8 +40,8 @@ describe("setup.recommend modes", () => {
       dropped: string[];
     };
     expect(r.researcher.model).toBe("m2");
-    expect(r.assignments.map((a) => a.role)).toEqual(["tester"]);
-    expect(r.dropped.join()).toContain("image-reader: c1:m2 fails hard requirements");
+    expect(r.assignments.map((a) => a.role)).toEqual(["lead"]);
+    expect(r.dropped.join()).toContain("bogus-role");
   });
 
   it("ignores an evaluator that was not discovered", async () => {

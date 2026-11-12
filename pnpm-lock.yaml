@@ -49,80 +49,6 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
-  modules/agent-loop:
-    dependencies:
-      '@stewart/budget':
-        specifier: workspace:*
-        version: link:../budget
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
-      '@stewart/compaction':
-        specifier: workspace:*
-        version: link:../compaction
-      '@stewart/config':
-        specifier: workspace:*
-        version: link:../config
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/ledger':
-        specifier: workspace:*
-        version: link:../ledger
-      '@stewart/models':
-        specifier: workspace:*
-        version: link:../models
-      '@stewart/permissions':
-        specifier: workspace:*
-        version: link:../permissions
-      '@stewart/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
-      '@stewart/roles-skills':
-        specifier: workspace:*
-        version: link:../roles-skills
-      '@stewart/toolcall-format':
-        specifier: workspace:*
-        version: link:../toolcall-format
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/budget:
-    dependencies:
-      '@stewart/catalog':
-        specifier: workspace:*
-        version: link:../catalog
-      '@stewart/models':
-        specifier: workspace:*
-        version: link:../models
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
   modules/catalog:
     devDependencies:
       '@types/node':
@@ -167,25 +93,6 @@ importers:
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
   modules/code-health:
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/compaction:
-    dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -294,34 +201,6 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
-  modules/health-check:
-    dependencies:
-      '@stewart/code-health':
-        specifier: workspace:*
-        version: link:../code-health
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/run-contract':
-        specifier: workspace:*
-        version: link:../run-contract
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
   modules/interaction:
     dependencies:
       '@stewart/kernel':
@@ -404,70 +283,6 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
-  modules/orchestration:
-    dependencies:
-      '@stewart/agent-loop':
-        specifier: workspace:*
-        version: link:../agent-loop
-      '@stewart/budget':
-        specifier: workspace:*
-        version: link:../budget
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
-      '@stewart/compaction':
-        specifier: workspace:*
-        version: link:../compaction
-      '@stewart/config':
-        specifier: workspace:*
-        version: link:../config
-      '@stewart/context':
-        specifier: workspace:*
-        version: link:../context
-      '@stewart/interaction':
-        specifier: workspace:*
-        version: link:../interaction
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/ledger':
-        specifier: workspace:*
-        version: link:../ledger
-      '@stewart/models':
-        specifier: workspace:*
-        version: link:../models
-      '@stewart/permissions':
-        specifier: workspace:*
-        version: link:../permissions
-      '@stewart/roles-skills':
-        specifier: workspace:*
-        version: link:../roles-skills
-      '@stewart/run-contract':
-        specifier: workspace:*
-        version: link:../run-contract
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
   modules/permissions:
     dependencies:
       '@stewart/interaction':
@@ -477,55 +292,6 @@ importers:
         specifier: workspace:*
         version: link:../kernel
     devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/recovery:
-    dependencies:
-      '@stewart/agent-loop':
-        specifier: workspace:*
-        version: link:../agent-loop
-      '@stewart/config':
-        specifier: workspace:*
-        version: link:../config
-      '@stewart/interaction':
-        specifier: workspace:*
-        version: link:../interaction
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/permissions':
-        specifier: workspace:*
-        version: link:../permissions
-      '@stewart/roles-skills':
-        specifier: workspace:*
-        version: link:../roles-skills
-      '@stewart/run-contract':
-        specifier: workspace:*
-        version: link:../run-contract
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-    devDependencies:
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
-      '@stewart/ledger':
-        specifier: workspace:*
-        version: link:../ledger
       '@types/node':
         specifier: 22.19.0
         version: 22.19.0
@@ -550,169 +316,6 @@ importers:
       yaml:
         specifier: 2.8.1
         version: 2.8.1
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/run-contract:
-    dependencies:
-      '@stewart/budget':
-        specifier: workspace:*
-        version: link:../budget
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
-      '@stewart/config':
-        specifier: workspace:*
-        version: link:../config
-      '@stewart/interaction':
-        specifier: workspace:*
-        version: link:../interaction
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/ledger':
-        specifier: workspace:*
-        version: link:../ledger
-      '@stewart/permissions':
-        specifier: workspace:*
-        version: link:../permissions
-      '@stewart/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
-      '@stewart/roles-skills':
-        specifier: workspace:*
-        version: link:../roles-skills
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/run-state:
-    dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/runs:
-    dependencies:
-      '@stewart/agent-loop':
-        specifier: workspace:*
-        version: link:../agent-loop
-      '@stewart/budget':
-        specifier: workspace:*
-        version: link:../budget
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../channels
-      '@stewart/config':
-        specifier: workspace:*
-        version: link:../config
-      '@stewart/context':
-        specifier: workspace:*
-        version: link:../context
-      '@stewart/interaction':
-        specifier: workspace:*
-        version: link:../interaction
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@stewart/ledger':
-        specifier: workspace:*
-        version: link:../ledger
-      '@stewart/orchestration':
-        specifier: workspace:*
-        version: link:../orchestration
-      '@stewart/permissions':
-        specifier: workspace:*
-        version: link:../permissions
-      '@stewart/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
-      '@stewart/recovery':
-        specifier: workspace:*
-        version: link:../recovery
-      '@stewart/roles-skills':
-        specifier: workspace:*
-        version: link:../roles-skills
-      '@stewart/run-contract':
-        specifier: workspace:*
-        version: link:../run-contract
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
-    devDependencies:
-      '@stewart/health-check':
-        specifier: workspace:*
-        version: link:../health-check
-      '@stewart/models':
-        specifier: workspace:*
-        version: link:../models
-      '@stewart/tools':
-        specifier: workspace:*
-        version: link:../tools
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/scheduling:
-    dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -759,9 +362,6 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
       '@stewart/tasks':
         specifier: workspace:*
         version: link:../tasks
@@ -838,25 +438,6 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
-  modules/toolcall-format:
-    dependencies:
-      '@stewart/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
   modules/tools:
     dependencies:
       '@stewart/code-health':
@@ -877,56 +458,6 @@ importers:
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../roles-skills
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../run-state
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../scheduling
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  modules/v1-import:
-    dependencies:
-      '@stewart/catalog':
-        specifier: workspace:*
-        version: link:../catalog
-      yaml:
-        specifier: 2.8.1
-        version: 2.8.1
-    devDependencies:
-      '@types/node':
-        specifier: 22.19.0
-        version: 22.19.0
-      '@vitest/coverage-v8':
-        specifier: 3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 3.2.4
-        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
-
-  packages/conformance:
-    dependencies:
-      '@stewart/channels':
-        specifier: workspace:*
-        version: link:../../modules/channels
-      '@stewart/core':
-        specifier: workspace:*
-        version: link:../core
     devDependencies:
       '@types/node':
         specifier: 22.19.0
@@ -943,21 +474,12 @@ importers:
 
   packages/core:
     dependencies:
-      '@stewart/agent-loop':
-        specifier: workspace:*
-        version: link:../../modules/agent-loop
-      '@stewart/budget':
-        specifier: workspace:*
-        version: link:../../modules/budget
       '@stewart/catalog':
         specifier: workspace:*
         version: link:../../modules/catalog
       '@stewart/channels':
         specifier: workspace:*
         version: link:../../modules/channels
-      '@stewart/compaction':
-        specifier: workspace:*
-        version: link:../../modules/compaction
       '@stewart/config':
         specifier: workspace:*
         version: link:../../modules/config
@@ -967,9 +489,12 @@ importers:
       '@stewart/diagnostics':
         specifier: workspace:*
         version: link:../../modules/diagnostics
-      '@stewart/health-check':
+      '@stewart/engines':
         specifier: workspace:*
-        version: link:../../modules/health-check
+        version: link:../../modules/engines
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../../modules/interaction
       '@stewart/kernel':
         specifier: workspace:*
         version: link:../../modules/kernel
@@ -979,48 +504,27 @@ importers:
       '@stewart/models':
         specifier: workspace:*
         version: link:../../modules/models
-      '@stewart/orchestration':
-        specifier: workspace:*
-        version: link:../../modules/orchestration
       '@stewart/permissions':
         specifier: workspace:*
         version: link:../../modules/permissions
       '@stewart/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@stewart/recovery':
-        specifier: workspace:*
-        version: link:../../modules/recovery
       '@stewart/roles-skills':
         specifier: workspace:*
         version: link:../../modules/roles-skills
-      '@stewart/run-contract':
-        specifier: workspace:*
-        version: link:../../modules/run-contract
-      '@stewart/run-state':
-        specifier: workspace:*
-        version: link:../../modules/run-state
-      '@stewart/runs':
-        specifier: workspace:*
-        version: link:../../modules/runs
-      '@stewart/scheduling':
-        specifier: workspace:*
-        version: link:../../modules/scheduling
       '@stewart/session':
         specifier: workspace:*
         version: link:../../modules/session
       '@stewart/setup':
         specifier: workspace:*
         version: link:../../modules/setup
-      '@stewart/toolcall-format':
+      '@stewart/tasks':
         specifier: workspace:*
-        version: link:../../modules/toolcall-format
+        version: link:../../modules/tasks
       '@stewart/tools':
         specifier: workspace:*
         version: link:../../modules/tools
-      '@stewart/v1-import':
-        specifier: workspace:*
-        version: link:../../modules/v1-import
       yaml:
         specifier: 2.8.1
         version: 2.8.1

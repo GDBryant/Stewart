@@ -1,9 +1,0 @@
-{"type":"system","subtype":"init","tools":[],"mcp_servers":[]}
-{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"I will submit the plan."}},"api_message_id":"msg_1"}
-{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"submit_plan","input":{}}},"api_message_id":"msg_1"}
-{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"goal\":\"g\",\"milestones\":[{\"id\":1,\"title\":\"t\"}]}"}},"api_message_id":"msg_1"}
-{"type":"stream_event","event":{"type":"content_block_stop","index":1},"api_message_id":"msg_1"}
-{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"I will submit the plan."},{"type":"tool_use","id":"toolu_1","name":"submit_plan","input":{"goal":"g","milestones":[{"id":1,"title":"t"}]}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","is_error":true,"content":"No such tool available"}]}}
-{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"My submit_plan call failed."}]}}
-{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":20}}

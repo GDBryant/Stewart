@@ -1,7 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
-import { importV1Xml, parseMiniXml } from "@stewart/v1-import";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 
 async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {
@@ -67,18 +66,6 @@ async function writeConfigLayer(
   if (!ctx.trusted) throw new Error("project config requires a trusted workspace");
   if (!isProjectFile(o.file)) throw new Error(`${o.file} is not allowed at project level`);
   await writeProject(ctx, o.file, o.yaml);
-}
-
-export async function handleConfigImportV1(core: CoreCtx, params: unknown): Promise<unknown> {
-  const p = params as { projectId: string; xml: string; apply?: boolean };
-  const res = importV1Xml(p.xml, parseMiniXml);
-  if (p.apply && Object.keys(res.files).length) {
-    for (const [file, yaml] of Object.entries(res.files)) {
-      await writeUser(core, file, yaml);
-    }
-    await core.reload(p.projectId);
-  }
-  return res;
 }
 
 export async function handleSkillsSave(core: CoreCtx, params: unknown): Promise<unknown> {

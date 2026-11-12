@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { fakeHost } from "@stewart/kernel";
-import { LeaseManager } from "@stewart/scheduling";
-import { LeaseCycleError, LeaseTimeoutError } from "@stewart/run-state";
 import type { Json, ToolCall, ToolSpec } from "@stewart/kernel";
 import {
   ToolRegistry,
   outcomeMessage,
   validateArgs,
-  leasedTools,
   projectTools,
   applyUnifiedPatch,
   NOT_ANSWERED_CANCELLED,
@@ -17,7 +14,7 @@ import {
 } from "../src/api.js";
 import { GenerateImage } from "../src/media.js";
 import { ProjectPaths } from "../src/projectPaths.js";
-import { checkInvestigatorCommand } from "../src/types.js";
+import { checkReadOnlyCommand } from "../src/types.js";
 import type { RoleDef } from "@stewart/config";
 
 const sig = () => new AbortController().signal;
@@ -117,69 +114,6 @@ describe("ToolRegistry + validateArgs + outcomeMessage", () => {
   });
 });
 
-describe("leasedTools", () => {
-  const mkTool = (name = "WriteFile", ran: string[] = []): Tool => ({
-    spec: { name, description: "d", parameters: {} },
-    requiresApproval: true,
-    preview: async () => ({ kind: "file", path: "x", before: null, after: "y" }),
-    execute: async () => {
-      ran.push(name);
-      return "wrote";
-    },
-  });
-
-  function deps(leases: LeaseManager, taskId: string, over: Record<string, unknown> = {}) {
-    return { host: fakeHost().host, leases, taskId, runId: "r1", leaseWaitMs: 50, stateDir: ".stewart", ...over } as Parameters<typeof leasedTools>[1];
-  }
-
-  it("leaves non-path tools and calls without a path untouched", async () => {
-    const leases = new LeaseManager();
-    const ran: string[] = [];
-    const [t] = leasedTools([mkTool("RunTerminal", ran)], deps(leases, "t1"));
-    expect(t).toBeDefined();
-    await t.execute({ command: "ls" }, null, sig());
-    expect(ran).toEqual(["RunTerminal"]);
-    const [w] = leasedTools([mkTool("WriteFile", ran)], deps(leases, "t1"));
-    await w.execute({ notapath: 1 }, null, sig());
-    expect(ran).toContain("WriteFile");
-  });
-
-  it("acquires a lease, snapshots once, then executes", async () => {
-    const { host, files } = fakeHost({ "a.ts": "old" });
-    const leases = new LeaseManager();
-    const [w] = leasedTools([mkTool()], { host, leases, taskId: "t1", runId: "r1", leaseWaitMs: 50, stateDir: ".stewart" });
-    const out = await w.execute({ path: "a.ts" }, { kind: "file", path: "a.ts", before: null, after: "n" }, sig());
-    expect(out).toBe("wrote");
-    expect(Object.keys(files).some((k) => k.includes("snapshots"))).toBe(true);
-    expect(leases.holder("a.ts")).toBe("t1");
-    await w.execute({ path: "a.ts" }, { kind: "file", path: "a.ts", before: null, after: "n" }, sig());
-  });
-
-  it("throws LeaseTimeoutError when the wait times out and reports the holder via onWait", async () => {
-    const leases = new LeaseManager();
-    leases.register("t1");
-    await leases.acquire("a.ts", "t1", 1000);
-    let waited = "";
-    const [w] = leasedTools([mkTool()], deps(leases, "t2", { onWait: (_p: string, h: string) => (waited = h) }));
-    await expect(w.execute({ path: "a.ts" }, null, sig())).rejects.toThrow(LeaseTimeoutError);
-    expect(waited).toBe("t1");
-  });
-
-  it("throws LeaseCycleError on an AB-BA wait cycle", async () => {
-    const leases = new LeaseManager();
-    leases.register("t1");
-    leases.register("t2");
-    await leases.acquire("a.ts", "t1", 5000);
-    await leases.acquire("b.ts", "t2", 5000);
-    const [w2] = leasedTools([mkTool()], deps(leases, "t2"));
-    const [w1] = leasedTools([mkTool()], deps(leases, "t1"));
-    const pending = w2.execute({ path: "a.ts" }, null, sig()).catch((e) => e);
-    await expect(w1.execute({ path: "b.ts" }, null, sig())).rejects.toThrow(LeaseCycleError);
-    leases.releaseAll?.();
-    await pending;
-  });
-});
-
 describe("GenerateImage", () => {
   it("uses the channel generator when it returns an image", async () => {
     const { h, paths } = await setup();
@@ -261,15 +195,15 @@ describe("applyUnifiedPatch", () => {
   });
 });
 
-describe("checkInvestigatorCommand", () => {
+describe("checkReadOnlyCommand", () => {
   it("allows read-only programs and git read subcommands; rejects the rest", () => {
-    expect(() => checkInvestigatorCommand("ls -la")).not.toThrow();
-    expect(() => checkInvestigatorCommand("git status")).not.toThrow();
-    expect(() => checkInvestigatorCommand("git log --oneline")).not.toThrow();
-    expect(() => checkInvestigatorCommand("cat a > b")).toThrow(/not allowed/);
-    expect(() => checkInvestigatorCommand("rm x")).toThrow(/not allowed/);
-    expect(() => checkInvestigatorCommand("git push")).toThrow(/not allowed/);
-    expect(() => checkInvestigatorCommand("git -C repo")).toThrow(/not allowed/);
+    expect(() => checkReadOnlyCommand("ls -la", "investigator")).not.toThrow();
+    expect(() => checkReadOnlyCommand("git status", "investigator")).not.toThrow();
+    expect(() => checkReadOnlyCommand("git log --oneline", "investigator")).not.toThrow();
+    expect(() => checkReadOnlyCommand("cat a > b", "investigator")).toThrow(/not allowed/);
+    expect(() => checkReadOnlyCommand("rm x", "investigator")).toThrow(/not allowed/);
+    expect(() => checkReadOnlyCommand("git push", "investigator")).toThrow(/not allowed/);
+    expect(() => checkReadOnlyCommand("git -C repo", "investigator")).toThrow(/not allowed/);
   });
 });
 

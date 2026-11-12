@@ -62,30 +62,6 @@ describe("adapter debug hooks", () => {
     expect(cap2.entries.at(-1)?.payload.trim()).toBe("HTTP 500: boom");
   });
 
-  it("Claude CLI records stdin, stdout lines, stderr and non-zero exit", async () => {
-    const cap = new Capture();
-    const spawn: SpawnFn = () => {
-      let doneRes: (r: { code: number }) => void = () => {};
-      const done = new Promise<{ code: number }>((res) => (doneRes = res));
-      return {
-        stdin: () => {},
-        stdout: (async function* () {
-          yield '{"type":"system"}';
-          doneRes({ code: 2 });
-        })(),
-        stderrText: async () => "Error: boom",
-        done,
-        kill: async () => {},
-      };
-    };
-    const adapter = new ClaudeCliAdapter({ spawn, debug: cap, makeTempDir: async () => "/tmp/x", writeTempFile: async () => "/tmp/x/p", rmDir: async () => {} });
-    await expect(collect(adapter.chat({ id: "c", type: "claude-cli", enabled: true, maxParallel: 1 }, undefined, { ...req(), model: "sonnet" }))).rejects.toThrow();
-    const kinds = cap.entries.map((e) => `${e.direction}:${e.provider}`);
-    expect(kinds[0]).toBe("outgoing:claude-cli");
-    expect(kinds).toContain("incoming:claude-cli");
-    expect(cap.entries).toContainEqual(expect.objectContaining({ direction: "stderr", payload: "Error: boom" }));
-    expect(cap.entries).toContainEqual(expect.objectContaining({ direction: "error", payload: "exit code 2" }));
-  });
 });
 
 describe("Ollama context sizing", () => {

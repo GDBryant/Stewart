@@ -98,7 +98,6 @@ function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, togg
   return (
     <div class="form">
       <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
-      <RoleAgentField label="fallback agent" value={role.fallbackAgent} candidates={candidates} onPick={(v) => save({ fallbackAgent: v })} />
       {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
       <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
       <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />

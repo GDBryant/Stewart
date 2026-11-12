@@ -220,26 +220,16 @@ describe("SessionService", () => {
       { id: "orch", channel: "c", model: "m", effort: "medium" as const },
       { id: "bound", channel: "c", model: "m", effort: "medium" as const },
     ];
-    const base = makeConfig({ agents });
-    // lead unbound → orchestrator's agent
-    const c1 = makeConfig({
-      agents,
-      roles: [base.roles[0], { id: "orchestrator", enabled: false, agent: "orch", skills: [], tools: [], writePaths: [], turnBudget: 5 }],
-    });
-    let h = harness({ config: c1, engine });
-    await h.svc.send({ text: "x" });
-    await h.waitFor("run.finished");
     // lead bound → its own agent wins
-    const c2 = makeConfig({ agents, roles: [{ ...base.roles[0], agent: "bound" }] });
-    h = harness({ config: c2, engine });
+    const c2 = makeConfig({ agents, roles: [{ ...makeConfig({ agents }).roles[0], agent: "bound" }] });
+    let h = harness({ config: c2, engine });
     await h.svc.send({ text: "x" });
     await h.waitFor("run.finished");
-    // no bindings at all → first agent
-    const c3 = makeConfig({ agents });
-    h = harness({ config: c3, engine });
+    // lead unbound → first agent
+    h = harness({ config: makeConfig({ agents }), engine });
     await h.svc.send({ text: "x" });
     await h.waitFor("run.finished");
-    expect(captured).toEqual(["orch", "bound", "first"]);
+    expect(captured).toEqual(["bound", "first"]);
   });
 
   it("fails clearly when no agent exists", async () => {

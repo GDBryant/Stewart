@@ -6,11 +6,6 @@ import { unflatten, useForm, type Field } from "./fields.js";
 const SETTINGS_FIELDS: Field[] = [
   { key: "costLimit.perRunUsd", label: "cost limit $/run", kind: "number" },
   { key: "costLimit.onLimit", label: "on limit", kind: "select", options: ["ask", "stop"] },
-  { key: "maxRunHours", label: "max run hours", kind: "number" },
-  { key: "planGate", label: "plan gate", kind: "bool" },
-  { key: "leaseWaitSeconds", label: "lease wait s", kind: "number" },
-  { key: "maxNestedDispatches", label: "max nested dispatches", kind: "number" },
-  { key: "maxReplans", label: "max replans", kind: "number" },
   { key: "skillBudgetTokens", label: "skill budget tokens", kind: "number" },
   { key: "log.level", label: "log level", kind: "select", options: ["off", "calls", "full"] },
   { key: "log.retainDays", label: "log retain days", kind: "number" },
@@ -39,33 +34,6 @@ export function SettingsEditor({ store, settings }: { store: Store; settings: Se
         ))}
       </div>
       <button class="send" onClick={save}>Save settings</button>
-      <V1ImportCard store={store} />
     </section>
-  );
-}
-
-function V1ImportCard({ store }: { store: Store }) {
-  const draft = store.state.v1Draft;
-  return (
-    <div class="card v1import">
-      <div class="card-title">
-        <b>Import v1 settings</b>
-        <span class="spacer" />
-        <button class="small" onClick={() => store.requestV1Import()}>Pick stewart.xml…</button>
-      </div>
-      <p class="hint">One-shot import of channels, models and settings from the v1 plugin's stewart.xml.</p>
-      {draft ? (
-        <div class="form">
-          {draft.warnings.map((w, i) => (
-            <div key={i} class="warn">⚠ {w}</div>
-          ))}
-          <div class="summary">{Object.keys(draft.files).length ? `produces: ${Object.keys(draft.files).join(", ")}` : "nothing to import"}</div>
-          <div class="row">
-            <button class="send" disabled={!Object.keys(draft.files).length} onClick={() => store.applyV1Draft()}>Apply</button>
-            <button class="small deny" onClick={() => store.dismissV1Draft()}>Dismiss</button>
-          </div>
-        </div>
-      ) : null}
-    </div>
   );
 }

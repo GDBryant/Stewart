@@ -103,7 +103,6 @@ class StewartProjectService(private val project: Project) : Disposable {
                     FileEditorManager.getInstance(project).openFile(it, true)
                 }
             },
-            pickV1Xml = { pickV1Xml() },
         )
         panel = StewartPanel({ bridge -> WebviewResources.webviewHtml(bridge, themeCss = ThemeCss.css(ThemeCss.current())) }) { raw -> router.route(raw) }
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(
@@ -119,16 +118,6 @@ class StewartProjectService(private val project: Project) : Disposable {
             completeExceptionally(IllegalStateException("sidecar not running"))
         }
         return sup.request(method, params)
-    }
-
-    private fun pickV1Xml(): String? {
-        val vf = com.intellij.openapi.fileChooser.FileChooser.chooseFile(
-            com.intellij.openapi.fileChooser.FileChooserDescriptorFactory.createSingleFileDescriptor("xml")
-                .withTitle("Pick stewart.xml"),
-            project,
-            null,
-        ) ?: return null
-        return String(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(vf.path)))
     }
 
     internal var inboundObserver: ((JsonObject) -> Unit)? = null
