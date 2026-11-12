@@ -500,6 +500,20 @@ describe("webview settings", () => {
     expect(bridge.sent).toContainEqual({ type: "roles.assignAgent", agentId: "a1" });
   });
 
+  it("adds a role and rejects a duplicate id", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getByText("+ Add"));
+    const idInput = screen.getByText("id").parentElement!.querySelector("input")!;
+    fireEvent.input(idInput, { target: { value: "general-worker" } });
+    expect(screen.getByText("id already exists")).toBeTruthy();
+    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.input(idInput, { target: { value: "doc-writer" } });
+    fireEvent.click(screen.getByText("Save"));
+    const set = bridge.sent.filter((m) => m.type === "config.set").pop() as { yaml: string } | undefined;
+    expect(set?.yaml).toContain("id: doc-writer");
+  });
+
   it("toggles a role skill on and off", () => {
     const { bridge } = mk();
     openRoles(bridge);

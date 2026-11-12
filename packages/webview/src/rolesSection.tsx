@@ -86,7 +86,7 @@ function SkillTicks({ skills, allSkills, needsWrite, onToggle }: {
   );
 }
 
-function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, toggleSkill }: {
+function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, toggleSkill, isNew }: {
   role: RoleSummary;
   candidates: AgentSummary[];
   cap: "vision" | "imageGen" | undefined;
@@ -94,9 +94,16 @@ function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, togg
   needsWrite: boolean;
   save(patch: Partial<RoleSummary>): void;
   toggleSkill(id: string): void;
+  isNew?: boolean;
 }) {
   return (
     <div class="form">
+      {isNew ? (
+        <label class="field">
+          <span>id</span>
+          <input value={role.id} onInput={(e) => save({ id: (e.target as HTMLInputElement).value })} />
+        </label>
+      ) : null}
       <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
       {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
       <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
@@ -148,23 +155,64 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
   );
 }
 
+function NewRoleCard({ agents, channels, allSkills, existingIds, onSave, onCancel }: {
+  agents: AgentSummary[];
+  channels: ChannelSummary[];
+  allSkills: SkillSummary[];
+  existingIds: Set<string>;
+  onSave(next: RoleSummary): void;
+  onCancel(): void;
+}) {
+  const [role, setRole] = useState<RoleSummary>({ id: "", enabled: true, turnBudget: 25, skills: [], tools: [] });
+  const save = (patch: Partial<RoleSummary>) => setRole((r) => ({ ...r, ...patch }));
+  const toggleSkill = (id: string) => {
+    const cur = role.skills ?? [];
+    save({ skills: cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id] });
+  };
+  const id = role.id.trim();
+  const dup = existingIds.has(id);
+  const candidates = agentsForRole(role.id, agents, channels);
+  const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
+  return (
+    <div class="card">
+      <div class="card-title">
+        <b>new role</b>
+        <span class="spacer" />
+        {dup ? <span class="warn">id already exists</span> : null}
+        <button class="deny" onClick={onCancel}>Cancel</button>
+        <button class="send" disabled={!id || dup} onClick={() => onSave({ ...role, id })}>Save</button>
+      </div>
+      <RoleEditForm role={role} candidates={candidates} cap={ROLE_CAPABILITY[role.id]} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} isNew />
+    </div>
+  );
+}
+
+function RolesHeader({ store, agents, onAdd }: { store: Store; agents: AgentSummary[]; onAdd(): void }) {
+  const [assignee, setAssignee] = useState("");
+  return (
+    <h3>
+      Roles
+      <span class="spacer" />
+      <button class="small" onClick={onAdd}>+ Add</button>
+      <select value={assignee} onChange={(e) => setAssignee((e.target as HTMLSelectElement).value)}>
+        <option value="">assign agent…</option>
+        {agents.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
+      </select>
+      <button class="small" disabled={!assignee} onClick={() => store.assignAgentToAll(assignee)}>Assign to all</button>
+      <button class="small deny" onClick={() => store.resetRole()}>Reset all</button>
+    </h3>
+  );
+}
+
 export function RolesSection({ store, roles, agents, channels, skills }: {
   store: Store; roles: RoleSummary[]; agents: AgentSummary[]; channels: ChannelSummary[]; skills: SkillSummary[];
 }) {
-  const [assignee, setAssignee] = useState("");
+  const [draft, setDraft] = useState<RoleSummary | undefined>(undefined);
   const save = (next: RoleSummary[]) => store.saveFile("roles.yaml", stringify({ version: 1, items: next }, null, 2));
+  const addDraft = () => setDraft({ id: "", enabled: true, turnBudget: 25, skills: [], tools: [] });
   return (
     <section>
-      <h3>
-        Roles
-        <span class="spacer" />
-        <select value={assignee} onChange={(e) => setAssignee((e.target as HTMLSelectElement).value)}>
-          <option value="">assign agent…</option>
-          {agents.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
-        </select>
-        <button class="small" disabled={!assignee} onClick={() => store.assignAgentToAll(assignee)}>Assign to all</button>
-        <button class="small deny" onClick={() => store.resetRole()}>Reset all</button>
-      </h3>
+      <RolesHeader store={store} agents={agents} onAdd={addDraft} />
       {roles.map((r) => (
         <RoleCard
           key={r.id}
@@ -176,7 +224,17 @@ export function RolesSection({ store, roles, agents, channels, skills }: {
           onReset={() => store.resetRole(r.id)}
         />
       ))}
-      {!roles.length ? <p class="hint">No roles configured.</p> : null}
+      {draft ? (
+        <NewRoleCard
+          agents={agents}
+          channels={channels}
+          allSkills={skills}
+          existingIds={new Set(roles.map((r) => r.id))}
+          onSave={(next) => { save([...roles, next]); setDraft(undefined); }}
+          onCancel={() => setDraft(undefined)}
+        />
+      ) : null}
+      {!roles.length && !draft ? <p class="hint">No roles configured.</p> : null}
     </section>
   );
 }
