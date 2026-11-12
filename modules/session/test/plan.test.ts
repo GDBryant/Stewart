@@ -212,7 +212,58 @@ describe("plan lifecycle", () => {
     approvePlan(h.interaction, h.events);
     await h.svc.send({ text: "go" });
     const fin = await h.finished;
-    expect(fin).toMatchObject({ status: "failed", error: "plan incomplete: next M1 print hello" });
+    expect(fin).toMatchObject({ status: "failed" });
+    expect((fin as { error?: string }).error).toMatch(/^plan incomplete: M1 print hello: /);
+  });
+
+  it("auto-passes all pending milestones at turn end when every check passes", async () => {
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        const write = turn.tools.find("plan_write")!;
+        const pending = write.execute(PLAN_ARGS, null, turn.signal);
+        await new Promise((r) => setTimeout(r, 5));
+        await pending;
+        yield { kind: "write", record: { path: "bin/hello.js", ok: true } };
+        turn.transcript.push({ role: "assistant", content: "all done, forgot milestone_done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "bin/hello.js": "console.log('hi')" } });
+    approvePlan(h.interaction, h.events);
+    await h.svc.send({ text: "go" });
+    const fin = await h.finished;
+    expect(fin).toMatchObject({ status: "done" });
+    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(2);
+  });
+
+  it("auto-pass stops at the first failing milestone and reports its evidence", async () => {
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        const write = turn.tools.find("plan_write")!;
+        const pending = write.execute(
+          { goal: "g", milestones: [{ title: "one", check: { files: ["a.txt"] } }, { title: "two", check: { files: ["b.txt"] } }, { title: "three", check: { files: ["c.txt"] } }] },
+          null,
+          turn.signal,
+        );
+        await new Promise((r) => setTimeout(r, 5));
+        await pending;
+        yield { kind: "write", record: { path: "a.txt", ok: true } };
+        turn.transcript.push({ role: "assistant", content: "partial" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "a.txt": "x" } });
+    approvePlan(h.interaction, h.events);
+    const { sessionId } = await h.svc.send({ text: "go" });
+    const fin = await h.finished;
+    expect(fin).toMatchObject({ status: "failed" });
+    expect((fin as { error?: string }).error).toMatch(/^plan incomplete: M2 two: .*b\.txt/);
+    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(1);
+    const summary = (await h.svc.planFor(sessionId)) as { milestones: { id: string; status: string; checkpoint?: string }[] } | undefined;
+    expect(summary?.milestones[0]).toMatchObject({ status: "done" });
+    expect(summary?.milestones[0].checkpoint).toBeTruthy();
+    expect(summary?.milestones[1]).toMatchObject({ status: "pending", attempts: 0 });
+    expect(summary?.milestones[1].checkpoint).toBeUndefined();
   });
 
   it("hostTools carries plan tools but the project registry excludes .stewart paths", async () => {

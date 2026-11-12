@@ -374,12 +374,12 @@ export class SessionService {
     const { runId, rs } = w;
     const input = this.checkInput(w.transcript, rs);
     const res = await runCheck({ check: turnCheck(input), input, host: this.deps.host, cwd: w.paths.base });
-    const pending = await w.plan.unfinished();
-    if (pending && !res.evidence.includes("plan incomplete")) res.evidence.push(`plan incomplete: next ${pending.id} ${pending.title}`);
+    const pending = await w.plan.sweepFinish();
+    if (pending) res.evidence.push(`plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}`);
     this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed && !pending, evidence: res.evidence });
     if (rs.accrued > 0) await this.emitCost(runId, rs.accrued);
     if (pending && rs.reason !== "cancelled" && !rs.costCapped) {
-      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: `plan incomplete: next ${pending.id} ${pending.title}` });
+      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: `plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}` });
       return;
     }
     this.deps.bus.emit(this.finishedEvent(runId, rs, res));

@@ -182,10 +182,7 @@ export class PlanRunner {
     if (!st) throw new Error("no approved plan for this session");
     const m = currentMilestone(st.plan);
     if (!m || m.id !== id) throw new Error(`milestone '${id}' is not the current milestone (${m?.id ?? "plan complete"})`);
-    const writes = st.writesSinceCp;
-    const input = { reply: `${m.id}: ${m.title}`, writes, changed: [...new Set(writes.filter((w) => w.ok).map((w) => w.path))] };
-    const res = await runCheck({ check: { command: m.check.command ? ["sh", "-c", m.check.command] : undefined, files: [...(m.check.files ?? []), ...input.changed] }, input, host: this.d.host, cwd: this.d.paths.base });
-    this.d.bus.emit({ kind: "check.result", runId: this.d.runId, roleId: "lead", passed: res.passed, evidence: res.evidence });
+    const res = await this.checkMilestone(st, m);
     if (!res.passed) {
       m.attempts += 1;
       const evidence = res.evidence.join("; ");
@@ -198,11 +195,7 @@ export class PlanRunner {
       await this.save();
       return `check failed for ${m.id}: ${evidence}`;
     }
-    const cpId = await this.cp(m.id, [...st.snapFiles]);
-    st.writesSinceCp = [];
-    m.status = "done";
-    m.checkpoint = cpId;
-    this.d.bus.emit({ kind: "milestone.done", runId: this.d.runId, roleId: "lead", milestoneId: m.id });
+    const cpId = await this.markDone(st, m);
     const next = st.plan.milestones[milestonesIndexOf(st.plan, m) + 1];
     if (!next) {
       st.plan.status = "done";
@@ -212,6 +205,41 @@ export class PlanRunner {
     await this.save();
     this.d.bus.emit({ kind: "milestone.started", runId: this.d.runId, roleId: "lead", milestoneId: next.id, title: next.title });
     return `${m.id} done (checkpoint ${cpId.slice(0, 12)}); next: ${next.id}: ${next.title}`;
+  }
+
+  private async checkMilestone(st: PlanState, m: Milestone) {
+    const writes = st.writesSinceCp;
+    const input = { reply: `${m.id}: ${m.title}`, writes, changed: [...new Set(writes.filter((w) => w.ok).map((w) => w.path))] };
+    const res = await runCheck({ check: { command: m.check.command ? ["sh", "-c", m.check.command] : undefined, files: [...(m.check.files ?? []), ...input.changed] }, input, host: this.d.host, cwd: this.d.paths.base });
+    this.d.bus.emit({ kind: "check.result", runId: this.d.runId, roleId: "lead", passed: res.passed, evidence: res.evidence });
+    return res;
+  }
+
+  private async markDone(st: PlanState, m: Milestone): Promise<string> {
+    const cpId = await this.cp(m.id, [...st.snapFiles]);
+    st.writesSinceCp = [];
+    m.status = "done";
+    m.checkpoint = cpId;
+    this.d.bus.emit({ kind: "milestone.done", runId: this.d.runId, roleId: "lead", milestoneId: m.id });
+    return cpId;
+  }
+
+  /** End-of-turn sweep: auto-pass remaining pending milestones in order; stop at the first failing check. */
+  async sweepFinish(): Promise<{ id: string; title: string; evidence: string } | undefined> {
+    const st = await this.load();
+    if (!st || st.plan.status !== "active") return undefined;
+    for (const m of st.plan.milestones) {
+      if (m.status !== "pending") continue;
+      const res = await this.checkMilestone(st, m);
+      if (!res.passed) {
+        await this.save();
+        return { id: m.id, title: m.title, evidence: res.evidence.join("; ") };
+      }
+      await this.markDone(st, m);
+    }
+    st.plan.status = "done";
+    await this.save();
+    return undefined;
   }
 }
 
