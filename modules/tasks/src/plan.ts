@@ -91,7 +91,7 @@ export function parsePlan(text: string): Plan {
   return { goal, status, sessionId, milestones };
 }
 
-/** First pending milestone, or undefined when all are done/failed. */
+/** First milestone not done (pending or failed: a failed milestone blocks the plan), or undefined when all are done. */
 export function currentMilestone(plan: Plan): Milestone | undefined {
-  return plan.milestones.find((m) => m.status === "pending");
+  return plan.milestones.find((m) => m.status !== "done");
 }

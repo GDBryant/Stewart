@@ -1,4 +1,4 @@
-import { meetsHardRequirements, type Candidate } from "./assign.js";
+import { hardRequirementRefusal, type Candidate, type RoleMeta } from "./assign.js";
 
 /** Coerces an untrusted field to a string; anything that is not a string becomes "". */
 export const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -15,9 +15,11 @@ export function modelRefusal(role: string, channel: string, model: string, byId:
   return undefined;
 }
 
-/** Refuses a candidate that fails the role's hard requirements; unknown candidates pass here. */
-export function hardRefusal(role: string, channel: string, model: string, cand: Map<string, Candidate>): string | undefined {
+/** Refuses a candidate that fails the role's kind, needs or qualification, or was never probed (no caps to check). */
+export function hardRefusal(role: string, ref: { channel: string; model: string }, cand: Map<string, Candidate>, meta?: RoleMeta): string | undefined {
+  const { channel, model } = ref;
   const c = cand.get(`${channel}:${model}`);
-  if (c && !meetsHardRequirements(role, c)) return `${role}: ${channel}:${model} fails hard requirements`;
-  return undefined;
+  if (!c) return `${role}: ${channel}:${model} was not probed`;
+  const why = hardRequirementRefusal(role, c, meta);
+  return why ? `${role}: ${channel}:${model} fails hard requirements (${why})` : undefined;
 }

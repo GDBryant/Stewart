@@ -1,4 +1,4 @@
-import { allOf, anyOf, cmdOk, fail, fileMatches, nodeEval, noChanges, ok, onlyChanged, replyHas, unchanged, type CheckCtx, type CheckFn, type Verdict } from "./kit.js";
+import { allOf, anyOf, cmdOk, fail, fileMatches, nodeEval, noChanges, ok, onlyChanged, planCompleted, replyHas, unchanged, type CheckCtx, type CheckFn, type Verdict } from "./kit.js";
 
 export type TaskKind = "question" | "edit" | "report" | "long";
 
@@ -185,6 +185,11 @@ export const TASKS: EvalTask[] = [
         "Add tests in test/todo.test.js that cover all three commands.",
       ].join("\n"),
     ],
-    check: allOf(todoCli, fileMatches("test/todo.test.js", (t) => /add/.test(t) && /list/.test(t) && /done/.test(t), "covering add, list and done"), cmdOk("node --test test/todo.test.js")),
+    check: allOf(
+      todoCli,
+      fileMatches("test/todo.test.js", (t) => /add/.test(t) && /list/.test(t) && /done/.test(t), "covering add, list and done"),
+      cmdOk("node --test test/todo.test.js"),
+      planCompleted(3),
+    ),
   },
 ];

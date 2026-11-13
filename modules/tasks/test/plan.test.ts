@@ -37,4 +37,9 @@ describe("plan.md render + parse", () => {
     expect(currentMilestone(plan)?.id).toBe("M1");
     expect(currentMilestone({ ...plan, milestones: plan.milestones.map((m) => ({ ...m, status: "done" as const })) })).toBeUndefined();
   });
+
+  it("a failed milestone stays current and blocks later ones", () => {
+    const failed = { ...plan, milestones: [{ ...plan.milestones[0], status: "failed" as const }, { ...plan.milestones[1], status: "pending" as const }] };
+    expect(currentMilestone(failed)?.id).toBe("M1");
+  });
 });

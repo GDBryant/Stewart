@@ -149,7 +149,7 @@ const BENCH_STEPS: Record<BenchStep, (d: BenchDeps) => Promise<Partial<ModelPerf
 
 /**
  * Opt-in benchmark: latency + throughput from one streamed request, tool-call
- * reliability and edit ability through the injected ProbeLoop (so shim-mode models
+ * reliability and edit ability through the injected ProbeLoop (so models whose tool support is unknown
  * are measured on the same path they run on). Every field is best-effort — a
  * failed probe leaves it undefined, never zero.
  */

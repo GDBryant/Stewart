@@ -20,7 +20,8 @@ const qual = z.object({
 });
 
 const modelCaps = z.object({
-  tools: z.enum(["native", "shim", "none"]).optional(),
+  // "shim" (v2: text tool-call shim, removed) loads as "unknown".
+  tools: z.preprocess((v) => (v === "shim" ? "unknown" : v), z.enum(["native", "unknown", "none"]).optional()),
   vision: z.boolean().optional(),
   reasoning: z.boolean().optional(),
   imageGen: z.boolean().optional(),

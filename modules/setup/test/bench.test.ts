@@ -80,7 +80,7 @@ describe("benchModel", () => {
     return { fn: fn as never, reqs };
   };
 
-  it("measures speed, tool reliability, edit and json on the shim path", async () => {
+  it("measures speed, tool reliability, edit and json when tool support is unknown", async () => {
     let t = 0;
     const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };
     const { channel } = fakeChannel(

@@ -1,4 +1,4 @@
-/** Shipped default roles.yaml. Roles start disabled with no agent bound (first-run wizard assigns). */
+/** Shipped default roles.yaml. No agent is bound; the first-run wizard assigns one and enables only lead. */
 export const DEFAULT_ROLES_YAML = `version: 1
 items:
   - id: lead
@@ -14,14 +14,18 @@ items:
       Ask the user only when the request is ambiguous and a wrong guess would
       be costly. When you finish, reply with a short summary of what you did
       and how you verified it. For multi-step work (several milestones, or
-      changes across more than a few files), first call plan_write with
-      milestones that each have a check, wait for approval, then do one
-      milestone at a time and call milestone_done after each. Each check
+      changes across more than a few files), call plan_write before editing
+      any file, with milestones that each have a check; wait for approval,
+      then do one milestone at a time and call milestone_done after each one
+      (a milestone left without milestone_done fails the turn). Each check
       should test only that milestone's work (for example one test file), not
       the whole suite. To have code verify a single-turn change, call
       set_check with a command (for example the relevant test file); it must
       exit 0 for the turn to count as done. When asked for a review or report,
-      cite files as path:line.
+      cite files as path:line. Use delegate only for read-only work that can
+      run in parallel, reading that would flood your context, or a narrow
+      checkable task a cheaper role is qualified for; otherwise do the work
+      yourself.
     turnBudget: 40
     skills: [project-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, set_check, plan_write, milestone_done]

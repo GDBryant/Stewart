@@ -108,6 +108,7 @@ describe("plan lifecycle", () => {
         const done = turn.tools.find("milestone_done")!;
         const r1 = await done.execute({ id: "M1" }, null, turn.signal);
         turn.transcript.push({ role: "assistant", content: String(r1) });
+        yield { kind: "write", record: { path: "bin/hello.js", ok: true } };
         const r2 = await done.execute({ id: "M2" }, null, turn.signal).catch((e) => `ERR ${e.message}`);
         turn.transcript.push({ role: "assistant", content: `R1:${r1} R2:${r2}` });
         yield { kind: "finished", reason: "stop" };
@@ -216,7 +217,7 @@ describe("plan lifecycle", () => {
     expect((fin as { error?: string }).error).toMatch(/^plan incomplete: M1 print hello: /);
   });
 
-  it("auto-passes all pending milestones at turn end when every check passes", async () => {
+  it("auto-passes only the current milestone at turn end; later ones stay pending", async () => {
     const engine = scripted([
       async function* (turn: EngineTurn) {
         const write = turn.tools.find("plan_write")!;
@@ -232,8 +233,8 @@ describe("plan lifecycle", () => {
     approvePlan(h.interaction, h.events);
     await h.svc.send({ text: "go" });
     const fin = await h.finished;
-    expect(fin).toMatchObject({ status: "done" });
-    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(2);
+    expect(fin).toMatchObject({ status: "failed", error: "plan incomplete: M2 accept name: not started" });
+    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(1);
   });
 
   it("auto-pass stops at the first failing milestone and reports its evidence", async () => {
@@ -257,7 +258,7 @@ describe("plan lifecycle", () => {
     const { sessionId } = await h.svc.send({ text: "go" });
     const fin = await h.finished;
     expect(fin).toMatchObject({ status: "failed" });
-    expect((fin as { error?: string }).error).toMatch(/^plan incomplete: M2 two: .*b\.txt/);
+    expect((fin as { error?: string }).error).toBe("plan incomplete: M2 two: not started");
     expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(1);
     const summary = (await h.svc.planFor(sessionId)) as { milestones: { id: string; status: string; checkpoint?: string }[] } | undefined;
     expect(summary?.milestones[0]).toMatchObject({ status: "done" });
@@ -279,6 +280,82 @@ describe("plan lifecycle", () => {
     autoAnswer(h.interaction, h.events);
     await h.svc.send({ text: "go" });
     await h.finished;
+  });
+});
+
+describe("plan blocking and order", () => {
+  it("a milestone that failed 3 times blocks the plan: the sweep never marks the plan done", async () => {
+    let sessionId = "";
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        sessionId = turn.sessionId;
+        const pending = turn.tools.find("plan_write")!.execute({ goal: "g", milestones: [{ title: "one", check: { files: ["missing.txt"] } }, { title: "two", check: { files: ["b.txt"] } }] }, null, turn.signal);
+        await new Promise((r) => setTimeout(r, 5));
+        await pending;
+        const done = turn.tools.find("milestone_done")!;
+        for (let i = 0; i < 3; i++) await done.execute({ id: "M1" }, null, turn.signal);
+        await expect(done.execute({ id: "M2" }, null, turn.signal)).rejects.toThrow(/not the current milestone \(M1\)/);
+        yield { kind: "write", record: { path: "b.txt", ok: true } };
+        turn.transcript.push({ role: "assistant", content: "skipping M1" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "b.txt": "x" } });
+    approvePlan(h.interaction, h.events);
+    await h.svc.send({ text: "go" });
+    const fin = await h.finished;
+    expect(fin).toMatchObject({ status: "failed", error: "plan incomplete: M1 one: milestone failed; ask the user how to proceed" });
+    const summary = (await h.svc.planFor(sessionId)) as { status: string; milestones: { status: string }[] };
+    expect(summary.status).toBe("active");
+    expect(summary.milestones.map((m) => m.status)).toEqual(["failed", "pending"]);
+  });
+
+  it("plan_write is refused after the turn already edited files", async () => {
+    let msg = "";
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        yield { kind: "write", record: { path: "a.txt", ok: true } };
+        msg = await turn.tools.find("plan_write")!.execute(PLAN_ARGS, null, turn.signal).then(String, (e: Error) => e.message);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "a.txt": "x" } });
+    approvePlan(h.interaction, h.events);
+    await h.svc.send({ text: "go" });
+    await h.finished;
+    expect(msg).toContain("plan_write must come before any file edits");
+  });
+
+  it("does not sweep the plan on a later turn that did no plan work", async () => {
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        const pending = turn.tools.find("plan_write")!.execute(PLAN_ARGS, null, turn.signal);
+        await new Promise((r) => setTimeout(r, 5));
+        await pending;
+        turn.transcript.push({ role: "assistant", content: "planned" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn: EngineTurn) {
+        turn.transcript.push({ role: "assistant", content: "4" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine });
+    approvePlan(h.interaction, h.events);
+    const { sessionId } = await h.svc.send({ text: "go" });
+    await h.finished;
+    const second = new Promise<RunEvent>((res) => {
+      const t = setInterval(() => {
+        const fins = h.events.filter((e) => e.kind === "run.finished");
+        if (fins.length === 2) {
+          clearInterval(t);
+          res(fins[1]);
+        }
+      }, 1);
+    });
+    await h.svc.send({ sessionId, text: "what is 2+2?" });
+    expect(await second).toMatchObject({ status: "done" });
   });
 });
 
@@ -340,5 +417,44 @@ describe("plan state on disk", () => {
     const r = await h.svc.revert(sessionId, "baseline");
     expect(r.ok).toBe(true);
     expect(h.events.some((e) => e.kind === "run.reverted")).toBe(true);
+  });
+
+  it("revert without git restores pre-write content, deletes later files and resets milestone status", async () => {
+    let sessionId = "";
+    let files: Record<string, string> = {};
+    const engine = scripted([
+      async function* (turn: EngineTurn) {
+        sessionId = turn.sessionId;
+        const pending = turn.tools.find("plan_write")!.execute({ goal: "g", milestones: [{ title: "m1", check: { files: ["f.txt"] } }, { title: "m2", check: { files: ["g.txt"] } }] }, null, turn.signal);
+        await new Promise((r) => setTimeout(r, 5));
+        await pending;
+        yield { kind: "tool.request", callId: "w1", tool: "WriteFile", args: { path: "f.txt" }, category: "FILE" };
+        files["f.txt"] = "m1";
+        yield { kind: "write", record: { path: "f.txt", ok: true } };
+        await turn.tools.find("milestone_done")!.execute({ id: "M1" }, null, turn.signal);
+        yield { kind: "tool.request", callId: "w2", tool: "WriteFile", args: { path: "g.txt" }, category: "FILE" };
+        files["g.txt"] = "new";
+        yield { kind: "write", record: { path: "g.txt", ok: true } };
+        await turn.tools.find("milestone_done")!.execute({ id: "M2" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ engine, files: { "f.txt": "orig" } });
+    files = h.files;
+    approvePlan(h.interaction, h.events);
+    await h.svc.send({ text: "go" });
+    expect(await h.finished).toMatchObject({ status: "done" });
+    const m1 = ((await h.svc.planFor(sessionId)) as { milestones: { checkpoint?: string }[] }).milestones[0].checkpoint!;
+    await h.svc.revert(sessionId, m1);
+    expect(files["f.txt"]).toBe("m1");
+    expect(files["g.txt"]).toBeUndefined();
+    let summary = (await h.svc.planFor(sessionId)) as { status: string; milestones: { status: string }[] };
+    expect(summary.status).toBe("active");
+    expect(summary.milestones.map((m) => m.status)).toEqual(["done", "pending"]);
+    await h.svc.revert(sessionId, "baseline");
+    expect(files["f.txt"]).toBe("orig");
+    summary = (await h.svc.planFor(sessionId)) as typeof summary;
+    expect(summary.milestones.map((m) => m.status)).toEqual(["pending", "pending"]);
   });
 });

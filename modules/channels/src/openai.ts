@@ -110,7 +110,7 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     }
     const j = JSON.parse(body);
     const msg = j.choices?.[0]?.message;
-    return { tools: Array.isArray(msg?.tool_calls) ? "native" : "shim" };
+    return { tools: Array.isArray(msg?.tool_calls) ? "native" : "unknown" };
   }
 
   async generateImage(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }> {

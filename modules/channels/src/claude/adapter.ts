@@ -22,11 +22,16 @@ export interface ClaudeLoginState {
   detail?: string;
 }
 
+/** Claude CLI wait for one Stewart MCP tool call (6 h). */
+const MCP_TOOL_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+
 export function claudeChildEnv(cfg: ChannelConfig, src: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined) env[k] = v;
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
+  // Stewart's MCP tools wait on approval cards, plan approval and delegated child runs: no short CLI timeout.
+  env.MCP_TOOL_TIMEOUT ??= String(MCP_TOOL_TIMEOUT_MS);
   const extra = cfg.extraEnv as Record<string, string> | undefined;
   if (extra) Object.assign(env, extra);
   return env;
@@ -99,7 +104,7 @@ export class ClaudeCliAdapter implements ChannelAdapter {
   }
 
   async probeCaps(): Promise<Partial<ModelCaps>> {
-    return { tools: "shim", vision: true, reasoning: true, contextTokens: 200_000 };
+    return { tools: "native", vision: true, reasoning: true, contextTokens: 200_000 };
   }
 
   async *chat(): AsyncIterable<ChatEvent> {

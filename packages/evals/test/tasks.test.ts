@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkCtx } from "../src/kit.js";
+import { checkCtx, planCompleted } from "../src/kit.js";
 import { TASKS } from "../src/tasks.js";
 import { prepareRepo } from "../src/workspace.js";
 
@@ -80,6 +80,10 @@ const SOLUTIONS: Record<string, Solution> = {
       await mkdir(join(r, "bin"), { recursive: true });
       await writeFile(join(r, "bin/todo.js"), TODO_JS);
       await writeFile(join(r, "test/todo.test.js"), TODO_TEST);
+      await mkdir(join(r, ".stewart"), { recursive: true });
+      const head = (await checkCtx(r, []).sh("git rev-parse HEAD")).out.trim();
+      const ms = ["add", "list", "done"].map((t, i) => `## M${i + 1}: ${t} [done]\nCheck: node --test test/todo.test.js\nCheckpoint: ${i === 2 ? "snap-3" : head}`);
+      await writeFile(join(r, ".stewart/plan.md"), `# Plan: todo\n\nStatus: done\nSession: s\n\n${ms.join("\n\n")}\n`);
     },
   },
 };
@@ -165,5 +169,27 @@ describe("tasks", () => {
     await writeFile(join(repo, "test/range.test.js"), 'import { test } from "node:test";\ntest("x", () => {});\n');
     const task = TASKS.find((t) => t.id === "e-fix-failing-test")!;
     expect((await task.check(checkCtx(repo, ["done"]))).pass).toBe(false);
+  });
+});
+
+describe("planCompleted", () => {
+  const plan = (status: string, ms: string[]) => `# Plan: g\n\nStatus: ${status}\nSession: s\n\n${ms.join("\n\n")}\n`;
+  const m = (i: number, st = "done", cp: string | null = "snap-1") => `## M${i}: t [${st}]\nCheck: x${cp ? `\nCheckpoint: ${cp}` : ""}`;
+  const verdict = async (text: string | null) => {
+    const repo = await freshRepo();
+    if (text !== null) {
+      await mkdir(join(repo, ".stewart"), { recursive: true });
+      await writeFile(join(repo, ".stewart/plan.md"), text);
+    }
+    return (await planCompleted(2)(checkCtx(repo, []))).evidence;
+  };
+  it("fails each way a long build can fall short", async () => {
+    expect(await verdict(null)).toContain("missing");
+    expect(await verdict(plan("active", [m(1), m(2)]))).toContain("not done");
+    expect(await verdict(plan("done", [m(1)]))).toContain("expected at least 2");
+    expect(await verdict(plan("done", [m(1), m(2, "failed")]))).toContain("milestones not done: M2");
+    expect(await verdict(plan("done", [m(1), m(2, "done", null)]))).toContain("without a checkpoint");
+    expect(await verdict(plan("done", [m(1), m(2, "done", "deadbeef")]))).toContain("not a commit");
+    expect(await verdict(plan("done", [m(1), m(2)]))).toContain("plan done: 2 milestones");
   });
 });

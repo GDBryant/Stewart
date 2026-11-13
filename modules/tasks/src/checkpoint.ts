@@ -53,16 +53,52 @@ async function gitCheckpoint(host: Host, p: CpPaths, label: string): Promise<str
   return commit;
 }
 
-async function snapCheckpoint(host: Host, p: CpPaths, files: string[]): Promise<string> {
-  const dir = `${p.stateDir}/checkpoints/${p.sessionId}`;
-  const n = (await host.files.exists(dir)) ? (await host.files.list(dir)).filter((f) => f.endsWith(".json")).length + 1 : 1;
-  const manifest: SnapManifest = { files: {} };
-  for (const f of files) {
-    manifest.files[f] = (await host.files.exists(f)) ? (await host.files.read(f)).content : null;
+function snapDir(p: CpPaths): string {
+  return `${p.stateDir}/checkpoints/${p.sessionId}`;
+}
+
+/** Existing snapshot manifests, oldest first. */
+async function manifests(host: Host, p: CpPaths): Promise<{ id: string; path: string; m: SnapManifest }[]> {
+  const dir = snapDir(p);
+  if (!(await host.files.exists(dir))) return [];
+  const ids = (await host.files.list(dir))
+    .map((f) => f.split("/").pop() ?? f)
+    .filter((f) => /^snap-\d+\.json$/.test(f))
+    .map((f) => f.slice(0, -5))
+    .sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)));
+  const out = [];
+  for (const id of ids) {
+    const path = `${dir}/${id}.json`;
+    out.push({ id, path, m: JSON.parse((await host.files.read(path)).content) as SnapManifest });
   }
-  const id = `snap-${n}`;
-  await host.files.writeAtomic(`${p.stateDir}/checkpoints/${p.sessionId}/${id}.json`, JSON.stringify(manifest));
+  return out;
+}
+
+/**
+ * Snapshot checkpoint: current content of every file the session has touched (the union of earlier manifests
+ * plus `files`). Files first touched later are added to this manifest by `recordOriginal`.
+ */
+async function snapCheckpoint(host: Host, p: CpPaths, files: string[]): Promise<string> {
+  const prev = await manifests(host, p);
+  const all = new Set([...prev.flatMap((x) => Object.keys(x.m.files)), ...files]);
+  const manifest: SnapManifest = { files: {} };
+  for (const f of all) manifest.files[f] = (await host.files.exists(f)) ? (await host.files.read(f)).content : null;
+  const id = `snap-${prev.length + 1}`;
+  await host.files.writeAtomic(`${snapDir(p)}/${id}.json`, JSON.stringify(manifest));
   return id;
+}
+
+/**
+ * Copy-on-write for snapshot checkpoints: before the first write to a file no checkpoint has seen, record its
+ * pre-write content (null = absent) in every existing manifest, so reverting to any of them restores or
+ * deletes it. No-op for git checkpoints (no manifests) and for files already recorded.
+ */
+export async function recordOriginal(host: Host, p: CpPaths, path: string, content: string | null): Promise<void> {
+  for (const x of await manifests(host, p)) {
+    if (path in x.m.files) continue;
+    x.m.files[path] = content;
+    await host.files.writeAtomic(x.path, JSON.stringify(x.m));
+  }
 }
 
 /** Take a worktree checkpoint without touching HEAD, branches or the user's index. */
@@ -73,7 +109,8 @@ export async function createCheckpoint(host: Host, p: CpPaths, label: string, fi
 
 async function gitRevert(host: Host, p: CpPaths, id: string): Promise<{ restored: string[]; deleted: string[] }> {
   const treeFiles = new Set(lines(await must(host, p.cwd, ["ls-tree", "-r", "--name-only", id])));
-  const changed = lines(await must(host, p.cwd, ["diff", "--name-only", id, "--", "."])).filter((f) => treeFiles.has(f));
+  // `.stewart/` (plan file, reports) is Stewart's own state: the session resets plan status itself.
+  const changed = lines(await must(host, p.cwd, ["diff", "--name-only", id, "--", "."])).filter((f) => treeFiles.has(f) && !f.startsWith(".stewart/"));
   if (changed.length) await must(host, p.cwd, ["restore", `--source=${id}`, "--worktree", "--", ...changed]);
   const untracked = lines(await must(host, p.cwd, ["ls-files", "--others", "--exclude-standard"]));
   const deleted: string[] = [];
@@ -86,7 +123,7 @@ async function gitRevert(host: Host, p: CpPaths, id: string): Promise<{ restored
 }
 
 async function snapRevert(host: Host, p: CpPaths, id: string): Promise<{ restored: string[]; deleted: string[] }> {
-  const manifest = JSON.parse((await host.files.read(`${p.stateDir}/checkpoints/${p.sessionId}/${id}.json`)).content) as SnapManifest;
+  const manifest = JSON.parse((await host.files.read(`${snapDir(p)}/${id}.json`)).content) as SnapManifest;
   const restored: string[] = [];
   const deleted: string[] = [];
   for (const [f, content] of Object.entries(manifest.files)) {

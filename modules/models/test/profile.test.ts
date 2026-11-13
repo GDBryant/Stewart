@@ -22,7 +22,7 @@ describe("profileFromChannel", () => {
     const none = profileFromChannel(cfg("x", { m: { tools: "none" } }), { channel: "c", model: "m" });
     expect(none.toolsMode).toBe("none");
     const unset = profileFromChannel(cfg("x", { m: { vision: true } }), { channel: "c", model: "m" });
-    expect(unset.toolsMode).toBe("shim");
+    expect(unset.toolsMode).toBe("unknown");
   });
 
   it("price precedence: agent.price beats live beats catalog", () => {
@@ -54,10 +54,10 @@ describe("profileFromChannel", () => {
     expect(p.costTier).toBe("free");
   });
 
-  it("unknown channel/model: empty caps, shim, no price, never 0", () => {
+  it("unknown channel/model: empty caps, unknown tools, no price, never 0", () => {
     const p = profileFromChannel(cfg("openai-compatible"), { channel: "c", model: UNKNOWN });
     expect(p.caps).toEqual({});
-    expect(p.toolsMode).toBe("shim");
+    expect(p.toolsMode).toBe("unknown");
     expect(p.price).toBeUndefined();
     expect(p.costBlended).toBeUndefined();
     expect(p.costTier).toBeUndefined();
@@ -67,7 +67,7 @@ describe("profileFromChannel", () => {
   it("unknown channel (no config) yields the same empty profile", () => {
     const p = profileFromChannel(undefined, { channel: "missing", model: UNKNOWN });
     expect(p.caps).toEqual({});
-    expect(p.toolsMode).toBe("shim");
+    expect(p.toolsMode).toBe("unknown");
     expect(p.price).toBeUndefined();
     expect(p.costBlended).toBeUndefined();
     expect(p.channelType).toBe("");
@@ -84,7 +84,7 @@ describe("resolveModelProfile", () => {
   it("returns the empty profile when the channel id is not configured", () => {
     const p = resolveModelProfile({ channels: [] as never[] }, { channel: "nope", model: UNKNOWN });
     expect(p.caps).toEqual({});
-    expect(p.toolsMode).toBe("shim");
+    expect(p.toolsMode).toBe("unknown");
     expect(p.price).toBeUndefined();
     expect(p.costBlended).toBeUndefined();
   });

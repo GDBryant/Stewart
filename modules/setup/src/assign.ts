@@ -97,9 +97,12 @@ function eligible(c: Candidate, p: Profile): string | undefined {
   return capabilityRefusal(c, p) ?? perfRefusal(c, p) ?? qualRefusal(c, p) ?? contextRefusal(c, p);
 }
 
+/** A model only gets work it passed a test for: a missing record refuses like a failed one (runtime does the same). */
 function qualRefusal(c: Candidate, p: Profile): string | undefined {
   const kind = p.kind ?? "agent";
-  if (c.caps.qualified?.[kind]?.passed === false) return `failed ${kind} qualification`;
+  const q = c.caps.qualified?.[kind];
+  if (q?.passed === false) return `failed ${kind} qualification`;
+  if (q?.passed !== true) return `not qualified as ${kind}`;
   return undefined;
 }
 
@@ -125,9 +128,14 @@ function perfRefusal(c: Candidate, p: Profile): string | undefined {
   return undefined;
 }
 
+/** Why the candidate fails the role's hard requirements (kind, needs, qualification), or undefined when it meets them. */
+export function hardRequirementRefusal(role: string, c: Candidate, meta?: RoleMeta): string | undefined {
+  return eligible(c, profileFor(role, meta));
+}
+
 /** True when the candidate meets the role's hard requirements. */
-export function meetsHardRequirements(role: string, c: Candidate): boolean {
-  return eligible(c, ROLE_PROFILES[role] ?? DEFAULT_PROFILE) === undefined;
+export function meetsHardRequirements(role: string, c: Candidate, meta?: RoleMeta): boolean {
+  return hardRequirementRefusal(role, c, meta) === undefined;
 }
 
 /** One scoring dimension's contribution: score delta plus human-readable reason/warning strings. */
@@ -281,7 +289,10 @@ export function scoreAssignments(
   return { assignments, unfilled };
 }
 
-function profileFor(role: string, meta?: { kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number } }): Profile {
+/** The role's declared kind and needs (from roles.yaml). */
+export type RoleMeta = { kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number } };
+
+function profileFor(role: string, meta?: RoleMeta): Profile {
   const p: Profile = { ...(ROLE_PROFILES[role] ?? DEFAULT_PROFILE), needs: { ...(ROLE_PROFILES[role] ?? DEFAULT_PROFILE).needs } };
   p.kind = meta?.kind ?? "agent";
   if (meta?.needs?.vision) p.needs = { ...p.needs, vision: true };

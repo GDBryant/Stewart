@@ -10,7 +10,8 @@ export interface ModelPerf {
   benchVersion: number;
 }
 
-export type ToolsMode = "native" | "shim" | "none";
+/** native = provider tool calling seen; none = provider says no tools; unknown = not established (qualification decides). */
+export type ToolsMode = "native" | "unknown" | "none";
 
 /** Result of one qualification run (CONFORMANCE_VERSION-stamped). */
 export interface Qual {
@@ -31,7 +32,7 @@ export type ModelCaps = {
   qualified?: { agent?: Qual; function?: Qual };
 };
 
-export const DEFAULT_CAPS: ModelCaps = { tools: "shim", vision: false, reasoning: false, imageGen: false, contextTokens: 32768 };
+export const DEFAULT_CAPS: ModelCaps = { tools: "unknown", vision: false, reasoning: false, imageGen: false, contextTokens: 32768 };
 
 /** Anything that carries per-model caps (a channel config or a channel definition). */
 export interface CapsSource {

@@ -8,15 +8,17 @@ import { agentContext, eligibleChain, type EffectiveConfig } from "@stewart/role
 import { ChatHistoryStore } from "./history.js";
 import { costOfCall, RunLedger } from "@stewart/ledger";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
-import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type EngineTurn, type WriteRecord } from "@stewart/engines";
-import { declaredCheck, isReportGoal, runCheck, type Check, type CheckInput, type CheckResult } from "@stewart/tasks";
-import { leadAgent, leadRole, systemPrompt } from "./lead.js";
-import { askUserTool, loadSkillTool, setCheckTool, type DeclaredCheck } from "./sessionTools.js";
+import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type EngineTurn } from "@stewart/engines";
+import { declaredCheck, isEditGoal, isReportGoal, runCheck, worktreeChanges, worktreeState, type Check, type CheckInput, type CheckResult, type WorktreeState } from "@stewart/tasks";
+import { leadRole, systemPrompt } from "./lead.js";
+import { askUserTool, loadSkillTool, setCheckTool } from "./sessionTools.js";
 import { questionPrompt } from "@stewart/interaction";
 import { ChildRunner } from "./child.js";
-import { handoverText, type Tried } from "./handover.js";
+import { handoverText } from "./handover.js";
 import { PlanRunner } from "./plan.js";
-import { compactTranscript } from "./compact.js";
+import { compactTranscript, expandArchived } from "./compact.js";
+import { planResumeText, planSummary, revertSession } from "./planOps.js";
+import { checkInput, err, finishedEvent, isReadTool, lastUserText, newRunState, snapshotBefore, type FinishReason, type RunState } from "./turnState.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -36,25 +38,6 @@ export interface SendRequest {
   images?: string[];
 }
 
-type FinishReason = "stop" | "turn_limit" | "cancelled" | "loop_guard" | "error" | "";
-
-interface RunState {
-  controller: AbortController;
-  seq: number;
-  writes: WriteRecord[];
-  accrued: number;
-  reason: FinishReason;
-  error?: string;
-  costCapped: boolean;
-  tried: Tried[];
-  /** File content before its first write this turn (null = absent). */
-  before: Record<string, string | null>;
-  /** The lead's `set_check` declaration. */
-  declared: { value?: DeclaredCheck };
-  /** The turn's user request, for report detection. */
-  goal: string;
-}
-
 interface EvCtx {
   runId: string;
   rs: RunState;
@@ -63,6 +46,7 @@ interface EvCtx {
   cap: number;
   plan: PlanRunner;
   host: HostPort;
+  cwd: string;
 }
 
 /** One in-flight turn: what runTurn assembles once and drive/finish/persist share. */
@@ -76,39 +60,17 @@ interface TurnWork {
   stateDir: string;
   store: ChatHistoryStore;
   plan: PlanRunner;
+  /** Worktree before the turn (git repos): edits made by shell commands count as changes. */
+  disk0: WorktreeState;
 }
 
-function err(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+type Env = { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig };
+
+/** Changed files must differ and exist; the declared command runs; edit requests must change a file; report requests must cite real files. */
+function turnChecks(rs: RunState, input: CheckInput): Check {
+  const check: Check = { ...declaredCheck(input, rs.declared.value), edit: isEditGoal(rs.goal) || undefined };
+  return !input.changed.length && isReportGoal(rs.goal) ? { ...check, cites: true } : check;
 }
-
-const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
-const PATH_KEYS = ["path", "file_path", "notebook_path"];
-
-/** Remember a file's content before the first write to it this turn (best effort; unreadable = absent). */
-async function snapshotBefore(host: HostPort, rs: RunState, tool: string, args: unknown): Promise<void> {
-  if (!WRITE_TOOLS.has(tool)) return;
-  const a = (args ?? {}) as Record<string, unknown>;
-  const key = PATH_KEYS.find((k) => typeof a[k] === "string");
-  if (!key) return;
-  const path = a[key] as string;
-  if (path in rs.before) return;
-  try {
-    rs.before[path] = (await host.files.exists(path)) ? (await host.files.read(path)).content : null;
-  } catch {
-    /* no snapshot: the changed-content check skips this path */
-  }
-}
-
-function lastUserText(transcript: ChatMessage[]): string {
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    const m = transcript[i];
-    if (m.role === "user" && typeof m.content === "string") return m.content;
-  }
-  return "";
-}
-
-
 
 /** One session service per project: a chat's full transcript, the lead's turn, and the after-turn check. */
 export class SessionService {
@@ -123,7 +85,7 @@ export class SessionService {
   async send(req: SendRequest): Promise<{ runId: string; sessionId: string }> {
     const sessionId = req.sessionId ?? this.deps.ids.next("sess");
     const runId = this.deps.ids.next("run");
-    const rs: RunState = { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false, tried: [], before: {}, declared: {}, goal: req.text };
+    const rs = newRunState(req.text);
     this.active.set(runId, rs);
     const prev = this.chains.get(sessionId) ?? Promise.resolve();
     const next = prev.then(() => this.runTurn(runId, sessionId, req, rs));
@@ -145,6 +107,13 @@ export class SessionService {
       this.history = new ChatHistoryStore(this.deps.host, `${stateDir}/history`, this.deps.config().settings.historyRetentionDays);
     }
     return this.history;
+  }
+
+  /** The chat's full transcript for display: compaction summaries are expanded back from the archive. */
+  async fullHistory(sessionId: string): Promise<ChatMessage[]> {
+    const stored = (await (await this.historyStore()).load(sessionId)) ?? [];
+    const stateDir = await this.deps.host.workspace.stateDir();
+    return await expandArchived(this.deps.host, stored, `${stateDir}/sessions/${sessionId}.archive.jsonl`);
   }
 
   private async ledgerFor(): Promise<RunLedger> {
@@ -181,19 +150,24 @@ export class SessionService {
     }
   }
 
-  private async runTurn(runId: string, sessionId: string, req: SendRequest, rs: RunState): Promise<void> {
+  private async turnWork(runId: string, sessionId: string, rs: RunState): Promise<TurnWork> {
     const { host, bus } = this.deps;
+    const stateDir = await host.workspace.stateDir();
+    const store = await this.historyStore();
+    const paths = await ProjectPaths.forProject(host);
+    return {
+      runId, sessionId, rs, stateDir, store, paths,
+      transcript: (await store.load(sessionId)) ?? [],
+      state: await this.engineState(stateDir, sessionId),
+      plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction }),
+      disk0: await worktreeState(host, paths.base),
+    };
+  }
+
+  private async runTurn(runId: string, sessionId: string, req: SendRequest, rs: RunState): Promise<void> {
+    const { bus } = this.deps;
     try {
-      const stateDir = await host.workspace.stateDir();
-      const store = await this.historyStore();
-      const w: TurnWork = {
-        runId, sessionId, rs, stateDir, store,
-        transcript: (await store.load(sessionId)) ?? [],
-        state: await this.engineState(stateDir, sessionId),
-        paths: await ProjectPaths.forProject(host),
-      plan: undefined as unknown as PlanRunner,
-      };
-      w.plan = new PlanRunner({ host, paths: w.paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction });
+      const w = await this.turnWork(runId, sessionId, rs);
       w.transcript.push({ role: "user", content: req.text, images: req.images?.length ? req.images : undefined });
       bus.emit({ kind: "run.started", runId, roleId: "lead", title: req.text.slice(0, 60) });
       try {
@@ -228,7 +202,7 @@ export class SessionService {
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
     await this.compact(w, chain[0], config);
     const goal = lastUserText(w.transcript);
-    const env = { lead, tools, hostTools, ledger, config };
+    const env: Env = { lead, tools, hostTools, ledger, config };
     let prev: AgentDef | undefined;
     for (const agent of chain) {
       if (prev) this.escalate(w, prev, agent, goal);
@@ -241,12 +215,17 @@ export class SessionService {
     await this.retryOrStop(w, prev ?? chain[0], env);
   }
 
-  /** Summarise older turns when the transcript nears the window; the plan rides in the system prompt, the open task is kept verbatim. */
+  /**
+   * Summarise older turns (or the older part of a long turn) when the transcript nears the window. The plan
+   * rides in the system prompt; the open task is kept verbatim. Claude CLI agents manage their own context.
+   */
   private async compact(w: TurnWork, agent: AgentDef, config: EffectiveConfig): Promise<void> {
+    const channel = this.deps.channelFor(agent.channel);
+    if (channel.cfg.type === "claude-cli") return;
     const did = await compactTranscript({
       host: this.deps.host,
       transcript: w.transcript,
-      channel: this.deps.channelFor(agent.channel),
+      channel,
       agent,
       window: agentContext(agent, config.channels),
       archivePath: `${w.stateDir}/sessions/${w.sessionId}.archive.jsonl`,
@@ -274,10 +253,11 @@ export class SessionService {
     return false;
   }
 
-  private async attempt(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
+  private async attempt(w: TurnWork, agent: AgentDef, env: Env): Promise<void> {
     const { lead, tools, hostTools, ledger, config } = env;
     const channel = this.deps.channelFor(agent.channel);
     const engine = (this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
+    w.rs.lastCheck = undefined;
     const turn: EngineTurn = {
       sessionId: w.sessionId,
       transcript: w.transcript,
@@ -291,8 +271,9 @@ export class SessionService {
       cwd: w.paths.base,
       signal: w.rs.controller.signal,
       maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
+      beforeModelTurn: () => this.compact(w, agent, config),
     };
-    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan, host: this.deps.host };
+    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan, host: this.deps.host, cwd: w.paths.base };
     try {
       for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
     } catch (e) {
@@ -301,19 +282,20 @@ export class SessionService {
     }
   }
 
-  private async attemptCheck(w: TurnWork) {
-    const input = this.checkInput(w.transcript, w.rs);
-    return await runCheck({ check: this.turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
+  /** The turn's check; the result is kept so `finish` does not run the same command twice. */
+  private async attemptCheck(w: TurnWork): Promise<CheckResult> {
+    const input = await this.inputFor(w);
+    const res = await runCheck({ check: turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
+    w.rs.lastCheck = { res, writes: w.rs.writes.length, declared: w.rs.declared.value };
+    return res;
   }
 
-  /** Changed files must differ and exist; the lead's declared command runs; report requests must cite real files. */
-  private turnChecks(rs: RunState, input: CheckInput): Check {
-    const check = declaredCheck(input, rs.declared.value);
-    return !input.changed.length && isReportGoal(rs.goal) ? { ...check, cites: true } : check;
+  private async inputFor(w: TurnWork): Promise<CheckInput> {
+    const diskChanged = worktreeChanges(w.disk0, await worktreeState(this.deps.host, w.paths.base));
+    return { ...checkInput(w.transcript, w.rs), diskChanged };
   }
 
-  private async retryOrStop(w: TurnWork, agent: AgentDef, env: { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig }): Promise<void> {
-    const { lead } = env;
+  private async retryOrStop(w: TurnWork, agent: AgentDef, env: Env): Promise<void> {
     const evidence = w.rs.error ?? "failed";
     const question = `All agents for this task failed. ${evidence}\nReply with guidance to retry once more on ${agent.id}, or stop.`;
     const o = await this.deps.interaction.ask(questionPrompt("fallback", question, ["Stop"]), { runId: w.runId, roleId: "lead" }, w.rs.controller.signal);
@@ -352,6 +334,7 @@ export class SessionService {
       ledger,
       parent: w.rs,
       costCapUsd: config.settings.costLimit.perRunUsd,
+      plan: w.plan,
     });
   }
 
@@ -364,14 +347,10 @@ export class SessionService {
       case "reasoning":
         return bus.emit({ kind: "reasoning_delta", runId, roleId: "lead", seq: rs.seq++, text: ev.text });
       case "tool.request":
-        await snapshotBefore(c.host, rs, ev.tool, ev.args);
-        rs.tried.push({ name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
-        return bus.emit({ kind: "tool.request", runId, roleId: "lead", callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
-      case "tool.outcome": {
-        const t = rs.tried[rs.tried.length - 1];
-        if (t) t.ok = ev.ok;
+        return await this.onRequest(ev, c);
+      case "tool.outcome":
+        this.onOutcome(ev, rs);
         return bus.emit({ kind: "tool.outcome", runId, roleId: "lead", callId: ev.callId, ok: ev.ok, summary: ev.summary });
-      }
       case "write":
         rs.writes.push(ev.record);
         return void c.plan.recordWrite(ev.record);
@@ -382,6 +361,21 @@ export class SessionService {
         rs.error = ev.error;
         return;
     }
+  }
+
+  private async onRequest(ev: Extract<EngineEvent, { kind: "tool.request" }>, c: EvCtx): Promise<void> {
+    const { rs, plan } = c;
+    await snapshotBefore({ host: c.host, cwd: c.cwd, before: rs.before, onFirst: (p, content) => plan.beforeWrite(p, content) }, ev.tool, ev.args);
+    rs.tried.push({ callId: ev.callId, name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
+    this.deps.bus.emit({ kind: "tool.request", runId: c.runId, roleId: "lead", callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
+  }
+
+  /** Match the outcome to its call by id (batched and parallel calls finish out of order). */
+  private onOutcome(ev: Extract<EngineEvent, { kind: "tool.outcome" }>, rs: RunState): void {
+    const t = rs.tried.find((x) => x.callId === ev.callId);
+    if (!t) return;
+    t.ok = ev.ok;
+    if (ev.ok && isReadTool(t.name)) rs.reads++;
   }
 
   private async onUsage(ev: Extract<EngineEvent, { kind: "usage" }>, c: EvCtx): Promise<void> {
@@ -396,74 +390,50 @@ export class SessionService {
     }
   }
 
-  private checkInput(transcript: ChatMessage[], rs: RunState): CheckInput {
-    let reply = "";
-    for (let i = transcript.length - 1; i >= 0; i--) {
-      const m = transcript[i];
-      if (m.role === "assistant" && m.content.trim()) {
-        reply = m.content;
-        break;
-      }
-      if (m.role === "user") break;
-    }
-    const changed = [...new Set(rs.writes.filter((w) => w.ok).map((w) => w.path))];
-    return { reply, writes: rs.writes, changed, before: rs.before };
+  /** The final check: reuses the last attempt's result when nothing was written or declared since. */
+  private async finalCheck(w: TurnWork): Promise<CheckResult> {
+    const last = w.rs.lastCheck;
+    if (last && last.writes === w.rs.writes.length && last.declared === w.rs.declared.value) return { passed: last.res.passed, evidence: [...last.res.evidence] };
+    const input = await this.inputFor(w);
+    return await runCheck({ check: turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
   }
 
-  private finishedEvent(runId: string, rs: RunState, res: CheckResult): RunEvent {
-    if (rs.costCapped) return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: "cost cap reached" };
-    if (rs.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
-    if (rs.reason === "stop" && res.passed) return { kind: "run.finished", runId, roleId: "lead", status: "done" };
-    const error = rs.error ?? (res.passed ? rs.reason || "failed" : res.evidence.join("; "));
-    return { kind: "run.finished", runId, roleId: "lead", status: "failed", error };
+  /** Plan sweep runs only after a turn that did plan work (writes or plan tools), never on cancel or cost cap. */
+  private async sweep(w: TurnWork): Promise<{ id: string; title: string; evidence: string } | undefined> {
+    const { rs } = w;
+    if (rs.reason === "cancelled" || rs.costCapped) return undefined;
+    if (!rs.writes.length && !w.plan.touched) return undefined;
+    return await w.plan.sweepFinish();
   }
 
   private async finish(w: TurnWork): Promise<void> {
     const { runId, rs } = w;
-    const input = this.checkInput(w.transcript, rs);
-    const res = await runCheck({ check: this.turnChecks(rs, input), input, host: this.deps.host, cwd: w.paths.base });
-    const pending = await w.plan.sweepFinish();
-    if (pending) res.evidence.push(`plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}`);
+    const res = await this.finalCheck(w);
+    const pending = await this.sweep(w);
+    const planErr = pending ? `plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}` : undefined;
+    if (planErr) res.evidence.push(planErr);
     this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed && !pending, evidence: res.evidence });
     if (rs.accrued > 0) await this.emitCost(runId, rs.accrued);
-    if (pending && rs.reason !== "cancelled" && !rs.costCapped) {
-      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: `plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}` });
+    if (planErr) {
+      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: planErr });
       return;
     }
-    this.deps.bus.emit(this.finishedEvent(runId, rs, res));
+    this.deps.bus.emit(finishedEvent(runId, rs, res));
   }
 
   /** Revert the session's worktree to a checkpoint (id, "baseline", or latest). */
   async revert(sessionId: string, checkpoint?: string): Promise<{ ok: boolean; filesRestored?: string[]; reason?: string }> {
-    const stateDir = await this.deps.host.workspace.stateDir();
-    const paths = await ProjectPaths.forProject(this.deps.host);
-    const runId = this.deps.ids.next("revert");
-    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId, bus: this.deps.bus, interaction: this.deps.interaction });
-    const done = await plan.revertTo(checkpoint);
-    if (!done) return { ok: false, reason: "no checkpoint for this session" };
-    const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
-    this.deps.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
-    return { ok: true, filesRestored };
+    return await revertSession(this.deps, sessionId, checkpoint);
   }
 
   /** Latest session plan summary for history.load. */
   async planFor(sessionId: string): Promise<unknown> {
-    const stateDir = await this.deps.host.workspace.stateDir();
-    const paths = await ProjectPaths.forProject(this.deps.host);
-    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId: "history", bus: this.deps.bus, interaction: this.deps.interaction });
-    const cps = await plan.checkpoints();
-    const text = await plan.resumeText();
-    const st = await (plan as unknown as { load(): Promise<{ plan: { goal: string; status: string; milestones: { id: string; title: string; status: string; checkpoint?: string }[] } } | undefined> }).load();
-    if (!st) return undefined;
-    return { goal: st.plan.goal, status: st.plan.status, active: text !== undefined, milestones: st.plan.milestones, latest: cps.latest, baseline: cps.baseline };
+    return await planSummary(this.deps, sessionId);
   }
 
   /** Start a lead turn resuming an active plan. */
   async resume(sessionId: string): Promise<{ runId?: string; ok?: boolean; reason?: string }> {
-    const stateDir = await this.deps.host.workspace.stateDir();
-    const paths = await ProjectPaths.forProject(this.deps.host);
-    const plan = new PlanRunner({ host: this.deps.host, paths, stateDir, sessionId, runId: "resume", bus: this.deps.bus, interaction: this.deps.interaction });
-    const text = await plan.resumeText();
+    const text = await planResumeText(this.deps, sessionId);
     if (!text) return { ok: false, reason: "no active plan for this session" };
     return await this.send({ sessionId, text });
   }
@@ -473,7 +443,7 @@ export class SessionService {
     const cap = this.deps.config().settings.costLimit.perRunUsd;
     this.deps.bus.emit({
       kind: "cost.summary", runId, roleId: "lead", capUsd: cap, accruedUsd: c.costUsd || accrued,
-      overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent, parked: [], freeFinished: [], suggestions: [],
+      overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent,
     });
   }
 }

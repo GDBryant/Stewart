@@ -380,3 +380,58 @@ describe("native-loop loop guard", () => {
     expect(last(evs)).toMatchObject({ kind: "finished", reason: "loop_guard" });
   });
 });
+
+describe("nativeLoop tool timeout", () => {
+  function slowTool(over: Partial<Tool>): { tool: Tool; finish: () => void } {
+    let finish = () => {};
+    const tool: Tool = {
+      spec: { name: "Slow", description: "slow", parameters: { type: "object", properties: {}, additionalProperties: false } },
+      requiresApproval: false,
+      execute: () => new Promise<string>((r) => (finish = () => r("slow done"))),
+      ...over,
+    };
+    return { tool, finish: () => finish() };
+  }
+  const twoTurns = () => fakeChannel([[{ kind: "tool_calls", calls: [call("Slow")] }, { kind: "done" }], [{ kind: "text", text: "ok" }, { kind: "done" }]]);
+
+  it("cuts off an ordinary tool after 120 s", async () => {
+    vi.useFakeTimers();
+    try {
+      const { tool } = slowTool({});
+      const t = turn({ channel: twoTurns(), tools: new ToolRegistry([tool]) });
+      const p = collect(nativeLoop.run(t));
+      await vi.advanceTimersByTimeAsync(121_000);
+      const evs = await p;
+      expect(evs.find((e) => e.kind === "tool.outcome")).toMatchObject({ ok: false });
+      expect(t.transcript.find((m) => m.role === "tool")?.content).toContain("timed out after 120s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never times out a noTimeout tool (delegate, milestone checks)", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = slowTool({ noTimeout: true });
+      const t = turn({ channel: twoTurns(), tools: new ToolRegistry([s.tool]) });
+      const p = collect(nativeLoop.run(t));
+      await vi.advanceTimersByTimeAsync(300_000);
+      s.finish();
+      const evs = await p;
+      expect(evs.find((e) => e.kind === "tool.outcome")).toMatchObject({ ok: true });
+      expect(t.transcript.find((m) => m.role === "tool")?.content).toContain("slow done");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("nativeLoop beforeModelTurn", () => {
+  it("is called before every model request", async () => {
+    let n = 0;
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [call("Echo", { text: "a" })] }, { kind: "done" }], [{ kind: "text", text: "ok" }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), beforeModelTurn: async () => void n++ });
+    await collect(nativeLoop.run(t));
+    expect(n).toBe(2);
+  });
+});

@@ -12,6 +12,8 @@ export interface Check {
   cites?: boolean;
   /** The reply must end with exactly one ```json block validating as a HealthReport. */
   schema?: "health";
+  /** The request asked for an edit: some file must change (write tool or on disk), unless a declared command passed. */
+  edit?: boolean;
 }
 
 /** One write-tool call outcome, in call order. */
@@ -27,6 +29,10 @@ export interface CheckInput {
   changed: string[];
   /** Content of each written file before its first write this turn; null = did not exist. */
   before?: Record<string, string | null>;
+  /** Successful read/search tool calls this turn; a "no findings" report needs at least one. */
+  reads?: number;
+  /** Files changed on disk during the turn by any means (git worktree diff); undefined = unknown. */
+  diskChanged?: string[];
 }
 
 export interface CheckResult {
@@ -125,24 +131,47 @@ async function checkCommand(args: RunCheckArgs, out: string[]): Promise<void> {
 const CITATION = /[A-Za-z0-9_][A-Za-z0-9_.\-/]*\.[A-Za-z0-9]{1,12}(?::\d+)?/g;
 const NO_FINDINGS = /could not find|cannot find|not found|no (matches|findings|results|problems|issues|files|reports)|nothing found/i;
 
-function citationPaths(reply: string): string[] {
-  const out = new Set<string>();
+interface Citation {
+  path: string;
+  line?: number;
+  /** Has a directory part: a missing one is a bad citation; bare names count only when they exist. */
+  slashed: boolean;
+}
+
+function citations(reply: string): Citation[] {
+  const out = new Map<string, Citation>();
   for (const m of reply.matchAll(CITATION)) {
-    const p = m[0].replace(/:\d+$/, "");
-    if (p.includes("/")) out.add(p);
+    const [p, line] = m[0].split(":");
+    const c = { path: p, line: line ? Number(line) : undefined, slashed: p.includes("/") };
+    out.set(m[0], c);
   }
-  return [...out];
+  return [...out.values()];
+}
+
+async function lineCount(host: Pick<HostPort, "files">, p: string): Promise<number> {
+  return (await host.files.read(p)).content.split("\n").length;
+}
+
+/** Evidence for one citation, or null when a bare name is not a file (prose like `e.g.` or `3.0.0`). */
+async function citeEvidence(c: Citation, host: Pick<HostPort, "files">): Promise<string | null> {
+  if (!(await host.files.exists(c.path))) return c.slashed ? `missing citation: ${c.path}` : null;
+  if (c.line !== undefined && (c.line < 1 || c.line > (await lineCount(host, c.path)))) return `bad line citation: ${c.path}:${c.line}`;
+  return `cited: ${c.path}${c.line !== undefined ? `:${c.line}` : ""}`;
 }
 
 async function checkCites(args: RunCheckArgs, out: string[]): Promise<void> {
-  const paths = citationPaths(args.input.reply);
-  if (!paths.length) {
-    out.push(NO_FINDINGS.test(args.input.reply) ? "no findings reported" : "no file citations in reply");
+  const found: string[] = [];
+  for (const c of citations(args.input.reply)) {
+    const e = await citeEvidence(c, args.host);
+    if (e) found.push(e);
+  }
+  if (found.length) {
+    out.push(...found);
     return;
   }
-  for (const p of paths) {
-    out.push((await args.host.files.exists(p)) ? `cited: ${p}` : `missing citation: ${p}`);
-  }
+  if (!NO_FINDINGS.test(args.input.reply)) out.push("no file citations in reply");
+  else if (args.input.reads === 0) out.push("no findings reported without reading any file");
+  else out.push("no findings reported");
 }
 
 const JSON_BLOCK = /```json\s*\n([\s\S]*?)```/g;
@@ -220,6 +249,21 @@ function checkReply(input: CheckInput, out: string[]): void {
   if (nothing) out.push("empty reply");
 }
 
+/** An edit request passes only when a file changed (write tool or on disk) or a declared command passed. */
+function checkEdit(args: RunCheckArgs, out: string[]): void {
+  if (!args.check.edit) return;
+  if (args.input.changed.length || args.input.diskChanged?.length) return;
+  if (out.some((e) => e.startsWith("command ok: "))) return;
+  out.push("edit request: no file changed");
+}
+
+const FAIL_PREFIXES = ["write to ", "missing:", "unchanged:", "missing citation:", "bad line citation:", "edit request:", "health report:"];
+const FAIL_EXACT = new Set(["empty reply", "no file citations in reply", "no findings reported without reading any file"]);
+
+function isFailure(e: string): boolean {
+  return FAIL_PREFIXES.some((p) => e.startsWith(p)) || FAIL_EXACT.has(e) || e.includes(" exited ") || e.includes(" timed out ");
+}
+
 /** Run one turn check: failed writes, required files, optional command, non-empty reply. */
 export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
   const evidence: string[] = [];
@@ -232,19 +276,8 @@ export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
   if (args.check.cites) await checkCites(args, evidence);
   if (args.check.schema === "health") await checkHealth(args, evidence);
   checkReply(args.input, evidence);
-  const failed = evidence.some(
-    (e) =>
-      e.startsWith("write to ") ||
-      e.startsWith("missing:") ||
-      e.startsWith("unchanged:") ||
-      e.startsWith("missing citation:") ||
-      e === "empty reply" ||
-      e === "no file citations in reply" ||
-      e.startsWith("health report:") ||
-      e.includes(" exited ") ||
-      e.includes(" timed out "),
-  );
-  return { passed: !failed, evidence };
+  checkEdit(args, evidence);
+  return { passed: !evidence.some(isFailure), evidence };
 }
 
 const REPORT_GOAL = /\b(review|audit|code[- ]?health|health report|findings|code smells?|report on)\b/i;
@@ -252,4 +285,17 @@ const REPORT_GOAL = /\b(review|audit|code[- ]?health|health report|findings|code
 /** True when the user's request asks for a review-style report (the reply must then cite real files). */
 export function isReportGoal(goal: string): boolean {
   return REPORT_GOAL.test(goal);
+}
+
+const EDIT_VERBS = "add|fix|implement|create|edit|change|update|refactor|rename|remove|delete|replace|modify|convert|move|bump|upgrade|migrate|insert|append";
+const EDIT_GOAL = new RegExp(`^\\s*(please[\\s,]+)?((can|could|would|will) you[\\s,]+)?(please[\\s,]+)?(${EDIT_VERBS})\\b`, "i");
+const QUESTION_LEAD = /^\s*(how|what|why|where|when|which|who|is|are|does|do|should|explain|describe|tell me|show me)\b/i;
+
+/**
+ * True when the request is an imperative to change files ("fix the failing test", "can you add …").
+ * Questions ("how do I fix …?", "explain …") are not edits.
+ */
+export function isEditGoal(goal: string): boolean {
+  const first = goal.split("\n").find((l) => l.trim()) ?? "";
+  return !QUESTION_LEAD.test(first) && EDIT_GOAL.test(first);
 }

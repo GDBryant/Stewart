@@ -373,6 +373,30 @@ describe("claude-code engine", () => {
     expect(write.record).toEqual({ path: "rel.txt", ok: true });
     expect(turn.transcript.find((m) => m.role === "tool")?.content).toBe("Applied 2 edits");
   });
+
+  it("trips the loop guard when the same Bash call fails twice: interrupts and finishes loop_guard", async () => {
+    const bash = (id: string, mid: string) => ({ type: "assistant", message: { id: mid, role: "assistant", content: [{ type: "tool_use", id, name: "Bash", input: { command: "npm test" } }] } });
+    const fail = (id: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, is_error: true, content: "exit 1" }] } });
+    const lines = [bash("t1", "m1"), fail("t1"), bash("t2", "m2"), fail("t2"), { type: "result", subtype: "error_during_execution", is_error: true, result: "interrupted" }];
+    const { spawn, calls } = fakeSpawn([{ lines }]);
+    const evs = await run(makeTurn(), spawn);
+    expect(evs[evs.length - 1]).toMatchObject({ kind: "finished", reason: "loop_guard", error: expect.stringContaining("same call failed twice") });
+    expect(calls[0].written.some((w) => w.includes("interrupt"))).toBe(true);
+    expect(calls[0].killed).toBe(true);
+  });
+
+  it("does not trip on distinct successful calls", async () => {
+    const lines = [
+      { type: "assistant", message: { id: "m1", role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }] } },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "a" }] } },
+      { type: "assistant", message: { id: "m2", role: "assistant", content: [{ type: "tool_use", id: "t2", name: "Bash", input: { command: "ls -a" } }] } },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t2", content: "a" }] } },
+      { type: "result", subtype: "success", is_error: false, session_id: "s", total_cost_usd: 0, usage: {} },
+    ];
+    const { spawn } = fakeSpawn([{ lines }]);
+    const evs = await run(makeTurn(), spawn);
+    expect(evs[evs.length - 1]).toMatchObject({ kind: "finished", reason: "stop" });
+  });
 });
 
 describe("claude-code line helpers", () => {

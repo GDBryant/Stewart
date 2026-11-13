@@ -37,7 +37,7 @@ function mk(userLayer: ConfigLayer = {}, projectLayer: ConfigLayer = {}, default
   const pLayer = projectLayer;
   const core = new Core({
     defaults: {
-      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: fake\n    enabled: true\n",
+      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: fake\n    enabled: true\n    modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 1 } } } }\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
       "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
       ...defaults,

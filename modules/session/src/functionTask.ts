@@ -16,7 +16,7 @@ export async function runFunctionTask(d: ChildDeps, role: RoleDef, task: string,
   const base = { runId: d.runId, taskId, roleId: role.id };
   const cfg = d.config();
   const chain = eligibleChain(role, cfg.roles, cfg.agents, cfg.channels);
-  d.bus.emit({ kind: "task.created", ...base, title: task.slice(0, 80), dependsOn: [] });
+  d.bus.emit({ kind: "task.created", ...base, title: task.slice(0, 80) });
   d.bus.emit({ kind: "task.started", ...base, agentId: chain[0]?.id ?? d.agent.id });
   const system = role.prompt ?? "";
   let error = `no qualified function agent for role ${role.id}: run Qualify in settings`;

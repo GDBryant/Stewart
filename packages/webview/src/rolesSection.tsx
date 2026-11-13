@@ -6,14 +6,19 @@ import { agentCosts } from "./bridge.js";
 import { ChannelDot } from "./channelColors.js";
 
 const SIDE_EFFECT_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]);
-const ROLE_CAPABILITY: Record<string, "vision" | "imageGen"> = { "image-reader": "vision", "image-writer": "imageGen" };
+type ModelCapsView = { vision?: boolean; qualified?: Record<string, { passed?: boolean } | undefined> };
 
-function agentsForRole(roleId: string, agents: AgentSummary[], channels: ChannelSummary[]): AgentSummary[] {
-  const cap = ROLE_CAPABILITY[roleId];
-  if (!cap) return agents;
+/** What the role asks of its agent, as shown in the hint. */
+function roleNeedText(role: RoleSummary): string {
+  return `${role.kind ?? "agent"}${role.needs?.vision ? " with vision" : ""}`;
+}
+
+/** Agents the role accepts: qualified for its kind, with vision when it needs it (the server refuses the rest). */
+function agentsForRole(role: RoleSummary, agents: AgentSummary[], channels: ChannelSummary[]): AgentSummary[] {
+  const kind = role.kind ?? "agent";
   return agents.filter((a) => {
-    const caps = channels.find((c) => c.id === a.channel)?.modelCaps?.[a.model] as Record<string, unknown> | undefined;
-    return caps?.[cap] === true;
+    const caps = channels.find((c) => c.id === a.channel)?.modelCaps?.[a.model] as ModelCapsView | undefined;
+    return caps?.qualified?.[kind]?.passed === true && (!role.needs?.vision || caps.vision === true);
   });
 }
 
@@ -86,10 +91,9 @@ function SkillTicks({ skills, allSkills, needsWrite, onToggle }: {
   );
 }
 
-function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, toggleSkill, isNew }: {
+function RoleEditForm({ role, candidates, allSkills, needsWrite, save, toggleSkill, isNew }: {
   role: RoleSummary;
   candidates: AgentSummary[];
-  cap: "vision" | "imageGen" | undefined;
   allSkills: SkillSummary[];
   needsWrite: boolean;
   save(patch: Partial<RoleSummary>): void;
@@ -105,7 +109,7 @@ function RoleEditForm({ role, candidates, cap, allSkills, needsWrite, save, togg
         </label>
       ) : null}
       <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
-      {cap && !candidates.length ? <p class="hint">No configured agent reports {cap}.</p> : null}
+      {!candidates.length ? <p class="hint">No agent is qualified as {roleNeedText(role)}: run Qualify in Setup.</p> : null}
       <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
       <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />
       <CsvField label="chain (csv)" values={role.chain} onSave={(v) => save({ chain: v.length ? v : undefined })} />
@@ -129,8 +133,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
     const cur = role.skills ?? [];
     save({ skills: cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id] });
   };
-  const candidates = agentsForRole(role.id, agents, channels);
-  const cap = ROLE_CAPABILITY[role.id];
+  const candidates = agentsForRole(role, agents, channels);
   const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
   const agent = agents.find((a) => a.id === role.agent);
   return (
@@ -149,7 +152,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
       </div>
       <div class="role-agent">{role.agent ? `agent: ${role.agent}` : "no agent"}</div>
       {open ? (
-        <RoleEditForm role={role} candidates={candidates} cap={cap} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
+        <RoleEditForm role={role} candidates={candidates} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}
     </div>
   );
@@ -171,7 +174,7 @@ function NewRoleCard({ agents, channels, allSkills, existingIds, onSave, onCance
   };
   const id = role.id.trim();
   const dup = existingIds.has(id);
-  const candidates = agentsForRole(role.id, agents, channels);
+  const candidates = agentsForRole(role, agents, channels);
   const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
   return (
     <div class="card">
@@ -182,7 +185,7 @@ function NewRoleCard({ agents, channels, allSkills, existingIds, onSave, onCance
         <button class="deny" onClick={onCancel}>Cancel</button>
         <button class="send" disabled={!id || dup} onClick={() => onSave({ ...role, id })}>Save</button>
       </div>
-      <RoleEditForm role={role} candidates={candidates} cap={ROLE_CAPABILITY[role.id]} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} isNew />
+      <RoleEditForm role={role} candidates={candidates} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} isNew />
     </div>
   );
 }

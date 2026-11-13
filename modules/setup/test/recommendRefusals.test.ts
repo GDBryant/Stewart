@@ -31,14 +31,23 @@ describe("modelRefusal", () => {
 });
 
 describe("hardRefusal", () => {
-  const weak: Candidate = { channel: "c1", channelType: "ollama", model: "tiny", caps: { tools: "none" } };
+  const qualified = { agent: { passed: true, at: 1, version: 1 } };
+  const weak: Candidate = { channel: "c1", channelType: "ollama", model: "tiny", caps: { tools: "none", qualified } };
   const cand = new Map([["c1:tiny", weak]]);
-  it("passes an unknown candidate and a candidate meeting requirements", () => {
-    expect(hardRefusal("planner", "c1", "other", cand)).toBeUndefined();
-    const ok = new Map([["c1:tiny", { ...weak, caps: { tools: "native" as const } }]]);
-    expect(hardRefusal("planner", "c1", "tiny", ok)).toBeUndefined();
+  it("passes a qualified candidate meeting requirements; refuses one never probed", () => {
+    expect(hardRefusal("planner", { channel: "c1", model: "other" }, cand)).toBe("planner: c1:other was not probed");
+    const ok = new Map([["c1:tiny", { ...weak, caps: { tools: "native" as const, qualified } }]]);
+    expect(hardRefusal("planner", { channel: "c1", model: "tiny" }, ok)).toBeUndefined();
   });
-  it("refuses a candidate that fails hard requirements", () => {
-    expect(hardRefusal("planner", "c1", "tiny", cand)).toBe("planner: c1:tiny fails hard requirements");
+  it("refuses a candidate that fails hard requirements, naming why", () => {
+    expect(hardRefusal("planner", { channel: "c1", model: "tiny" }, cand)).toBe("planner: c1:tiny fails hard requirements (no tool support)");
+  });
+  it("applies the role's kind and needs: unqualified, vision, small window", () => {
+    const plain = new Map([["c1:m", { channel: "c1", channelType: "ollama", model: "m", caps: { tools: "native" as const } } as Candidate]]);
+    expect(hardRefusal("x", { channel: "c1", model: "m" }, plain)).toContain("not qualified as agent");
+    const q = new Map([["c1:m", { channel: "c1", channelType: "ollama", model: "m", caps: { tools: "native" as const, qualified, contextTokens: 8000 } } as Candidate]]);
+    expect(hardRefusal("x", { channel: "c1", model: "m" }, q)).toContain("context 8000 < 32000");
+    expect(hardRefusal("x", { channel: "c1", model: "m" }, q, { needs: { minContext: 4000, vision: true } })).toContain("no vision");
+    expect(hardRefusal("x", { channel: "c1", model: "m" }, q, { kind: "function" })).toContain("not qualified as function");
   });
 });

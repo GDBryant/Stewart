@@ -42,7 +42,7 @@ describe("channel colour badges", () => {
     summary: {
       channels: [
         { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" },
-        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true } } },
+        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
       ],
       agents: [
         { id: "a1", channel: "c1", model: "m", effort: "medium" },
@@ -123,6 +123,18 @@ describe("channel colour badges", () => {
     const updated = roleCard("general-worker");
     expect(styleHex(updated.querySelector(".ch-dot"))).toBe(channelColor("c2"));
     expect(updated.querySelector(".role-agent")!.textContent).toBe("agent: va");
+  });
+
+  it("offers only qualified agents and says so when none qualifies for the role kind", () => {
+    const bridge = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary, roles: [{ ...configReply.summary.roles[0], kind: "function" }, configReply.summary.roles[1]] } }));
+    fireEvent.click(screen.getByText("roles"));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const card = roleCard("general-worker");
+    const opts = [...card.querySelectorAll("select")[0].options].map((o) => o.value);
+    expect(opts).toEqual([""]);
+    expect(card.textContent).toContain("No agent is qualified as function: run Qualify in Setup.");
   });
 
   it("shows no colour badge and 'no agent' for a role without an agent", () => {

@@ -131,7 +131,7 @@ function TaskCard({ tasks }: { tasks: { taskId: string; roleId: string; title: s
   );
 }
 
-function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; overshootUsd: number; byRole: Record<string, number>; parked: string[]; freeFinished: string[]; suggestions: { role: string; agent: string; reason: string }[] } }) {
+function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; overshootUsd: number; byRole: Record<string, number> } }) {
   return (
     <div class="card cost">
       <div class="card-title">
@@ -142,13 +142,6 @@ function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; oversh
         <div key={role} class="cost-row">
           <span class="cost-role">{role}</span>
           <span class="cost-usd">${usd.toFixed(2)}</span>
-        </div>
-      ))}
-      {cost.parked.length ? <div class="cost-note">parked: {cost.parked.join(", ")}</div> : null}
-      {cost.freeFinished.length ? <div class="cost-note">finished free: {cost.freeFinished.join(", ")}</div> : null}
-      {cost.suggestions.map((s) => (
-        <div key={`${s.role}-${s.agent}`} class="cost-note">
-          suggest {s.role} → {s.agent} ({s.reason})
         </div>
       ))}
     </div>

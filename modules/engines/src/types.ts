@@ -39,6 +39,8 @@ export interface EngineTurn {
   cwd: string;
   signal: AbortSignal;
   maxTurns: number;
+  /** Called before each model request (native-loop): the session compacts the transcript in place here. */
+  beforeModelTurn?: () => Promise<void>;
 }
 
 export interface Engine {

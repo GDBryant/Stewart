@@ -113,11 +113,11 @@ export class OllamaAdapter implements ChannelAdapter {
     const r = await this.deps.fetcher(url(cfg, "/api/show"), { method: "POST", body: JSON.stringify({ model }) });
     if (r.status !== 200) throw new ChannelError(`POST /api/show → ${r.status}`, r.status);
     const info = JSON.parse(await new Response(r.body).text());
-    const caps: string[] = info.capabilities ?? [];
+    const caps: string[] | undefined = info.capabilities;
     return {
-      tools: caps.includes("tools") ? "native" : "shim",
-      vision: caps.includes("vision"),
-      reasoning: caps.includes("thinking"),
+      tools: !caps ? "unknown" : caps.includes("tools") ? "native" : "none",
+      vision: caps?.includes("vision") ?? false,
+      reasoning: caps?.includes("thinking") ?? false,
       contextTokens: info.model_info?.["general.context_length"] ?? undefined,
     };
   }

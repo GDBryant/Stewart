@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentServesRole, matchGlob, validateRoles } from "../src/api.js";
+import { matchGlob, validateRoles } from "../src/api.js";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -32,17 +32,9 @@ describe("validateRoles", () => {
   it("flags an unknown agent; old role ids validate without an orchestrator", () => {
     const errs = validateRoles([role({ id: "general-worker", agent: "nope" })], [agent()], [channel()]);
     expect(errs).toContain("role general-worker: unknown agent 'nope'");
-    const ok = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel()]);
+    const ok = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel({ m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } })]);
     expect(ok).toEqual([]);
-  });
-
-  it("enforces role capabilities on the bound agent", () => {
-    const chans = [channel({ v: { vision: true } })];
-    const errs = validateRoles([role({ id: "image-reader", agent: "a1" })], [agent(), visionAgent], chans);
-    expect(errs).toContain("role image-reader: agent 'a1' lacks vision");
-    const ok = validateRoles([role({ id: "image-reader", agent: "va" })], [agent(), visionAgent], chans);
-    expect(ok).toEqual([]);
-    expect(agentServesRole(visionAgent, chans, "image-writer")).toBe(false);
+    expect(validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel()])).toEqual(["role general-worker: agent 'a1' not qualified as agent (run Qualify)"]);
   });
 
   it("lead may be enabled with no agents configured", () => {

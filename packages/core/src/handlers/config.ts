@@ -1,6 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
-import { baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
+import { agentRefusal, baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 
 async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {
@@ -116,7 +116,11 @@ export async function handleRolesReset(core: CoreCtx, params: unknown): Promise<
 export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; agentId: string; wizard?: boolean };
   const ctx = core.ctx(p.projectId);
-  if (!ctx.config.agents.some((a) => a.id === p.agentId)) throw new Error(`unknown agent: ${p.agentId}`);
+  const agent = ctx.config.agents.find((a) => a.id === p.agentId);
+  if (!agent) throw new Error(`unknown agent: ${p.agentId}`);
+  const lead = ctx.config.roles.find((r) => r.id === "lead");
+  const why = lead ? agentRefusal(lead, agent, ctx.config.channels) : null;
+  if (why) throw new Error(`agent ${p.agentId} cannot serve lead: ${why}`);
   const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
   const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
   const byId = new Map(items.map((i) => [String(i.id), i]));

@@ -11,7 +11,7 @@ describe("protocol", () => {
       "run.reverted", "cost.summary",
       "cost.limit_reached", "cost.limit_raised", "check.result",
     ]) {
-      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", answer: "a", answeredBy: "orchestrator", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", dependsOn: [], waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], findings: 0, filesRestored: ["a.ts"], capUsd: 1, accruedUsd: 1, overshootUsd: 0, byRole: {}, byAgent: {}, parked: [], freeFinished: [], suggestions: [], agentId: "a", reason: "r", roleId: "ro", error: "e", status: "done", question: "q?", options: [], passed: true, evidence: ["e1"] };
+      const ev = { kind, runId: "r1", seq: 0, text: "", questionId: "q", answer: "a", answeredBy: "orchestrator", approvalId: "a", tool: "t", args: {}, category: "c", callId: "x", ok: true, summary: "s", title: "t", waitingOn: "w", milestoneId: "m", milestoneCount: 1, verdict: "approve", reasons: [], findings: 0, filesRestored: ["a.ts"], capUsd: 1, accruedUsd: 1, overshootUsd: 0, byRole: {}, byAgent: {}, agentId: "a", reason: "r", roleId: "ro", error: "e", status: "done", question: "q?", options: [], passed: true, evidence: ["e1"] };
       expect(runEventSchema.safeParse(ev).success, kind).toBe(true);
     }
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
-import { eligibleChain, roleChainIds, roleNeeds, chainErrors } from "../src/chain.js";
+import { agentRefusal, eligibleChain, roleChainIds, roleNeeds, chainErrors } from "../src/chain.js";
 
 const agent = (id: string): AgentDef => ({ id, channel: "c", model: "m", effort: "medium" });
 const chan = (qualified?: Record<string, { passed: boolean; at: number; version: number }>): ChannelDef => ({
@@ -28,6 +28,10 @@ describe("roleNeeds", () => {
   it("defaults to agent minimums", () => {
     expect(roleNeeds(role({}))).toEqual({ vision: false, minContext: 32000 });
     expect(roleNeeds(role({ needs: { vision: true, minContext: 8000 } }))).toEqual({ vision: true, minContext: 8000 });
+  });
+  it("needs no minimum window for function roles unless set", () => {
+    expect(roleNeeds(role({ kind: "function" })).minContext).toBe(0);
+    expect(roleNeeds(role({ kind: "function", needs: { minContext: 4000 } })).minContext).toBe(4000);
   });
 });
 
@@ -78,6 +82,24 @@ describe("eligibleChain", () => {
   });
 });
 
+describe("agentRefusal", () => {
+  const caps = (m: Record<string, unknown>): ChannelDef => ({ id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m } });
+  const fnQ = { function: { passed: true, at: 1, version: 1 } };
+  it("lets a small qualified model serve a function role but not an agent role", () => {
+    const small = caps({ qualified: { ...fnQ, agent: { passed: true, at: 1, version: 1 } }, contextTokens: 8000 });
+    expect(agentRefusal(role({ kind: "function" }), agent("a"), [small])).toBeNull();
+    expect(agentRefusal(role({}), agent("a"), [small])).toContain("context window 8000 < 32000");
+  });
+  it("admits an unknown window, refuses missing qualification and missing vision", () => {
+    expect(agentRefusal(role({}), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 1 } } })])).toBeNull();
+    expect(agentRefusal(role({}), agent("a"), [caps({})])).toContain("not qualified as agent");
+    const noVision = caps({ qualified: { agent: { passed: true, at: 1, version: 1 } } });
+    expect(agentRefusal(role({ needs: { vision: true } }), agent("a"), [noVision])).toBe("role needs vision");
+    const vision = caps({ qualified: { agent: { passed: true, at: 1, version: 1 } }, vision: true });
+    expect(agentRefusal(role({ needs: { vision: true } }), agent("a"), [vision])).toBeNull();
+  });
+});
+
 describe("chainErrors", () => {
   it("flags unknown agents and failed qualification records", () => {
     const ch: ChannelDef = {
@@ -89,5 +111,10 @@ describe("chainErrors", () => {
     expect(errs.join(";")).toContain("failed agent qualification");
     expect(errs.join(";")).toContain("unknown chain agent 'ghost'");
     expect(chainErrors(role({}), [agent("a1")], [ch])).toEqual([]);
+  });
+  it("flags a bound agent that is unqualified; disabled roles are not checked", () => {
+    const ch = chan(undefined);
+    expect(chainErrors(role({ agent: "a1" }), [agent("a1")], [ch])).toEqual(["role r: agent 'a1' not qualified as agent (run Qualify)"]);
+    expect(chainErrors(role({ agent: "a1", enabled: false }), [agent("a1")], [ch])).toEqual([]);
   });
 });

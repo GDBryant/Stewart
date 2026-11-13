@@ -98,6 +98,18 @@ describe("Core roles + skills dispatch", () => {
     expect(r.summary.roles.every((x) => x.agent === "a1")).toBe(true);
   });
 
+  it("roles.assignAgent refuses an agent that is not qualified for the lead", async () => {
+    const core = new Core({
+      defaults: { ...defaults, "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n" },
+      userConfig: memStore(),
+      projectConfig: async () => memStore(),
+      fetcher: fakeFetcher([{ body: ['{"done":true}'] }]).fetcher,
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", fakeHost().host);
+    await expect(core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1" })).rejects.toThrow(/cannot serve lead: not qualified as agent/);
+  });
+
   it("roles.assignAgent with wizard enables only the lead role", async () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);

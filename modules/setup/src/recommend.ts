@@ -1,6 +1,6 @@
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
-import { scoreAssignments, type Candidate, type Unfilled } from "./assign.js";
+import { scoreAssignments, type Candidate, type RoleMeta, type Unfilled } from "./assign.js";
 import { buildRecommendPrompt } from "./recommendPrompt.js";
 import { asStr, hardRefusal, modelRefusal, roleRefusal } from "./recommendRefusals.js";
 import { blendedCost, costTier, type ModelInfo } from "@stewart/catalog";
@@ -217,11 +217,11 @@ function parseAndValidate(text: string, ctx: ValidateContext): RecommendResult {
     return { ok: false, error: "could not parse recommendation", raw: text.slice(0, 500), channels };
   }
 
-  const roleIds = new Set(config.roles.map((r) => r.id));
+  const roles = new Map(config.roles.map((r) => [r.id, { kind: r.kind, needs: r.needs }]));
   const dropped: string[] = [];
   const assignments: Assignment[] = [];
   for (const e of Array.isArray(parsed.assignments) ? parsed.assignments : []) {
-    const result = validateAssignment(e, roleIds, byId, cand);
+    const result = validateAssignment(e, roles, byId, cand);
     if (result.assignment) assignments.push(result.assignment);
     else dropped.push(result.dropped);
   }
@@ -233,7 +233,7 @@ function parseAndValidate(text: string, ctx: ValidateContext): RecommendResult {
 
 function validateAssignment(
   e: unknown,
-  roleIds: Set<string>,
+  roles: Map<string, RoleMeta>,
   byId: Map<string, RecommendChannelInfo>,
   cand: Map<string, Candidate>,
 ): { assignment: Assignment; dropped?: never } | { assignment?: never; dropped: string } {
@@ -241,7 +241,7 @@ function validateAssignment(
   const role = asStr(a.role);
   const channel = asStr(a.channel);
   const model = asStr(a.model);
-  const dropped = roleRefusal(role, roleIds) ?? modelRefusal(role, channel, model, byId) ?? hardRefusal(role, channel, model, cand);
+  const dropped = roleRefusal(role, new Set(roles.keys())) ?? modelRefusal(role, channel, model, byId) ?? hardRefusal(role, { channel, model }, cand, roles.get(role));
   if (dropped) return { dropped };
   return { assignment: { role, channel, model, reason: typeof a.reason === "string" ? a.reason : undefined } };
 }

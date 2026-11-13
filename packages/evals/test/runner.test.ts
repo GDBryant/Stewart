@@ -56,8 +56,8 @@ describe("EventLog", () => {
     log.push(ev({ kind: "text_delta", runId: "r", seq: 0, text: "he" }));
     log.push(ev({ kind: "text_delta", runId: "r", seq: 1, text: "llo" }));
     log.push(ev({ kind: "text_delta", runId: "other", seq: 0, text: "x" }));
-    log.push(ev({ kind: "cost.summary", runId: "r", accruedUsd: 0.02, capUsd: 0, overshootUsd: 0, byRole: {}, byAgent: {}, parked: [], freeFinished: [], suggestions: [] }));
-    log.push(ev({ kind: "cost.summary", runId: "r", accruedUsd: 0.01, capUsd: 0, overshootUsd: 0, byRole: {}, byAgent: {}, parked: [], freeFinished: [], suggestions: [] }));
+    log.push(ev({ kind: "cost.summary", runId: "r", accruedUsd: 0.02, capUsd: 0, overshootUsd: 0, byRole: {}, byAgent: {} }));
+    log.push(ev({ kind: "cost.summary", runId: "r", accruedUsd: 0.01, capUsd: 0, overshootUsd: 0, byRole: {}, byAgent: {} }));
     expect(log.text("r")).toBe("hello");
     expect(log.cost("r")).toBe(0.02);
     expect(log.cost("other")).toBe(0);

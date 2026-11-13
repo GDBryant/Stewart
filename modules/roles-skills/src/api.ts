@@ -1,8 +1,8 @@
 // Public surface of @stewart/roles-skills. Only this file is importable from outside.
 export {
-  matchGlob, ROLE_CAPABILITY, roleCapability, agentCapability, agentServesRole, validateRoles,
+  matchGlob, validateRoles,
 } from "./roles.js";
-export { DEFAULT_MIN_CONTEXT, roleNeeds, roleChainIds, eligibleChain, chainErrors, agentContext } from "./chain.js";
+export { DEFAULT_MIN_CONTEXT, roleNeeds, roleChainIds, eligibleChain, chainErrors, agentContext, agentRefusal } from "./chain.js";
 export {
   hashBody, parseSkillMd, serializeSkillMd, shippedDefaultRoles, resolveSkills, shippedSkill, baseHashFor,
 } from "./skills.js";

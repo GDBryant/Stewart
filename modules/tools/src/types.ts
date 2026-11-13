@@ -11,11 +11,9 @@ export interface Tool {
   readonly category?: ApprovalCategory;
   /** True when execute only waits on the user: no timeout applies. */
   readonly awaitsUser?: boolean;
-  /** True when execute is bound to a dispatched task (e.g. `dispatch`): the per-call tool timeout does not apply; run caps and cancellation still do. */
+  /** True when execute runs other work that has its own limits (delegate, plan approval, milestone checks): the per-call tool timeout does not apply; cancellation still does. */
   readonly noTimeout?: boolean;
-  /** Core-handled orchestration verb: never a channel side effect. */
-  readonly coreHandled?: boolean;
-  /** Consecutive calls may run concurrently (orchestration verbs only). */
+  /** Consecutive calls may run concurrently (session verbs such as delegate). */
   readonly parallel?: boolean;
   preview?(args: Json): Promise<ToolPreview | null>;
   /** Text result, or text plus base64 image payloads (`data:` URIs) for vision models. */
@@ -195,7 +193,6 @@ function guardWritePaths(tool: Tool, writePaths: string[]): Tool {
     category: tool.category,
     awaitsUser: tool.awaitsUser,
     noTimeout: tool.noTimeout,
-    coreHandled: tool.coreHandled,
     parallel: tool.parallel,
     execute: tool.execute.bind(tool),
     async preview(args: Json): Promise<ToolPreview | null> {

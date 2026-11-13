@@ -1,4 +1,6 @@
 export interface Tried {
+  /** Engine call id: outcomes are matched by it (batched calls finish out of order). */
+  callId: string;
   name: string;
   args: string;
   ok?: boolean;

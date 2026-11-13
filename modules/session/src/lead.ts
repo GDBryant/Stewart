@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef } from "@stewart/config";
+import type { RoleDef } from "@stewart/config";
 import type { HostPort } from "@stewart/kernel";
 import { loadProjectContext } from "@stewart/context";
 import type { EffectiveConfig, ResolvedSkill } from "@stewart/roles-skills";
@@ -11,15 +11,6 @@ export function leadRole(config: EffectiveConfig): RoleDef {
   if (!r) throw new Error("role 'lead' not configured");
   if (!r.enabled) throw new Error("role 'lead' is disabled");
   return r;
-}
-
-/** Agent for the lead turn: lead's own binding, else the first configured agent. */
-export function leadAgent(config: EffectiveConfig, lead: RoleDef): AgentDef {
-  for (const id of [lead.agent, config.agents[0]?.id]) {
-    const a = config.agents.find((x) => x.id === id);
-    if (a) return a;
-  }
-  throw new Error("no agent configured: add one in agents.yaml or bind one to the lead role");
 }
 
 function skillLine(s: ResolvedSkill): string {

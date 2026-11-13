@@ -235,9 +235,6 @@ export class StoreHandlers {
               overshootUsd: 0,
               byRole: {},
               byAgent: {},
-              parked: [],
-              freeFinished: [],
-              suggestions: [],
             }),
             capUsd: ev.capUsd,
             accruedUsd: ev.accruedUsd,
@@ -253,9 +250,6 @@ export class StoreHandlers {
             overshootUsd: ev.overshootUsd,
             byRole: ev.byRole,
             byAgent: ev.byAgent,
-            parked: ev.parked,
-            freeFinished: ev.freeFinished,
-            suggestions: ev.suggestions,
           },
         });
     }

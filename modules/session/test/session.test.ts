@@ -8,93 +8,12 @@ import { nativeLoop, type Engine, type EngineEvent, type EngineTurn } from "@ste
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { RunEvent } from "@stewart/protocol";
 import { SessionService, type SessionDeps } from "../src/api.js";
+import { fakeChannel, harness, makeConfig, scriptedEngine, type Harness } from "./harness.js";
 
-function fakeChannel(turns: ChatEvent[][]): ManagedChannel {
-  let i = 0;
-  const adapter: ChannelAdapter = {
-    type: "fake",
-    listModels: async () => ["m"],
-    probeCaps: async () => ({}),
-    chat: async function* () {
-      for (const ev of turns[Math.min(i++, turns.length - 1)]) yield ev;
-    },
-  };
-  return new ManagedChannel(adapter, { id: "c", type: "fake", enabled: true, maxParallel: 1 });
-}
-
-/** Engine that replays a script of steps; each step may inspect the turn before yielding events. */
-function scriptedEngine(steps: ((turn: EngineTurn) => AsyncGenerator<EngineEvent, void>)[]): Engine {
-  let n = 0;
-  return {
-    id: "native-loop",
-    run(turn: EngineTurn) {
-      const step = steps[Math.min(n++, steps.length - 1)];
-      return step(turn);
-    },
-  };
-}
-
-function makeConfig(over: Partial<EffectiveConfig> = {}): EffectiveConfig {
-  return {
-    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } }],
-    agents: [{ id: "a", channel: "c", model: "m", effort: "medium" }],
-    roles: [{ id: "lead", enabled: true, prompt: "You are lead.", skills: ["sk1"], tools: [], writePaths: [], turnBudget: 5 }],
-    settings: settingsFile.parse({}),
-    skills: [{ id: "sk1", description: "a skill", defaultRoles: [], version: 1, body: "SKILL BODY", source: "shipped", edited: false, updateAvailable: false }],
-    errors: [],
-    ...over,
-  };
-}
-
-interface Harness {
-  svc: SessionService;
-  events: RunEvent[];
-  host: HostPort;
-  files: Record<string, string>;
-  interaction: Interaction;
-  config: EffectiveConfig;
-  channel: ManagedChannel;
-  waitFor(kind: RunEvent["kind"], timeoutMs?: number): Promise<RunEvent>;
-}
-
-function harness(over: { config?: EffectiveConfig; channel?: ManagedChannel; engine?: Engine; files?: Record<string, string> } = {}): Harness {
-  const { host, files } = fakeHost(over.files ?? {});
-  const events: RunEvent[] = [];
-  const waiters: { kind: string; res: (e: RunEvent) => void }[] = [];
-  const bus = {
-    emit(ev: RunEvent) {
-      events.push(ev);
-      const i = waiters.findIndex((w) => w.kind === ev.kind);
-      if (i >= 0) waiters.splice(i, 1)[0].res(ev);
-    },
-  };
-  const ids = counterIds();
-  const interaction = new Interaction({ ids, clock: systemClock, bus });
-  const config = over.config ?? makeConfig();
-  const channel = over.channel ?? fakeChannel([[{ kind: "text", text: "hi" }, { kind: "done" }]]);
-  const deps: SessionDeps = {
-    host,
-    bus,
-    ids,
-    clock: systemClock,
-    interaction,
-    permissions: new Permissions(interaction),
-    channelFor: () => channel,
-    config: () => config,
-    engineFor: over.engine ? () => over.engine! : undefined,
-  };
-  const svc = new SessionService(deps);
-  const waitFor = (kind: RunEvent["kind"], timeoutMs = 2000): Promise<RunEvent> => {
-    const from = events.length;
-    return new Promise((res, rej) => {
-      const check = () => events.slice(from).find((e) => e.kind === kind);
-      const seen = check();
-      if (seen) return res(seen);
-      waiters.push({ kind, res: (e) => res(e) });
-      setTimeout(() => rej(new Error(`timeout waiting for ${kind}; got ${events.map((e) => e.kind).join(",")}`)), timeoutMs);
-    });
-  };
-  return { svc, events, host, files, interaction, config, channel, waitFor };
+/** A successful read call: a "no findings" reply must have looked at something. */
+async function* readOnce(id = "r"): AsyncGenerator<EngineEvent, void> {
+  yield { kind: "tool.request", callId: `read-${id}`, tool: "ReadFile", args: { path: "x" }, category: "OTHER" };
+  yield { kind: "tool.outcome", callId: `read-${id}`, ok: true, summary: "x" };
 }
 
 describe("SessionService", () => {
@@ -121,9 +40,11 @@ describe("SessionService", () => {
     const ask = await h.waitFor("ask_user");
     h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
     const fin = await h.waitFor("run.finished");
-    expect(fin).toMatchObject({ runId, status: "failed", error: "write to a.ts failed: patch failed" });
+    expect(fin).toMatchObject({ runId, status: "failed" });
+    expect((fin as { error: string }).error).toContain("write to a.ts failed: patch failed");
     const check = h.events.find((e) => e.kind === "check.result");
-    expect(check).toMatchObject({ passed: false, evidence: ["write to a.ts failed: patch failed"] });
+    expect(check).toMatchObject({ passed: false });
+    expect((check as { evidence: string[] }).evidence).toContain("write to a.ts failed: patch failed");
   });
 
   it("passes file checks when the written file exists", async () => {
@@ -204,7 +125,7 @@ describe("SessionService", () => {
     const ask = await bad.waitFor("ask_user");
     bad.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
     expect(await bad.waitFor("run.finished")).toMatchObject({ status: "failed", error: "no file citations in reply" });
-    const good = harness({ engine: reply("src/a.ts:3 has a long function"), files: { "src/a.ts": "x" } });
+    const good = harness({ engine: reply("src/a.ts:3 has a long function"), files: { "src/a.ts": "x\ny\nz\n" } });
     await good.svc.send({ text: "review src" });
     expect(await good.waitFor("run.finished")).toMatchObject({ status: "done" });
   });
@@ -654,7 +575,7 @@ describe("SessionService delegate", () => {
       },
     ]);
     const h = harness({ config, engine });
-    await h.svc.send({ text: "review" });
+    await h.svc.send({ text: "look into it" });
     await h.waitFor("run.finished");
     expect(h.events.find((e) => e.kind === "task.failed")).toMatchObject({ roleId: "reviewer" });
     expect(result).toContain("status: failed");
@@ -686,7 +607,7 @@ describe("SessionService delegate", () => {
   });
 
   it("denies file edits and mutating commands to read-only child roles", async () => {
-    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const config = makeConfig({ roles: [makeConfig().roles[0], { ...reviewer, tools: ["ReadFile", "RunTerminal"] }] });
     let h: Harness;
     const engine = scriptedEngine([
       async function* (turn) {
@@ -705,6 +626,7 @@ describe("SessionService delegate", () => {
         const req = await reqP;
         h.interaction.resolveApproval((req as { approvalId: string }).approvalId, "once");
         expect((await ro).kind).toBe("approved");
+        yield* readOnce();
         turn.transcript.push({ role: "assistant", content: "found nothing" });
         yield { kind: "finished", reason: "stop" };
       },
@@ -712,6 +634,38 @@ describe("SessionService delegate", () => {
     h = harness({ config, engine });
     await h.svc.send({ text: "go" });
     expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+  });
+
+  it("applies the role profile to claude-code children: no RunTerminal, writePaths", async () => {
+    const tester = { id: "tester", enabled: true, prompt: "t", skills: [], tools: ["ReadFile", "WriteFile"], writePaths: ["**/*.test.ts"], turnBudget: 5 };
+    const config = makeConfig({ roles: [makeConfig().roles[0], tester] });
+    const decisions: string[] = [];
+    let h: Harness;
+    const engine = scriptedEngine([
+      async function* (turn) {
+        await turn.tools.find("delegate")!.execute({ role: "tester", task: "add a test" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        const src = await turn.approve({ id: "1", name: "Edit", arguments: {} }, { kind: "file", path: "src/a.ts", before: null, after: "x" }, {});
+        decisions.push(src.kind === "rejected" ? src.reason : src.kind);
+        const cmd = await turn.approve({ id: "2", name: "Bash", arguments: {} }, { kind: "command", command: "ls" }, {});
+        decisions.push(cmd.kind === "rejected" ? cmd.reason : cmd.kind);
+        const reqP = h.waitFor("approval.request");
+        const ok = turn.approve({ id: "3", name: "Edit", arguments: {} }, { kind: "file", path: "src/a.test.ts", before: null, after: "x" }, {});
+        h.interaction.resolveApproval(((await reqP) as { approvalId: string }).approvalId, "once");
+        decisions.push((await ok).kind);
+        turn.transcript.push({ role: "assistant", content: "added" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    await h.waitFor("run.finished");
+    expect(decisions[0]).toContain("outside role 'tester' writePaths");
+    expect(decisions[1]).toContain("has no RunTerminal");
+    expect(decisions[2]).toBe("approved");
   });
 
   it("caps concurrent children at 4 and runs them in parallel", async () => {
@@ -738,6 +692,7 @@ describe("SessionService delegate", () => {
         maxActive = Math.max(maxActive, active);
         await new Promise((r) => setTimeout(r, 10));
         active--;
+        yield* readOnce(turn.sessionId);
         turn.transcript.push({ role: "assistant", content: "nothing found" });
         yield { kind: "finished", reason: "stop" };
       },
@@ -824,7 +779,7 @@ describe("lead escalation over the chain", () => {
       ok,
     ]);
     const h = harness({ config: cfg(), engine });
-    await h.svc.send({ text: "fix it" });
+    await h.svc.send({ text: "look at it" });
     const esc = await h.waitFor("run.escalated");
     expect(esc).toMatchObject({ roleId: "lead", from: "a1", to: "a2", reason: "turn_limit" });
     const fin = await h.waitFor("run.finished");

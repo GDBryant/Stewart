@@ -49,7 +49,7 @@ export async function handleChatRevert(core: CoreCtx, params: unknown): Promise<
 export async function handleHistoryLoad(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
   const sessions = core.ctx(p.projectId).sessions;
-  return { messages: (await (await sessions.historyStore()).load(p.sessionId)) ?? [], plan: await sessions.planFor(p.sessionId) };
+  return { messages: await sessions.fullHistory(p.sessionId), plan: await sessions.planFor(p.sessionId) };
 }
 
 export async function handleHistoryDelete(core: CoreCtx, params: unknown): Promise<unknown> {

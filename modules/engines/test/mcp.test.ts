@@ -34,7 +34,7 @@ describe("startMcp", () => {
   it("serves initialize, tools/list and tools/call with bearer auth", async () => {
     const reg = new ToolRegistry([echo, boom]);
     const ac = new AbortController();
-    const mcp = await startMcp(reg, ac.signal);
+    const mcp = await startMcp(reg, ac.signal, async () => ({ kind: "approved" }));
     try {
       const init = await post(mcp.url, mcp.token, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "x" } });
       expect(init.status).toBe(200);
@@ -62,6 +62,38 @@ describe("startMcp", () => {
 
       const noAuth = await post(mcp.url, mcp.token, { jsonrpc: "2.0", id: 7, method: "initialize" }, false);
       expect(noAuth.status).toBe(401);
+    } finally {
+      await mcp.close();
+    }
+  });
+
+  it("puts approval-gated tools through the gate: rejected calls never execute", async () => {
+    let ran = 0;
+    const gated: Tool = {
+      spec: { name: "gated", description: "Gated.", parameters: { type: "object", properties: { cmd: { type: "string" } }, additionalProperties: false } },
+      requiresApproval: true,
+      preview: async (args) => ({ kind: "command", command: String(args.cmd), cwd: "." }),
+      execute: async () => {
+        ran++;
+        return "ran";
+      },
+    };
+    const seen: unknown[] = [];
+    let allow = false;
+    const ac = new AbortController();
+    const mcp = await startMcp(new ToolRegistry([gated]), ac.signal, async (call, preview) => {
+      seen.push({ name: call.name, preview });
+      return allow ? { kind: "approved" } : { kind: "rejected", reason: "user said no" };
+    });
+    try {
+      const no = await post(mcp.url, mcp.token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "gated", arguments: { cmd: "rm -rf x" } } });
+      expect(no.json.result).toEqual({ content: [{ type: "text", text: "rejected: user said no" }], isError: true });
+      expect(ran).toBe(0);
+      expect(seen[0]).toEqual({ name: "gated", preview: { kind: "command", command: "rm -rf x", cwd: "." } });
+      allow = true;
+      const yes = await post(mcp.url, mcp.token, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gated", arguments: { cmd: "ls" } } });
+      expect(yes.json.result).toEqual({ content: [{ type: "text", text: "ran" }], isError: false });
+      expect(ran).toBe(1);
     } finally {
       await mcp.close();
     }

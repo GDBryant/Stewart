@@ -38,7 +38,9 @@ describe("OllamaAdapter edge cases", () => {
     expect(caps).toEqual({ tools: "native", vision: true, reasoning: true, contextTokens: 8192 });
     const { fetcher: f2 } = fakeFetcher([{ body: "{}" }]);
     const caps2 = await new OllamaAdapter({ fetcher: f2 }).probeCaps(oCfg, undefined, "m");
-    expect(caps2).toEqual({ tools: "shim", vision: false, reasoning: false, contextTokens: undefined });
+    expect(caps2).toEqual({ tools: "unknown", vision: false, reasoning: false, contextTokens: undefined });
+    const { fetcher: f4 } = fakeFetcher([{ body: JSON.stringify({ capabilities: ["completion"] }) }]);
+    expect((await new OllamaAdapter({ fetcher: f4 }).probeCaps(oCfg, undefined, "m")).tools).toBe("none");
     const { fetcher: f3 } = fakeFetcher([{ status: 404, body: "not found" }]);
     await expect(new OllamaAdapter({ fetcher: f3 }).probeCaps(oCfg, undefined, "m")).rejects.toThrow(ChannelError);
   });
@@ -88,11 +90,11 @@ describe("OllamaAdapter edge cases", () => {
 });
 
 describe("OpenAICompatAdapter edge cases", () => {
-  it("probeCaps detects native/shim/none and throws on server errors", async () => {
+  it("probeCaps detects native/unknown/none and throws on server errors", async () => {
     const { fetcher } = fakeFetcher([{ body: '{"choices":[{"message":{"tool_calls":[]}}]}' }]);
     expect((await new OpenAICompatAdapter({ fetcher }).probeCaps(aCfg, "k", "m")).tools).toBe("native");
     const { fetcher: f2 } = fakeFetcher([{ body: '{"choices":[{"message":{"content":"ok"}}]}' }]);
-    expect((await new OpenAICompatAdapter({ fetcher: f2 }).probeCaps(aCfg, "k", "m")).tools).toBe("shim");
+    expect((await new OpenAICompatAdapter({ fetcher: f2 }).probeCaps(aCfg, "k", "m")).tools).toBe("unknown");
     const { fetcher: f3 } = fakeFetcher([{ status: 400, body: "tool use not supported" }]);
     expect((await new OpenAICompatAdapter({ fetcher: f3 }).probeCaps(aCfg, "k", "m")).tools).toBe("none");
     const { fetcher: f4 } = fakeFetcher([{ status: 500, body: "server error" }]);
@@ -193,14 +195,14 @@ describe("ManagedChannel edge cases", () => {
       type: "t",
       chat: async function* () {},
       listModels: async () => [],
-      probeCaps: async () => ({ tools: "shim" }),
+      probeCaps: async () => ({ tools: "unknown" }),
       priceList: async () => ({ m: { inPerMTok: 1, outPerMTok: 2 } }),
       generateImage: async () => ({ base64: "x" }),
     };
     const mc = new ManagedChannel(ad, cfg);
     expect(await mc.generateImage("m", "p")).toEqual({ base64: "x" });
     expect(await mc.priceList()).toEqual({ m: { inPerMTok: 1, outPerMTok: 2 } });
-    expect(await mc.probeCaps("m")).toEqual({ tools: "shim" });
+    expect(await mc.probeCaps("m")).toEqual({ tools: "unknown" });
     const bare: ChannelAdapter = { type: "t", chat: async function* () {}, listModels: async () => [], probeCaps: async () => ({}) };
     const mc2 = new ManagedChannel(bare, cfg);
     expect(await mc2.generateImage("m", "p")).toBeUndefined();

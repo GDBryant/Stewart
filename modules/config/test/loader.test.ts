@@ -115,6 +115,14 @@ describe("qualification + role chain schema", () => {
     expect(c.roles[1].chain).toBeUndefined();
   });
 
+  it("loads the removed v2 tools mode 'shim' as 'unknown'", () => {
+    const channels = `version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      m: { tools: shim }\n      n: { tools: native }\n`;
+    const c = loadConfig({ "channels.yaml": channels }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.channels[0].modelCaps.m.tools).toBe("unknown");
+    expect(c.channels[0].modelCaps.n.tools).toBe("native");
+  });
+
   it("an agent-only role keeps working with no kind/chain fields", () => {
     const c = loadConfig({ "roles.yaml": role("lead") }, undefined, {}, { trusted: true });
     expect(c.errors).toEqual([]);

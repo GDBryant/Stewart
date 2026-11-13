@@ -99,8 +99,8 @@ describe("webview chat", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts", dependsOn: [] }));
-      bridge.inbound(ev("task.created", { taskId: "t2", roleId: "tester", title: "run tests", dependsOn: ["t1"] }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts" }));
+      bridge.inbound(ev("task.created", { taskId: "t2", roleId: "tester", title: "run tests" }));
       bridge.inbound(ev("task.started", { taskId: "t1", roleId: "code-writer" }));
     });
     expect(screen.getAllByText("write a.ts").length).toBeGreaterThan(0);
@@ -120,7 +120,7 @@ describe("webview chat", () => {
       const { bridge } = mk();
       act(() => {
         bridge.inbound(ev("run.started", { title: "x" }));
-        bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts", dependsOn: [] }));
+        bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write a.ts" }));
         bridge.inbound(ev("task.started", { taskId: "t1", roleId: "code-writer", agentId: "qwen-local" }));
       });
       expect(screen.getByText("Active")).toBeTruthy();
@@ -143,13 +143,13 @@ describe("webview chat", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "general-worker", title: "second-task", dependsOn: [] }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "general-worker", title: "second-task" }));
     });
     expect(screen.getByText("Tasks")).toBeTruthy();
     expect(screen.getByText("second-task")).toBeTruthy();
   });
 
-  it("renders the cost panel with parked work and suggestions", () => {
+  it("renders the cost panel with per-role cost and overshoot", () => {
     const { bridge } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
@@ -160,17 +160,12 @@ describe("webview chat", () => {
           overshootUsd: 0.25,
           byRole: { "code-writer": 1.25 },
           byAgent: { "a-paid": { costUsd: 1.25, inTokens: 10, outTokens: 5 } },
-          parked: ["write b.ts"],
-          freeFinished: ["look"],
-          suggestions: [{ role: "code-writer", agent: "free-big", reason: "free" }],
         }),
       );
     });
     expect(screen.getByText("$1.25 of $1.00")).toBeTruthy();
     expect(screen.getByText("overshoot $0.25")).toBeTruthy();
-    expect(screen.getByText("parked: write b.ts")).toBeTruthy();
-    expect(screen.getByText("finished free: look")).toBeTruthy();
-    expect(screen.getByText(/suggest code-writer → free-big/)).toBeTruthy();
+    expect(screen.getByText("code-writer")).toBeTruthy();
   });
 
   it("raises the displayed cap when the cost limit is raised", () => {
@@ -187,7 +182,7 @@ describe("webview chat", () => {
     const { bridge, store } = mk();
     act(() => {
       bridge.inbound(ev("run.started", { title: "x" }));
-      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write", dependsOn: [] }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "code-writer", title: "write" }));
       bridge.inbound(ev("cost.limit_reached", { capUsd: 1, accruedUsd: 0.5 }));
       bridge.inbound(ev("run.finished", { status: "done" }));
       bridge.inbound({ type: "event", ev: { kind: "run.started", runId: "r2", title: "y" } as never });
@@ -403,8 +398,8 @@ describe("webview settings", () => {
     files: { "channels.yaml": "version: 1\nitems: []\n" },
     summary: {
       channels: [
-        { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" },
-        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true } } },
+        { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x", modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
+        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
       ],
       agents: [
         { id: "a1", channel: "c1", model: "m", effort: "medium" },
@@ -412,7 +407,7 @@ describe("webview settings", () => {
       ],
       roles: [
         { id: "general-worker", enabled: true, agent: "a1", skills: ["execution-contract"], tools: ["WriteFile"] },
-        { id: "image-reader", enabled: false },
+        { id: "image-reader", enabled: false, needs: { vision: true } },
       ],
       skills: [
         { id: "execution-contract", description: "contract", body: "BODY", version: 1, source: "shipped", edited: false, updateAvailable: false },
@@ -472,7 +467,7 @@ describe("webview settings", () => {
     expect(set && set.type === "config.set" && set.yaml).toContain("image-reader");
   });
 
-  it("filters the role agent dropdown by required capability", () => {
+  it("filters the role agent dropdown by qualification and the role's vision need", () => {
     const { bridge } = mk();
     openRoles(bridge);
     fireEvent.click(screen.getAllByText("Edit")[1]);
@@ -480,6 +475,7 @@ describe("webview settings", () => {
     const opts = [...selects[selects.length - 1].options].map((o) => o.value);
     expect(opts).toContain("va");
     expect(opts).not.toContain("a1");
+    expect(screen.queryByText(/No agent is qualified/)).toBeNull();
   });
 
   it("resets a role and all roles", () => {

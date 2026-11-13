@@ -25,4 +25,6 @@ export interface ChildDeps {
   /** Shared counters with the parent turn: accrued cost, stream seq, cancel signal. */
   parent: { controller: AbortController; seq: number; accrued: number; costCapped: boolean };
   costCapUsd: number;
+  /** The lead's plan: children's writes count toward the current milestone and its checkpoints. */
+  plan?: { beforeWrite(path: string, content: string | null): Promise<void>; recordWrite(w: { path: string; ok: boolean; message?: string }): void };
 }

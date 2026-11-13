@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fakeHost } from "@stewart/kernel";
-import { declaredCheck, isReportGoal, runCheck, turnCheck, type CheckInput } from "../src/api.js";
+import { declaredCheck, isEditGoal, isReportGoal, runCheck, turnCheck, type CheckInput } from "../src/api.js";
 
 const baseInput = (over: Partial<CheckInput> = {}): CheckInput => ({ reply: "done", writes: [], changed: [], ...over });
 
@@ -104,14 +104,31 @@ describe("runCheck reply rule", () => {
 });
 
 describe("runCheck cites rule", () => {
-  const cited = async (files: Record<string, string>, reply: string) => {
+  const cited = async (files: Record<string, string>, reply: string, reads?: number) => {
     const { host } = fakeHost(files);
-    return runCheck({ check: { cites: true }, input: baseInput({ reply }), host, cwd: "/p" });
+    return runCheck({ check: { cites: true }, input: baseInput({ reply, reads }), host, cwd: "/p" });
   };
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `l${i}`).join("\n");
   it("passes when every cited path exists", async () => {
-    const r = await cited({ "src/a.ts": "x", "lib/b.py": "y" }, "Found it in src/a.ts:12 and lib/b.py.");
+    const r = await cited({ "src/a.ts": lines(20), "lib/b.py": "y" }, "Found it in src/a.ts:12 and lib/b.py.");
     expect(r.passed).toBe(true);
-    expect(r.evidence).toEqual(["cited: src/a.ts", "cited: lib/b.py"]);
+    expect(r.evidence).toEqual(["cited: src/a.ts:12", "cited: lib/b.py"]);
+  });
+  it("fails a citation whose line number is past the end of the file", async () => {
+    const r = await cited({ "src/a.ts": lines(5) }, "Bug at src/a.ts:40.");
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("bad line citation: src/a.ts:40");
+  });
+  it("counts root-level files that exist and ignores bare tokens that are not files", async () => {
+    const r = await cited({ "README.md": "x" }, "README.md is stale, e.g. version 3.0.0 is wrong.");
+    expect(r.passed).toBe(true);
+    expect(r.evidence).toEqual(["cited: README.md"]);
+  });
+  it("fails a 'no findings' reply when the turn read nothing", async () => {
+    const r = await cited({}, "No issues found.", 0);
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("no findings reported without reading any file");
+    expect((await cited({}, "No issues found.", 2)).passed).toBe(true);
   });
   it("fails when a cited path is missing", async () => {
     const r = await cited({ "src/a.ts": "x" }, "See src/a.ts and src/gone.ts.");
@@ -187,6 +204,43 @@ describe("declaredCheck", () => {
     const input = baseInput({ changed: ["a.ts"] });
     expect(declaredCheck(input, { command: ["npm", "test"], files: ["b.ts"] })).toMatchObject({ files: ["a.ts", "b.ts"], command: ["npm", "test"], changed: ["a.ts"] });
     expect(declaredCheck(input).command).toBeUndefined();
+  });
+});
+
+describe("edit check", () => {
+  const edit = async (over: Partial<CheckInput>, command?: string[], code = 0) => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler(() => ({ code }));
+    return runCheck({ check: { edit: true, command }, input: baseInput(over), host, cwd: "/p" });
+  };
+  it("fails an edit request when no file changed", async () => {
+    const r = await edit({});
+    expect(r.passed).toBe(false);
+    expect(r.evidence).toContain("edit request: no file changed");
+  });
+  it("passes when a write tool changed a file or the disk diff shows a change", async () => {
+    const { host } = fakeHost({ "a.ts": "x" });
+    const input = baseInput({ changed: ["a.ts"] });
+    expect((await runCheck({ check: { edit: true, files: ["a.ts"] }, input, host, cwd: "/p" })).passed).toBe(true);
+    expect((await edit({ diskChanged: ["b.ts"] })).passed).toBe(true);
+  });
+  it("passes with no change when a declared command passed, fails when it failed", async () => {
+    expect((await edit({}, ["npm", "test"], 0)).passed).toBe(true);
+    const bad = await edit({}, ["npm", "test"], 1);
+    expect(bad.evidence).toContain("edit request: no file changed");
+  });
+});
+
+describe("isEditGoal", () => {
+  it("matches imperative change requests", () => {
+    for (const g of ["Fix the failing test in src/a.test.ts", "please add a function sum", "Can you rename foo to bar?", "Implement M1", "  update the README"]) {
+      expect(isEditGoal(g), g).toBe(true);
+    }
+  });
+  it("does not match questions or explanations", () => {
+    for (const g of ["How do I fix the failing test?", "Explain how to add a route", "What does update() do?", "List the src folder", "Summarise the diff", "write a summary"]) {
+      expect(isEditGoal(g), g).toBe(false);
+    }
   });
 });
 

@@ -34,12 +34,13 @@ describe("loadProjectContext", () => {
     expect(out).toContain("A".repeat(4000));
   });
 
-  it("names the real workspace root and warns against the Claude CLI temp cwd", async () => {
+  it("names the real workspace root, where the CLI and commands run", async () => {
     const { host } = fakeHost({}, { roots: ["/real/project"] });
     const out = await loadProjectContext(host);
     expect(out).toContain("Project root: /real/project");
     expect(out).toContain("workspace-relative");
-    expect(out).toContain("/tmp/stewart-claude-");
+    expect(out).toContain("Claude CLI all run in the project root");
+    expect(out).not.toContain("temporary");
   });
 
   it("reports an unavailable root instead of inferring one", async () => {

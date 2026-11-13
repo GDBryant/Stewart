@@ -3,6 +3,7 @@ import { categoryOf } from "@stewart/permissions";
 import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnFn } from "@stewart/channels";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { mcpConfigArg, startMcp, type McpHandle } from "./mcp.js";
+import { LoopGuard } from "./loopGuard.js";
 import {
   arr, claudeArgv, controlError, controlResponse, FILE_TOOLS, interruptLine, num, obj, previewFor,
   recapPrefix, relPath, resultText, str, userLine, type Obj,
@@ -23,6 +24,7 @@ interface Attempt {
   result?: { subtype: string; isError: boolean; text: string };
   /** This attempt was spawned with --resume (id may be stale). */
   usedResume: boolean;
+  guard: LoopGuard;
 }
 
 function err(e: unknown): string {
@@ -47,6 +49,7 @@ function textBlock(mid: string | undefined, a: Attempt, b: Obj): { evs: EngineEv
 
 function emitAssistant(a: Attempt, j: Obj): EngineEvent[] {
   const message = obj(j.message);
+  if ((arr(message?.content) ?? []).some((b) => obj(b)?.type === "tool_use")) a.guard.endTurn();
   const mid = str(message?.id);
   const evs: EngineEvent[] = [];
   const calls: ToolCall[] = [];
@@ -73,11 +76,19 @@ function toolResultBlock(a: Attempt, b: Obj, tr: Obj | undefined): EngineEvent[]
   a.turn.transcript.push({ role: "tool", toolCallId: id, content: text });
   const evs: EngineEvent[] = [{ kind: "tool.outcome", callId: id, ok: !isErr, summary: text.split("\n")[0].slice(0, 200) }];
   const p = a.pending.get(id);
+  if (p) watchLoop(a, { name: p.name, args: p.input, ok: !isErr, result: text });
   if (p && FILE_TOOLS.has(p.name)) {
     const fp = str(tr?.filePath) ?? str(p.input.file_path) ?? str(p.input.notebook_path) ?? "";
     evs.push({ kind: "write", record: { path: relPath(a.turn.cwd, fp), ok: !isErr, message: isErr ? text : undefined } });
   }
   return evs;
+}
+
+/** Feed the loop guard; on a trip, interrupt the CLI (the attempt then finishes as loop_guard). */
+function watchLoop(a: Attempt, o: { name: string; args: unknown; ok: boolean; result: string }): void {
+  const before = a.guard.trip;
+  a.guard.record(o);
+  if (!before && a.guard.trip) a.proc.write?.(interruptLine() + "\n");
 }
 
 function emitToolResult(a: Attempt, j: Obj): EngineEvent[] {
@@ -186,7 +197,7 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
   const argv = claudeArgv(turn, str(turn.state.cliSessionId));
   let mcp: McpHandle | undefined;
   if (turn.hostTools) {
-    mcp = await startMcp(turn.hostTools, turn.signal);
+    mcp = await startMcp(turn.hostTools, turn.signal, turn.approve);
     const names = turn.hostTools.tools.map((t) => `mcp__stewart__${t.spec.name}`).join(" ");
     argv.push("--mcp-config", mcpConfigArg(mcp.url, mcp.token), "--allowedTools", names);
   }
@@ -197,7 +208,7 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
     yield { kind: "finished", reason: "error", error: `cannot start Claude CLI at ${argv[0]}: ${err(e)}` };
     return null;
   }
-  const a: Attempt = { turn, proc, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined };
+  const a: Attempt = { turn, proc, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, guard: new LoopGuard() };
   const unwatch = cancelWatch(turn, proc);
   try {
     proc.write?.(userLine(turn.transcript, prefix) + "\n");
@@ -214,16 +225,27 @@ function exitError(tail: string): EngineEvent {
   return { kind: "finished", reason: "error", error: classify(tail) === "auth" ? `Claude CLI not logged in: ${detail}` : `Claude CLI exited: ${detail}` };
 }
 
+/** The loop guard tripped: stop the CLI and finish as loop_guard. */
+async function loopGuardEnd(a: Attempt, trip: string): Promise<{ retry: boolean; ev: EngineEvent }> {
+  a.proc.end?.();
+  await a.proc.kill().catch(() => {});
+  return { retry: false, ev: { kind: "finished", reason: "loop_guard", error: trip } };
+}
+
+/** A result line arrived: let the CLI exit (kill after 5 s); a stale --resume retries fresh. */
+async function resultEnd(a: Attempt, r: NonNullable<Attempt["result"]>): Promise<{ retry: boolean; ev?: EngineEvent }> {
+  a.proc.end?.();
+  const exited = await Promise.race([a.proc.done.then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), 5000))]);
+  if (!exited) await a.proc.kill().catch(() => {});
+  if (a.usedResume && (r.isError || r.subtype.startsWith("error")) && staleResume("", r.text)) return { retry: true };
+  return { retry: false, ev: finishedFor(a) };
+}
+
 /** Decide what happens after one attempt: retry fresh, or emit the final event. */
 async function postAttempt(a: Attempt): Promise<{ retry: boolean; ev?: EngineEvent }> {
   if (a.turn.signal.aborted) return { retry: false, ev: { kind: "finished", reason: "cancelled" } };
-  if (a.result) {
-    a.proc.end?.();
-    const exited = await Promise.race([a.proc.done.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 5000))]);
-    if (!exited) await a.proc.kill().catch(() => {});
-    if (a.usedResume && (a.result.isError || a.result.subtype.startsWith("error")) && staleResume("", a.result.text)) return { retry: true };
-    return { retry: false, ev: finishedFor(a) };
-  }
+  if (a.guard.trip) return await loopGuardEnd(a, a.guard.trip);
+  if (a.result) return await resultEnd(a, a.result);
   const tail = (await a.proc.stderrText()).slice(-2000);
   await a.proc.done;
   if (a.usedResume && staleResume(tail, "")) return { retry: true };

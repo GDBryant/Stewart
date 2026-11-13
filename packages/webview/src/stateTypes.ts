@@ -46,9 +46,6 @@ export interface CostState {
   overshootUsd: number;
   byRole: Record<string, number>;
   byAgent: Record<string, { costUsd: number; inTokens: number; outTokens: number }>;
-  parked: string[];
-  freeFinished: string[];
-  suggestions: { role: string; agent: string; reason: string }[];
 }
 
 export interface PlanMilestone {

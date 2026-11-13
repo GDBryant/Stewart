@@ -1,6 +1,6 @@
 # Stewart — New Design (2026-11-12)
 
-Status: **accepted; steps 0–6 built as v3.0.0 (see EVALS.md); §8 gaps closed (no version bump) except the live eval re-runs**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
+Status: **accepted; steps 0–6 built as v3.0.0 (see EVALS.md); §8 gaps closed and the 2026-11-13 audit findings fixed (§8.4; no version bump) except the live eval re-runs and claude-cli qualification by engine type**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
 
 ## 1. What the logs show
 
@@ -110,7 +110,7 @@ Run status is `done` only when the check passes. Otherwise it is `failed` with t
 | Approvals, permissions, ledger, cost cap, interaction queue | Checks decide run status | Idempotency log, journal replay |
 | Chat history, images, mentions | History stores the full transcript | Plan/verdict/replacement verbs, `RunFeature` hook, budget profiles |
 
-Target size for the new core: about 8 modules (`protocol`, `config`, `channels`, `engines`, `tools`, `session`, `tasks`, `policy`) plus `setup`. The file-size and function-size gates stay as warnings; the eval suite becomes the blocking gate.
+Target size for the new core: about 8 modules (`protocol`, `config`, `channels`, `engines`, `tools`, `session`, `tasks`, `policy`) plus `setup`. *Amended (§8.1 #9, #10):* the 17 layered modules stay; CI keeps the code gates (size, functions, coverage, layers, cycles) blocking, and the eval suite is the manual milestone gate because it needs live models and paid keys.
 
 ## 6. Build order
 
@@ -174,3 +174,24 @@ The §8 changes were verified by unit tests, build, typecheck and all `check:*` 
 ### 8.3 v2 leftovers (closed)
 
 `wizard: true` now enables `lead`; `IdempotencyHooks` removed; wizard welcome text names lead/explorer/reviewer; `PROGRESS.md` already says `main`.
+
+### 8.4 Audit fixes (2026-11-13)
+
+An independent read of the code against §3–§6 found gaps the §8.1 build left open or introduced. All fixed with tests except the one marked; code gates pass; evals not re-run.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Under `claude-code`, Stewart's MCP host tools were pre-allowed and ran unapproved, so a `set_check` command ran ungated | MCP `tools/call` puts `requiresApproval` tools through `turn.approve` first |
+| 2 | `delegate`, `plan_write` and `milestone_done` hit the 120 s tool timeout; the child kept writing after the lead saw a failure | `noTimeout` honoured (delegate, milestone_done); `plan_write` is `awaitsUser`; dead `coreHandled` removed |
+| 3 | A milestone failed 3 times was skipped and the plan could end `done`; the sweep auto-passed every pending milestone at once and ran milestone checks on unrelated turns | Current milestone = first not done (failed blocks); sweep checks only the current milestone and only after plan work; plan `done` only when every milestone is; files-only checks need a write since the last checkpoint |
+| 4 | An edit request with no file change finished `done` (the step-4 wrong `done`s) | `isEditGoal` + `edit` check: some file must change (write tool or git worktree diff, so shell edits count) unless a declared command passed |
+| 5 | The `unchanged:` check never fired under `claude-code` (absolute vs relative paths); children took no snapshots | Snapshots keyed by project-relative path; children snapshot and pass `before` to their check |
+| 6 | Non-git revert: empty baseline, later-created files kept, state lost on resume; git revert rewrote `.stewart/plan.md` | Copy-on-write snapshot manifests on disk (`recordOriginal`); git revert skips `.stewart/`; revert resets later milestones to pending |
+| 7 | The 32k minimum applied to `function` roles; `needs.vision` ignored at run time | 32k default for agents only; `agentRefusal` checks vision; unknown windows stay admitted (doc corrected — most providers report none) |
+| 8 | Setup did not refuse unqualified or under-spec picks (AI-refine, Settings, assign) | Missing qualification refuses like a failed one; AI-refine uses role `kind`/`needs` and refuses unprobed models; `roles.assignAgent` refuses; Settings pickers list qualified agents; refused bound agents are config errors |
+| 9 | A `claude-code` child ignored its role's tools and `writePaths` | `childPolicy.ts`: file edits need a write tool and a `writePaths` match; commands need `RunTerminal` |
+| 10 | Compaction never ran inside a turn, failed for `claude-cli` leads, and overwrote saved history | `beforeModelTurn` hook compacts inside long native-loop turns (summarise the work between the task and the tail); skipped for `claude-cli`; archive chunks are expanded by `history.load` |
+| 11 | Report check: "no issues" bypassed citations; root-level files and line numbers ignored | "No findings" needs a successful read; bare names count when the file exists; line numbers must be in range |
+| 12 | Loop guard: narrow "no progress", none under `claude-code`; handover outcomes mismatched for batched calls | Shared `LoopGuard` (same call + same result ×3 added) used by both engines; `Tried` matched by `callId` |
+| — | Low: no plan-first rule; delegation rule only implied; checks ran twice; stale CLI temp-dir notes; dead `shim`/`dependsOn`/`parked…`/`leadAgent`/image-role code; evals did not score the long-build path | `plan_write` refused after edits; lead prompt states the three delegation cases; check result reused; notes fixed; dead code removed (`shim` loads as `unknown`); `l-todo-cli` also requires a done plan with checkpoints (`planCompleted`) |
+| — | **Not fixed:** `claude-cli` agents are still qualified by engine type without a run | A real run needs the live CLI working in a scratch directory during setup; kept as a documented exception |

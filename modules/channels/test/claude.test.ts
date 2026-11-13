@@ -56,7 +56,7 @@ describe("ClaudeCliAdapter", () => {
     expect(await adapter.listModels(cfg)).toEqual(["sonnet", "opus", "haiku"]);
     expect(captured[0].argv.slice(0, 3)).toEqual(["claude", "auth", "status"]);
     expect(captured[0].env.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(await adapter.probeCaps()).toMatchObject({ tools: "shim", vision: true, reasoning: true });
+    expect(await adapter.probeCaps()).toMatchObject({ tools: "native", vision: true, reasoning: true });
   });
 
   it("listModels throws auth when logged out", async () => {
@@ -100,6 +100,9 @@ describe("ClaudeCliAdapter", () => {
     expect(captured[0].env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(captured[0].env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(captured[0].env.CLAUDE_FLAG).toBe("1");
+    expect(captured[0].env.MCP_TOOL_TIMEOUT).toBe(String(6 * 60 * 60 * 1000));
+    const own = await import("../src/api.js").then((m) => m.claudeChildEnv({ ...cfg, extraEnv: { MCP_TOOL_TIMEOUT: "5" } }, { MCP_TOOL_TIMEOUT: "9" }));
+    expect(own.MCP_TOOL_TIMEOUT).toBe("5");
   });
 });
 

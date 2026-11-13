@@ -36,3 +36,5 @@ node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id
 | 2026-11-12 | 3 | step3-local | local Ollama, 3 tasks | 2/3 (66.7%) | 3/3 | $0 | question 1/1, report 1/2 (recorded from `results/2026-11-12-step3-local.json`) |
 
 The §8 build (gaps 1–8 of the design's §8) was verified by unit tests and the code gates; **evals not re-run** — re-run steps 1, 4, 5 before the next release.
+
+2026-11-13 audit fixes (design §8.4): `l-todo-cli` now also requires `.stewart/plan.md` done with ≥3 milestones, each with an existing checkpoint (`planCompleted`), so earlier `l-todo-cli` passes are not comparable. Edit requests that change no file now fail (`edit request: no file changed`), and setup refuses unqualified models. Evals not re-run.
