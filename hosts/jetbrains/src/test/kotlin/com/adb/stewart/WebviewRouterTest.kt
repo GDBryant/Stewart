@@ -489,4 +489,90 @@ class WebviewRouterTest {
         rig.router.route("""{"type":"skills.open","id":"s3"}""")
         assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
     }
+
+
+    @Test
+    fun `chat resume and revert send shaped results`() {
+        val rig = Rig { m, _ ->
+            if (m == "chat.resume") kotlinx.serialization.json.Json.parseToJsonElement("""{"runId":"r2","ok":true}""") as JsonObject
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"chat.resume","sessionId":"s1"}""")
+        rig.router.route("""{"type":"chat.revert","sessionId":"s1"}""")
+        val a = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        val b = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.resume.result", a.type())
+        assertEquals("r2", a["runId"]!!.jsonPrimitive.content)
+        assertEquals("chat.revert.result", b.type())
+        assertEquals(listOf("chat.resume", "chat.revert"), rig.calls.map { it.first })
+        assertEquals("s1", rig.calls[0].second!!["sessionId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `setup session routes reply with the per type result`() {
+        val rig = Rig { m, _ ->
+            if (m.startsWith("setup.session.")) Json.parseToJsonElement("""{"ok":true}""") else JsonObject(emptyMap())
+        }
+        for (t in listOf("start", "get", "update", "advance", "back", "cancel")) {
+            rig.router.route("""{"type":"setup.session.$t"}""")
+        }
+        for (t in listOf("start", "get", "update", "advance", "back", "cancel")) {
+            assertEquals("setup.session.$t.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        }
+    }
+
+    @Test
+    fun `skills open skill without body saves empty body`() {
+        val rig = Rig { m, _ ->
+            if (m == "config.get") {
+                kotlinx.serialization.json.Json.parseToJsonElement("""{"summary":{"skills":[{"id":"s4","description":"D"}]}}""") as JsonObject
+            } else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"skills.open","id":"s4"}""")
+        val save = rig.calls.find { it.first == "skills.save" }!!.second!!
+        assertEquals("", save["body"]!!.jsonPrimitive.content)
+        assertEquals("D", save["description"]!!.jsonPrimitive.content)
+    }
+
+
+    @Test
+    fun `remaining shaped replies tolerate a null core response`() {
+        val rig = Rig { _, _ -> null }
+        for ((t, want) in listOf(
+            "chat.resume" to "chat.resume.result",
+            "chat.revert" to "chat.revert.result",
+            "setup.session.get" to "setup.session.get.result",
+            "setup.probe.status" to "setup.probe.result",
+        )) {
+            rig.router.route("""{"type":"$t"}""")
+            assertEquals(want, rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        }
+    }
+
+    @Test
+    fun `skills open null config response errors`() {
+        val rig = Rig { _, _ -> null }
+        rig.router.route("""{"type":"skills.open","id":"x"}""")
+        assertEquals("error", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
+
+
+    @Test
+    fun `more routes tolerate a null core response`() {
+        val rig = Rig { _, _ -> null }
+        for ((t, want) in listOf(
+            "setup.recommend" to "setup.recommend.result",
+            "config.set" to "config",
+            "setup.session.update" to "setup.session.update.result",
+            "setup.probe.start" to "setup.probe.result",
+            "history.delete" to "history.sessions",
+        )) {
+            rig.router.route("""{"type":"$t"}""")
+            assertEquals(want, rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        }
+        rig.router.route("""{"type":"channel.test","channelId":"c1"}""")
+        assertEquals("channel.test.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+        rig.router.route("""{"type":"channel.probe","channelId":"c1","model":"m1"}""")
+        assertEquals("channel.probe.result", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
+    }
 }

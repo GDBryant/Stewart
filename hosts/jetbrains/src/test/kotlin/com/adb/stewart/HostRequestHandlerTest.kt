@@ -320,4 +320,96 @@ class HostRequestHandlerTest : BasePlatformTestCase() {
         h.notifyHandler("log", buildJsonObject {})
         h.notifyHandler("unrelated", null)
     }
+
+
+    fun testWorkspaceTrustedReturnsBoolean() {
+        val h = handler()
+        val r = call(h, "host.workspace.trusted", null)
+        assertNotNull(r!!.jsonPrimitive.boolean)
+    }
+
+    fun testFilesExistsListReadLinesAppendDeleteRoundtrip() {
+        val h = handler()
+        val dir = java.io.File(project.basePath, "rt")
+        dir.mkdirs()
+        call(h, "host.files.appendLine", buildJsonObject {
+            put("path", JsonPrimitive("rt/a.txt"))
+            put("line", JsonPrimitive("one"))
+        })
+        assertEquals(true, call(h, "host.files.exists", buildJsonObject { put("path", JsonPrimitive("rt/a.txt")) })!!.jsonPrimitive.boolean)
+        val rb = call(h, "host.files.readBack", buildJsonObject { put("path", JsonPrimitive("rt/a.txt")) })
+        assertEquals("one\n", rb!!.jsonPrimitive.content)
+        val list = call(h, "host.files.list", buildJsonObject { put("dir", JsonPrimitive("rt")) })!!.jsonArray
+        assertTrue(list.any { it.jsonPrimitive.content == "rt/a.txt" })
+        val lines = call(h, "host.files.readLines", buildJsonObject { put("path", JsonPrimitive("rt/a.txt")) })!!.jsonArray
+        assertEquals(1, lines.size)
+        call(h, "host.files.delete", buildJsonObject { put("path", JsonPrimitive("rt/a.txt")) })
+        assertEquals(false, call(h, "host.files.exists", buildJsonObject { put("path", JsonPrimitive("rt/a.txt")) })!!.jsonPrimitive.boolean)
+    }
+
+    fun testProcRunWithEnv() {
+        val h = handler()
+        val r = call(h, "host.proc.run", buildJsonObject {
+            put("handle", JsonPrimitive("envp"))
+            put("argv", kotlinx.serialization.json.Json.parseToJsonElement("""["/bin/true"]"""))
+            put("cwd", JsonPrimitive(project.basePath))
+            put("env", buildJsonObject { put("STEWART_T", JsonPrimitive("1")) })
+        })
+        assertNotNull(r)
+        h.dispose()
+    }
+
+
+    fun testDiffPreviewMissingPathParam() {
+        val h = handler()
+        try {
+            call(h, "host.diff.preview", buildJsonObject { put("next", JsonPrimitive("x")) })
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message == "path required" || e.message?.contains("path required") == true)
+        }
+    }
+
+    fun testDiagProblemsForExistingPath() {
+        myFixture.configureByText("diag.kt", "fun ok() {}")
+        val h = handler()
+        val r = call(h, "host.diag.problems", buildJsonObject { put("path", JsonPrimitive("diag.kt")) })
+        assertNotNull(r)
+    }
+
+
+    fun testEditorSelectionEmptySelection() {
+        myFixture.configureByText("sel.kt", "val x = 1")
+        val h = handler()
+        assertEquals(kotlinx.serialization.json.JsonNull, call(h, "host.editor.selection"))
+    }
+
+    fun testDiffPreviewMissingFileDoesNotThrow() {
+        val h = handler()
+        val r = call(h, "host.diff.preview", buildJsonObject {
+            put("path", JsonPrimitive("missing.txt"))
+            put("next", JsonPrimitive("new content"))
+        })
+        assertNotNull(r)
+    }
+
+    fun testFilesReadNullParamsFails() {
+        val h = handler()
+        try {
+            call(h, "host.files.read")
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message == "path required" || e.message?.contains("path required") == true)
+        }
+    }
+
+    fun testFilesEditNullParamsFails() {
+        val h = handler()
+        try {
+            call(h, "host.files.edit")
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message?.contains("edit required") == true || e.message?.contains("edit required") == true)
+        }
+    }
 }

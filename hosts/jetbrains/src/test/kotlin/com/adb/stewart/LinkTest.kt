@@ -249,4 +249,62 @@ class LinkTest {
         l.notify("x")
         assertEquals("", out.toString())
     }
+
+
+    @Test
+    fun `null result resolves with json null`() {
+        val (a, b) = linkPair()
+        b.onRequest { _, _ -> java.util.concurrent.CompletableFuture.completedFuture(null) }
+        val r = a.request("noresult").get(5, TimeUnit.SECONDS)
+        assertEquals(kotlinx.serialization.json.JsonNull, r)
+        a.close(); b.close()
+    }
+
+    @Test
+    fun `handler failure without cause message uses throwable message`() {
+        val (a, b) = linkPair()
+        b.onRequest { _, _ ->
+            java.util.concurrent.CompletableFuture<kotlinx.serialization.json.JsonElement?>().apply {
+                completeExceptionally(java.util.concurrent.CompletionException(null, null))
+            }
+        }
+        try {
+            a.request("x").get(5, TimeUnit.SECONDS)
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message?.contains("error") == true || e.message?.contains("error") == true)
+        }
+        a.close(); b.close()
+    }
+
+
+    @Test
+    fun `line without trailing newline at eof is dispatched`() {
+        val pos = PipedOutputStream()
+        val a = Link(PipedInputStream(pos), ByteArrayOutputStream())
+        val seen = java.util.concurrent.LinkedBlockingQueue<String>()
+        a.onNotification { m, _ -> seen.add(m) }
+        a.start()
+        pos.write("{\"method\":\"x\"}".toByteArray())
+        pos.close()
+        assertEquals("x", seen.poll(5, TimeUnit.SECONDS))
+        a.close()
+    }
+
+    @Test
+    fun `handler error without cause uses exception message`() {
+        val (a, b) = linkPair()
+        b.onRequest { _, _ ->
+            java.util.concurrent.CompletableFuture<kotlinx.serialization.json.JsonElement?>().apply {
+                completeExceptionally(java.io.IOException("plain failure"))
+            }
+        }
+        try {
+            a.request("x").get(5, TimeUnit.SECONDS)
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message?.contains("plain failure") == true || e.message?.contains("plain failure") == true)
+        }
+        a.close(); b.close()
+    }
 }

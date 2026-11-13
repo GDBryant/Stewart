@@ -291,4 +291,93 @@ class WorkspaceFilesTest : BasePlatformTestCase() {
             assertTrue(e.message!!.contains("not a file"))
         }
     }
+
+
+    fun testListWithSubdirPrefixesPaths() {
+        write("sub/x.txt", "x")
+        write("sub/deep/y.txt", "y")
+        val names = files().list("sub").map { it.jsonPrimitive.content }.sorted()
+        assertEquals(listOf("sub/deep/y.txt", "sub/x.txt"), names)
+    }
+
+    fun testStatDirectoryThrows() {
+        File(project.basePath, "statdir").mkdirs()
+        try {
+            files().stat("statdir")
+            fail("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("not a file"))
+        }
+    }
+
+    fun testReadLinesMissingAndBlankFiltered() {
+        assertTrue(files().readLines("gone.log").jsonArray.isEmpty())
+        write("lines.log", "a\n\nb\n")
+        val lines = files().readLines("lines.log").jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("a", "b"), lines)
+    }
+
+    fun testReadBinaryFileHasNoVersion() {
+        val f = File(project.basePath, "raw.bin")
+        f.writeBytes(byteArrayOf(1, 2, 3, 4, 0))
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)
+        val r = files().read("raw.bin")
+        assertTrue(r.containsKey("content"))
+        assertFalse(r.containsKey("version"))
+    }
+
+    fun testEditBinaryFileThrowsNoDocument() {
+        val f = File(project.basePath, "bin-no-doc.bin")
+        f.writeBytes(byteArrayOf(1, 2, 0))
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)
+        try {
+            files().edit(buildJsonObject {
+                put("path", JsonPrimitive("bin-no-doc.bin"))
+                put("content", JsonPrimitive("x"))
+            })
+            fail("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("no document"))
+        }
+    }
+
+    fun testDeleteRemovesFileFromDisk() {
+        val f = write("del-me.txt", "x")
+        assertTrue(f.exists())
+        files().delete("del-me.txt")
+        assertFalse(f.exists())
+    }
+
+
+    fun testReadDirectoryFails() {
+        val f = File(project.basePath, "somedir")
+        f.mkdirs()
+        LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)
+        try {
+            files().read("somedir")
+            fail("expected failure")
+        } catch (e: IOException) {
+            // loadText on a directory fails
+        }
+    }
+
+    fun testEditContentMissingEditsReturnsApplied() {
+        write("noedits.txt", "x")
+        val r = files().edit(buildJsonObject {
+            put("path", JsonPrimitive("noedits.txt"))
+        })
+        assertEquals(true, r["applied"]!!.jsonPrimitive.boolean)
+    }
+
+    fun testEditOnDispatchThread() {
+        write("edt.txt", "a")
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+            val r = files().edit(buildJsonObject {
+                put("path", JsonPrimitive("edt.txt"))
+                put("content", JsonPrimitive("b"))
+            })
+            assertEquals(true, r["applied"]!!.jsonPrimitive.boolean)
+        }
+        assertEquals("b", files().readBack("edt.txt").jsonPrimitive.content)
+    }
 }
