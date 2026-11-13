@@ -13,7 +13,7 @@ packages/
   sidecar/     Node stdio JSON-RPC server for JetBrains (rpc.ts, server.ts, host.ts reverse-RPC → HostPort, debugSink.ts)
   webview/     Preact chat + settings + setup wizard, one bundle for both hosts
   evals/       outcome eval suite: fixture repo, code-scored tasks, Node HostPort runner over a real Core (docs/ai_docs/EVALS.md)
-modules/       17 `@stewart/<module>` packages, each with a `README.md` (purpose, surface, owns, deps). Modules import only strictly lower layers (`scripts/layers.json`, `pnpm check:layers`); every package is `composite` with a 90/80 coverage gate. Product version 3.0.0 (`hosts/vscode/package.json`, `build.gradle.kts`). Layers: see table in §1a.
+modules/       17 `@stewart/<module>` packages, each with a `README.md` (purpose, surface, owns, deps). Modules import only strictly lower layers (`scripts/layers.json`, `pnpm check:layers`); every package is `composite` with a 90/80 coverage gate. Product version 3.0.1 (`hosts/vscode/package.json`, `build.gradle.kts`). Layers: see table in §1a.
 hosts/
   vscode/      in-process core; host.ts implements HostPort via vscode API; routes.ts = webview message route table + dispatchAndReply
   jetbrains/   Kotlin: SidecarSupervisor (bundled Node, restart/backoff), HostRequestHandler, JCEF WebviewRouter
