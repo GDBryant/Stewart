@@ -93,7 +93,7 @@ Status key: **Built** = in the code per `ARCHITECTURE_NOW.md`/`PROGRESS.md`. **P
 ### 3.1 Roles
 - **12 shipped default roles**, all disabled and unbound until set up: Orchestrator, Planner, Plan Validator, Investigator, Architect, General Worker, Code Writer, Code Reviewer, Tester, Document Writer, Image Reader, Image Writer.
 - **Extra shipped role:** `code-health-reviewer` (disabled, read-only). An optional user-defined `compactor` role is used by context summarization.
-- **Role fields:** `id`, `enabled`, `prompt`, `agent`, `fallbackAgent`, `skills`, `tools`, `writePaths`, `turnBudget` (a number or `unlimited`).
+- **Role fields:** `id`, `enabled`, `prompt`, `agent`/`chain`, `skills`, `tools`, `writePaths`, `turnBudget` (a number or `unlimited`). Old `fallbackAgent` keys parse and are ignored.
 - **Enforcement in core, not just in the prompt:**
   - A role cannot call a tool outside its list.
   - `WriteFile`, `EditFile` and `ApplyPatch` are wrapped so a path outside `writePaths` is rejected before the preview.
@@ -101,7 +101,7 @@ Status key: **Built** = in the code per `ARCHITECTURE_NOW.md`/`PROGRESS.md`. **P
 - **Capability gating:** Image Reader needs a `vision` agent. Image Writer needs an `imageGen` agent.
 - **Validation:** an enabled role with no agent, an unknown agent, or a missing capability is a configuration error. An unset enabled role never silently falls back.
 - **Orchestrator required** once any other role is enabled.
-- **Failover:** `fallbackAgent` takes over when the primary channel is unhealthy. A free-to-paid switch asks the user first.
+- **Failover:** a task escalates along the role's `chain` (cheapest first) when its check fails; the last step asks the user.
 - **Resets:** per-role Reset to default, Reset all roles, Assign default agent to all.
 - **Read-only Investigator terminal:** `RunTerminal` is limited to a read-only program allow-list.
 

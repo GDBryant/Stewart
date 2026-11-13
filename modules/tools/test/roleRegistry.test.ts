@@ -59,6 +59,16 @@ describe("ToolRegistry.for", () => {
     await expect(reg.find("WriteFile")!.preview!({ path: "src/x.ts", content: "c" })).resolves.toBeTruthy();
   });
 
+  it("denies a denied-dir or outside write before execute", async () => {
+    const { host, files } = fakeHost({ "a.ts": "x" });
+    const paths = await ProjectPaths.forProject(host);
+    const reg = projectTools(host, paths).for(role({ tools: ["WriteFile"], writePaths: [] }));
+    const w = reg.find("WriteFile")!;
+    await expect(w.execute({ path: ".stewart/plans/x.md", content: "c" }, null, new AbortController().signal)).rejects.toThrow(/path denied/);
+    await expect(w.execute({ path: "../out.txt", content: "c" }, null, new AbortController().signal)).rejects.toThrow(/outside the project/);
+    expect(files[".stewart/plans/x.md"]).toBeUndefined();
+  });
+
   it("does not wrap non-path tools", async () => {
     const reg = (await mk()).for(role({ tools: ["RunTerminal"], writePaths: ["docs/**"] }));
     expect(reg.find("RunTerminal")).toBeDefined();

@@ -1,7 +1,9 @@
 import type { Json, ToolCall, ToolSpec } from "@stewart/kernel";
 import { splitShellPrograms, type ApprovalCategory, type ToolPreview } from "@stewart/permissions";
 import type { RoleDef } from "@stewart/config";
-import { matchGlob } from "@stewart/roles-skills";
+import { decide, PATH_TOOLS, checkReadOnlyCommand, roleIsReadOnly, type Action } from "./policy.js";
+
+export { checkReadOnlyCommand, roleIsReadOnly, PATH_TOOLS } from "./policy.js";
 
 export interface Tool {
   readonly spec: ToolSpec;
@@ -134,73 +136,28 @@ function typeError(value: unknown, schema: Json): string | null {
   return ok ? null : `expected type ${types.join("|")}`;
 }
 
-/** File-writing tools whose `path` arg is checked against role writePaths. */
-export const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
-
-const READONLY_PROGRAMS = new Set([
-  "ls", "cat", "head", "tail", "wc", "stat", "file", "find", "grep", "rg", "git",
-  "pwd", "which", "echo", "uname", "printenv", "diff", "du", "df",
-]);
-const GIT_READONLY_SUBCOMMANDS = new Set([
-  "status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "describe",
-]);
-
-export function checkReadOnlyCommand(command: string, roleId: string): void {
-  const err = (what: string) => new Error(`${what} is not allowed for read-only role ${roleId}`);
-  if (/[><]/.test(command)) throw err(`command '${command}'`);
-  const progs = splitShellPrograms(command);
-  if (!progs || !progs.every((p) => READONLY_PROGRAMS.has(p))) throw err(`command '${command}'`);
-  for (const seg of command.split(/[|;&\n]+/)) {
-    const words = seg.trim().split(/\s+/).filter(Boolean);
-    if (words[0] === "git") {
-      const sub = words.slice(1).find((w) => !w.startsWith("-"));
-      if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) throw err(`git subcommand '${sub ?? ""}'`);
-    }
-  }
+function actionFor(tool: Tool, args: Json): Action {
+  if (PATH_TOOLS.has(tool.spec.name) && typeof args.path === "string") return { kind: "write", path: args.path };
+  if (tool.spec.name === "RunTerminal" && typeof args.command === "string") return { kind: "command", command: args.command };
+  return { kind: "other" };
 }
 
-const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
-
-/** True when the role's tool list has entries but no write tools. */
-export function roleIsReadOnly(role: RoleDef): boolean {
-  return role.tools.length > 0 && !role.tools.some((t) => WRITE_TOOLS.has(t));
-}
-
-function guardReadOnlyTerminal(tool: Tool, role: RoleDef): Tool {
-  const readOnly = roleIsReadOnly(role);
-  if (!readOnly || tool.spec.name !== "RunTerminal") return tool;
+function guardRole(tool: Tool, role: RoleDef): Tool {
+  const check = (args: Json) => {
+    const d = decide(role, actionFor(tool, args));
+    if (!d.allow) throw new Error(d.reason);
+  };
   const basePreview = tool.preview?.bind(tool);
   const baseExec = tool.execute.bind(tool);
   return {
     ...tool,
     async preview(args: Json): Promise<ToolPreview | null> {
-      if (typeof args.command === "string") checkReadOnlyCommand(args.command, role.id);
+      check(args);
       return basePreview ? basePreview(args) : null;
     },
     async execute(args: Json, preview: ToolPreview | null, signal: AbortSignal): Promise<string | { text: string; images?: string[] }> {
-      if (typeof args.command === "string") checkReadOnlyCommand(args.command, role.id);
+      check(args);
       return baseExec(args, preview, signal);
-    },
-  };
-}
-
-function guardWritePaths(tool: Tool, writePaths: string[]): Tool {
-  if (!PATH_TOOLS.has(tool.spec.name) || !tool.preview) return tool;
-  const base = tool.preview.bind(tool);
-  return {
-    spec: tool.spec,
-    requiresApproval: tool.requiresApproval,
-    category: tool.category,
-    awaitsUser: tool.awaitsUser,
-    noTimeout: tool.noTimeout,
-    parallel: tool.parallel,
-    execute: tool.execute.bind(tool),
-    async preview(args: Json): Promise<ToolPreview | null> {
-      const p = args.path;
-      if (writePaths.length && typeof p === "string" && !writePaths.some((g) => matchGlob(g, p))) {
-        throw new Error(`path '${p}' is outside this role's writePaths`);
-      }
-      return base(args);
     },
   };
 }
@@ -219,7 +176,7 @@ export class ToolRegistry {
    */
   for(role: RoleDef): ToolRegistry {
     const allowed = role.tools.length ? this.tools.filter((t) => role.tools.includes(t.spec.name)) : this.tools;
-    return new ToolRegistry(allowed.map((t) => guardReadOnlyTerminal(guardWritePaths(t, role.writePaths), role)));
+    return new ToolRegistry(allowed.map((t) => guardRole(t, role)));
   }
   registerProvider(provider: ToolProvider): void {
     const defaultCat: ApprovalCategory = provider.category ?? `MCP:${provider.id}`;

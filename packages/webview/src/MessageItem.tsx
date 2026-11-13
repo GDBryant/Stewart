@@ -1,10 +1,15 @@
 import type { ChatItem, PendingApproval, Store } from "./state.js";
 
-export function MessageItem({ item }: { item: ChatItem }) {
+export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTurn?: () => void }) {
   return (
     <div class={`item ${item.role}`}>
       {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
       <div class="bubble">
+        {item.revertTurn ? (
+          <button class="small" onClick={onRevertTurn}>
+            Revert this turn
+          </button>
+        ) : null}
         {item.images?.length ? (
           <div class="msg-images">
             {item.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}

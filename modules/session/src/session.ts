@@ -6,19 +6,22 @@ import type { Permissions } from "@stewart/permissions";
 import type { AgentDef } from "@stewart/config";
 import { agentContext, eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { ChatHistoryStore } from "./history.js";
-import { costOfCall, RunLedger } from "@stewart/ledger";
+import { RunLedger } from "@stewart/ledger";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
-import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type EngineTurn } from "@stewart/engines";
-import { declaredCheck, isEditGoal, isReportGoal, runCheck, worktreeChanges, worktreeState, type Check, type CheckInput, type CheckResult, type WorktreeState } from "@stewart/tasks";
+import { engineFor as defaultEngineFor, type Engine } from "@stewart/engines";
+import { changeTracker, type ChangeTracker } from "@stewart/tasks";
 import { leadRole, systemPrompt } from "./lead.js";
-import { askUserTool, loadSkillTool, setCheckTool } from "./sessionTools.js";
-import { questionPrompt } from "@stewart/interaction";
+import { askUserTool, loadSkillTool, setCheckTool, type Declared } from "./sessionTools.js";
 import { ChildRunner } from "./child.js";
-import { handoverText } from "./handover.js";
 import { PlanRunner } from "./plan.js";
 import { compactTranscript, expandArchived } from "./compact.js";
-import { planResumeText, planSummary, revertSession } from "./planOps.js";
-import { checkInput, err, finishedEvent, isReadTool, lastUserText, newRunState, snapshotBefore, type FinishReason, type RunState } from "./turnState.js";
+import { planSummary, revertSession } from "./planOps.js";
+import { drivePlan, leadContract } from "./planDrive.js";
+import { err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
+import { stepSaver } from "./stepSave.js";
+import { runTask, type Contract, type TaskDeps, type TaskResult } from "./taskRun.js";
+import { policyApprove } from "./policyApprove.js";
+import { dropSessionArtifacts, loadEngineState, persistTurn } from "./persist.js";
 
 export interface SessionDeps {
   host: HostPort;
@@ -38,38 +41,22 @@ export interface SendRequest {
   images?: string[];
 }
 
-interface EvCtx {
-  runId: string;
-  rs: RunState;
-  agent: AgentDef;
-  ledger: RunLedger;
-  cap: number;
-  plan: PlanRunner;
-  host: HostPort;
-  cwd: string;
-}
-
-/** One in-flight turn: what runTurn assembles once and drive/finish/persist share. */
+/** One in-flight turn: what runTurn assembles once and finish/persist share. */
 interface TurnWork {
   runId: string;
   sessionId: string;
   transcript: ChatMessage[];
   state: Record<string, unknown>;
   rs: RunState;
+  /** The lead's set_check declarations for this turn (part of the verify contract). */
+  declared: Declared;
   paths: ProjectPaths;
   stateDir: string;
   store: ChatHistoryStore;
   plan: PlanRunner;
-  /** Worktree before the turn (git repos): edits made by shell commands count as changes. */
-  disk0: WorktreeState;
-}
-
-type Env = { lead: ReturnType<typeof leadRole>; tools: ToolRegistry; hostTools: ToolRegistry; ledger: RunLedger; config: EffectiveConfig };
-
-/** Changed files must differ and exist; the declared command runs; edit requests must change a file; report requests must cite real files. */
-function turnChecks(rs: RunState, input: CheckInput): Check {
-  const check: Check = { ...declaredCheck(input, rs.declared.value), edit: isEditGoal(rs.goal) || undefined };
-  return !input.changed.length && isReportGoal(rs.goal) ? { ...check, cites: true } : check;
+  tracker: ChangeTracker;
+  /** Coalesced mid-turn persist (user message, tool batches, model turns). */
+  stepSave: () => void;
 }
 
 /** One session service per project: a chat's full transcript, the lead's turn, and the after-turn check. */
@@ -85,11 +72,9 @@ export class SessionService {
   async send(req: SendRequest): Promise<{ runId: string; sessionId: string }> {
     const sessionId = req.sessionId ?? this.deps.ids.next("sess");
     const runId = this.deps.ids.next("run");
-    const rs = newRunState(req.text);
+    const rs = newRunState();
     this.active.set(runId, rs);
-    const prev = this.chains.get(sessionId) ?? Promise.resolve();
-    const next = prev.then(() => this.runTurn(runId, sessionId, req, rs));
-    this.chains.set(sessionId, next);
+    this.enqueue(sessionId, () => this.runTurn(runId, sessionId, req, rs));
     return { runId, sessionId };
   }
 
@@ -104,7 +89,7 @@ export class SessionService {
   async historyStore(): Promise<ChatHistoryStore> {
     if (!this.history) {
       const stateDir = await this.deps.host.workspace.stateDir();
-      this.history = new ChatHistoryStore(this.deps.host, `${stateDir}/history`, this.deps.config().settings.historyRetentionDays);
+      this.history = new ChatHistoryStore(this.deps.host, `${stateDir}/history`, this.deps.config().settings.historyRetentionDays, (id) => dropSessionArtifacts(this.deps.host, id));
     }
     return this.history;
   }
@@ -117,37 +102,26 @@ export class SessionService {
   }
 
   private async ledgerFor(): Promise<RunLedger> {
-    if (!this.ledger) {
-      const stateDir = await this.deps.host.workspace.stateDir();
-      this.ledger = new RunLedger(this.deps.host, `${stateDir}/ledger.jsonl`, this.deps.clock);
-      await this.ledger.load();
-    }
+    if (this.ledger) return this.ledger;
+    const stateDir = await this.deps.host.workspace.stateDir();
+    this.ledger = new RunLedger(this.deps.host, `${stateDir}/ledger.jsonl`, this.deps.clock);
+    await this.ledger.load();
     return this.ledger;
   }
 
-  private async engineState(stateDir: string, sessionId: string): Promise<Record<string, unknown>> {
-    const path = `${stateDir}/sessions/${sessionId}.engine.json`;
-    try {
-      if (await this.deps.host.files.exists(path)) {
-        return JSON.parse((await this.deps.host.files.read(path)).content) as Record<string, unknown>;
-      }
-    } catch {
-      /* corrupt engine state starts fresh */
-    }
-    return {};
+  private enqueue(sessionId: string, fn: () => Promise<void>): void {
+    const prev = this.chains.get(sessionId) ?? Promise.resolve();
+    const next = prev.then(fn);
+    this.chains.set(sessionId, next);
+    void next.then(() => this.dropChain(sessionId, next), () => this.dropChain(sessionId, next));
+  }
+
+  private dropChain(sessionId: string, settled: Promise<void>): void {
+    if (this.chains.get(sessionId) === settled) this.chains.delete(sessionId);
   }
 
   private async persist(w: TurnWork): Promise<void> {
-    try {
-      await w.store.save(w.sessionId, w.transcript);
-    } catch (e) {
-      this.deps.host.log(`history save failed: ${err(e)}`);
-    }
-    try {
-      await this.deps.host.files.writeAtomic(`${w.stateDir}/sessions/${w.sessionId}.engine.json`, JSON.stringify(w.state));
-    } catch (e) {
-      this.deps.host.log(`engine state save failed: ${err(e)}`);
-    }
+    await persistTurn(this.deps.host, w);
   }
 
   private async turnWork(runId: string, sessionId: string, rs: RunState): Promise<TurnWork> {
@@ -155,13 +129,17 @@ export class SessionService {
     const stateDir = await host.workspace.stateDir();
     const store = await this.historyStore();
     const paths = await ProjectPaths.forProject(host);
-    return {
-      runId, sessionId, rs, stateDir, store, paths,
-      transcript: (await store.load(sessionId)) ?? [],
-      state: await this.engineState(stateDir, sessionId),
-      plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction }),
-      disk0: await worktreeState(host, paths.base),
+    const tracker = changeTracker(host, { cwd: paths.base, stateDir, sessionId });
+    const transcript = (await store.load(sessionId)) ?? [];
+    closeOpenCalls(transcript);
+    const w: TurnWork = {
+      runId, sessionId, rs, stateDir, store, paths, tracker, declared: {}, transcript,
+      state: await loadEngineState(host, stateDir, sessionId),
+      plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction, tracker }),
+      stepSave: () => {},
     };
+    w.stepSave = stepSaver(() => this.persist(w));
+    return w;
   }
 
   private async runTurn(runId: string, sessionId: string, req: SendRequest, rs: RunState): Promise<void> {
@@ -169,17 +147,11 @@ export class SessionService {
     try {
       const w = await this.turnWork(runId, sessionId, rs);
       w.transcript.push({ role: "user", content: req.text, images: req.images?.length ? req.images : undefined });
+      w.stepSave();
       bus.emit({ kind: "run.started", runId, roleId: "lead", title: req.text.slice(0, 60) });
-      try {
-        await this.drive(w);
-      } catch (e) {
-        if (!rs.reason) {
-          rs.reason = "error";
-          rs.error = err(e);
-        }
-      }
+      const res = await this.task(w, { goal: lastUserText(w.transcript), contract: leadContract(this.deps.config, w.declared), planTool: true });
       await this.persist(w);
-      await this.finish(w);
+      await this.finish(w, res);
     } catch (e) {
       bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: err(e) });
     } finally {
@@ -187,41 +159,51 @@ export class SessionService {
     }
   }
 
-  private async drive(w: TurnWork): Promise<void> {
-    const config = this.deps.config();
-    const lead = leadRole(config);
-    const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
-    const ledger = await this.ledgerFor();
-    if (!chain.length) {
-      w.rs.reason = "error";
-      w.rs.error = "no qualified agent for role lead: run Qualify in settings";
-      return;
-    }
-    const children = this.children(w, config, chain[0], ledger);
-    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), setCheckTool(w.rs.declared), ...w.plan.tools()]);
-    const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
-    await this.compact(w, chain[0], config);
-    const goal = lastUserText(w.transcript);
-    const env: Env = { lead, tools, hostTools, ledger, config };
-    let prev: AgentDef | undefined;
-    for (const agent of chain) {
-      if (prev) this.escalate(w, prev, agent, goal);
-      w.rs.reason = "" as FinishReason;
-      w.rs.error = undefined;
-      await this.attempt(w, agent, env);
-      if (await this.attemptDone(w)) return;
-      prev = agent;
-    }
-    await this.retryOrStop(w, prev ?? chain[0], env);
+  private async taskDeps(w: TurnWork): Promise<TaskDeps> {
+    const d = this.deps;
+    return {
+      host: d.host, bus: d.bus, permissions: d.permissions, interaction: d.interaction,
+      channelFor: d.channelFor, config: d.config, engineFor: d.engineFor, ledger: await this.ledgerFor(),
+      tracker: w.tracker, paths: w.paths, costCapUsd: d.config().settings.costLimit.perRunUsd,
+    };
   }
 
-  /**
-   * Summarise older turns (or the older part of a long turn) when the transcript nears the window. The plan
-   * rides in the system prompt; the open task is kept verbatim. Claude CLI agents manage their own context.
-   */
+  private async task(w: TurnWork, o: { goal: string; contract: () => Contract; baseline?: TaskResult["baseline"]; needs?: { mustChange?: boolean }; planTool: boolean }): Promise<TaskResult> {
+    const config = this.deps.config();
+    const lead = leadRole(config);
+    const deps = await this.taskDeps(w);
+    const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
+    const children = new ChildRunner({ ...deps, ids: this.deps.ids, stateDir: w.stateDir, sessionId: w.sessionId, runId: w.runId, agent: chain[0], ledger: deps.ledger, parent: w.rs });
+    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
+    const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
+    return await runTask(
+      {
+        runId: w.runId,
+        sessionId: w.sessionId,
+        role: lead,
+        goal: o.goal,
+        transcript: w.transcript,
+        system: async () => (await systemPrompt(this.deps.host, lead, config)) + ((await w.plan.systemNote()) ?? ""),
+        tools,
+        hostTools,
+        approve: policyApprove(lead, this.deps.permissions.gate(w.runId, w.rs.controller.signal)),
+        engineState: w.state,
+        contract: o.contract,
+        needs: o.needs ?? {},
+        interactive: true,
+        run: w.rs,
+        beforeModelTurn: async (agent: AgentDef) => this.compact(w, agent, config),
+        onStep: w.stepSave,
+        ...(o.baseline ? { baseline: o.baseline } : {}),
+      },
+      deps,
+    );
+  }
+
+  /** Summarise older turns near the window; the plan rides in the system prompt. Skipped when the engine owns context. */
   private async compact(w: TurnWork, agent: AgentDef, config: EffectiveConfig): Promise<void> {
     const channel = this.deps.channelFor(agent.channel);
-    if (channel.cfg.type === "claude-cli") return;
+    if ((this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type).caps.ownContext) return;
     const did = await compactTranscript({
       host: this.deps.host,
       transcript: w.transcript,
@@ -234,194 +216,46 @@ export class SessionService {
     if (did) this.deps.host.log(`session ${w.sessionId}: transcript compacted`);
   }
 
-  private escalate(w: TurnWork, prev: AgentDef, agent: AgentDef, goal: string): void {
-    w.transcript.push({ role: "user", content: handoverText(prev.id, goal, w.rs.tried, w.rs.error ?? "unknown") });
-    const reason = w.rs.reason === "stop" || !w.rs.reason ? "check_failed" : w.rs.reason;
-    this.deps.bus.emit({ kind: "run.escalated", runId: w.runId, roleId: "lead", from: prev.id, to: agent.id, reason });
+  private drive(w: TurnWork, first: TaskResult["baseline"]): Promise<TaskResult> {
+    return drivePlan(w, first, { task: (o) => this.task(w, o), bus: this.deps.bus, persist: () => this.persist(w), config: this.deps.config });
   }
 
-  /** true when the chain should stop (cancel, cap, or a passed check); records the failure otherwise. */
-  private async attemptDone(w: TurnWork): Promise<boolean> {
-    if (w.rs.reason === "cancelled" || w.rs.costCapped) return true;
-    if (w.rs.reason !== "stop") {
-      if (!w.rs.error) w.rs.error = w.rs.reason;
-      return false;
+  private async finish(w: TurnWork, res: TaskResult, first = res.baseline): Promise<void> {
+    let out = res;
+    const st = await w.plan.state();
+    if (st?.plan.status === "active") {
+      if (res.status === "done") out = await this.drive(w, first);
+      else await w.plan.pause();
     }
-    const res = await this.attemptCheck(w);
-    if (res.passed) return true;
-    w.rs.error = res.evidence.join("; ");
-    return false;
+    if (first.kind !== "unavailable") {
+      await this.deps.host.files.writeAtomic(`${w.stateDir}/sessions/${w.sessionId}.turn`, `${first.id}\n`).catch((e) => this.deps.host.log(`turn baseline save failed: ${err(e)}`));
+    }
+    const changed = first.kind === "unavailable" ? undefined : await w.tracker.diff(first);
+    const outcome = runOutcome(out.contract, out.check, changed, first);
+    if (w.rs.accrued > 0) await this.emitCost(w.runId, w.rs.accrued);
+    this.deps.bus.emit(finishedEvent(w.runId, w.rs, out, outcome));
   }
 
-  private async attempt(w: TurnWork, agent: AgentDef, env: Env): Promise<void> {
-    const { lead, tools, hostTools, ledger, config } = env;
-    const channel = this.deps.channelFor(agent.channel);
-    const engine = (this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
-    w.rs.lastCheck = undefined;
-    const turn: EngineTurn = {
-      sessionId: w.sessionId,
-      transcript: w.transcript,
-      system: (await systemPrompt(this.deps.host, lead, config)) + (await w.plan.systemNote() ?? ""),
-      agent,
-      channel,
-      tools,
-      hostTools,
-      approve: this.deps.permissions.gate(w.runId, w.rs.controller.signal),
-      state: w.state,
-      cwd: w.paths.base,
-      signal: w.rs.controller.signal,
-      maxTurns: lead.turnBudget === "unlimited" ? 200 : lead.turnBudget,
-      beforeModelTurn: () => this.compact(w, agent, config),
-    };
-    const c: EvCtx = { runId: w.runId, rs: w.rs, agent, ledger, cap: config.settings.costLimit.perRunUsd, plan: w.plan, host: this.deps.host, cwd: w.paths.base };
+  /** Resume run: no lead pre-task — the driver continues at the first not-done milestone. */
+  private async resumeRun(runId: string, sessionId: string, rs: RunState): Promise<void> {
+    const { bus } = this.deps;
     try {
-      for await (const ev of engine.run(turn)) await this.onEvent(ev, c);
+      const w = await this.turnWork(runId, sessionId, rs);
+      const plan = await w.plan.resumePlan();
+      if (!plan) return bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: "no active plan for this session" });
+      bus.emit({ kind: "run.started", runId, roleId: "lead", title: `Resume plan: ${plan.goal}` });
+      const first = await w.tracker.begin(`resume-${runId}`);
+      const res = await this.drive(w, first);
+      await this.persist(w);
+      await this.finish(w, res, first);
     } catch (e) {
-      w.rs.reason = "error";
-      w.rs.error = err(e);
+      bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: err(e) });
+    } finally {
+      this.active.delete(runId);
     }
   }
 
-  /** The turn's check; the result is kept so `finish` does not run the same command twice. */
-  private async attemptCheck(w: TurnWork): Promise<CheckResult> {
-    const input = await this.inputFor(w);
-    const res = await runCheck({ check: turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
-    w.rs.lastCheck = { res, writes: w.rs.writes.length, declared: w.rs.declared.value };
-    return res;
-  }
-
-  private async inputFor(w: TurnWork): Promise<CheckInput> {
-    const diskChanged = worktreeChanges(w.disk0, await worktreeState(this.deps.host, w.paths.base));
-    return { ...checkInput(w.transcript, w.rs), diskChanged };
-  }
-
-  private async retryOrStop(w: TurnWork, agent: AgentDef, env: Env): Promise<void> {
-    const evidence = w.rs.error ?? "failed";
-    const question = `All agents for this task failed. ${evidence}\nReply with guidance to retry once more on ${agent.id}, or stop.`;
-    const o = await this.deps.interaction.ask(questionPrompt("fallback", question, ["Stop"]), { runId: w.runId, roleId: "lead" }, w.rs.controller.signal);
-    if (o.kind === "answered" && o.value !== "Stop") {
-      w.transcript.push({ role: "user", content: o.value });
-      w.rs.reason = "" as FinishReason;
-      w.rs.error = undefined;
-      await this.attempt(w, agent, env);
-      if (w.rs.reason === "cancelled" || w.rs.costCapped) return;
-      if (w.rs.reason === "stop") {
-        const res = await this.attemptCheck(w);
-        if (!res.passed) {
-          w.rs.reason = "error";
-          w.rs.error = res.evidence.join("; ");
-        }
-      }
-      return;
-    }
-    w.rs.error = evidence;
-  }
-
-  private children(w: TurnWork, config: EffectiveConfig, agent: AgentDef, ledger: RunLedger): ChildRunner {
-    return new ChildRunner({
-      host: this.deps.host,
-      bus: this.deps.bus,
-      ids: this.deps.ids,
-      permissions: this.deps.permissions,
-      channelFor: this.deps.channelFor,
-      config: this.deps.config,
-      engineFor: this.deps.engineFor,
-      paths: w.paths,
-      stateDir: w.stateDir,
-      runId: w.runId,
-      sessionId: w.sessionId,
-      agent,
-      ledger,
-      parent: w.rs,
-      costCapUsd: config.settings.costLimit.perRunUsd,
-      plan: w.plan,
-    });
-  }
-
-  private async onEvent(ev: EngineEvent, c: EvCtx): Promise<void> {
-    const { runId, rs } = c;
-    const bus = this.deps.bus;
-    switch (ev.kind) {
-      case "text":
-        return bus.emit({ kind: "text_delta", runId, roleId: "lead", seq: rs.seq++, text: ev.text });
-      case "reasoning":
-        return bus.emit({ kind: "reasoning_delta", runId, roleId: "lead", seq: rs.seq++, text: ev.text });
-      case "tool.request":
-        return await this.onRequest(ev, c);
-      case "tool.outcome":
-        this.onOutcome(ev, rs);
-        return bus.emit({ kind: "tool.outcome", runId, roleId: "lead", callId: ev.callId, ok: ev.ok, summary: ev.summary });
-      case "write":
-        rs.writes.push(ev.record);
-        return void c.plan.recordWrite(ev.record);
-      case "usage":
-        return this.onUsage(ev, c);
-      case "finished":
-        rs.reason = ev.reason;
-        rs.error = ev.error;
-        return;
-    }
-  }
-
-  private async onRequest(ev: Extract<EngineEvent, { kind: "tool.request" }>, c: EvCtx): Promise<void> {
-    const { rs, plan } = c;
-    await snapshotBefore({ host: c.host, cwd: c.cwd, before: rs.before, onFirst: (p, content) => plan.beforeWrite(p, content) }, ev.tool, ev.args);
-    rs.tried.push({ callId: ev.callId, name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
-    this.deps.bus.emit({ kind: "tool.request", runId: c.runId, roleId: "lead", callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
-  }
-
-  /** Match the outcome to its call by id (batched and parallel calls finish out of order). */
-  private onOutcome(ev: Extract<EngineEvent, { kind: "tool.outcome" }>, rs: RunState): void {
-    const t = rs.tried.find((x) => x.callId === ev.callId);
-    if (!t) return;
-    t.ok = ev.ok;
-    if (ev.ok && isReadTool(t.name)) rs.reads++;
-  }
-
-  private async onUsage(ev: Extract<EngineEvent, { kind: "usage" }>, c: EvCtx): Promise<void> {
-    const { runId, rs, agent, ledger, cap } = c;
-    const cost = ev.costUsd ?? costOfCall(agent, { in: ev.inTokens, out: ev.outTokens }, undefined);
-    rs.accrued += cost;
-    await ledger.record({ runId, roleId: "lead", agentId: agent.id, model: agent.model, billing: agent.billing ?? "reported", inTokens: ev.inTokens, outTokens: ev.outTokens, costUsd: cost });
-    if (cap > 0 && rs.accrued > cap) {
-      rs.costCapped = true;
-      this.deps.bus.emit({ kind: "cost.limit_reached", runId, roleId: "lead", capUsd: cap, accruedUsd: rs.accrued });
-      rs.controller.abort();
-    }
-  }
-
-  /** The final check: reuses the last attempt's result when nothing was written or declared since. */
-  private async finalCheck(w: TurnWork): Promise<CheckResult> {
-    const last = w.rs.lastCheck;
-    if (last && last.writes === w.rs.writes.length && last.declared === w.rs.declared.value) return { passed: last.res.passed, evidence: [...last.res.evidence] };
-    const input = await this.inputFor(w);
-    return await runCheck({ check: turnChecks(w.rs, input), input, host: this.deps.host, cwd: w.paths.base });
-  }
-
-  /** Plan sweep runs only after a turn that did plan work (writes or plan tools), never on cancel or cost cap. */
-  private async sweep(w: TurnWork): Promise<{ id: string; title: string; evidence: string } | undefined> {
-    const { rs } = w;
-    if (rs.reason === "cancelled" || rs.costCapped) return undefined;
-    if (!rs.writes.length && !w.plan.touched) return undefined;
-    return await w.plan.sweepFinish();
-  }
-
-  private async finish(w: TurnWork): Promise<void> {
-    const { runId, rs } = w;
-    const res = await this.finalCheck(w);
-    const pending = await this.sweep(w);
-    const planErr = pending ? `plan incomplete: ${pending.id} ${pending.title}: ${pending.evidence}` : undefined;
-    if (planErr) res.evidence.push(planErr);
-    this.deps.bus.emit({ kind: "check.result", runId, roleId: "lead", passed: res.passed && !pending, evidence: res.evidence });
-    if (rs.accrued > 0) await this.emitCost(runId, rs.accrued);
-    if (planErr) {
-      this.deps.bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: planErr });
-      return;
-    }
-    this.deps.bus.emit(finishedEvent(runId, rs, res));
-  }
-
-  /** Revert the session's worktree to a checkpoint (id, "baseline", or latest). */
+  /** Revert the session's worktree: "turn" = last turn baseline; else a checkpoint id, "baseline", or latest. */
   async revert(sessionId: string, checkpoint?: string): Promise<{ ok: boolean; filesRestored?: string[]; reason?: string }> {
     return await revertSession(this.deps, sessionId, checkpoint);
   }
@@ -431,19 +265,29 @@ export class SessionService {
     return await planSummary(this.deps, sessionId);
   }
 
-  /** Start a lead turn resuming an active plan. */
+  /** Start a run resuming a paused/failed plan: the driver continues at the first not-done milestone. */
   async resume(sessionId: string): Promise<{ runId?: string; ok?: boolean; reason?: string }> {
-    const text = await planResumeText(this.deps, sessionId);
-    if (!text) return { ok: false, reason: "no active plan for this session" };
-    return await this.send({ sessionId, text });
+    const st = (await planSummary(this.deps, sessionId)) as { status?: string } | undefined;
+    if (!st || st.status === "done") return { ok: false, reason: "no active plan for this session" };
+    const runId = this.deps.ids.next("run");
+    const rs = newRunState();
+    this.active.set(runId, rs);
+    this.enqueue(sessionId, () => this.resumeRun(runId, sessionId, rs));
+    return { runId, ok: true };
   }
 
   private async emitCost(runId: string, accrued: number): Promise<void> {
     const c = (await this.ledgerFor()).cost(runId);
     const cap = this.deps.config().settings.costLimit.perRunUsd;
-    this.deps.bus.emit({
-      kind: "cost.summary", runId, roleId: "lead", capUsd: cap, accruedUsd: c.costUsd || accrued,
-      overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent,
-    });
+    this.deps.bus.emit({ kind: "cost.summary", runId, roleId: "lead", capUsd: cap, accruedUsd: c.costUsd || accrued, overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent });
   }
 }
+
+/** The terminal run.finished event: cancel and cost cap short-circuit without an outcome. */
+function finishedEvent(runId: string, rs: RunState, res: TaskResult, outcome: ReturnType<typeof runOutcome>): RunEvent {
+  if (rs.costCapped) return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: "cost cap reached" };
+  if (res.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
+  if (res.status === "done") return { kind: "run.finished", runId, roleId: "lead", status: "done", outcome };
+  return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: res.error ?? "failed", outcome };
+}
+

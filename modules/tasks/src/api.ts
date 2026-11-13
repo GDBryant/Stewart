@@ -1,9 +1,7 @@
 // Public surface of @stewart/tasks. Only this file is importable from outside.
-export { turnCheck, declaredCheck, isEditGoal, isReportGoal, runCheck } from "./checks.js";
-export type { Check, WriteRecord, CheckInput, CheckResult, RunCheckArgs } from "./checks.js";
+export { declaredCheck, runCheck, evidenceText, failureText } from "./checks.js";
+export type { Check, WriteRecord, CheckInput, CheckResult, Evidence, EvidenceCode, RunCheckArgs } from "./checks.js";
+export { changeTracker } from "./changes.js";
+export type { Baseline, ChangeTracker, CpPaths } from "./changes.js";
 export { renderPlan, parsePlan, currentMilestone } from "./plan.js";
 export type { Plan, Milestone, MilestoneCheck, MilestoneStatus } from "./plan.js";
-export { createCheckpoint, recordOriginal, revert } from "./checkpoint.js";
-export type { CpPaths } from "./checkpoint.js";
-export { worktreeState, worktreeChanges } from "./worktree.js";
-export type { WorktreeState } from "./worktree.js";

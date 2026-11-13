@@ -14,6 +14,16 @@ export interface HandlerHost {
   nextInsertSeq(): number;
 }
 
+/** One short run-status line from run.finished's outcome. */
+function outcomeText(o: { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: string; trackingReason?: string }): string {
+  if (o.tracking === "unavailable") return `File changes not tracked${o.trackingReason ? `: ${o.trackingReason}` : ""}`;
+  if (!o.changed.length) return "No files changed";
+  const n = `Changed ${o.changed.length} file${o.changed.length === 1 ? "" : "s"}`;
+  if (o.verified === "command") return `${n}; verified: ${o.command}`;
+  if (o.verified === "files") return `${n}; required files present`;
+  return `${n}, not verified`;
+}
+
 type Reply = Exclude<Inbound, { type: "event" }>;
 type ReplyHandlers = { [K in Reply["type"]]: (m: Extract<Reply, { type: K }>) => void };
 type EventHandlers = { [K in RunEvent["kind"]]?: (ev: Extract<RunEvent, { kind: K }>) => void };
@@ -172,7 +182,7 @@ export class StoreHandlers {
       plan: m.plan
         ? {
             goal: m.plan.goal,
-            active: m.plan.active ?? m.plan.status === "active",
+            active: m.plan.active ?? (m.plan.status === "active" || m.plan.status === "paused"),
             milestones: (m.plan.milestones ?? []).map((x) => ({ id: x.id, title: x.title, status: x.status === "done" ? "done" : x.status === "failed" ? "failed" : "pending", checkpoint: x.checkpoint })),
           }
         : undefined,
@@ -264,6 +274,9 @@ export class StoreHandlers {
         : ev.status !== "done" && ev.error && last
           ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || `(${ev.error})` } : i))
           : items;
-    this.patch({ items: extra, busyRunId: undefined, lastRunId: ev.runId });
+    const items2 = ev.outcome
+      ? [...extra, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: outcomeText(ev.outcome), activity: [], revertTurn: ev.status === "failed" || undefined }]
+      : extra;
+    this.patch({ items: items2, busyRunId: undefined, lastRunId: ev.runId });
   }
 }

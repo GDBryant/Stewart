@@ -19,6 +19,16 @@ export interface Qual {
   at: number;
   version: number;
   detail?: string;
+  /** Verified minimum context window in tokens (set by the window probe or a known window). */
+  context?: number;
+}
+
+/** Oldest qualification record version still accepted; older records must be re-run. */
+export const QUAL_MIN_VERSION = 2;
+
+/** True when the record qualifies the model now: passed, and not older than the current suite version. */
+export function qualPassed(q: Qual | undefined): boolean {
+  return q?.passed === true && q.version >= QUAL_MIN_VERSION;
 }
 
 export type ModelCaps = {

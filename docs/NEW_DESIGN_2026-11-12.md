@@ -1,6 +1,6 @@
 # Stewart — New Design (2026-11-12)
 
-Status: **accepted; steps 0–6 built as v3.0.0 (see EVALS.md); §8 gaps closed and the 2026-11-13 audit findings fixed (§8.4; no version bump) except the live eval re-runs and claude-cli qualification by engine type**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
+Status: **accepted; steps 0–6 built as v3.0.0; §8 gaps, the 2026-11-13 audit findings (§8.4) and the remaining deviations (§8.5) are fixed; evals re-run 2026-11-13 at 15/15 on three configs (EVALS.md). Open: no local model qualifies as an agent, ACP not built, design revision §9 built 2026-11-13 (code gates pass; evals not re-run; three Claude CLI items unverified, §9.5)**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
 
 ## 1. What the logs show
 
@@ -96,7 +96,7 @@ Run status is `done` only when the check passes. Otherwise it is `failed` with t
 ### 4.6 Long builds
 
 - The plan is a file (`.stewart/plan.md`): milestones, each with a check. The lead writes it in plan mode and the user approves it once.
-- The lead works one milestone at a time. A passed check is followed by a checkpoint (git commit on a work branch, or a snapshot when the project is not a git repo). Revert restores a checkpoint.
+- The lead works one milestone at a time. A passed check is followed by a checkpoint (git commit on a work branch, or a snapshot when the project is not a git repo). *Amended (§8.5):* the commit goes to `refs/stewart/<sessionId>`, not a branch, so the user's HEAD, branches and index are never touched. Revert restores a checkpoint.
 - Resume reads the plan file and the session transcript. The idempotency log and journal replay are removed.
 
 ## 5. Kept, changed, dropped
@@ -195,3 +195,100 @@ An independent read of the code against §3–§6 found gaps the §8.1 build lef
 | 12 | Loop guard: narrow "no progress", none under `claude-code`; handover outcomes mismatched for batched calls | Shared `LoopGuard` (same call + same result ×3 added) used by both engines; `Tried` matched by `callId` |
 | — | Low: no plan-first rule; delegation rule only implied; checks ran twice; stale CLI temp-dir notes; dead `shim`/`dependsOn`/`parked…`/`leadAgent`/image-role code; evals did not score the long-build path | `plan_write` refused after edits; lead prompt states the three delegation cases; check result reused; notes fixed; dead code removed (`shim` loads as `unknown`); `l-todo-cli` also requires a done plan with checkpoints (`planCompleted`) |
 | — | **Not fixed:** `claude-cli` agents are still qualified by engine type without a run | A real run needs the live CLI working in a scratch directory during setup; kept as a documented exception |
+
+### 8.5 Remaining deviations fixed and evals re-run (2026-11-13)
+
+A second check of the build against §3–§6 left the items below. Code gates pass; evals were re-run (§8.2 table superseded by EVALS.md "2026-11-13 after the §8.5 fixes").
+
+| # | Deviation | Result |
+|---|---|---|
+| 1 | §3.3: `claude-cli` agents qualified by engine type without a run | Fixed: the agent suite runs one real `claude-code` turn in a scratch directory (`setup/conformanceClaude.ts`); only edits inside it, `wc` and read-only calls are approved. |
+| 2 | §4.5: an agent with an unknown context window was admitted | Fixed: when the provider reports no window, qualification runs a window probe (≈28k-token prompt, code word on line 1) and stores `context: 32000` in the record; `agentRefusal` refuses an unknown window. Records older than `QUAL_MIN_VERSION = 2` are refused ("qualification out of date"), so existing configs must run Qualify again. |
+| 3 | §3.3: eval configs carried hand-written qualification records | Fixed: the eval runner strips all records and runs `setup.qualify` for real before the tasks (`packages/evals/src/qualify.ts`); the shipped configs carry none. |
+| 4 | §4.1: function output was prompted and validated, not constrained | Fixed: the request carries the schema (`response_format: json_schema` for OpenAI-compatible, `format` for Ollama), retried once without it when the provider rejects the field; validation after the reply stays. |
+| 5 | §4.4: the edit/report check was triggered only by regexes on the user's text | Fixed in part: the lead declares the kind with `set_task({kind: edit|report})`, which is data on the task. The declaration can only add a check; the regexes stay as the floor. A request the regex misses, on a turn where the model declares nothing, still gets no edit check. |
+| 6 | §4.6: checkpoints are not on a work branch | Design amended (§4.6): `refs/stewart/<sessionId>` keeps the user's branches untouched. |
+| 7 | Wrong `done` for CommonJS in an ESM project (step 4) | Not a deviation: §4.4 makes the command optional, so a file that changed passes. The model that produced it (qwen3.5:4b) had a hand-written record and fails the real agent suite, so it no longer runs as an agent. |
+
+Findings from the run:
+
+- **No local Ollama model passes the agent suite** (8 tried, see EVALS.md). Per §7 they are function-only (qwen3.5:9b and gemma4:12b pass the function suite) and the cheap agent tier is AI Factory `glm-5-3-flash`. AI Factory `qwen3-8-27b` also fails the agent suite (turn limit).
+- Three local models fail by writing `ReadFile`'s `N: ` line-number prefixes back into the file. Whether the tool output should change is open.
+- The step 4 gate ("tasks started on a local model finish, by themselves or after escalation") cannot be exercised: no local model may start a task. Escalation is covered by unit tests only.
+- `claude-cli` agents cannot qualify for `kind: function` roles: the function suite uses `channel.chat`, which the Claude adapter does not serve.
+
+Still open: ACP (§8.1 #11), the two decisions amended in §5, and the three unverified Claude CLI items in §9.5.
+
+## 9. Design revision (2026-11-13) — built 2026-11-13 (code gates pass; evals not re-run; three Claude CLI items unverified, §9.5)
+
+A read of the v3.0.0 code for parts that work by guessing, by duplication or by convention. §3–§6 stay; this section tightens them.
+
+### 9.1 Weak points as built
+
+| # | Weak point | Where |
+|---|---|---|
+| 1 | Checks guess intent from the user's text. `set_task` is optional, so the regexes decide. | `tasks/checks.ts` `isEditGoal`, `isReportGoal`, `NO_FINDINGS` |
+| 2 | Evidence is strings; pass/fail is decided by prefix and substring. A passing command whose argv contains ` exited ` counts as failed. | `tasks/checks.ts` `isFailure` |
+| 3 | Three sources for "what changed": write-tool records, pre-write snapshots, git diff. Outside git, shell edits are invisible to checks and to checkpoints. | `session/turnState.ts`, `tasks/worktree.ts`, `tasks/checkpoint.ts` `recordOriginal` |
+| 4 | The task loop (chain → attempt → check → escalate) is written twice, with a third check path for milestones. | `session/session.ts` `drive`, `session/child.ts` `runChild`, `session/plan.ts` `checkMilestone` |
+| 5 | The model drives the plan: `milestone_done`, an end-of-turn sweep, a three-failure rule that is prompt text. A turn that ends mid-plan is `failed: plan incomplete`. One `.stewart/plan.md` per project: a second session's `plan_write` overwrites the first. | `session/plan.ts` |
+| 6 | Role policy has two implementations and a hole. Native: `ToolRegistry.for(role)`. `claude-code` children: `childPolicy.ts`. `claude-code` lead: none, so the CLI may edit `.stewart/`, which native tools deny. | `tools/types.ts`, `session/childPolicy.ts`, `engines/claudeCode.ts` `answerControl` |
+| 7 | Two conversation stores under `claude-code`. The CLI gets only the last user message; turns run by another engine in the same chat (mixed chain, escalation) never reach it. In reverse, a native model is sent CLI tool calls for tools it does not have. | `engines/claudeLines.ts` `userLine`, `recapPrefix` (stale resume only) |
+| 8 | The session branches on `channel.cfg.type === "claude-cli"`. The engine contract hides that `claude-code` ignores `tools` and `beforeModelTurn`. Both engines hardcode `roleId: "lead"`. | `session/session.ts` `compact`, `engines/nativeLoop.ts` `invoke` |
+| 9 | The transcript is saved only when the turn ends. A crash during a long build loses the turn. | `session/session.ts` `runTurn` |
+| 10 | The model chooses its own exam (`set_check`), and a changed file with no command is `done` with nothing said about verification (the CommonJS case). | `session/sessionTools.ts` |
+| 11 | `claude-cli` agents cannot serve `function` roles: the function path uses `channel.chat`, which that adapter does not implement. | `engines/functionRun.ts` |
+| 12 | Escalation continues on the files a failed agent left. Outside a plan there is no way back. | `session/handover.ts` |
+
+### 9.2 Rules added to §3
+
+6. **Checks test facts and explicit contracts.** No check depends on intent read from prose.
+7. **One implementation per concern**: one task runner, one policy decision, one change tracker.
+8. **The result states how it was verified.** `done` never implies more than code confirmed.
+9. **Code drives multi-step work.** The model works one task at a time.
+
+### 9.3 Design
+
+**Task runner.** `runTask(task)` is the only loop: eligible chain → engine attempt → verify → escalate → (interactive tasks only) ask the user. A lead turn, a delegated child and a milestone are all tasks. They differ in data: `role`, `transcript` (the session's or a fresh one), `hostTools`, `interactive`, `contract`.
+
+**Contract.** A task's check comes from explicit sources only:
+
+- project verify commands: `verify:` in `.stewart/project.yaml`, approved through the normal permission gate (an 'always' grant makes it once), run when the task changed files;
+- the milestone check, approved with the plan;
+- `delegate`'s `check` or `schema`;
+- the lead's `set_check`, which may add a command (approval-gated) and never removes one.
+
+`set_task`, `isEditGoal` and `isReportGoal` are removed.
+
+**Verify.** Always tested, for every task: the engine stopped normally; the reply is non-empty or files changed; no path whose last write failed; changed paths are inside the role's `writePaths` and outside denied directories; the contract holds. A read-only child must also have one successful read, and every path and line it cites must exist (replaces the `NO_FINDINGS` regex). Lead replies are not citation-checked: a lead may name files that do not exist yet. Evidence is typed: `{code, ok, detail}`; a task passes when every item is `ok`.
+
+`run.finished` gains `outcome: {changed: string[], verified: "command" | "files" | "none"}`. The webview shows it: "No files changed", "Changed 3 files, not verified", "Verified: pnpm test". A request for an edit that changed nothing is reported as exactly that.
+
+**Change tracker.** One owner of "what changed": `begin() → baseline`, `diff(baseline) → paths`, `restore(baseline)`. In git: a tree written through the session's temp index under `refs/stewart/<sessionId>` (the index is kept between turns). Outside git: a hashed manifest of project files (ignore list, size cap); past the cap, tracking is `unavailable`, the outcome says so and revert is refused. Every task that can write takes a baseline, so a failed turn can be reverted and a checkpoint is a kept baseline. Write-tool records stay as UI events and are no longer check input.
+
+**Plan.** `plan_write` → user approves → the session runs each milestone as a task, in order (goal = the milestone, contract = its check, transcript = the session's). Pass → checkpoint → next. Failed after the chain → ask the user (guidance to retry, or stop). Stopping leaves the plan `paused`; resume continues at the first milestone not done. `milestone_done`, the sweep, the attempts counter and `plan incomplete` are removed. Plan file: `.stewart/plans/<sessionId>.md`.
+
+**Policy.** One function `decide(role, action) → allow | deny | ask`, `action = {kind: read | write | command | other, path?, command?}`. It holds the denied directories, `writePaths` and the read-only rule. Native tools call it before running; `claude-code` calls it for every `can_use_tool`, lead included. `childPolicy.ts` and the registry guards go. The verify step's path rule is the backstop: a change the policy would have denied fails the task whichever engine made it.
+
+**Engines.** The contract gains `caps: {ownTools, ownContext}`, `turn.roleId`, and `complete(request) → JSON` for function tasks (`claude-code`: one CLI turn with no tools). The session reads `caps`, never the channel type. Context sync: `claude-code` state records how much of the transcript the CLI session has seen; messages added since by anything else are sent as a recap before the new message. The native loop renders tool calls from another engine as text.
+
+**Persistence.** The transcript is saved after every model turn and tool batch. On load, a trailing tool call with no result is closed with an `interrupted` result.
+
+**Escalation.** Unchanged, except the handover is built from typed evidence and the turn baseline lets the user revert a failed turn.
+
+### 9.4 Build order
+
+Code gates after every step; evals after steps 3 and 6.
+
+1. Typed evidence; `outcome` on `run.finished`; remove the goal regexes and `set_task`. Done.
+2. Change tracker; checks, checkpoints and revert use it; turn baselines. Done.
+3. `runTask`; lead and children run on it. Done.
+4. Code-driven plan; per-session plan file. Done.
+5. `decide` policy and the path backstop; engine `caps`, `roleId`, context sync, `complete`. Done.
+6. Incremental persistence. Done.
+
+### 9.5 To verify before building
+
+- Claude CLI flags for settings isolation: **verified 2026-11-13, CLI 2.1.323** — `--setting-sources ""` (no user/project/local settings → no pre-approval without `can_use_tool`), `--json-schema`, `--tools ""` are all accepted (the CLI parsed them and reached the API).
+- NOT verified (every API call from the build machine returned `403 Cloudflare`, with and without the flag): auth under `--setting-sources ""`, `can_use_tool` arriving for Edit under it, and the `--json-schema` success envelope shape (`complete` reads `structured_output`, else `result` text). Check with one real `claude-code` turn and one real function qualification before release.
+- Cost of `git add -A` into a kept temp index on a large repository, per turn: not measured.

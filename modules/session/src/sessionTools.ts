@@ -57,6 +57,11 @@ export interface DeclaredCheck {
   files?: string[];
 }
 
+/** The lead's declarations for this turn: the set_check command/files. */
+export interface Declared {
+  value?: DeclaredCheck;
+}
+
 /** `set_check({command?, files?})`: the lead states how code should verify this turn; the command needs approval. */
 export function setCheckTool(declared: { value?: DeclaredCheck }): Tool {
   return {

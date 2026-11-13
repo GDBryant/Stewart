@@ -1,4 +1,4 @@
-import { agentsFile, channelsFile, rolesFile, settingsFile } from "./schema.js";
+import { agentsFile, channelsFile, projectFile, rolesFile, settingsFile } from "./schema.js";
 import type { z } from "zod";
 
 /** Files the config system knows about, mapped to their schema. */
@@ -7,10 +7,11 @@ export const CONFIG_FILE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   "agents.yaml": agentsFile,
   "roles.yaml": rolesFile,
   "settings.yaml": settingsFile,
+  "project.yaml": projectFile,
 };
 
 /** Project layer may only carry these (trusted-workspace gated in loader). */
-export const PROJECT_FILES = new Set(["roles.yaml"]);
+export const PROJECT_FILES = new Set(["roles.yaml", "project.yaml"]);
 export function isProjectFile(name: string): boolean {
   return PROJECT_FILES.has(name) || name.startsWith("skills/");
 }

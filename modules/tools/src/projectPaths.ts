@@ -43,12 +43,8 @@ export class ProjectPaths {
   }
 
   private checkDenied(rel: string): void {
-    const norm = rel.replace(/\\/g, "/");
-    const first = norm.split("/")[0];
-    if (first === ".git") throw new Error(`path denied: ${rel}`);
-    if (first === ".stewart" && norm !== ".stewart/scratch" && !norm.startsWith(".stewart/scratch/")) {
-      throw new Error(`path denied: ${rel}`);
-    }
+    const reason = deniedDirReason(rel);
+    if (reason) throw new Error(reason);
   }
 
   exists(rel: string): Promise<boolean> {
@@ -63,4 +59,13 @@ export class ProjectPaths {
   stat(rel: string): Promise<{ size: number }> {
     return this.host.files.stat(rel);
   }
+}
+
+/** Deny reason for a workspace-relative path inside a denied dir, or null. `.stewart/scratch/` is allowed. */
+export function deniedDirReason(rel: string): string | null {
+  const norm = rel.replace(/\\/g, "/");
+  const first = norm.split("/")[0];
+  if (first === ".git") return `path denied: ${rel}`;
+  if (first === ".stewart" && norm !== ".stewart/scratch" && !norm.startsWith(".stewart/scratch/")) return `path denied: ${rel}`;
+  return null;
 }

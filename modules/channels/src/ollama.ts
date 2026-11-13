@@ -134,6 +134,7 @@ export class OllamaAdapter implements ChannelAdapter {
       messages,
       tools: tools?.length ? tools : undefined,
       stream: true,
+      format: req.responseSchema,
       options: { temperature: req.temperature, num_ctx: numCtx },
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: `num_ctx=${numCtx ?? "default"} ${body}` });

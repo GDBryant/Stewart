@@ -9,4 +9,6 @@ export { ListCodeFiles } from "./fsRead.js";
 export { CodeMetrics } from "./codeMetrics.js";
 export { applyUnifiedPatch } from "./fsWrite.js";
 export type { ImageGenerator } from "./media.js";
+export { decide, actionOf, type Action, type Decision } from "./policy.js";
+export { deniedDirReason } from "./projectPaths.js";
 export { ProjectPaths, MAX_FIND_RESULTS, MAX_SEARCH_RESULTS, MAX_FILE_BYTES, MAX_COMMAND_OUTPUT } from "./projectPaths.js";

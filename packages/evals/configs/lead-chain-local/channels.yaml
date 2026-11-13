@@ -1,30 +1,11 @@
 version: 1
 items:
-  - id: local-ollama
-    type: ollama
-    name: Local Ollama
-    enabled: true
-    baseUrl: http://localhost:11434
-    modelCaps:
-      qwen3.5:4b:
-        qualified:
-          agent:
-            passed: true
-            at: 1762950000000
-            version: 1
-          function:
-            passed: true
-            at: 1762950000000
-            version: 1
-  - id: Claude
-    type: claude-cli
-    name: Claude
-    enabled: true
-    modelCaps:
-      sonnet:
-        qualified:
-          agent:
-            passed: true
-            at: 1762950000000
-            version: 1
-            detail: claude-code engine
+- id: local-ollama
+  type: ollama
+  name: Local Ollama
+  enabled: true
+  baseUrl: http://localhost:11434
+- id: Claude
+  type: claude-cli
+  name: Claude
+  enabled: true

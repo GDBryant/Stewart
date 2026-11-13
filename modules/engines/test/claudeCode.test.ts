@@ -78,6 +78,7 @@ function makeTurn(over: Partial<EngineTurn> = {}): EngineTurn {
     system: "",
     agent,
     channel,
+    roleId: "lead",
     tools: new ToolRegistry([]),
     approve: (async () => ({ kind: "approved" as const })) as ApproveFn,
     state: {},
@@ -210,7 +211,7 @@ describe("claude-code engine", () => {
     expect(calls).toHaveLength(2);
     expect(calls[1].argv).not.toContain("--resume");
     const sent = JSON.parse(calls[1].written[0]).message.content[0].text;
-    expect(sent).toContain("Earlier in this session:");
+    expect(sent).toContain("Earlier in this conversation (not yet seen by you):");
     expect(sent).toContain("second");
     expect(turn.state.cliSessionId).toBe("fresh-1");
   });
@@ -439,5 +440,75 @@ describe("claude-code line helpers", () => {
       { type: "text", text: "look" },
       { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
     ]);
+  });
+});
+
+describe("claude-code context sync and argv", () => {
+  const okLines = [
+    { type: "system", subtype: "init", session_id: "sess-1" },
+    { type: "result", subtype: "success", is_error: false, total_cost_usd: 0, usage: {} },
+  ];
+  const prior: ChatMessage[] = [
+    { role: "user", content: "earlier question" },
+    { role: "assistant", content: "earlier answer", toolCalls: [{ id: "t1", name: "ReadFile", arguments: { path: "x" } }] },
+    { role: "tool", toolCallId: "t1", content: "file x body" },
+  ];
+
+  const stdinText = (call: { written: string[] }) => JSON.parse(call.written[0]).message.content[0].text;
+
+  it("recaps transcript messages the CLI session has not seen", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: okLines }]);
+    const turn = makeTurn({ transcript: [...prior, { role: "user", content: "next" }] });
+    await run(turn, spawn);
+    const sent = stdinText(calls[0]);
+    expect(sent).toContain("Earlier in this conversation (not yet seen by you):");
+    expect(sent).toContain("user: earlier question");
+    expect(sent).toContain("[tool ReadFile]");
+    expect(sent).toContain("tool: file x body");
+    expect(sent.endsWith("next")).toBe(true);
+    expect(turn.state.cliSeen).toBe(turn.transcript.length);
+  });
+
+  it("sends no recap when cliSeen covers everything before the user message", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: okLines }]);
+    const transcript = [...prior, { role: "user", content: "next" }];
+    const turn = makeTurn({ transcript, state: { cliSeen: prior.length } });
+    await run(turn, spawn);
+    expect(stdinText(calls[0])).toBe("next");
+  });
+
+  it("sends no recap for a pre-cliSeen session that has a cliSessionId", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: okLines }]);
+    const turn = makeTurn({ transcript: [...prior, { role: "user", content: "next" }], state: { cliSessionId: "old-sess" } });
+    await run(turn, spawn);
+    expect(stdinText(calls[0])).toBe("next");
+    expect(turn.state.cliSeen).toBe(turn.transcript.length);
+  });
+
+  it("recaps everything when compaction made cliSeen exceed the transcript", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: okLines }]);
+    const turn = makeTurn({ transcript: [...prior, { role: "user", content: "next" }], state: { cliSeen: 99 } });
+    await run(turn, spawn);
+    expect(stdinText(calls[0])).toContain("earlier question");
+  });
+
+  it("passes the turn roleId in approve meta", async () => {
+    const metas: { roleId?: string }[] = [];
+    const approve: ApproveFn = async (_c, _p, meta) => {
+      metas.push(meta ?? {});
+      return { kind: "approved" };
+    };
+    const { spawn } = fakeSpawn([{ lines: await fixture("claude-edit.jsonl") }]);
+    await run(makeTurn({ approve, roleId: "reviewer" }), spawn);
+    expect(metas[0].roleId).toBe("reviewer");
+  });
+
+  it("includes --setting-sources from channel config, empty by default", () => {
+    const base = makeTurn();
+    const def = claudeArgv(base, undefined);
+    expect(def[def.indexOf("--setting-sources") + 1]).toBe("");
+    const ch = new ManagedChannel(base.channel.adapter, { ...base.channel.cfg, settingSources: "user,project" });
+    const over = claudeArgv({ ...base, channel: ch }, undefined);
+    expect(over[over.indexOf("--setting-sources") + 1]).toBe("user,project");
   });
 });

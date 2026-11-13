@@ -3,7 +3,7 @@ import { meetsHardRequirements, modelSizeB, scoreAssignments, type Candidate } f
 
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
-const QUALIFIED = { agent: { passed: true, at: 1, version: 1 }, function: { passed: true, at: 1, version: 1 } };
+const QUALIFIED = { agent: { passed: true, at: 1, version: 2, context: 32000 }, function: { passed: true, at: 1, version: 2, context: 32000 } };
 const c = (model: string, caps: Candidate["caps"] = {}, channelType = "ollama", channel = "c1"): Candidate => ({ channel, channelType, model, caps: { qualified: QUALIFIED, ...caps } });
 const pick = (role: string, cs: Candidate[]) => scoreAssignments([role], cs).assignments[0];
 

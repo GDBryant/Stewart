@@ -1,6 +1,6 @@
-import type { ChatMessage } from "@stewart/kernel";
+import type { ChatMessage, Json } from "@stewart/kernel";
 import type { AgentDef } from "@stewart/config";
-import type { ManagedChannel } from "@stewart/channels";
+import type { ManagedChannel, SpawnFn } from "@stewart/channels";
 import type { ApproveFn } from "@stewart/permissions";
 import type { ToolRegistry } from "@stewart/tools";
 
@@ -27,7 +27,9 @@ export interface EngineTurn {
   system: string;
   agent: AgentDef;
   channel: ManagedChannel;
-  /** Tools the native loop executes. */
+  /** The role this turn serves; engines pass it in approve meta. */
+  roleId: string;
+  /** Tools the loop executes; used only when `caps.ownTools` is false (claude-code runs its own). */
   tools: ToolRegistry;
   /** Session tools the host owns (delegate, plan_write...): merged for the native loop, served over MCP for claude-code. */
   hostTools?: ToolRegistry;
@@ -39,11 +41,38 @@ export interface EngineTurn {
   cwd: string;
   signal: AbortSignal;
   maxTurns: number;
-  /** Called before each model request (native-loop): the session compacts the transcript in place here. */
+  /** Called before each model request; used only when `caps.ownContext` is false (claude-code manages its own). */
   beforeModelTurn?: () => Promise<void>;
+}
+
+/** One function-task request: no tools, a schema-constrained JSON object out. */
+export interface CompleteRequest {
+  channel: ManagedChannel;
+  agent: AgentDef;
+  /** Role prompt: what the function does. */
+  system: string;
+  /** The single input the function works on. */
+  input: string;
+  /** JSON Schema (object) the reply must satisfy. */
+  schema: Json;
+  signal: AbortSignal;
+}
+
+export type CompleteResult =
+  | { ok: true; value: Json; usage?: { in: number; out: number }; costUsd?: number }
+  | { ok: false; error: string };
+
+/** Injectable seams for the claude-code engine (tests). */
+export interface ClaudeCodeDeps {
+  spawn?: SpawnFn;
+  env?: Record<string, string | undefined>;
 }
 
 export interface Engine {
   readonly id: "native-loop" | "claude-code";
+  /** `ownTools`: the engine runs its own tools (claude-code). `ownContext`: it manages its own context window. */
+  readonly caps: { ownTools: boolean; ownContext: boolean };
   run(turn: EngineTurn): AsyncIterable<EngineEvent>;
+  /** Function tasks: one request, no tools, schema-constrained JSON object. */
+  complete(req: CompleteRequest): Promise<CompleteResult>;
 }

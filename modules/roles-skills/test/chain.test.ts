@@ -38,10 +38,10 @@ describe("roleNeeds", () => {
 describe("eligibleChain", () => {
   const agents = [agent("a1"), agent("a2"), agent("a3")];
   it("orders passed first in chain order, then unknown; failed are excluded", () => {
-    const ch = chan({ agent: { passed: true, at: 1, version: 1 } });
+    const ch = chan({ agent: { passed: true, at: 1, version: 2, context: 32000 } });
     const lead = role({ id: "lead", chain: ["a1", "a2", "a3"] });
     expect(eligibleChain(lead, [lead], agents, [ch]).map((a) => a.id)).toEqual(["a1", "a2", "a3"]);
-    const failed = chan({ agent: { passed: false, at: 1, version: 1 } });
+    const failed = chan({ agent: { passed: false, at: 1, version: 2 } });
     expect(eligibleChain(lead, [lead], agents, [failed])).toEqual([]);
   });
 
@@ -49,9 +49,9 @@ describe("eligibleChain", () => {
     const ch: ChannelDef = {
       id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [],
       modelCaps: {
-        m1: { qualified: { agent: { passed: true, at: 1, version: 1 } } },
+        m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } },
         m2: {},
-        m3: { qualified: { agent: { passed: true, at: 1, version: 1 } } },
+        m3: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } },
       },
     };
     const as = [
@@ -66,7 +66,7 @@ describe("eligibleChain", () => {
   });
 
   it("enforces the role's minimum context window at run time", () => {
-    const q = { agent: { passed: true, at: 1, version: 1 } };
+    const q = { agent: { passed: true, at: 1, version: 2, context: 32000 } };
     const ch: ChannelDef = {
       id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [],
       modelCaps: { small: { qualified: q, contextTokens: 8000 }, big: { qualified: q, contextTokens: 64000 } },
@@ -84,18 +84,21 @@ describe("eligibleChain", () => {
 
 describe("agentRefusal", () => {
   const caps = (m: Record<string, unknown>): ChannelDef => ({ id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m } });
-  const fnQ = { function: { passed: true, at: 1, version: 1 } };
+  const fnQ = { function: { passed: true, at: 1, version: 2, context: 32000 } };
   it("lets a small qualified model serve a function role but not an agent role", () => {
-    const small = caps({ qualified: { ...fnQ, agent: { passed: true, at: 1, version: 1 } }, contextTokens: 8000 });
+    const small = caps({ qualified: { ...fnQ, agent: { passed: true, at: 1, version: 2, context: 32000 } }, contextTokens: 8000 });
     expect(agentRefusal(role({ kind: "function" }), agent("a"), [small])).toBeNull();
     expect(agentRefusal(role({}), agent("a"), [small])).toContain("context window 8000 < 32000");
   });
-  it("admits an unknown window, refuses missing qualification and missing vision", () => {
-    expect(agentRefusal(role({}), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 1 } } })])).toBeNull();
+  it("admits the verified window in the record, refuses an unknown window, missing qualification and missing vision", () => {
+    expect(agentRefusal(role({}), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } })])).toBeNull();
+    expect(agentRefusal(role({}), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 2 } } })])).toBe("context window unknown (run Qualify)");
+    expect(agentRefusal(role({ kind: "function" }), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 2 }, function: { passed: true, at: 1, version: 2 } } })])).toBeNull();
+    expect(agentRefusal(role({}), agent("a"), [caps({ qualified: { agent: { passed: true, at: 1, version: 1, context: 32000 } } })])).toBe("qualification out of date (run Qualify)");
     expect(agentRefusal(role({}), agent("a"), [caps({})])).toContain("not qualified as agent");
-    const noVision = caps({ qualified: { agent: { passed: true, at: 1, version: 1 } } });
+    const noVision = caps({ qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } });
     expect(agentRefusal(role({ needs: { vision: true } }), agent("a"), [noVision])).toBe("role needs vision");
-    const vision = caps({ qualified: { agent: { passed: true, at: 1, version: 1 } }, vision: true });
+    const vision = caps({ qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }, vision: true });
     expect(agentRefusal(role({ needs: { vision: true } }), agent("a"), [vision])).toBeNull();
   });
 });
@@ -104,7 +107,7 @@ describe("chainErrors", () => {
   it("flags unknown agents and failed qualification records", () => {
     const ch: ChannelDef = {
       id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [],
-      modelCaps: { m: { qualified: { agent: { passed: false, at: 1, version: 1 } } } },
+      modelCaps: { m: { qualified: { agent: { passed: false, at: 1, version: 2 } } } },
     };
     const r = role({ chain: ["a1", "ghost"] });
     const errs = chainErrors(r, [agent("a1")], [ch]);

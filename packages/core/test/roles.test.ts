@@ -33,7 +33,7 @@ describe("Core roles + skills dispatch", () => {
   }
 
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
   };
 

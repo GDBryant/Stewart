@@ -62,6 +62,7 @@ function turn(over: Partial<EngineTurn> = {}): EngineTurn {
     system: "sys",
     agent,
     channel: fakeChannel([[{ kind: "text", text: "hi" }, { kind: "done" }]]),
+    roleId: "lead",
     tools: new ToolRegistry([]),
     approve: approveYes,
     state: {},
@@ -433,5 +434,20 @@ describe("nativeLoop beforeModelTurn", () => {
     const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), beforeModelTurn: async () => void n++ });
     await collect(nativeLoop.run(t));
     expect(n).toBe(2);
+  });
+});
+
+describe("native-loop engine contract", () => {
+  it("passes the turn roleId in approve meta", async () => {
+    const metas: { roleId?: string }[] = [];
+    const approve: ApproveFn = async (_c, _p, meta) => {
+      metas.push(meta ?? {});
+      return { kind: "approved" };
+    };
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [call("Gate")] }], [{ kind: "text", text: "done" }, { kind: "done" }]]);
+    const t = turn({ channel: ch, approve, roleId: "tester", tools: new ToolRegistry([gatedTool]) });
+    const evs = await collect(nativeLoop.run(t));
+    expect(metas[0]?.roleId).toBe("tester");
+    expect(evs.some((e) => e.kind === "finished")).toBe(true);
   });
 });

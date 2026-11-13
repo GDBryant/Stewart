@@ -32,7 +32,7 @@ describe("validateRoles", () => {
   it("flags an unknown agent; old role ids validate without an orchestrator", () => {
     const errs = validateRoles([role({ id: "general-worker", agent: "nope" })], [agent()], [channel()]);
     expect(errs).toContain("role general-worker: unknown agent 'nope'");
-    const ok = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel({ m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } })]);
+    const ok = validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel({ m: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } })]);
     expect(ok).toEqual([]);
     expect(validateRoles([role({ id: "general-worker", agent: "a1" })], [agent()], [channel()])).toEqual(["role general-worker: agent 'a1' not qualified as agent (run Qualify)"]);
   });

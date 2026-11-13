@@ -41,6 +41,7 @@ async function probeTurn(channel: ManagedChannel, req: ProbeRequest): Promise<Pr
       system: "",
       agent,
       channel,
+      roleId: "bench",
       tools: new ToolRegistry([tool]),
       approve: async () => ({ kind: "approved" }),
       state: {},

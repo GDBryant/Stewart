@@ -1,23 +1,10 @@
-import type { AgentDef } from "@stewart/config";
 import type { Json } from "@stewart/kernel";
-import type { ManagedChannel } from "@stewart/channels";
+import { ChannelError } from "@stewart/channels";
 import { validateArgs } from "@stewart/tools";
+import type { CompleteRequest, CompleteResult } from "./types.js";
 
-export interface FunctionRequest {
-  channel: ManagedChannel;
-  agent: AgentDef;
-  /** Role prompt: what the function does. */
-  system: string;
-  /** The single input the function works on. */
-  input: string;
-  /** JSON Schema (object) the reply must satisfy. */
-  schema: Json;
-  signal: AbortSignal;
-}
-
-export type FunctionResult =
-  | { ok: true; value: Json; usage?: { in: number; out: number }; costUsd?: number }
-  | { ok: false; error: string };
+export type FunctionRequest = CompleteRequest;
+export type FunctionResult = CompleteResult;
 
 const FENCED = /```(?:json)?\s*\n([\s\S]*?)```/;
 
@@ -45,24 +32,44 @@ function systemText(req: FunctionRequest): string {
  * Function run path: one request, no tools, a schema-validated JSON object out.
  * For models that cannot act as agents (no reliable native tool calling) or for narrow one-shot work.
  */
-export async function runFunction(req: FunctionRequest): Promise<FunctionResult> {
+async function chatOnce(req: FunctionRequest, responseSchema: unknown): Promise<{ text: string; usage?: { in: number; out: number }; costUsd?: number }> {
   let text = "";
   let usage: { in: number; out: number } | undefined;
   let costUsd: number | undefined;
-  try {
-    const messages = [
-      { role: "system" as const, content: systemText(req) },
-      { role: "user" as const, content: req.input },
-    ];
-    for await (const ev of req.channel.chat({ model: req.agent.model, messages, signal: req.signal })) {
-      if (ev.kind === "text") text += ev.text;
-      else if (ev.kind === "done") ({ usage, costUsd } = ev);
-    }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  const messages = [
+    { role: "system" as const, content: systemText(req) },
+    { role: "user" as const, content: req.input },
+  ];
+  for await (const ev of req.channel.chat({ model: req.agent.model, messages, responseSchema, signal: req.signal })) {
+    if (ev.kind === "text") text += ev.text;
+    else if (ev.kind === "done") ({ usage, costUsd } = ev);
   }
-  const parsed = parseObject(text);
+  return { text, usage, costUsd };
+}
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** The request, retried once without responseSchema when the provider rejects the format field (4xx). */
+async function chatOutcome(req: FunctionRequest): Promise<{ text: string; usage?: { in: number; out: number }; costUsd?: number; error?: string }> {
+  try {
+    return await chatOnce(req, req.schema);
+  } catch (e) {
+    if (!(e instanceof ChannelError && e.status !== undefined && e.status >= 400 && e.status < 500)) return { text: "", error: errText(e) };
+    try {
+      return await chatOnce(req, undefined);
+    } catch (e2) {
+      return { text: "", error: errText(e2) };
+    }
+  }
+}
+
+export async function runFunction(req: FunctionRequest): Promise<FunctionResult> {
+  const r = await chatOutcome(req);
+  if (r.error !== undefined) return { ok: false, error: r.error };
+  const parsed = parseObject(r.text);
   if (typeof parsed === "string") return { ok: false, error: parsed };
   const bad = validateArgs(parsed, req.schema, "function reply");
-  return bad ? { ok: false, error: bad } : { ok: true, value: parsed, usage, costUsd };
+  return bad ? { ok: false, error: bad } : { ok: true, value: parsed, usage: r.usage, costUsd: r.costUsd };
 }

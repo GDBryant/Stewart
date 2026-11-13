@@ -3,25 +3,34 @@ import { currentMilestone, parsePlan, renderPlan, type Plan } from "../src/plan.
 
 const plan: Plan = {
   goal: "build hello.js",
-  status: "active",
+  status: "paused",
   sessionId: "s1",
   milestones: [
-    { id: "M1", title: "print hello", detail: "create bin/hello.js", check: { command: "node bin/hello.js", files: ["bin/hello.js"] }, status: "pending", attempts: 0 },
-    { id: "M2", title: "name arg", detail: "", check: { files: ["bin/hello.js"] }, status: "done", checkpoint: "abc123", attempts: 2 },
-    { id: "M3", title: "cmd only", detail: "", check: { command: "npm test" }, status: "failed", attempts: 3 },
+    { id: "M1", title: "print hello", detail: "create bin/hello.js", check: { command: ["node", "bin/hello.js", "--name", "a b"], files: ["bin/hello.js"] }, status: "pending" },
+    { id: "M2", title: "name arg", detail: "", check: { files: ["bin/hello.js"] }, status: "done", checkpoint: "abc123" },
+    { id: "M3", title: "cmd only", detail: "", check: { command: ["npm", "test"] }, status: "failed" },
   ],
 };
 
-describe("plan.md render + parse", () => {
-  it("round-trips with optional parts omitted", () => {
+describe("plan render + parse", () => {
+  it("round-trips argv commands exactly, with optional parts omitted", () => {
     const text = renderPlan(plan);
     expect(text).toContain("# Plan: build hello.js");
+    expect(text).toContain("Status: paused");
     expect(text).toContain("## M1: print hello [pending]");
-    expect(text).toContain("Check: `node bin/hello.js`; files: bin/hello.js");
+    expect(text).toContain('Check: ["node","bin/hello.js","--name","a b"]; files: bin/hello.js');
     expect(text).toContain("Check: files: bin/hello.js");
     expect(text).not.toContain("Checkpoint: undefined");
+    expect(text).not.toContain("Attempts:");
     const back = parsePlan(text);
     expect(back).toEqual(plan);
+  });
+
+  it("parses a legacy backticked string command as sh -c argv", () => {
+    const text = "# Plan: x\n\nStatus: active\nSession: s\n\n## M1: t [pending]\nCheck: `npm test`; files: a.ts\nAttempts: 2\n";
+    const back = parsePlan(text);
+    expect(back.milestones[0].check).toEqual({ command: ["sh", "-c", "npm test"], files: ["a.ts"] });
+    expect(back.milestones[0]).not.toHaveProperty("attempts");
   });
 
   it("reports clear parse errors", () => {

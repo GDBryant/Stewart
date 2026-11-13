@@ -1,4 +1,4 @@
-import type { ModelCaps } from "@stewart/models";
+import { qualPassed, type ModelCaps } from "@stewart/models";
 import type { SetupContext } from "./setupContext.js";
 
 /** One selectable model with whatever capabilities are known. */
@@ -101,9 +101,10 @@ function eligible(c: Candidate, p: Profile): string | undefined {
 function qualRefusal(c: Candidate, p: Profile): string | undefined {
   const kind = p.kind ?? "agent";
   const q = c.caps.qualified?.[kind];
+  if (qualPassed(q)) return undefined;
   if (q?.passed === false) return `failed ${kind} qualification`;
-  if (q?.passed !== true) return `not qualified as ${kind}`;
-  return undefined;
+  if (q?.passed === true) return "qualification out of date";
+  return `not qualified as ${kind}`;
 }
 
 function contextRefusal(c: Candidate, p: Profile): string | undefined {
@@ -221,7 +222,7 @@ function perfScore(c: Candidate, p: Profile, speedPriority: number): Term {
 function qualScore(c: Candidate, p: Profile): Term {
   const kind = p.kind ?? "agent";
   const q = c.caps.qualified?.[kind];
-  if (q?.passed === true) return term(2, [`${kind} qualified`]);
+  if (qualPassed(q)) return term(2, [`${kind} qualified`]);
   return term(0, [], ["not qualified"]);
 }
 
@@ -309,7 +310,7 @@ function chainBucket(c: Candidate): number {
 /** Qualified candidates for a role, cheapest first, capped at 3, always starting with the chosen candidate. */
 export function proposeChain(p: Profile, candidates: Candidate[], chosen: Candidate): { channel: string; model: string }[] {
   const kind = p.kind ?? "agent";
-  const ok = candidates.filter((c) => c.caps.qualified?.[kind]?.passed === true && contextRefusal(c, p) === undefined);
+  const ok = candidates.filter((c) => qualPassed(c.caps.qualified?.[kind]) && contextRefusal(c, p) === undefined);
   ok.sort((a, b) => chainBucket(a) - chainBucket(b) || (a.costBlended ?? Number.MAX_SAFE_INTEGER) - (b.costBlended ?? Number.MAX_SAFE_INTEGER));
   const refs = ok.slice(0, 3).map((c) => ({ channel: c.channel, model: c.model }));
   const first = { channel: chosen.channel, model: chosen.model };

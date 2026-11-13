@@ -17,26 +17,32 @@ function memStore(layer: ConfigLayer = {}): ConfigStore {
 }
 import type { RunEvent } from "@stewart/protocol";
 
-const fakeHost = (trusted = true): HostPort => ({
+const fakeHost = (trusted = true): HostPort => {
+  const map: Record<string, string> = {};
+  const files: HostPort["files"] = {
+    read: async (p) => ({ content: map[p] ?? "" }),
+    edit: async (e) => ({ applied: true as const }),
+    readBack: async (p) => map[p] ?? "",
+    exists: async (p) => p === "." || p in map || Object.keys(map).some((k) => k.startsWith(`${p}/`)),
+    list: async (d) => Object.keys(map).filter((k) => (d === "." || d === "" ? true : k.startsWith(`${d}/`))),
+    stat: async (p) => ({ size: map[p]?.length ?? 0 }),
+    readBinary: async (p) => ({ base64: Buffer.from(map[p] ?? "", "utf8").toString("base64"), size: map[p]?.length ?? 0 }),
+    writeBinary: async (p, b64) => void (map[p] = Buffer.from(b64, "base64").toString("utf8")),
+    writeAtomic: async (p, c) => void (map[p] = c),
+    appendLine: async (p, l) => void (map[p] = map[p] ? `${map[p]}\n${l}` : l),
+    readLines: async (p) => (map[p] ? map[p].split("\n") : []),
+    delete: async (p) => void delete map[p],
+  };
+  return {
   secrets: { get: async () => undefined, set: async () => {}, delete: async () => {} },
-  files: {
-    read: async () => ({ content: "" }),
-    edit: async () => ({ applied: true as const }),
-    readBack: async () => "",
-    exists: async () => false,
-    list: async () => [],
-    stat: async () => ({ size: 0 }),
-    writeAtomic: async () => {},
-    appendLine: async () => {},
-    readLines: async () => [],
-    delete: async () => {},
-  } as unknown as HostPort["files"],
+  files,
   proc: { run: () => { throw new Error("no proc in test"); } },
   diff: { preview: async () => {} },
   diag: { problems: async () => [] },
   workspace: { roots: async () => ["/p"], stateDir: async () => "/tmp/st", trusted: async () => trusted },
   log: () => {},
-});
+  };
+};
 
 describe("EventBus coalescing", () => {
   it("batches text deltas within a frame and flushes on lifecycle events", async () => {
@@ -81,7 +87,7 @@ describe("EventBus coalescing", () => {
 describe("loadEffectiveConfig", () => {
   const rolesYaml = "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
   const agentsYaml = "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n";
-  const channelsYaml = "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://x\n    modelCaps:\n      m1:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n";
+  const channelsYaml = "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://x\n    modelCaps:\n      m1:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n";
 
   it("merges user and project roles by id, project fields winning", () => {
     const cfg = loadEffectiveConfig(
@@ -116,7 +122,7 @@ describe("loadEffectiveConfig", () => {
 
 describe("Core", () => {
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
     "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
   };
@@ -200,7 +206,7 @@ describe("Core", () => {
 
   describe("lead path", () => {
     const leadDefaults = {
-      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
+      "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
       "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    turnBudget: 5\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
     };
@@ -242,7 +248,7 @@ describe("Core", () => {
 
 describe("Core config", () => {
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 1 } }\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
     "roles.yaml": "version: 1\nitems:\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
   };

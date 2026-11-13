@@ -63,6 +63,8 @@ export class ChatHistoryStore {
     private host: Pick<HostPort, "files">,
     private dir: string,
     private retentionDays = 30,
+    /** Extra per-session cleanup (tracker, engine/plan/turn files); runs on delete() and prune(). */
+    private onDelete?: (sessionId: string) => Promise<void>,
   ) {}
 
   private file(sessionId: string): string {
@@ -197,6 +199,7 @@ export class ChatHistoryStore {
         await this.host.files.delete(`${dir}/${name.split("/").pop() ?? name}`);
       }
     }
+    await this.onDelete?.(sessionId);
   }
 
   /** Drop sessions older than retentionDays (0 = keep forever). Returns removed ids. */

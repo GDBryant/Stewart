@@ -39,6 +39,17 @@ describe("OllamaAdapter", () => {
     const models = await new OllamaAdapter({ fetcher }).listModels({ id: "o", type: "ollama", enabled: true, extraModels: ["c"], maxParallel: 1 });
     expect(models).toEqual(["a", "b", "c"]);
   });
+
+  it("sends format only when responseSchema is set", async () => {
+    const { fetcher, calls } = fakeFetcher([{ body: ['{"done":true}'] }, { body: ['{"done":true}'] }]);
+    const a = new OllamaAdapter({ fetcher });
+    const cfg = { id: "o", type: "ollama", enabled: true, baseUrl: "http://x", maxParallel: 1 };
+    const schema = { type: "object", properties: { n: { type: "number" } } };
+    await collect(a.chat(cfg, undefined, { ...req(), responseSchema: schema }));
+    expect(JSON.parse(calls[0].body!).format).toEqual(schema);
+    await collect(a.chat(cfg, undefined, req()));
+    expect("format" in JSON.parse(calls[1].body!)).toBe(false);
+  });
 });
 
 describe("OpenAICompatAdapter", () => {
@@ -58,6 +69,17 @@ describe("OpenAICompatAdapter", () => {
     const tc = evs.find((e) => e.kind === "tool_calls") as { calls: { name: string; arguments: { path: string } }[] } | undefined;
     expect(tc?.calls[0].name).toBe("EditFile");
     expect(tc?.calls[0].arguments.path).toBe("x");
+  });
+
+  it("sends response_format only when responseSchema is set", async () => {
+    const { fetcher, calls } = fakeFetcher([{ body: ["data: [DONE]"] }, { body: ["data: [DONE]"] }]);
+    const a = new OpenAICompatAdapter({ fetcher });
+    const cfg = { id: "a", type: "openai-compatible", enabled: true, baseUrl: "https://h", maxParallel: 4 };
+    const schema = { type: "object", properties: { n: { type: "number" } } };
+    await collect(a.chat(cfg, undefined, { ...req(), responseSchema: schema }));
+    expect(JSON.parse(calls[0].body!).response_format).toEqual({ type: "json_schema", json_schema: { name: "reply", schema } });
+    await collect(a.chat(cfg, undefined, req()));
+    expect(JSON.parse(calls[1].body!).response_format).toBeUndefined();
   });
 
   it("throws ChannelError 429 with retry-after", async () => {

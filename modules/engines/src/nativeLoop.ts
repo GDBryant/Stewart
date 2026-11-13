@@ -3,6 +3,8 @@ import { categoryOf, type ToolPreview } from "@stewart/permissions";
 import { outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stewart/tools";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { LoopGuard } from "./loopGuard.js";
+import { forNative } from "./nativeMessages.js";
+import { runFunction } from "./functionRun.js";
 
 interface Seen {
   call: ToolCall;
@@ -40,7 +42,7 @@ async function* streamModel(turn: EngineTurn, out: ModelOut): AsyncGenerator<Eng
   const req = {
     model: turn.agent.model,
     temperature: turn.agent.temperature,
-    messages: [{ role: "system" as const, content: turn.system }, ...turn.transcript],
+    messages: [{ role: "system" as const, content: turn.system }, ...forNative(turn.transcript, new Set(turn.tools.specs.map((s) => s.name)))],
     tools: turn.tools.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })),
     signal: turn.signal,
   };
@@ -99,7 +101,7 @@ async function execWithTimeout(tool: Tool, call: ToolCall, preview: ToolPreview 
 
 async function invoke(turn: EngineTurn, call: ToolCall, tool: Tool, preview: ToolPreview | null): Promise<ToolOutcome> {
   if (tool.requiresApproval) {
-    const d = turn.signal.aborted ? { kind: "rejected" as const, reason: "cancelled" } : await turn.approve(call, preview, { roleId: "lead" });
+    const d = turn.signal.aborted ? { kind: "rejected" as const, reason: "cancelled" } : await turn.approve(call, preview, { roleId: turn.roleId });
     if (d.kind === "rejected") return { kind: "rejected", reason: d.reason };
   }
   try {
@@ -237,4 +239,4 @@ async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard
 }
 
 /** Stewart's own tool loop over a channel's native tool calling. */
-export const nativeLoop: Engine = { id: "native-loop", run };
+export const nativeLoop: Engine = { id: "native-loop", caps: { ownTools: false, ownContext: false }, run, complete: runFunction };

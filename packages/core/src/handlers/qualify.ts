@@ -2,6 +2,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AgentDef, Qual } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
 import { normalizeReason, qualifyAgent, qualifyFunction, type QualifyDeps } from "@stewart/setup";
+import { engineFor } from "@stewart/engines";
 import { redact } from "@stewart/diagnostics";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { mergeQualified } from "./util.js";
@@ -20,7 +21,11 @@ async function runSuites(core: CoreCtx, ctx: ProjectCtx, channelId: string, mode
   const ch = ctx.config.channels.find((c) => c.id === channelId);
   if (!mc || !ch) throw new Error(`unknown channel '${channelId}'`);
   const agent = agentFor(channelId, model);
-  const deps: QualifyDeps = { clock: core.clock, engine: core.deps.engineFor?.(mc.cfg.type) };
+  const deps: QualifyDeps = {
+    clock: core.clock,
+    engine: core.deps.engineFor?.(mc.cfg.type) ?? engineFor(mc.cfg.type),
+    scratch: { host: ctx.host, dir: `${await ctx.host.workspace.stateDir()}/qualify/${crypto.randomUUID()}` },
+  };
   const [aq, fq] = await Promise.all([qualifyAgent(ch, agent, mc, deps), qualifyFunction(agent, mc, deps)]);
   const secrets = [...core.secretValues.values()];
   const clean = (q?: Qual): Qual | undefined => (q?.detail ? { ...q, detail: redact(normalizeReason(q.detail), secrets) } : q);

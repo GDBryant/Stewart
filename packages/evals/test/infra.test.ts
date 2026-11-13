@@ -257,7 +257,7 @@ describe("main helpers", () => {
     const quiet = console.log;
     console.log = () => {};
     try {
-      await main(["--label", "covtest", "--only", "q-list-docs", "--parallel", "0", "--keep", "never"], fake);
+      await main(["--label", "covtest", "--only", "q-list-docs", "--parallel", "0", "--keep", "never", "--skip-qualify"], fake);
     } finally {
       console.log = quiet;
     }
@@ -268,6 +268,47 @@ describe("main helpers", () => {
     const parsed = JSON.parse(await readFile(join(resDir, mine[0]), "utf8"));
     expect(parsed.label).toBe("covtest");
     expect(parsed.summary.passed).toBe(1);
+    expect(parsed.qualification).toBeUndefined();
     await rm(join(resDir, mine[0]), { force: true });
+  });
+
+  it("main qualifies first, runs tasks on the qualified config, records the rows and cleans up", async () => {
+    const configs: string[] = [];
+    let cleaned = 0;
+    const fake = async (t: EvalTask, opts: { config: string }): Promise<TaskResult> => {
+      configs.push(opts.config);
+      return { id: t.id, kind: t.kind, pass: true, evidence: "ok", statusAgrees: true, turns: [], durationMs: 1, costUsd: 0 };
+    };
+    const rows = [{ agent: "a1", channel: "c", model: "m", agentQual: { passed: false, detail: "nope" } }];
+    const qualify = async (src: string) => ({ config: `${src}-qualified`, rows, cleanup: async () => void cleaned++ });
+    const quiet = console.log;
+    console.log = () => {};
+    try {
+      await main(["--label", "covqual", "--only", "q-list-docs", "--config", "/cfg", "--keep", "never"], fake, qualify);
+    } finally {
+      console.log = quiet;
+    }
+    expect(configs).toEqual(["/cfg-qualified"]);
+    expect(cleaned).toBe(1);
+    const resDir = join(new URL("../", import.meta.url).pathname, "results");
+    const { readdir } = await import("node:fs/promises");
+    const mine = (await readdir(resDir)).filter((f) => f.endsWith("-covqual.json"));
+    const parsed = JSON.parse(await readFile(join(resDir, mine[0]), "utf8"));
+    expect(parsed.config).toBe("/cfg");
+    expect(parsed.qualification).toEqual(rows);
+    await rm(join(resDir, mine[0]), { force: true });
+  });
+
+  it("main cleans up the qualified config when the task pool throws", async () => {
+    let cleaned = 0;
+    const qualify = async () => ({ config: "/q", rows: [], cleanup: async () => void cleaned++ });
+    const quiet = console.log;
+    console.log = () => {};
+    try {
+      await expect(main(["--label", "covfail", "--only", "q-list-docs", "--config", "/cfg"], async () => { throw new Error("boom"); }, qualify)).rejects.toThrow("boom");
+    } finally {
+      console.log = quiet;
+    }
+    expect(cleaned).toBe(1);
   });
 });

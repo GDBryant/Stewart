@@ -17,6 +17,7 @@ const qual = z.object({
   at: z.number(),
   version: z.number().int(),
   detail: z.string().optional(),
+  context: z.number().int().positive().optional(),
 });
 
 const modelCaps = z.object({
@@ -42,6 +43,7 @@ export const channelSchema = z.object({
   discoverModels: z.boolean().default(true),
   extraModels: z.array(z.string()).default([]),
   maxParallel: z.number().int().min(1).optional(), // default: ollama 1, others 4
+  settingSources: z.string().optional(), // claude-cli: --setting-sources; default "" loads no user/project/local settings
   modelCaps: z.record(z.string(), modelCaps).default({}),
 });
 export type ChannelDef = z.infer<typeof channelSchema>;
@@ -103,3 +105,11 @@ export const channelsFile = versioned(channelSchema);
 export const agentsFile = versioned(agentSchema);
 export const rolesFile = versioned(roleSchema);
 export const settingsFile = z.object({ version: z.number().int().default(CONFIG_VERSION) }).merge(settingsSchema);
+
+/** `.stewart/project.yaml` (project layer, trusted workspaces only): how code verifies every writing task here. */
+export const projectFile = z.object({
+  version: z.number().int().default(CONFIG_VERSION),
+  /** Argv commands run after a task that changed files; each goes through the normal permission gate. */
+  verify: z.array(z.array(z.string()).min(1)).default([]),
+});
+export type ProjectFile = z.infer<typeof projectFile>;

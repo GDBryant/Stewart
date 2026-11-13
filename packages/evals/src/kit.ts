@@ -138,13 +138,14 @@ export function nodeEval(script: string, label: string): CheckFn {
 }
 
 /**
- * The long-build path ran: `.stewart/plan.md` is done with at least `min` milestones, each `[done]` with a
- * checkpoint that exists (a git commit, or a `snap-N` id).
+ * The long-build path ran: `.stewart/plans/<sessionId>.md` is done with at least `min` milestones, each `[done]` with a
+ * checkpoint that exists (a git commit, or a `snap-N`/`base-N` id).
  */
 export function planCompleted(min: number): CheckFn {
   return async (c) => {
-    const text = await c.read(".stewart/plan.md");
-    if (text === null) return fail(".stewart/plan.md missing (no plan_write)");
+    const glob = await c.sh("ls .stewart/plans/*.md 2>/dev/null | head -1");
+    const text = glob.out.trim() ? await c.read(glob.out.trim()) : null;
+    if (text === null) return fail(".stewart/plans/<session>.md missing (no plan_write)");
     if (!/^Status: done$/m.test(text)) return fail("plan status is not done");
     const heads = [...text.matchAll(/^## (M\d+): .* \[(\w+)\]$/gm)];
     if (heads.length < min) return fail(`plan has ${heads.length} milestones, expected at least ${min}`);
@@ -153,7 +154,7 @@ export function planCompleted(min: number): CheckFn {
     const cps = [...text.matchAll(/^Checkpoint: (\S+)$/gm)].map((m) => m[1]);
     if (cps.length < heads.length) return fail(`${heads.length - cps.length} milestone(s) without a checkpoint`);
     for (const cp of cps) {
-      if (/^snap-\d+$/.test(cp)) continue;
+      if (/^(snap|base)-\d+$/.test(cp)) continue;
       if ((await c.sh(`git cat-file -t ${cp}`)).out.trim() !== "commit") return fail(`checkpoint ${cp} is not a commit`);
     }
     return ok(`plan done: ${heads.length} milestones, ${cps.length} checkpoints`);

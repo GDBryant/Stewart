@@ -4,6 +4,7 @@ import { counterIds, fakeHost, systemClock, type HostPort } from "@stewart/kerne
 import { Interaction } from "@stewart/interaction";
 import { Permissions } from "@stewart/permissions";
 import type { Engine, EngineEvent, EngineTurn } from "@stewart/engines";
+import { runFunction } from "@stewart/engines";
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { RunEvent } from "@stewart/protocol";
 import { SessionService, type SessionDeps } from "../src/api.js";
@@ -26,19 +27,22 @@ export function scriptedEngine(steps: ((turn: EngineTurn) => AsyncGenerator<Engi
   let n = 0;
   return {
     id: "native-loop",
+    caps: { ownTools: false, ownContext: false },
     run(turn: EngineTurn) {
       const step = steps[Math.min(n++, steps.length - 1)];
       return step(turn);
     },
+    complete: runFunction,
   };
 }
 
 export function makeConfig(over: Partial<EffectiveConfig> = {}): EffectiveConfig {
   return {
-    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } }],
+    channels: [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } }],
     agents: [{ id: "a", channel: "c", model: "m", effort: "medium" }],
     roles: [{ id: "lead", enabled: true, prompt: "You are lead.", skills: ["sk1"], tools: [], writePaths: [], turnBudget: 5 }],
     settings: settingsFile.parse({}),
+    project: { verify: [] },
     skills: [{ id: "sk1", description: "a skill", defaultRoles: [], version: 1, body: "SKILL BODY", source: "shipped", edited: false, updateAvailable: false }],
     errors: [],
     ...over,

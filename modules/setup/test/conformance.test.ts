@@ -135,9 +135,55 @@ describe("qualifyAgent", () => {
     expect(q).toMatchObject({ passed: false, detail: expect.stringContaining("native tools") });
   });
 
-  it("passes claude-cli channels by engine type without running", async () => {
-    const q = await qualifyAgent(chan({}, "claude-cli"), agent, channelWith([], "claude-cli"), deps);
-    expect(q).toMatchObject({ passed: true, detail: "claude-code engine" });
+  it("uses the known window as context without probing", async () => {
+    const q = await qualifyAgent(chan(), agent, channelWith([]), { ...deps, engine: passingEngine() });
+    expect(q).toMatchObject({ passed: true, context: 40000 });
+  });
+
+  it("probes the window when it is unknown and passes on the echoed code word", async () => {
+    const ch = chan({ contextTokens: undefined });
+    let probeLen = 0;
+    const probeAdapter: ChannelAdapter = {
+      type: "fake",
+      listModels: async () => ["m"],
+      probeCaps: async () => ({}),
+      chat: async function* (_cfg, _s, req) {
+        probeLen = String(req.messages[0]?.content ?? "").length;
+        yield { kind: "text", text: "quillfeather" };
+        yield { kind: "done" };
+      },
+    };
+    const probe = new ManagedChannel(probeAdapter, { id: "c", type: "fake", enabled: true, maxParallel: 1 });
+    const q = await qualifyAgent(ch, agent, probe, { ...deps, engine: passingEngine() });
+    expect(q).toMatchObject({ passed: true, context: 32000 });
+    expect(probeLen).toBeGreaterThanOrEqual(84000);
+  });
+
+  it("fails when the provider reports a truncated prompt and passes when usage is absent", async () => {
+    const ch = chan({ contextTokens: undefined });
+    const lowUsage = channelWith([[{ kind: "text", text: "quillfeather" }, { kind: "done", usage: { in: 4096, out: 1 } }]]);
+    const q1 = await qualifyAgent(ch, agent, lowUsage, { ...deps, engine: passingEngine() });
+    expect(q1.detail).toContain("window probe failed: prompt truncated by provider (4096 tokens evaluated)");
+    const noUsage = channelWith([[{ kind: "text", text: "quillfeather" }, { kind: "done" }]]);
+    const q2 = await qualifyAgent(ch, agent, noUsage, { ...deps, engine: passingEngine() });
+    expect(q2).toMatchObject({ passed: true, context: 32000 });
+  });
+
+  it("fails when the probe reply is truncated, misses the word, or errors", async () => {
+    const ch = chan({ contextTokens: undefined });
+    const truncated = channelWith([[{ kind: "text", text: "quillfeather" }, { kind: "done", truncated: true }]]);
+    const q1 = await qualifyAgent(ch, agent, truncated, { ...deps, engine: passingEngine() });
+    expect(q1).toMatchObject({ passed: false });
+    expect(q1.detail).toContain("window probe failed: reply truncated");
+    const missing = channelWith([[{ kind: "text", text: "something else" }, { kind: "done" }]]);
+    const q2 = await qualifyAgent(ch, agent, missing, { ...deps, engine: passingEngine() });
+    expect(q2.detail).toContain("window probe failed: code word not echoed");
+    const boom: ManagedChannel = new ManagedChannel(
+      { type: "fake", listModels: async () => ["m"], probeCaps: async () => ({}), chat: async function* () { throw new Error("net down"); } },
+      { id: "c", type: "fake", enabled: true, maxParallel: 1 },
+    );
+    const q3 = await qualifyAgent(ch, agent, boom, { ...deps, engine: passingEngine() });
+    expect(q3.detail).toContain("window probe failed: net down");
   });
 });
 

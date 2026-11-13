@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { agentsFile, channelsFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
+import { agentsFile, channelsFile, projectFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
 
 
 /** Raw YAML text per file name, per layer. Host supplies reads + writes. */
@@ -12,6 +12,8 @@ export interface Config {
   agents: AgentDef[];
   roles: RoleDef[];
   settings: Settings;
+  /** Project-layer facts (`.stewart/project.yaml`, trusted workspaces only): verify commands for writing tasks. */
+  project: { verify: string[][] };
   /** Errors surfaced in Settings; last-good config kept on failure. */
   errors: string[];
 }
@@ -76,7 +78,7 @@ export interface LoadConfigOptions {
 
 /** Records (does not throw) when an untrusted workspace carries project config that is being ignored. */
 function noteUntrustedProject(project: ConfigLayer | undefined, trusted: boolean, errors: string[]): void {
-  if (!trusted && project && (project["roles.yaml"] || project["skills/"])) errors.push("untrusted workspace: project .stewart/ config ignored");
+  if (!trusted && project && (project["roles.yaml"] || project["skills/"] || project["project.yaml"])) errors.push("untrusted workspace: project .stewart/ config ignored");
 }
 
 export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, defaults: ConfigLayer, opts: LoadConfigOptions): Config {
@@ -88,8 +90,9 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
   const ag = loadLayerFile(agentsFile, "agents.yaml", [defaults["agents.yaml"], user["agents.yaml"]], errors);
   const rl = loadLayerFile(rolesFile, "roles.yaml", [defaults["roles.yaml"], user["roles.yaml"], proj["roles.yaml"]], errors);
   const st = loadLayerFile(settingsFile, "settings.yaml", [defaults["settings.yaml"], user["settings.yaml"], proj["settings.yaml"]], errors);
+  const prj = parseFile(projectFile, "project.yaml", proj["project.yaml"], errors);
 
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
 
-  return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), errors };
+  return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), project: { verify: prj?.verify ?? [] }, errors };
 }

@@ -4,7 +4,7 @@ import { fakeFetcher, fakeHost } from "@stewart/kernel";
 
 describe("setup.recommend modes", () => {
   const defaults = {
-    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 1 } } }, m2: { qualified: { agent: { passed: true, at: 1, version: 1 } } }, 'qwen3:32b': { qualified: { agent: { passed: true, at: 1, version: 1 } } }, 'gemma4:e4b': { qualified: { agent: { passed: true, at: 1, version: 1 } } } }\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } }, m2: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } }, 'qwen3:32b': { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } }, 'gemma4:e4b': { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
   };
   const mem = () => ({ read: async () => ({}), write: async () => {} });

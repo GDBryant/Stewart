@@ -54,6 +54,20 @@ function openAiDeltas(j: OpenAIChunk): WireDelta[] {
   return out;
 }
 
+function chatBody(req: ChatRequest): string {
+  const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
+  return JSON.stringify({
+    model: req.model,
+    messages: toOpenAIMessages(req),
+    tools: tools?.length ? tools : undefined,
+    stream: true,
+    stream_options: { include_usage: true },
+    temperature: req.temperature,
+    response_format:
+      req.responseSchema !== undefined ? { type: "json_schema", json_schema: { name: "reply", schema: req.responseSchema } } : undefined,
+  });
+}
+
 /** OpenAI-compatible channel: SSE streaming, GET /models, dummy-tool capability probe. */
 export class OpenAICompatAdapter implements ChannelAdapter {
   readonly type = "openai-compatible";
@@ -127,17 +141,8 @@ export class OpenAICompatAdapter implements ChannelAdapter {
   }
 
   async *chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
-    const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
-    const messages = toOpenAIMessages(req);
     const dbg = this.deps.debug;
-    const body = JSON.stringify({
-      model: req.model,
-      messages,
-      tools: tools?.length ? tools : undefined,
-      stream: true,
-      stream_options: { include_usage: true },
-      temperature: req.temperature,
-    });
+    const body = chatBody(req);
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: body });
     const stream = await postForStream(
       { deps: this.deps, provider: this.type, model: req.model },

@@ -2,6 +2,7 @@ import type { HostPort, IdGen } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
 import type { Interaction } from "@stewart/interaction";
 import { ProjectPaths } from "@stewart/tools";
+import { changeTracker } from "@stewart/tasks";
 import { PlanRunner } from "./plan.js";
 
 /** What the out-of-turn plan operations (revert, history, resume) need. */
@@ -12,16 +13,26 @@ export interface PlanOpsDeps {
   interaction: Interaction;
 }
 
-async function runnerFor(d: PlanOpsDeps, sessionId: string, runId: string): Promise<PlanRunner> {
+async function runnerFor(d: PlanOpsDeps, sessionId: string, runId: string): Promise<{ runner: PlanRunner; tracker: ReturnType<typeof changeTracker>; stateDir: string }> {
   const stateDir = await d.host.workspace.stateDir();
   const paths = await ProjectPaths.forProject(d.host);
-  return new PlanRunner({ host: d.host, paths, stateDir, sessionId, runId, bus: d.bus, interaction: d.interaction });
+  const tracker = changeTracker(d.host, { cwd: paths.base, stateDir, sessionId });
+  return { runner: new PlanRunner({ host: d.host, paths, stateDir, sessionId, runId, bus: d.bus, interaction: d.interaction, tracker }), tracker, stateDir };
 }
 
-/** Revert the session's worktree to a checkpoint (id, "baseline", or latest); later milestones become pending. */
+/** Revert the session's worktree: "turn" = the last turn baseline; else a checkpoint id, "baseline", or latest. */
 export async function revertSession(d: PlanOpsDeps, sessionId: string, checkpoint?: string): Promise<{ ok: boolean; filesRestored?: string[]; reason?: string }> {
   const runId = d.ids.next("revert");
-  const done = await (await runnerFor(d, sessionId, runId)).revertTo(checkpoint);
+  const { runner, tracker, stateDir } = await runnerFor(d, sessionId, runId);
+  if (checkpoint === "turn") {
+    const id = ((await d.host.files.readLines(`${stateDir}/sessions/${sessionId}.turn`))[0] ?? "").trim();
+    if (!id) return { ok: false, reason: "no turn baseline for this session" };
+    const done = await tracker.restore(await tracker.baseline(id));
+    const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
+    d.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
+    return { ok: true, filesRestored };
+  }
+  const done = await runner.revertTo(checkpoint);
   if (!done) return { ok: false, reason: "no checkpoint for this session" };
   const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
   d.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
@@ -30,15 +41,9 @@ export async function revertSession(d: PlanOpsDeps, sessionId: string, checkpoin
 
 /** Latest session plan summary for history.load. */
 export async function planSummary(d: PlanOpsDeps, sessionId: string): Promise<unknown> {
-  const plan = await runnerFor(d, sessionId, "history");
-  const st = await plan.summary();
+  const { runner } = await runnerFor(d, sessionId, "history");
+  const st = await runner.summary();
   if (!st) return undefined;
-  const cps = await plan.checkpoints();
-  const text = await plan.resumeText();
-  return { goal: st.goal, status: st.status, active: text !== undefined, milestones: st.milestones, latest: cps.latest, baseline: cps.baseline };
-}
-
-/** "Resume" prompt for an active plan, or undefined. */
-export async function planResumeText(d: PlanOpsDeps, sessionId: string): Promise<string | undefined> {
-  return await (await runnerFor(d, sessionId, "resume")).resumeText();
+  const cps = await runner.checkpoints();
+  return { goal: st.goal, status: st.status, active: st.status !== "done", milestones: st.milestones, latest: cps.latest, baseline: cps.baseline };
 }

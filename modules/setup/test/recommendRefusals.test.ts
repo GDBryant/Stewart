@@ -31,7 +31,7 @@ describe("modelRefusal", () => {
 });
 
 describe("hardRefusal", () => {
-  const qualified = { agent: { passed: true, at: 1, version: 1 } };
+  const qualified = { agent: { passed: true, at: 1, version: 2, context: 32000 } };
   const weak: Candidate = { channel: "c1", channelType: "ollama", model: "tiny", caps: { tools: "none", qualified } };
   const cand = new Map([["c1:tiny", weak]]);
   it("passes a qualified candidate meeting requirements; refuses one never probed", () => {

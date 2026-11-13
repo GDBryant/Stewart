@@ -104,7 +104,7 @@ describe("store helpers", () => {
 
 describe("qualification + role chain schema", () => {
   it("parses modelCaps.qualified and role kind/needs/chain with defaults", () => {
-    const channels = `version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      m:\n        qualified:\n          agent: { passed: true, at: 1, version: 1, detail: ok }\n          function: { passed: false, at: 2, version: 1 }\n`;
+    const channels = `version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      m:\n        qualified:\n          agent: { passed: true, at: 1, version: 2, detail: ok }\n          function: { passed: false, at: 2, version: 2 }\n`;
     const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    kind: function\n    needs: { vision: true, minContext: 8000 }\n    chain: [a1, a2]\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n  - id: plain\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n`;
     const c = loadConfig({ "channels.yaml": channels, "roles.yaml": roles }, undefined, {}, { trusted: true });
     expect(c.errors).toEqual([]);
@@ -121,6 +121,38 @@ describe("qualification + role chain schema", () => {
     expect(c.errors).toEqual([]);
     expect(c.channels[0].modelCaps.m.tools).toBe("unknown");
     expect(c.channels[0].modelCaps.n.tools).toBe("native");
+  });
+
+  it("parses channel settingSources and leaves it undefined by default", () => {
+    const channels = `version: 1
+items:
+  - id: c
+    type: claude-cli
+    settingSources: "user,project"
+  - id: d
+    type: claude-cli
+`;
+    const c = loadConfig({ "channels.yaml": channels }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.channels[0].settingSources).toBe("user,project");
+    expect(c.channels[1].settingSources).toBeUndefined();
+  });
+
+  it("loads project.yaml verify commands only in trusted workspaces", () => {
+    const project = { "project.yaml": "version: 1\nverify: [[pnpm, -r, typecheck], [npm, test]]" };
+    const trusted = loadConfig({}, project, {}, { trusted: true });
+    expect(trusted.errors).toEqual([]);
+    expect(trusted.project.verify).toEqual([["pnpm", "-r", "typecheck"], ["npm", "test"]]);
+    const untrusted = loadConfig({}, project, {}, { trusted: false });
+    expect(untrusted.project.verify).toEqual([]);
+    expect(untrusted.errors.join(" ")).toContain("untrusted workspace");
+  });
+
+  it("surfaces a malformed project.yaml as a config error", () => {
+    const c = loadConfig({}, { "project.yaml": "verify: not-a-list" }, {}, { trusted: true });
+    expect(c.project.verify).toEqual([]);
+    expect(c.errors.join(" ")).toContain("project.yaml");
+    expect(isProjectFile("project.yaml")).toBe(true);
   });
 
   it("an agent-only role keeps working with no kind/chain fields", () => {

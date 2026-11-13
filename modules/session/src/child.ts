@@ -1,55 +1,18 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
-import type { RunLedger } from "@stewart/ledger";
 import type { ChatMessage, Json } from "@stewart/kernel";
 import type { ApproveFn } from "@stewart/permissions";
 import { roleIsReadOnly, ToolRegistry, type Tool } from "@stewart/tools";
 import { projectTools } from "@stewart/tools";
-import type { EngineEvent, WriteRecord } from "@stewart/engines";
-import { engineFor as defaultEngineFor } from "@stewart/engines";
-import { runCheck, turnCheck, type CheckInput } from "@stewart/tasks";
-import { eligibleChain } from "@stewart/roles-skills";
+import { failureText } from "@stewart/tasks";
 import { aggregate, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthReport } from "@stewart/code-health";
 import { loadSkillTool } from "./sessionTools.js";
-import { recordUsage } from "./usage.js";
+import { stepSaver } from "./stepSave.js";
 import type { ChildDeps } from "./childTypes.js";
 import { runFunctionTask } from "./functionTask.js";
 import { systemPrompt } from "./lead.js";
-import { handoverText, type Tried } from "./handover.js";
-import { rolePolicyDeny } from "./childPolicy.js";
-import { isReadTool, snapshotBefore } from "./turnState.js";
-
-function lastReply(transcript: ChatMessage[]): string {
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    const m = transcript[i];
-    if (m.role === "assistant" && m.content.trim()) return m.content;
-  }
-  return "";
-}
-
-const MAX_CHILDREN = 4;
-const REPLY_CAP = 8000;
-const JSON_BLOCK = /```json\s*\n([\s\S]*?)```/g;
-
-interface ChildCtx extends ChildDeps {
-  role: RoleDef;
-  taskId: string;
-  agent: AgentDef;
-  ledger: RunLedger;
-  tried: Tried[];
-  /** Pre-write content per path (the content-changed check) and successful read calls. */
-  facts: ChildFacts;
-  fin?: { reason: string; error?: string };
-}
-
-/** Per-job facts the child check needs. */
-interface ChildFacts {
-  before: Record<string, string | null>;
-  reads: number;
-}
-
-function err(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
+import { policyApprove } from "./policyApprove.js";
+import { lastReply } from "./turnState.js";
+import { runTask, type Contract, type TaskResult } from "./taskRun.js";
 
 function capReply(raw: string): string {
   if (raw.length <= REPLY_CAP) return raw;
@@ -57,22 +20,17 @@ function capReply(raw: string): string {
   return `${raw.slice(0, head)}\n[reply truncated: ${raw.length - REPLY_CAP} chars omitted]\n${raw.slice(-Math.floor(REPLY_CAP * 0.3))}`;
 }
 
+const MAX_CHILDREN = 4;
+const REPLY_CAP = 8000;
+const JSON_BLOCK = /```json\s*\n([\s\S]*?)```/g;
+
 /** Per-lead-run child runs behind the delegate/health_report tools. Depth 1: children never get these tools. */
 interface ChildJob {
   role: RoleDef;
   taskId: string;
-  agent: AgentDef;
   task: string;
   report: "text" | "health";
   check?: DelegateCheck;
-}
-
-/** One delegated job's mutable run state across escalation attempts. */
-interface ChildRun {
-  transcript: ChatMessage[];
-  writes: WriteRecord[];
-  tried: Tried[];
-  facts: ChildFacts;
 }
 
 /** What code verifies after a delegated task: files that must exist, a command that must exit 0. */
@@ -100,20 +58,14 @@ function parseCheck(raw: unknown): DelegateCheck | undefined {
   return out.files || out.command ? out : undefined;
 }
 
-/** Match the outcome to its call by id; count successful reads for the "no findings" rule. */
-function onChildOutcome(ev: Extract<EngineEvent, { kind: "tool.outcome" }>, c: ChildCtx): void {
-  const t = c.tried.find((x) => x.callId === ev.callId);
-  if (!t) return;
-  t.ok = ev.ok;
-  if (ev.ok && isReadTool(t.name)) c.facts.reads++;
-}
-
 export class ChildRunner {
   private running = 0;
   private readonly waiters: (() => void)[] = [];
   private readonly reports = new Map<string, HealthReport>();
-  /** Tail of the writer queue: children whose role can write run one at a time. */
-  private writerTail: Promise<unknown> = Promise.resolve();
+  /** Read/write lock: a waiting writer blocks later readers (FIFO); readers share. */
+  private readers = 0;
+  private writerActive = false;
+  private readonly lockWaiters: { writer: boolean; grant: () => void }[] = [];
 
   constructor(private readonly d: ChildDeps) {}
 
@@ -182,7 +134,31 @@ export class ChildRunner {
     if (role.kind === "function") return await this.limited(() => runFunctionTask(this.d, role, String(args.task ?? ""), functionSchema(args.schema)));
     const check = parseCheck(args.check);
     const run = () => this.limited(() => this.childTurn(role, String(args.task ?? ""), report as "text" | "health", check));
-    return roleIsReadOnly(role) ? await run() : await this.asWriter(run);
+    return roleIsReadOnly(role) ? await this.asReader(run) : await this.asWriter(run);
+  }
+
+  private pump(): void {
+    while (this.lockWaiters.length && !this.lockWaiters[0].writer) this.lockWaiters.shift()!.grant();
+    if (this.lockWaiters[0]?.writer && this.readers === 0 && !this.writerActive) this.lockWaiters.shift()!.grant();
+  }
+
+  private acquireLock(writer: boolean): Promise<void> {
+    const take = () => (writer ? void (this.writerActive = true) : void this.readers++);
+    if (!this.writerActive && (writer ? this.readers === 0 : true) && !this.lockWaiters.length) {
+      take();
+      return Promise.resolve();
+    }
+    return new Promise<void>((r) => this.lockWaiters.push({ writer, grant: () => { take(); r(); } }));
+  }
+
+  private async asReader<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquireLock(false);
+    try {
+      return await fn();
+    } finally {
+      this.readers--;
+      if (this.readers === 0) this.pump();
+    }
   }
 
   private async limited<T>(fn: () => Promise<T>): Promise<T> {
@@ -194,11 +170,15 @@ export class ChildRunner {
     }
   }
 
-  /** One writer at a time: queue behind every earlier write-capable child. */
-  private asWriter<T>(fn: () => Promise<T>): Promise<T> {
-    const result = this.writerTail.then(fn, fn);
-    this.writerTail = result.catch(() => undefined);
-    return result;
+  /** One writer at a time: waits for running readers and blocks readers queued after it. */
+  private async asWriter<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquireLock(true);
+    try {
+      return await fn();
+    } finally {
+      this.writerActive = false;
+      this.pump();
+    }
   }
 
   private checkReport(role: RoleDef, report: string): void {
@@ -209,164 +189,74 @@ export class ChildRunner {
     }
   }
 
-  private childAgent(role: RoleDef): AgentDef {
-    const bound = this.d.config().agents.find((a) => a.id === role.agent);
-    return bound ?? this.d.agent;
+  private childAgent(role: RoleDef): AgentDef | undefined {
+    return this.d.config().agents.find((a) => a.id === role.agent) ?? this.d.agent;
   }
 
   private childApprove(role: RoleDef): ApproveFn {
-    const gate = this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal);
-    return async (call, preview, meta) => {
-      const deny = rolePolicyDeny(role, preview as { kind: string; path?: string; command?: string } | null);
-      if (deny) return { kind: "rejected", reason: deny };
-      return gate(call, preview, { ...meta, roleId: role.id });
-    };
-  }
-
-  private async onChildEvent(ev: EngineEvent, c: ChildCtx, writes: WriteRecord[]): Promise<void> {
-    const { bus, parent, runId, taskId, role } = { runId: c.runId, taskId: c.taskId, role: c.role, bus: c.bus, parent: c.parent };
-    const base = { runId, taskId, roleId: role.id };
-    switch (ev.kind) {
-      case "text":
-        return bus.emit({ kind: "text_delta", ...base, seq: parent.seq++, text: ev.text });
-      case "reasoning":
-        return bus.emit({ kind: "reasoning_delta", ...base, seq: parent.seq++, text: ev.text });
-      case "tool.request":
-        await this.onChildRequest(ev, c);
-        return bus.emit({ kind: "tool.request", ...base, callId: ev.callId, tool: ev.tool, args: ev.args, category: ev.category });
-      case "tool.outcome":
-        onChildOutcome(ev, c);
-        return bus.emit({ kind: "tool.outcome", ...base, callId: ev.callId, ok: ev.ok, summary: ev.summary });
-      case "write":
-        c.plan?.recordWrite(ev.record);
-        return void writes.push(ev.record);
-      case "usage":
-        return recordUsage(ev, c);
-      case "finished":
-        c.fin = { reason: ev.reason, error: ev.error };
-        return;
-    }
-  }
-
-  private async onChildRequest(ev: Extract<EngineEvent, { kind: "tool.request" }>, c: ChildCtx): Promise<void> {
-    await snapshotBefore({ host: c.host, cwd: c.paths.base, before: c.facts.before, onFirst: (p, content) => c.plan?.beforeWrite(p, content) }, ev.tool, ev.args);
-    c.tried.push({ callId: ev.callId, name: ev.tool, args: JSON.stringify(ev.args ?? {}) });
+    return policyApprove(role, this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal));
   }
 
   private async childTurn(role: RoleDef, task: string, report: "text" | "health", check?: DelegateCheck): Promise<string> {
-    const { host, bus, ids } = this.d;
+    const { bus, ids } = this.d;
     const taskId = ids.next("task");
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80) });
-    bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role).id });
-    const outcome = await this.runChild({ role, taskId, agent: this.childAgent(role), task, report, check });
-    const reply = capReply(outcome.reply);
-    const line = `status: ${outcome.ok ? "done" : "failed"}`;
-    return outcome.ok ? `${line}\n${reply}` : `${line}\n${reply}\ncheck: ${outcome.evidence}`;
+    bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
+    const res = await this.runChild({ role, taskId, task, report, check });
+    const reply = capReply(res.reply);
+    const line = `status: ${res.status === "done" ? "done" : "failed"}`;
+    return res.status === "done" ? `${line}\n${reply}` : `${line}\n${reply}\ncheck: ${res.error ?? "failed"}`;
   }
 
-  private async runChild(job: ChildJob): Promise<{ ok: boolean; reply: string; evidence: string }> {
-    const { role, taskId, task } = job;
-    const cfg = this.d.config();
-    const chain = eligibleChain(role, cfg.roles, cfg.agents, cfg.channels);
+  private contract(job: ChildJob): () => Contract {
+    const writable = !roleIsReadOnly(job.role);
+    return () => ({
+      commands: [
+        ...(writable ? this.d.config().project.verify.map((argv) => ({ argv, approved: false, whenChanged: true })) : []),
+        ...(job.check?.command ? [{ argv: job.check.command, approved: false }] : []),
+      ],
+      files: job.check?.files ?? [],
+    });
+  }
+
+  private async runChild(job: ChildJob): Promise<TaskResult> {
+    const { role, taskId, task, report } = job;
+    const ro = roleIsReadOnly(role);
     const transcript: ChatMessage[] = [{ role: "user", content: task }];
-    const writes: WriteRecord[] = [];
-    const tried: Tried[] = [];
-    const facts: ChildFacts = { before: {}, reads: 0 };
-    let fin: { reason: string; engineErr?: string } = { reason: "error", engineErr: `no qualified agent for role ${role.id}: run Qualify in settings` };
-    let res: { passed: boolean; evidence: string[] } = { passed: false, evidence: [fin.engineErr!] };
-    let prev: AgentDef | undefined;
-    for (const agent of chain) {
-      const j = { ...job, agent };
-      if (prev) {
-        const reason = fin.engineErr ?? (fin.reason === "stop" ? res.evidence.join("; ") : fin.reason);
-        transcript.push({ role: "user", content: handoverText(prev.id, task, tried, reason) });
-        this.d.bus.emit({ kind: "run.escalated", runId: this.d.runId, taskId, roleId: role.id, from: prev.id, to: agent.id, reason });
-      }
-      fin = await this.attemptChild(j, { transcript, writes, tried, facts });
-      if (fin.reason === "cancelled") {
-        res = { passed: false, evidence: ["cancelled"] };
-        break;
-      }
-      if (fin.reason === "stop") {
-        res = await this.childCheck(j, { transcript, writes, tried, facts });
-        if (res.passed) break;
-      }
-      prev = agent;
-    }
-    return this.finishChild(job, transcript, { fin, res });
+    const stepSave = stepSaver(() => this.persistChild(taskId, transcript));
+    stepSave();
+    const tools = new ToolRegistry([...projectTools(this.d.host, this.d.paths).for(role).tools, loadSkillTool(this.d.config().skills)]);
+    const res = await runTask(
+      {
+        runId: this.d.runId,
+        taskId,
+        sessionId: `${this.d.sessionId}/${taskId}`,
+        role,
+        goal: task,
+        transcript,
+        system: () => systemPrompt(this.d.host, role, this.d.config()),
+        tools,
+        approve: this.childApprove(role),
+        engineState: {},
+        contract: this.contract(job),
+        needs: { cites: ro, needsRead: ro, ...(report === "health" ? { schema: "health" as const } : {}) },
+        interactive: false,
+        run: this.d.parent,
+        onStep: stepSave,
+      },
+      this.d,
+    );
+    return this.finishChild(job, transcript, res);
   }
 
-  private async attemptChild(job: ChildJob, run: ChildRun): Promise<{ reason: string; engineErr?: string }> {
-    const { role, taskId, agent } = job;
-    const { transcript, writes, tried, facts } = run;
-    const channel = this.d.channelFor(agent.channel);
-    const engine = (this.d.engineFor ?? defaultEngineFor)(channel.cfg.type);
-    const base = projectTools(this.d.host, this.d.paths).for(role);
-    const tools = new ToolRegistry([...base.tools, loadSkillTool(this.d.config().skills)]);
-    const c: ChildCtx = { ...this.d, role, taskId, agent, ledger: this.d.ledger, tried, facts };
-    const turn = {
-      sessionId: `${this.d.sessionId}/${taskId}`,
-      transcript,
-      system: await systemPrompt(this.d.host, role, this.d.config()),
-      agent,
-      channel,
-      tools,
-      approve: this.childApprove(role),
-      state: {},
-      cwd: this.d.paths.base,
-      signal: this.d.parent.controller.signal,
-      maxTurns: role.turnBudget === "unlimited" ? 200 : role.turnBudget,
-    };
-    try {
-      for await (const ev of engine.run(turn)) await this.onChildEvent(ev, c, writes);
-      return { reason: c.fin?.reason ?? "stop", engineErr: c.fin?.error };
-    } catch (e) {
-      return { reason: "error", engineErr: err(e) };
-    }
-  }
-
-  private async childCheck(job: ChildJob, run: ChildRun): Promise<{ passed: boolean; evidence: string[] }> {
-    const { role, report } = job;
-    const { transcript, writes, facts } = run;
-    const reply = lastReply(transcript);
-    const input: CheckInput = { reply, writes, changed: [...new Set(writes.filter((w) => w.ok).map((w) => w.path))], before: facts.before, reads: facts.reads };
-    const base = turnCheck(input);
-    const declared = job.check;
-    const check = {
-      ...base,
-      files: [...(base.files ?? []), ...(declared?.files ?? [])],
-      cites: roleIsReadOnly(role),
-      ...(report === "health" ? { schema: "health" as const } : {}),
-    };
-    const denied = declared?.command ? await this.commandDenied(job, declared.command) : undefined;
-    if (denied) return { passed: false, evidence: [denied] };
-    return await runCheck({ check: { ...check, command: declared?.command }, input, host: this.d.host, cwd: this.d.paths.base });
-  }
-
-  /** The check command runs real code, so it goes through the same approval gate as any command. */
-  private async commandDenied(job: ChildJob, command: string[]): Promise<string | undefined> {
-    const gate = this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal);
-    const call = { id: `check-${job.taskId}`, name: "delegate_check", arguments: { command } };
-    const d = await gate(call, { kind: "command", command: command.join(" "), cwd: "." }, { roleId: job.role.id, taskId: job.taskId });
-    return d.kind === "approved" ? undefined : `check command not approved: ${command.join(" ")}`;
-  }
-
-  private async finishChild(
-    job: ChildJob,
-    transcript: ChatMessage[],
-    out: { fin: { reason: string; engineErr?: string }; res: { passed: boolean; evidence: string[] } },
-  ): Promise<{ ok: boolean; reply: string; evidence: string }> {
-    const { fin, res } = out;
+  private async finishChild(job: ChildJob, transcript: ChatMessage[], res: TaskResult): Promise<TaskResult> {
     const { role, taskId, report } = job;
-    const reply = lastReply(transcript);
     await this.persistChild(taskId, transcript);
-    const ok = fin.reason === "stop" && res.passed;
-    if (ok && report === "health") this.keepReport(taskId, reply);
-    const evidence = fin.engineErr ?? res.evidence.join("; ");
-    this.d.bus.emit({ kind: "check.result", runId: this.d.runId, taskId, roleId: role.id, passed: res.passed, evidence: res.evidence });
-    if (ok) this.d.bus.emit({ kind: "task.done", runId: this.d.runId, taskId, roleId: role.id, summary: reply.split("\n")[0] ?? "" });
-    else this.d.bus.emit({ kind: "task.failed", runId: this.d.runId, taskId, roleId: role.id, error: evidence });
-    return { ok, reply, evidence };
+    const ok = res.status === "done";
+    if (ok && report === "health") this.keepReport(taskId, res.reply);
+    if (ok) this.d.bus.emit({ kind: "task.done", runId: this.d.runId, taskId, roleId: role.id, summary: res.reply.split("\n")[0] ?? "" });
+    else this.d.bus.emit({ kind: "task.failed", runId: this.d.runId, taskId, roleId: role.id, error: res.error ?? "failed" });
+    return res;
   }
 
   private keepReport(taskId: string, reply: string): void {
@@ -383,7 +273,7 @@ export class ChildRunner {
     try {
       await this.d.host.files.writeAtomic(`${this.d.stateDir}/sessions/${this.d.sessionId}/${taskId}.json`, JSON.stringify(transcript));
     } catch (e) {
-      this.d.host.log(`child transcript save failed: ${err(e)}`);
+      this.d.host.log(`child transcript save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

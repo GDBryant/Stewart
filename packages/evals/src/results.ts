@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { QualRow } from "./qualify.js";
 import type { TaskResult } from "./runner.js";
 
 export interface Summary {
@@ -17,6 +18,8 @@ export interface ResultsFile {
   startedAt: string;
   commit: string;
   config: string;
+  /** Qualification suite results from this run; absent when run with --skip-qualify. */
+  qualification?: QualRow[];
   summary: Summary;
   tasks: TaskResult[];
 }

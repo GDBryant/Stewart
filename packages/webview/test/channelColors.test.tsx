@@ -42,7 +42,7 @@ describe("channel colour badges", () => {
     summary: {
       channels: [
         { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x" },
-        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
+        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
       ],
       agents: [
         { id: "a1", channel: "c1", model: "m", effort: "medium" },

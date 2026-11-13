@@ -80,10 +80,10 @@ const SOLUTIONS: Record<string, Solution> = {
       await mkdir(join(r, "bin"), { recursive: true });
       await writeFile(join(r, "bin/todo.js"), TODO_JS);
       await writeFile(join(r, "test/todo.test.js"), TODO_TEST);
-      await mkdir(join(r, ".stewart"), { recursive: true });
+      await mkdir(join(r, ".stewart/plans"), { recursive: true });
       const head = (await checkCtx(r, []).sh("git rev-parse HEAD")).out.trim();
       const ms = ["add", "list", "done"].map((t, i) => `## M${i + 1}: ${t} [done]\nCheck: node --test test/todo.test.js\nCheckpoint: ${i === 2 ? "snap-3" : head}`);
-      await writeFile(join(r, ".stewart/plan.md"), `# Plan: todo\n\nStatus: done\nSession: s\n\n${ms.join("\n\n")}\n`);
+      await writeFile(join(r, ".stewart/plans/s.md"), `# Plan: todo\n\nStatus: done\nSession: s\n\n${ms.join("\n\n")}\n`);
     },
   },
 };
@@ -178,8 +178,8 @@ describe("planCompleted", () => {
   const verdict = async (text: string | null) => {
     const repo = await freshRepo();
     if (text !== null) {
-      await mkdir(join(repo, ".stewart"), { recursive: true });
-      await writeFile(join(repo, ".stewart/plan.md"), text);
+      await mkdir(join(repo, ".stewart/plans"), { recursive: true });
+      await writeFile(join(repo, ".stewart/plans/s.md"), text);
     }
     return (await planCompleted(2)(checkCtx(repo, []))).evidence;
   };

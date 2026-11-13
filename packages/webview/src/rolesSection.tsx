@@ -6,7 +6,7 @@ import { agentCosts } from "./bridge.js";
 import { ChannelDot } from "./channelColors.js";
 
 const SIDE_EFFECT_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "RunTerminal"]);
-type ModelCapsView = { vision?: boolean; qualified?: Record<string, { passed?: boolean } | undefined> };
+type ModelCapsView = { vision?: boolean; qualified?: Record<string, { passed?: boolean; version?: number } | undefined> };
 
 /** What the role asks of its agent, as shown in the hint. */
 function roleNeedText(role: RoleSummary): string {
@@ -18,7 +18,8 @@ function agentsForRole(role: RoleSummary, agents: AgentSummary[], channels: Chan
   const kind = role.kind ?? "agent";
   return agents.filter((a) => {
     const caps = channels.find((c) => c.id === a.channel)?.modelCaps?.[a.model] as ModelCapsView | undefined;
-    return caps?.qualified?.[kind]?.passed === true && (!role.needs?.vision || caps.vision === true);
+    const q = caps?.qualified?.[kind];
+    return q?.passed === true && (q.version ?? 0) >= 2 && (!role.needs?.vision || caps?.vision === true);
   });
 }
 

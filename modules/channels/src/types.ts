@@ -14,6 +14,8 @@ export type ChatRequest = {
   tools?: { name: string; description: string; schema: unknown }[];
   temperature?: number;
   maxTokens?: number;
+  /** JSON Schema the provider must constrain the reply to (provider support varies; callers may retry without). */
+  responseSchema?: unknown;
   signal: AbortSignal;
 };
 

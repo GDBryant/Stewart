@@ -1,5 +1,5 @@
 import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
-import { resolveModelProfile } from "@stewart/models";
+import { resolveModelProfile, QUAL_MIN_VERSION } from "@stewart/models";
 
 export const DEFAULT_MIN_CONTEXT = 32_000;
 
@@ -30,9 +30,9 @@ export function agentContext(agent: AgentDef, channels: ChannelDef[]): number | 
 }
 
 /**
- * Why an agent may not serve a role, or null when it may: it needs a passing qualification record for the role
- * kind, a context window of at least `minContext` (an unknown window is admitted: many providers do not report
- * one, and qualification already ran a multi-turn task), and vision when the role needs it.
+ * Why an agent may not serve a role, or null when it may: it needs a current passing qualification record for
+ * the role kind, a context window of at least `minContext` (the verified window in the record stands in when
+ * the provider reports none; an unknown window is refused), and vision when the role needs it.
  */
 export function agentRefusal(role: RoleDef, agent: AgentDef, channels: ChannelDef[]): string | null {
   const kind = role.kind ?? "agent";
@@ -40,9 +40,14 @@ export function agentRefusal(role: RoleDef, agent: AgentDef, channels: ChannelDe
   const p = capsOf(agent, channels);
   const q = p.caps.qualified?.[kind];
   if (q?.passed !== true) return q?.passed === false ? `failed ${kind} qualification` : `not qualified as ${kind} (run Qualify)`;
-  if (p.contextTokens !== undefined && p.contextTokens < needs.minContext) return `context window ${p.contextTokens} < ${needs.minContext}`;
-  if (needs.vision && p.caps.vision !== true) return "role needs vision";
-  return null;
+  if (q.version < QUAL_MIN_VERSION) return "qualification out of date (run Qualify)";
+  return contextRefusal(needs.minContext, p.contextTokens ?? q.context) ?? (needs.vision && p.caps.vision !== true ? "role needs vision" : null);
+}
+
+function contextRefusal(minContext: number, window: number | undefined): string | null {
+  if (minContext <= 0) return null;
+  if (window === undefined) return "context window unknown (run Qualify)";
+  return window < minContext ? `context window ${window} < ${minContext}` : null;
 }
 
 /** Eligible agents for a role in chain order (see `agentRefusal`); refused agents are never run. */

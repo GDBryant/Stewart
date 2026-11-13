@@ -9,6 +9,8 @@ export interface ChatItem {
   images?: string[];
   /** Collapsed activity rows: tool calls, tasks, approvals. */
   activity: { kind: string; text: string }[];
+  /** Show a "Revert this turn" action (failed run with a turn baseline). */
+  revertTurn?: boolean;
 }
 
 export const MAX_PENDING_IMAGES = 5;

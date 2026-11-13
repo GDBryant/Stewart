@@ -1,78 +1,63 @@
-import path from "node:path";
-import type { ChatMessage, HostPort } from "@stewart/kernel";
-import type { RunEvent } from "@stewart/protocol";
+import type { ChatMessage } from "@stewart/kernel";
 import type { WriteRecord } from "@stewart/engines";
-import type { CheckInput, CheckResult } from "@stewart/tasks";
-import type { DeclaredCheck } from "./sessionTools.js";
+import type { Baseline, CheckResult } from "@stewart/tasks";
 import type { Tried } from "./handover.js";
+
+/** One contract command: argv run at verify time; `approved` commands skip the permission gate. */
+export interface ContractCommand {
+  argv: string[];
+  approved: boolean;
+  /** Run only when the task changed files (diff non-empty or unknown). */
+  whenChanged?: boolean;
+}
+
+/** The explicit verify contract of a task: commands that must exit 0 and files that must exist. */
+export interface Contract {
+  commands: ContractCommand[];
+  files: string[];
+}
 
 export type FinishReason = "stop" | "turn_limit" | "cancelled" | "loop_guard" | "error" | "";
 
-/** Mutable state of one lead turn, shared with its children. */
+/** Run-wide mutable state shared by the lead turn and its children (cost, cancellation, event ordering). */
 export interface RunState {
   controller: AbortController;
   seq: number;
-  writes: WriteRecord[];
   accrued: number;
-  reason: FinishReason;
-  error?: string;
   costCapped: boolean;
-  tried: Tried[];
-  /** File content before its first write this turn (null = absent), keyed by project-relative path. */
-  before: Record<string, string | null>;
-  /** The lead's `set_check` declaration. */
-  declared: { value?: DeclaredCheck };
-  /** The turn's user request, for report/edit detection. */
-  goal: string;
-  /** Successful read/search tool calls this turn (a "no findings" report must have looked). */
-  reads: number;
-  /** Last check result and the write count it saw, reused by `finish` when nothing changed since. */
-  lastCheck?: { res: CheckResult; writes: number; declared?: DeclaredCheck };
 }
 
-export function newRunState(goal: string): RunState {
-  return { controller: new AbortController(), seq: 0, writes: [], accrued: 0, reason: "", costCapped: false, tried: [], before: {}, declared: {}, goal, reads: 0 };
+/** Per-task facts one runTask accumulates (the lead turn is one task; each delegated child is another). */
+export interface TaskState {
+  writes: WriteRecord[];
+  tried: Tried[];
+  reads: number;
+  reason: FinishReason;
+  error?: string;
+}
+
+/** Repairs a transcript interrupted mid tool batch: unanswered calls of the last open batch get a tool message each. */
+export function closeOpenCalls(transcript: ChatMessage[]): void {
+  const tail = transcript[transcript.length - 1];
+  if (!tail || tail.role === "user" || (tail.role === "assistant" && !tail.toolCalls?.length)) return;
+  const ai = transcript.map((m, i) => (m.role === "assistant" && m.toolCalls?.length ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+  if (ai < 0) return;
+  const answered = new Set(transcript.slice(ai + 1).filter((m) => m.role === "tool").map((m) => m.toolCallId));
+  for (const c of (transcript[ai] as { toolCalls: { id: string }[] }).toolCalls) {
+    if (!answered.has(c.id)) transcript.push({ role: "tool", toolCallId: c.id, content: "Interrupted: the session ended before this call finished" });
+  }
+}
+
+export function newRunState(): RunState {
+  return { controller: new AbortController(), seq: 0, accrued: 0, costCapped: false };
+}
+
+export function newTaskState(): TaskState {
+  return { writes: [], tried: [], reads: 0, reason: "" };
 }
 
 export function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/** Project-relative, forward-slash form of a tool path (engines report absolute CLI paths relative). */
-export function relPath(cwd: string, p: string): string {
-  const rel = path.isAbsolute(p) ? path.relative(cwd, p) : p;
-  return rel.replace(/\\/g, "/").replace(/^\.\//, "") || ".";
-}
-
-const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "Write", "Edit", "MultiEdit", "NotebookEdit"]);
-const PATH_KEYS = ["path", "file_path", "notebook_path"];
-
-/** The project-relative path a write tool call targets, or undefined for non-write tools. */
-export function writeTarget(cwd: string, tool: string, args: unknown): string | undefined {
-  if (!WRITE_TOOLS.has(tool)) return undefined;
-  const a = (args ?? {}) as Record<string, unknown>;
-  const key = PATH_KEYS.find((k) => typeof a[k] === "string");
-  return key ? relPath(cwd, a[key] as string) : undefined;
-}
-
-export interface SnapTarget {
-  host: Pick<HostPort, "files">;
-  cwd: string;
-  before: Record<string, string | null>;
-  /** Also told about every first write (plan checkpoints keep pre-write content). */
-  onFirst?: (path: string, content: string | null) => void | Promise<void>;
-}
-
-/** Remember a file's content before the first write to it (best effort; unreadable = no snapshot). */
-export async function snapshotBefore(t: SnapTarget, tool: string, args: unknown): Promise<void> {
-  const p = writeTarget(t.cwd, tool, args);
-  if (p === undefined || p in t.before) return;
-  try {
-    t.before[p] = (await t.host.files.exists(p)) ? (await t.host.files.read(p)).content : null;
-    await t.onFirst?.(p, t.before[p]);
-  } catch {
-    /* no snapshot: the changed-content check skips this path */
-  }
 }
 
 const READ_TOOLS = new Set(["delegate", "ReadFile", "ListCodeFiles", "FindFiles", "Search", "GetDiff", "CodeMetrics", "GetProblems", "Read", "Grep", "Glob", "LS"]);
@@ -90,25 +75,24 @@ export function lastUserText(transcript: ChatMessage[]): string {
   return "";
 }
 
-/** The turn's reply (last assistant text after the last user message) and its write facts. */
-export function checkInput(transcript: ChatMessage[], rs: RunState): CheckInput {
-  let reply = "";
+/** The task's reply: last non-empty assistant text after the last user message. */
+export function lastReply(transcript: ChatMessage[]): string {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const m = transcript[i];
-    if (m.role === "assistant" && m.content.trim()) {
-      reply = m.content;
-      break;
-    }
+    if (m.role === "assistant" && m.content.trim()) return m.content;
     if (m.role === "user") break;
   }
-  const changed = [...new Set(rs.writes.filter((w) => w.ok).map((w) => w.path))];
-  return { reply, writes: rs.writes, changed, before: rs.before, reads: rs.reads };
+  return "";
 }
 
-export function finishedEvent(runId: string, rs: RunState, res: CheckResult): RunEvent {
-  if (rs.costCapped) return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: "cost cap reached" };
-  if (rs.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
-  if (rs.reason === "stop" && res.passed) return { kind: "run.finished", runId, roleId: "lead", status: "done" };
-  const error = rs.error ?? (res.passed ? rs.reason || "failed" : res.evidence.join("; "));
-  return { kind: "run.finished", runId, roleId: "lead", status: "failed", error };
+export type RunOutcome = { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: "unavailable"; trackingReason?: string };
+
+/** How the finished run changed files and how that was verified, from the contract and last check. */
+export function runOutcome(contract: Contract, res: CheckResult | undefined, changed: string[] | undefined, baseline: Baseline): RunOutcome {
+  const out: RunOutcome = { changed: changed ?? [], verified: "none" };
+  if (baseline.kind === "unavailable") return { ...out, tracking: "unavailable", trackingReason: baseline.reason };
+  const ran = res?.evidence.some((e) => e.code === "command_ok" || e.code === "command_failed" || e.code === "command_timeout");
+  if (res?.passed && ran) return { ...out, verified: "command", command: contract.commands.map((c) => c.argv.join(" ")).join("; ") };
+  if (res?.passed && !ran && contract.files.length) return { ...out, verified: "files" };
+  return out;
 }

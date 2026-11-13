@@ -6,8 +6,6 @@ import type { EngineTurn } from "./types.js";
 
 export const FILE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const RESULT_CAP = 2000;
-const RECAP_MSGS = 6;
-const RECAP_CAP = 4000;
 
 export type Obj = Record<string, unknown>;
 export const obj = (v: unknown): Obj | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : undefined);
@@ -27,6 +25,7 @@ export function claudeArgv(turn: EngineTurn, resume: string | undefined): string
     "--model", normalizeModel(turn.agent.model),
   ];
   if (resume) a.push("--resume", resume);
+  a.push("--setting-sources", (turn.channel.cfg.settingSources as string | undefined) ?? "");
   if (turn.system.trim()) a.push("--append-system-prompt", turn.system);
   if (turn.maxTurns > 0 && turn.maxTurns < 1_000_000) a.push("--max-turns", String(turn.maxTurns));
   return a;
@@ -88,8 +87,32 @@ export function resultText(block: Obj): string {
   return raw.length > RESULT_CAP ? `${raw.slice(0, RESULT_CAP)}…` : raw;
 }
 
-/** A short text-only recap of the last transcript messages, for the fresh retry after a stale --resume. */
-export function recapPrefix(transcript: ChatMessage[]): string {
-  const texts = transcript.slice(-RECAP_MSGS).map((m) => `${m.role}: ${m.content}`).join("\n");
-  return texts.trim() ? `Earlier in this session:\n${texts.slice(0, RECAP_CAP)}\n\n` : "";
+const TOOL_RESULT_CAP = 300;
+const UNSEEN_CAP = 12_000;
+
+function unseenLine(m: ChatMessage): string {
+  if (m.role === "tool") return `tool: ${m.content.slice(0, TOOL_RESULT_CAP)}`;
+  const calls = m.role === "assistant" ? (m.toolCalls ?? []).map((c) => `[tool ${c.name}]`).join(" ") : "";
+  return `${m.role}: ${[m.content, calls].filter(Boolean).join(" ")}`;
+}
+
+/**
+ * Recap of transcript messages the CLI session has not seen (state.cliSeen is their count) — messages made
+ * by the other engine, handovers, or everything when compaction rewrote history. Tail-biased 12k cap.
+ */
+export function unseenPrefix(turn: EngineTurn): string {
+  // Pre-cliSeen sessions have a live CLI session that saw everything up to its last reply: treat as seen.
+  const seen = typeof turn.state.cliSeen === "number" ? turn.state.cliSeen : turn.state.cliSessionId !== undefined ? turn.transcript.length : 0;
+  const lastUser = turn.transcript.map((m, i) => (m.role === "user" ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+  const end = lastUser >= 0 ? lastUser : turn.transcript.length;
+  const unseen = seen > turn.transcript.length ? turn.transcript.slice(0, end) : turn.transcript.slice(Math.min(seen, end), end);
+  if (!unseen.length) return "";
+  const lines = unseen.map(unseenLine);
+  let text = "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const next = `${lines[i]}\n${text}`;
+    if (next.length > UNSEEN_CAP && text) break;
+    text = next;
+  }
+  return `Earlier in this conversation (not yet seen by you):\n${text}\n`;
 }

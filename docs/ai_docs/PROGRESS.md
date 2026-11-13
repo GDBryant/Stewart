@@ -26,6 +26,7 @@ v2 rebuild (now developed on `main`), per `docs/archived_v2/ARCHITECTURE.md`. On
 | 3 | Delegated roles (`explorer`/`reviewer`, `delegate`/`health_report`, cites + health-schema checks) | Done |
 | 4 | Qualification suites + model chains + escalation + loop guard | Done |
 | 5 | Long builds (`.stewart/plan.md`, milestone checks, git/snapshot checkpoints, `chat.revert`/`chat.resume`, MCP tool bridge for claude-code) | Done |
+| §9 | Design revision (2026-11-13): typed evidence + `outcome`, one change tracker (git temp-index + manifests), one `runTask` for lead/children/milestones, code-driven per-session plans, one `decide` policy + `policy_violation` backstop + FIFO child RW lock, engine `caps`/`roleId`/`complete` + context sync + `--setting-sources`, incremental persistence (step saver, interrupted-call repair) + session/tracker retention | Done (code gates pass; evals not re-run; three Claude CLI items unverified, NEW_DESIGN §9.5) |
 
 ## Notes
 - Debug logging v2 (`settings.log` calls/full): `core/src/debug/` gating + redaction, adapter hooks (Ollama, OpenAI-compatible, Claude CLI), `FileDebugSink` + retention in the sidecar, `log.dir` from JetBrains. Tests: core +19, sidecar +10. See `docs/ai_docs/DEBUG_LOGGING.md`.

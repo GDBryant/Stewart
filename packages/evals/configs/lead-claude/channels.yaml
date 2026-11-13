@@ -1,14 +1,6 @@
 version: 1
 items:
-  - id: Claude
-    type: claude-cli
-    name: Claude
-    enabled: true
-    modelCaps:
-      sonnet:
-        qualified:
-          agent:
-            passed: true
-            at: 1762950000000
-            version: 1
-            detail: claude-code engine
+- id: Claude
+  type: claude-cli
+  name: Claude
+  enabled: true

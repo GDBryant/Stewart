@@ -200,6 +200,36 @@ describe("webview chat", () => {
     expect(screen.getByText("boom")).toBeTruthy();
   });
 
+  it("shows one short run-status line from run.finished's outcome", () => {
+    const cases = [
+      [{ changed: [], verified: "none" }, "No files changed"],
+      [{ changed: ["a.ts"], verified: "none" }, "Changed 1 file, not verified"],
+      [{ changed: ["a.ts", "b.ts"], verified: "command", command: "pnpm test" }, "Changed 2 files; verified: pnpm test"],
+      [{ changed: ["a.ts"], verified: "files" }, "Changed 1 file; required files present"],
+      [{ changed: [], verified: "none", tracking: "unavailable", trackingReason: "more than 2000 files" }, "File changes not tracked: more than 2000 files"],
+    ] as const;
+    for (const [outcome, text] of cases) {
+      const { bridge } = mk();
+      act(() => {
+        bridge.inbound(ev("run.started", { title: "x" }));
+        bridge.inbound(ev("run.finished", { status: "done", outcome }));
+      });
+      expect(screen.getByText(text)).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("offers Revert this turn on a failed run's outcome line", () => {
+    const { bridge, store } = mk();
+    act(() => store.send("go"));
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("run.finished", { status: "failed", error: "nope", outcome: { changed: ["a.ts"], verified: "none" } }));
+    });
+    fireEvent.click(screen.getByText("Revert this turn"));
+    expect(bridge.sent).toContainEqual({ type: "chat.revert", sessionId: expect.any(String), checkpoint: "turn" });
+  });
+
   it("shows a system line when a run is reverted", () => {
     const { bridge } = mk();
     act(() => {
@@ -398,8 +428,8 @@ describe("webview settings", () => {
     files: { "channels.yaml": "version: 1\nitems: []\n" },
     summary: {
       channels: [
-        { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x", modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
-        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 1 } } } } },
+        { id: "c1", type: "ollama", enabled: true, baseUrl: "http://x", modelCaps: { m: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+        { id: "c2", type: "openai-compatible", enabled: true, baseUrl: "http://y", modelCaps: { v: { vision: true, qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
       ],
       agents: [
         { id: "a1", channel: "c1", model: "m", effort: "medium" },

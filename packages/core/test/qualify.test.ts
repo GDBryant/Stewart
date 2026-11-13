@@ -13,7 +13,7 @@ function memStore(layer: ConfigLayer = {}): ConfigStore {
 }
 
 const defaults = {
-  "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n",
+  "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps: { m1: { contextTokens: 40000 } }\n",
   "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
 };
 
@@ -41,7 +41,8 @@ describe("setup.qualify", () => {
     expect(res.function?.passed).toBe(true);
     expect(layer["channels.yaml"]).toContain("qualified:");
     expect(layer["channels.yaml"]).toContain("agent:");
-    expect(layer["channels.yaml"]).toContain("version: 1");
+    expect(layer["channels.yaml"]).toContain("version: 2");
+    expect(layer["channels.yaml"]).toContain("context: 40000");
     const ctx = core.ctx("p");
     expect(ctx.config.channels[0].modelCaps.m1?.qualified?.agent?.passed).toBe(true);
     expect(ctx.config.channels[0].modelCaps.m1?.qualified?.function?.passed).toBe(true);

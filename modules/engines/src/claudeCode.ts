@@ -1,18 +1,14 @@
 import type { ToolCall } from "@stewart/kernel";
 import { categoryOf } from "@stewart/permissions";
-import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnFn } from "@stewart/channels";
-import type { Engine, EngineEvent, EngineTurn } from "./types.js";
+import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
+import type { ClaudeCodeDeps, Engine, EngineEvent, EngineTurn } from "./types.js";
 import { mcpConfigArg, startMcp, type McpHandle } from "./mcp.js";
 import { LoopGuard } from "./loopGuard.js";
+import { claudeComplete } from "./claudeComplete.js";
 import {
   arr, claudeArgv, controlError, controlResponse, FILE_TOOLS, interruptLine, num, obj, previewFor,
-  recapPrefix, relPath, resultText, str, userLine, type Obj,
+  relPath, resultText, str, unseenPrefix, userLine, type Obj,
 } from "./claudeLines.js";
-
-export interface ClaudeCodeDeps {
-  spawn?: SpawnFn;
-  env?: Record<string, string | undefined>;
-}
 
 interface Attempt {
   turn: EngineTurn;
@@ -108,7 +104,7 @@ async function answerControl(a: Attempt, j: Obj): Promise<void> {
     const name = str(req.tool_name) ?? "unknown";
     const input = obj(req.input) ?? {};
     const call: ToolCall = { id: str(req.tool_use_id) ?? "", name, arguments: input };
-    const d = await a.turn.approve(call, previewFor(name, input, a.turn.cwd), { roleId: "lead" });
+    const d = await a.turn.approve(call, previewFor(name, input, a.turn.cwd), { roleId: a.turn.roleId });
     const response = d.kind === "approved" ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: d.reason };
     a.proc.write?.(controlResponse(id, response) + "\n");
     return;
@@ -266,21 +262,27 @@ async function* runClaude(turn: EngineTurn, deps: ClaudeCodeDeps): AsyncGenerato
     yield { kind: "finished", reason: "cancelled" };
     return;
   }
-  let prefix = "";
+  let prefix = unseenPrefix(turn);
   for (let attempt = 0; attempt < 2; attempt++) {
     const a = yield* driveAttempt(runAttempt(turn, deps, prefix));
-    if (!a) return;
+    if (!a) break;
     const post = await postAttempt(a);
     if (!post.retry || attempt === 1) {
       if (post.ev) yield post.ev;
-      return;
+      break;
     }
     delete turn.state.cliSessionId;
-    prefix = recapPrefix(turn.transcript);
+    prefix = unseenPrefix(turn);
   }
+  turn.state.cliSeen = turn.transcript.length;
 }
 
 /** The Claude Code CLI as a full agent: its own tools, Stewart supervising permissions and file changes. */
 export function claudeCodeEngine(deps: ClaudeCodeDeps = {}): Engine {
-  return { id: "claude-code", run: (turn) => runClaude(turn, deps) };
+  return {
+    id: "claude-code",
+    caps: { ownTools: true, ownContext: true },
+    run: (turn) => runClaude(turn, deps),
+    complete: (req) => claudeComplete(req, deps),
+  };
 }
