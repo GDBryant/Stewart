@@ -1,6 +1,6 @@
 # Stewart — New Design (2026-11-12)
 
-Status: **accepted; steps 0–6 built as v3.0.0; §8 gaps, the 2026-11-13 audit findings (§8.4) and the remaining deviations (§8.5) are fixed; evals re-run 2026-11-13 at 15/15 on three configs (EVALS.md). Open: no local model qualifies as an agent, ACP not built, design revision §9 built 2026-11-13 (code gates pass; evals not re-run; three Claude CLI items unverified, §9.5)**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
+Status: **accepted; steps 0–6 built as v3.0.0; §8 gaps, the 2026-11-13 audit findings (§8.4) and the remaining deviations (§8.5) are fixed; evals re-run 2026-11-13 at 15/15 on three configs (EVALS.md). Open: no local model qualifies as an agent, ACP not built, design revision §9 built 2026-11-13 (code gates pass; evals not re-run)**. Replaces the run/orchestration design in `docs/ai_docs/ARCHITECTURE_NOW.md`. Decisions taken with the user on 2026-11-12: all four kinds of work matter (code changes, reviews/reports, questions, long builds); cheap model first with automatic escalation; Claude Code CLI runs as a full agent; clean rewrite of the core.
 
 ## 1. What the logs show
 
@@ -217,9 +217,9 @@ Findings from the run:
 - The step 4 gate ("tasks started on a local model finish, by themselves or after escalation") cannot be exercised: no local model may start a task. Escalation is covered by unit tests only.
 - `claude-cli` agents cannot qualify for `kind: function` roles: the function suite uses `channel.chat`, which the Claude adapter does not serve.
 
-Still open: ACP (§8.1 #11), the two decisions amended in §5, and the three unverified Claude CLI items in §9.5.
+Still open: ACP (§8.1 #11) and the two decisions amended in §5.
 
-## 9. Design revision (2026-11-13) — built 2026-11-13 (code gates pass; evals not re-run; three Claude CLI items unverified, §9.5)
+## 9. Design revision (2026-11-13) — built 2026-11-13 (code gates pass; evals not re-run)
 
 A read of the v3.0.0 code for parts that work by guessing, by duplication or by convention. §3–§6 stay; this section tightens them.
 
@@ -290,5 +290,5 @@ Code gates after every step; evals after steps 3 and 6.
 ### 9.5 To verify before building
 
 - Claude CLI flags for settings isolation: **verified 2026-11-13, CLI 2.1.323** — `--setting-sources ""` (no user/project/local settings → no pre-approval without `can_use_tool`), `--json-schema`, `--tools ""` are all accepted (the CLI parsed them and reached the API).
-- NOT verified (every API call from the build machine returned `403 Cloudflare`, with and without the flag): auth under `--setting-sources ""`, `can_use_tool` arriving for Edit under it, and the `--json-schema` success envelope shape (`complete` reads `structured_output`, else `result` text). Check with one real `claude-code` turn and one real function qualification before release.
+- **Verified 2026-11-13, CLI 2.1.323** (real calls once the API was reachable): auth works under `--setting-sources ""`; the `--json-schema` success envelope carries `structured_output` (real capture: `claude-complete-success.json`, `is_error: false`, `{"sum":42,"word":"trewts"}`); a `can_use_tool` reaches `approve` for the Edit (`preview {kind:"file", path:"notes/todo.txt"}`) and still does with a project `.claude/settings.json` allowing `Edit/Write/Bash` — project settings are not loaded under the empty flag. 
 - Cost of `git add -A` into a kept temp index on a large repository, per turn: not measured.

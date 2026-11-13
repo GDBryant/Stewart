@@ -15,7 +15,7 @@ v2 rebuild (now developed on `main`), per `docs/archived_v2/ARCHITECTURE.md`. On
 | 8 | Images, memory, editor actions, diagnostics, history, v1 import | Done |
 | 9 | Packaging: VSIX + per-OS JetBrains zips, signing, releases | Done |
 
-## v3 rebuild (`rebuild-v3`, per `docs/NEW_DESIGN_2026-11-12.md`)
+## v3 rebuild (`rebuild-v3`, per `docs/NEW_DESIGN_2026-11-13.md`)
 
 | Step | Scope | Status |
 |---|---|---|

@@ -60,11 +60,14 @@ describe("claudeCode.complete", () => {
     expect(a[a.indexOf("--setting-sources") + 1]).toBe("");
   });
 
-  it("parses structured_output from the (synthesized) success envelope", async () => {
-    const { spawn } = fakeProc([await fixture("claude-complete.synthesized.json")]);
+  it("parses structured_output from the success envelope (real capture)", async () => {
+    const { spawn } = fakeProc([await fixture("claude-complete-success.json")]);
     const res = await claudeCodeEngine({ spawn }).complete(req());
-    expect(res).toMatchObject({ ok: true, value: { sum: 42, word: "trawets" }, costUsd: 0.012 });
-    if (res.ok) expect(res.usage).toEqual({ in: 512, out: 24 });
+    expect(res).toMatchObject({ ok: true, value: { sum: 42, word: "trewts" } });
+    if (res.ok) {
+      expect(res.costUsd).toBeCloseTo(7.741e-5, 8);
+      expect(res.usage).toEqual({ in: 3973, out: 75 });
+    }
   });
 
   it("fails with the result text on the real captured error envelope", async () => {

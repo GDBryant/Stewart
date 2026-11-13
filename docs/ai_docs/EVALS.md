@@ -1,6 +1,6 @@
 # Evals
 
-Outcome eval suite (`docs/NEW_DESIGN_2026-11-12.md` §6 step 0). Each build step ends with a run and its pass rate recorded here.
+Outcome eval suite (`docs/NEW_DESIGN_2026-11-13.md` §6 step 0). Each build step ends with a run and its pass rate recorded here.
 
 ## Suite
 
