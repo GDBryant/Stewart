@@ -120,6 +120,45 @@ describe("recommendAssignments", () => {
   });
 });
 
+describe("recommendAssignments excludeChannels", () => {
+  it("leaves an excluded channel out of discovery, candidates and the researcher pick", async () => {
+    const seen: string[] = [];
+    // c1 is the excluded channel: any list/chat call on it would show up in `seen`
+    // and its poison answer would put an assignment on c1.
+    const poison: RecommendChannel = {
+      listModels: async () => {
+        seen.push("list:c1");
+        return ["m1", "m2"];
+      },
+      chat: async function* () {
+        seen.push("chat:c1");
+        yield { kind: "text", text: JSON.stringify({ assignments: [{ role: "general-worker", channel: "c1", model: "m1" }] }) } as ChatEvent;
+        yield { kind: "done" } as ChatEvent;
+      },
+    };
+    const c2Answer = JSON.stringify({ assignments: [{ role: "general-worker", channel: "c2", model: "m1" }] });
+    const r = await recommendAssignments(cfg(), managed({ c1: poison, c2: mc(["m1", "m2"], c2Answer) }), {
+      excludeChannels: ["c1"],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(seen).toEqual([]); // the excluded channel was never consulted
+      expect(r.channels.map((c) => c.id)).toEqual(["c2"]);
+      expect(r.researcher).toEqual({ channel: "c2", model: "m1" });
+      expect(r.assignments.every((a) => a.channel !== "c1")).toBe(true);
+    }
+  });
+
+  it("excludes every channel when all are unticked", async () => {
+    const r = await recommendAssignments(cfg(), managed({ c1: mc(["m1"]), c2: mc(["m1"]) }), {
+      mode: "rules",
+      excludeChannels: ["c1", "c2"],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("no models discovered");
+  });
+});
+
 describe("recommendAssignments eligible filtering", () => {
   it("restricts candidates to the eligible set and reports an error when none pass", async () => {
     const r = await recommendAssignments(cfg(), managed({ c1: mc(["m1", "m2"]) }), {

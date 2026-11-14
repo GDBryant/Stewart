@@ -23,13 +23,22 @@ function useWizardInputs({ store, channels, agents }: SetupWizardProps) {
   const [chainEdits, setChainEdits] = useState<Record<string, string[]>>({});
   const [source, setSource] = useState<"existing" | "new">(channels.length > 0 ? "existing" : "new");
   const [evalChannel, setEvalChannel] = useState("");
+  // Unticked existing channels; empty by default = every channel included.
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const toggleChannel = (id: string) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const channelForm = useWizardChannelForm({ store, channels });
   const prefs = useWizardPreferences(store);
-  const derived = useWizardDerived({ store, channels, agents, source, added: channelForm.added, evalChannel, evaluator });
-  useWizardProbes({ store, step, enabled: derived.enabled, tests: derived.tests, probeSig: derived.probeSig, pairs: derived.pairs, evalSel: derived.evalSel });
+  const derived = useWizardDerived({ store, channels, agents, source, added: channelForm.added, evalChannel, evaluator, excluded });
+  useWizardProbes({ store, step, enabled: derived.enabled, tests: derived.tests, probeSig: derived.probeSig, pairs: derived.pairs, evalSel: derived.evalSel, excluded });
   return {
     step, setStep, evalMode, setEvalMode, evaluator, setEvaluator, bench, setBench,
-    edits, setEdits, chainEdits, setChainEdits, source, setSource, evalChannel, setEvalChannel, ...channelForm, ...prefs, ...derived,
+    edits, setEdits, chainEdits, setChainEdits, source, setSource, evalChannel, setEvalChannel, excluded, toggleChannel, ...channelForm, ...prefs, ...derived,
   };
 }
 
@@ -50,7 +59,7 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
   const row = (role: string) => rowRef(rec, m.edits, role);
   const buildProposal = () => {
     m.setEdits({});
-    store.recommend(recommendArgs({ evalMode: m.evalMode, evaluator: m.evaluator, evalSel: m.evalSel, eligiblePairs: m.eligiblePairs, priorities: m.priorities, typicalWork: m.typicalWork, bench: m.bench }));
+    store.recommend(recommendArgs({ evalMode: m.evalMode, evaluator: m.evaluator, evalSel: m.evalSel, eligiblePairs: m.eligiblePairs, priorities: m.priorities, typicalWork: m.typicalWork, bench: m.bench, excluded: m.excluded }));
     m.setStep(4);
   };
   const chainFor = (role: string): string[] => {

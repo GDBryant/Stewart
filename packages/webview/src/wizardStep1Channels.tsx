@@ -21,6 +21,10 @@ export interface ChannelsStepProps {
   /** Why the last add-channel request failed (cleared when the next starts). */
   addError?: string;
   statusChannels: ChannelSummary[];
+  /** Channels unticked on this step (existing source only); undefined elsewhere. */
+  excluded?: Set<string>;
+  /** Fires the checkbox toggle; required whenever `excluded` is given. */
+  onToggleChannel?(id: string): void;
   tests: State["channelTest"];
   evalChannels: ChannelSummary[];
   evalChan: string;
@@ -55,7 +59,7 @@ function SourceToggle({ source, onSource }: { source: "existing" | "new"; onSour
 }
 
 export function ChannelsStep(props: ChannelsStepProps) {
-  const { store, hasChannels, source, onSource, statusChannels, tests, addError, nextDisabled, onBack, onNext, onAddChannel } = props;
+  const { store, hasChannels, source, onSource, statusChannels, excluded, onToggleChannel, tests, addError, nextDisabled, onBack, onNext, onAddChannel } = props;
   const { adding, startAdd } = useAddingChannel(statusChannels, addError);
   const newChannel = {
     preset: props.preset, chId: props.chId, baseUrl: props.baseUrl, apiKey: props.apiKey, error: addError,
@@ -73,7 +77,14 @@ export function ChannelsStep(props: ChannelsStepProps) {
         <NewChannelForm {...newChannel} adding={adding} onAddChannel={() => { startAdd(props.chId); onAddChannel(); }} />
       ) : null}
       {statusChannels.map((c) => (
-        <ChannelStatusRow key={c.id} channel={c} test={tests[c.id]} onRetest={() => store.testChannel(c.id)} />
+        <ChannelStatusRow
+          key={c.id}
+          channel={c}
+          test={tests[c.id]}
+          include={excluded ? !excluded.has(c.id) : undefined}
+          onToggleInclude={excluded ? () => onToggleChannel?.(c.id) : undefined}
+          onRetest={() => store.testChannel(c.id)}
+        />
       ))}
       {props.evalChannels.length ? <EvaluatorPicker {...evaluator} /> : null}
       <div class="row">

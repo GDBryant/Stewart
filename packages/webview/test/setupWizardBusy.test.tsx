@@ -3,6 +3,7 @@ import { cleanup, render, screen, fireEvent, act } from "@testing-library/preact
 import { BusyNote } from "../src/Busy.js";
 import { DoneStep, ReviewStep } from "../src/SetupWizardResult.js";
 import { ChannelsStep, DiscoverStep, EvaluatorStep } from "../src/SetupWizardSteps.js";
+import type { ChannelsStepProps } from "../src/wizardStep1Channels.js";
 import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
 import { MockBridge, type ConfigReply, type SetupProbeSnapshot } from "../src/bridge.js";
@@ -269,6 +270,8 @@ describe("ChannelStatusRow retest latch", () => {
     onApiKey: noop,
     onAddChannel: noop,
     statusChannels: statusChannels as never,
+    excluded: new Set<string>(),
+    onToggleChannel: noop,
     tests: tests as never,
     evalChannels: [],
     evalChan: "",
@@ -341,5 +344,56 @@ describe("Add channel latch", () => {
     const again = screen.getByText("Add this channel") as HTMLButtonElement;
     expect(again.disabled).toBe(false);
     expect(again.getAttribute("aria-busy")).toBeNull();
+  });
+});
+
+describe("ChannelsStep include checkboxes", () => {
+  const checkbox = (id: string) => screen.getByRole("checkbox", { name: `include ${id}` }) as HTMLInputElement;
+  const base = (tests: Record<string, unknown>, over: Partial<ChannelsStepProps> = {}) => ({
+    store: { testChannel: noop } as never,
+    hasChannels: true,
+    source: "existing" as const,
+    onSource: noop,
+    preset: { label: "Ollama", help: "", type: "ollama", needsKey: false } as never,
+    chId: "",
+    baseUrl: "",
+    apiKey: "",
+    onPickPreset: noop,
+    onChId: noop,
+    onBaseUrl: noop,
+    onApiKey: noop,
+    onAddChannel: noop,
+    statusChannels: [{ id: "c1", type: "ollama", enabled: true }] as never,
+    tests: tests as never,
+    evalChannels: [],
+    evalChan: "",
+    evalChanObj: undefined,
+    evalAgents: [],
+    evalOptions: [],
+    evalSel: "",
+    onEvalChannel: noop,
+    onEvaluator: noop,
+    nextDisabled: false,
+    onBack: noop,
+    onNext: noop,
+    ...over,
+  });
+
+  it("renders each existing channel with a ticked checkbox and un-ticking fires toggleChannel", () => {
+    const onToggleChannel = vi.fn();
+    render(<ChannelsStep {...base({ c1: { ok: true, models: ["m"] } }, { excluded: new Set<string>(), onToggleChannel })} />);
+    const box = checkbox("c1");
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(onToggleChannel).toHaveBeenCalledWith("c1");
+  });
+
+  it("an excluded channel renders un-ticked and drops out of the offered channels", () => {
+    const { rerender } = render(
+      <ChannelsStep {...base({ c1: { ok: true, models: ["m"] } }, { excluded: new Set<string>(), onToggleChannel: noop })} />,
+    );
+    expect((checkbox("c1") as HTMLInputElement).checked).toBe(true);
+    rerender(<ChannelsStep {...base({ c1: { ok: true, models: ["m"] } }, { excluded: new Set(["c1"]), onToggleChannel: noop })} />);
+    expect((checkbox("c1") as HTMLInputElement).checked).toBe(false);
   });
 });

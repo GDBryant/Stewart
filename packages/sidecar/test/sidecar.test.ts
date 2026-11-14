@@ -253,6 +253,27 @@ describe("remoteHost", () => {
     expect(lines().at(-1)).toMatchObject({ method: "log", params: { line: "hello" } });
   });
 
+  it("sends files.edit params as the edit object itself (no wrapper)", async () => {
+    const { link, lines } = pair();
+    const host = remoteHost(link);
+    const edit = { path: "build.gradle.kts", edits: [{ oldText: "3.0.1", newText: "3.0.2" }] };
+    const p = host.files.edit(edit);
+    const req = lines().find((l) => l.method === "host.files.edit");
+    expect(req).toMatchObject({ params: edit });
+    link.feed(`${JSON.stringify({ id: req!.id, result: { applied: true } })}\n`);
+    expect(await p).toEqual({ applied: true });
+  });
+
+  it("propagates a host error from files.edit", async () => {
+    const { link, lines } = pair();
+    const host = remoteHost(link);
+    const p = host.files.edit({ path: "x.txt" });
+    const req = lines().find((l) => l.method === "host.files.edit");
+    link.feed(`${JSON.stringify({ id: req!.id, error: { message: "files.edit: anchor not found" } })}\n`);
+    await expect(p).rejects.toThrow("files.edit: anchor not found");
+  });
+
+
   it("streams process output and resolves done on exit", async () => {
     const { link, lines } = pair();
     const host = remoteHost(link);

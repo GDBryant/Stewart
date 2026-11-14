@@ -13,7 +13,7 @@ export function remoteHost(link: RpcLink): HostPort {
     },
     files: {
       read: (path) => call("files.read", { path }),
-      edit: (edit) => call("files.edit", { edit }),
+      edit: (edit) => call("files.edit", edit),
       readBack: (path) => call("files.readBack", { path }),
       exists: (path) => call("files.exists", { path }),
       list: (dir) => call("files.list", { dir }),

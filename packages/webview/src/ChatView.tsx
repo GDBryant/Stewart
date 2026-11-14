@@ -161,14 +161,13 @@ function QuestionCard({ q, onAnswer }: { q: { questionId: string; question: stri
             </button>
           ))}
         </div>
-      ) : (
-        <div class="row">
-          <input value={free} onInput={(e) => setFree((e.target as HTMLInputElement).value)} />
-          <button disabled={!free.trim()} onClick={() => onAnswer(free)}>
-            Reply
-          </button>
-        </div>
-      )}
+      ) : null}
+      <div class="row">
+        <input value={free} onInput={(e) => setFree((e.target as HTMLInputElement).value)} />
+        <button disabled={!free.trim()} onClick={() => onAnswer(free)}>
+          Reply
+        </button>
+      </div>
     </div>
   );
 }

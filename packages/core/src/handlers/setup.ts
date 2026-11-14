@@ -197,6 +197,8 @@ type SetupRecommendParams = {
   evaluatorAny?: boolean;
   context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string };
   bench?: boolean;
+  /** Channels unticked in the wizard: excluded from this setup run (bench, discovery, assignment). */
+  excludeChannels?: string[];
 };
 
 const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
@@ -204,15 +206,20 @@ const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
 export async function handleSetupRecommend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as SetupRecommendParams;
   const ctx = core.ctx(p.projectId);
-  if (p.bench) await benchCandidates(core, ctx, p.projectId);
+  const exclude = new Set(p.excludeChannels ?? []);
+  if (p.bench) await benchCandidates(core, ctx, p.projectId, exclude);
   await persistSetupPreferences(core, p);
   const context = await buildRecommendContext(core, ctx, p);
-  const { eligible, evaluator, evaluatorAny } = recommendSelection(core, p);
+  const { eligible, evaluator, evaluatorAny } = recommendSelection(core, p, exclude);
+  if (p.evaluator && exclude.has(p.evaluator.channel)) {
+    return { ok: false as const, error: `evaluator channel is excluded from this setup run: ${p.evaluator.channel}` };
+  }
   return recommendAssignments(ctx.config, core.channelService, {
     mode: p.mode,
     evaluator,
     eligible,
     evaluatorAny,
+    excludeChannels: [...exclude],
     context,
     priceFor: async (channelId, model) => {
       const ch = core.channelService.get(channelId);
@@ -221,8 +228,8 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
   });
 }
 
-async function benchCandidates(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<void> {
-  for (const c of ctx.config.channels.filter((c) => c.enabled)) {
+async function benchCandidates(core: CoreCtx, ctx: ProjectCtx, projectId: string, exclude: Set<string>): Promise<void> {
+  for (const c of ctx.config.channels.filter((c) => c.enabled && !exclude.has(c.id))) {
     const ch = core.channelService.get(c.id);
     if (!ch) continue;
     let models: string[] = [];
@@ -272,7 +279,7 @@ async function buildRecommendContext(core: CoreCtx, ctx: ProjectCtx, p: SetupRec
   };
 }
 
-function recommendSelection(core: CoreCtx, p: SetupRecommendParams): {
+function recommendSelection(core: CoreCtx, p: SetupRecommendParams, exclude: Set<string>): {
   eligible?: { channel: string; model: string }[];
   evaluator?: { channel: string; model: string };
   evaluatorAny?: true;
@@ -281,6 +288,7 @@ function recommendSelection(core: CoreCtx, p: SetupRecommendParams): {
   const eligible = probe && probe.status !== "idle" ? probe.green : undefined;
   const evaluator =
     p.evaluator &&
+    !exclude.has(p.evaluator.channel) &&
     (eligible === undefined || p.evaluatorAny === true || eligible.some((g) => g.channel === p.evaluator!.channel && g.model === p.evaluator!.model))
       ? p.evaluator
       : undefined;

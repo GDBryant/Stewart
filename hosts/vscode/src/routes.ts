@@ -57,7 +57,7 @@ const ROUTES: Record<string, Handler> = {
     dispatchAndReply(
       ctx,
       "setup.recommend",
-      { projectId: PROJECT_ID, mode: m.mode, evaluator: m.evaluator, context: m.context, bench: m.bench },
+      { projectId: PROJECT_ID, mode: m.mode, evaluator: m.evaluator, context: m.context, bench: m.bench, excludeChannels: m.excludeChannels },
       { type: "setup.recommend.result" },
     ),
   "setup.session.start": setupSession,

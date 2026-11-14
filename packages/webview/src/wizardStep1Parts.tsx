@@ -58,11 +58,16 @@ export function NewChannelForm({
   );
 }
 
-export function ChannelStatusRow({ channel, test, onRetest }: { channel: ChannelSummary; test: State["channelTest"][string] | undefined; onRetest(): void }) {
+export function ChannelStatusRow({ channel, test, onRetest, include, onToggleInclude }: { channel: ChannelSummary; test: State["channelTest"][string] | undefined; onRetest(): void; include?: boolean; onToggleInclude?(): void }) {
   const [retesting, setRetesting] = useState(false);
   useEffect(() => setRetesting(false), [test]);
   return (
     <div class="summary">
+      {include !== undefined ? (
+        <label class="hint" title={include ? "Included in this setup run" : "Excluded: its models will not be discovered, probed or assigned"}>
+          <input type="checkbox" aria-label={`include ${channel.id}`} checked={include} onChange={onToggleInclude} />
+        </label>
+      ) : null}
       <ChannelDot channel={channel.id} title={`Channel colour ${channelColor(channel.id)}`} />
       <b>{channel.id}</b> ({channel.type}) {test ? (test.ok ? <span>✓ {test.models?.length ?? 0} models</span> : <span class="fail">✗ {friendlyError(channel.type, test.error)}</span>) : <span class="hint"><Spinner /> testing…</span>}
       <button

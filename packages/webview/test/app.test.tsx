@@ -95,6 +95,22 @@ describe("webview chat", () => {
     expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q1", answer: "yes" });
   });
 
+  it("lets a question with options also be answered with typed guidance", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("ask_user", { questionId: "q2", question: "All agents for this task failed. Reply with guidance to retry once more, or stop.", options: ["Stop"] }));
+    });
+    const card = screen.getByText("All agents for this task failed. Reply with guidance to retry once more, or stop.").closest(".card") as HTMLElement;
+    const reply = within(card).getByText("Reply") as HTMLButtonElement;
+    expect(reply.disabled).toBe(true);
+    fireEvent.input(within(card).getByRole("textbox"), { target: { value: "check the version property first" } });
+    expect(reply.disabled).toBe(false);
+    fireEvent.click(reply);
+    expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q2", answer: "check the version property first" });
+  });
+
+
   it("renders orchestration tasks with their live status", () => {
     const { bridge } = mk();
     act(() => {
@@ -904,7 +920,10 @@ describe("webview settings", () => {
     const agentSel = screen.getByLabelText("evaluator agent") as HTMLSelectElement;
     expect(agentSel.value).toBe("c1:m");
     expect([...agentSel.options].map((o) => o.text)).toEqual(["a1 (m)"]);
-    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    // the existing-channels list now shows one ticked include checkbox per channel
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    expect((screen.getByRole("checkbox", { name: "include c1" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "include c2" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByText("Next: discover models") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.change(chanSel, { target: { value: "c2" } });
     expect([...agentSel.options].map((o) => o.text)).toEqual(["va (v)"]);

@@ -36,6 +36,8 @@ export interface RecommendOptions {
   eligible?: { channel: string; model: string }[];
   /** Allow opts.evaluator even when it is outside `eligible`. */
   evaluatorAny?: boolean;
+  /** Channel ids left out of this setup run: not discovered, not candidates, never the researcher. */
+  excludeChannels?: string[];
 }
 
 export type RecommendResult =
@@ -64,7 +66,7 @@ export async function recommendAssignments(
   managed: { get(id: string): RecommendChannel | undefined },
   opts: RecommendOptions = {},
 ): Promise<RecommendResult> {
-  const channels = await discoverChannels(config, managed);
+  const channels = await discoverChannels(config, managed, opts.excludeChannels);
   const allModels = new Map(channels.map((c) => [c.id, new Set(c.models)]));
   if (opts.eligible) {
     const ok = new Set(opts.eligible.map((e) => `${e.channel}:${e.model}`));
@@ -111,26 +113,35 @@ async function researcherReply(managed: { get(id: string): RecommendChannel | un
   }
 }
 
+function includedChannels(config: EffectiveConfig, excludeChannels?: string[]): EffectiveConfig["channels"] {
+  const excluded = new Set(excludeChannels ?? []);
+  return config.channels.filter((c) => c.enabled && !excluded.has(c.id));
+}
+
+/** Models for one managed channel: discovered ids plus the channel's extraModels (deduped). */
+async function discoveredModels(mc: RecommendChannel, extraModels: string[] | undefined): Promise<string[]> {
+  return [...new Set([...(await mc.listModels()), ...(extraModels ?? [])])];
+}
+
+async function discoverChannel(
+  c: EffectiveConfig["channels"][number],
+  managed: { get(id: string): RecommendChannel | undefined },
+): Promise<RecommendChannelInfo> {
+  const mc = managed.get(c.id);
+  if (!mc) return { id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: "not configured" };
+  try {
+    return { id: c.id, type: c.type, models: await discoveredModels(mc, c.extraModels) };
+  } catch (e) {
+    return { id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 async function discoverChannels(
   config: EffectiveConfig,
   managed: { get(id: string): RecommendChannel | undefined },
+  excludeChannels?: string[],
 ): Promise<RecommendChannelInfo[]> {
-  const channels: RecommendChannelInfo[] = [];
-  for (const c of config.channels) {
-    if (!c.enabled) continue;
-    const mc = managed.get(c.id);
-    if (!mc) {
-      channels.push({ id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: "not configured" });
-      continue;
-    }
-    try {
-      const models = [...new Set([...(await mc.listModels()), ...(c.extraModels ?? [])])];
-      channels.push({ id: c.id, type: c.type, models });
-    } catch (e) {
-      channels.push({ id: c.id, type: c.type, models: [...(c.extraModels ?? [])], error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-  return channels;
+  return Promise.all(includedChannels(config, excludeChannels).map((c) => discoverChannel(c, managed)));
 }
 
 async function buildCandidates(config: EffectiveConfig, channels: RecommendChannelInfo[], opts: RecommendOptions): Promise<Candidate[]> {

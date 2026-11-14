@@ -21,7 +21,7 @@ export type Outbound =
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
-  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }
+  | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; excludeChannels?: string[] }
   | { type: "setup.probe.start"; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string } }
   | { type: "setup.qualify"; channel: string; model: string }
   | { type: "setup.probe.status" }

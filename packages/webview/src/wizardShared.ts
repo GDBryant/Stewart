@@ -59,11 +59,14 @@ export function recommendArgs(input: {
   priorities: WizardPriorities;
   typicalWork: string;
   bench: boolean;
+  /** Channels unticked on the channels step; empty/omitted = every channel takes part. */
+  excluded?: Set<string>;
 }): Parameters<Store["recommend"]>[0] {
   const f = input.evaluator || input.evalSel || (input.eligiblePairs[0] ? key(input.eligiblePairs[0].channel, input.eligiblePairs[0].model) : "");
   const i = f.indexOf(":");
   const ev = input.evalMode === "ai" && f ? { evaluator: { channel: f.slice(0, i), model: f.slice(i + 1) } } : {};
-  return { mode: input.evalMode, ...ev, context: { priorities: input.priorities, ...(input.typicalWork ? { typicalWork: input.typicalWork } : {}) }, bench: input.bench };
+  const exc = input.excluded && input.excluded.size ? { excludeChannels: [...input.excluded].sort() } : {};
+  return { mode: input.evalMode, ...ev, context: { priorities: input.priorities, ...(input.typicalWork ? { typicalWork: input.typicalWork } : {}) }, bench: input.bench, ...exc };
 }
 
 /** Maps raw channel-test errors to something a new user can act on. */

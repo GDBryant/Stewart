@@ -11,6 +11,8 @@ export interface WizardDerivedInput {
   added: Set<string>;
   evalChannel: string;
   evaluator: string;
+  /** Channels unticked on the channels step (existing source only): never tested, probed or offered. */
+  excluded?: Set<string>;
 }
 
 function getEvaluatorOptions(input: {
@@ -48,9 +50,13 @@ export function smokeState(smoke: State["smoke"], pairs: { channel: string; mode
 
 export function useWizardDerived(input: WizardDerivedInput) {
   const { store, channels, agents, source, added, evalChannel, evaluator } = input;
+  const excluded = input.excluded ?? new Set<string>();
   const tests = store.state.channelTest;
   const enabled = channels.filter((c) => c.enabled);
-  const okChannels = enabled.filter((c) => tests[c.id]?.ok);
+  // Excluded channels stay visible on the channels step (unticked) but take no further part:
+  // never re-tested, never probed, never offered as evaluator or candidate.
+  const included = enabled.filter((c) => !excluded.has(c.id));
+  const okChannels = included.filter((c) => tests[c.id]?.ok);
   const pairs = okChannels.flatMap((c) => channelModels(store, c).map((m) => ({ channel: c.id, model: m })));
   const { eligiblePairs, probeBusy, retryable } = smokeState(store.state.smoke, pairs);
   const evalChannels = source === "existing" ? okChannels : okChannels.filter((c) => added.has(c.id));
@@ -105,13 +111,16 @@ export function useWizardProbes(input: {
   probeSig: string;
   pairs: { channel: string; model: string }[];
   evalSel: string;
+  /** Unticked channels are never auto-tested. */
+  excluded?: Set<string>;
 }) {
   const { store, step, enabled, tests, probeSig, pairs, evalSel } = input;
+  const excluded = input.excluded ?? new Set<string>();
   // Test every configured channel once it appears (config.set rebuilds the live channels first).
   useEffect(() => {
     if (step !== 1) return;
-    for (const c of enabled) if (!tests[c.id]) store.testChannel(c.id);
-  }, [step, enabled.map((c) => c.id).join()]);
+    for (const c of enabled) if (!excluded.has(c.id) && !tests[c.id]) store.testChannel(c.id);
+  }, [step, enabled.map((c) => c.id).join(), excluded.size]);
 
   // Discover: start the server-owned smoke queue once per candidate set; the same
   // signature returns the cached snapshot, so re-renders/back-navigation never re-probe.

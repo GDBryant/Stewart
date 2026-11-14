@@ -20,6 +20,8 @@ function ChannelsStepView({ m }: { m: SetupWizardModel }) {
       onAddChannel={m.addChannel}
       addError={m.store.state.setupChannelError}
       statusChannels={m.statusChannels}
+      excluded={m.source === "existing" ? m.excluded : undefined}
+      onToggleChannel={m.toggleChannel}
       tests={m.tests}
       evalChannels={m.evalChannels}
       evalChan={m.evalChan}

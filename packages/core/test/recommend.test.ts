@@ -111,6 +111,32 @@ describe("setup.recommend", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("passes excludeChannels through: an excluded channel is not discovered or assigned", async () => {
+    const answer = JSON.stringify({ assignments: [{ role: "lead", channel: "c2", model: "m1" }] });
+    // With c1 excluded only c2 is fetched: response 1 = c2 model list, response 2 = researcher reply.
+    const { fetcher, calls } = fakeFetcher([{ body: ['{"models":[{"name":"m1"},{"name":"m2"}]}'] }, { body: chatReply(answer) }]);
+    const core = new Core({
+      fetcher,
+      defaults,
+      userConfig: memStore({
+        // c2 needs a qualified record for its model, else the agent hard-refusal drops the assignment
+        "channels.yaml": "version: 1\nitems:\n  - id: c2\n    type: ollama\n    baseUrl: http://oll2\n    modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } }\n",
+      }),
+      projectConfig: async () => memStore(),
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", fakeHost().host);
+    const r = (await core.dispatch("setup.recommend", { projectId: "p", excludeChannels: ["c1"] })) as {
+      ok: boolean;
+      channels: { id: string; models: string[] }[];
+      assignments: { channel: string }[];
+    };
+    expect(r.ok).toBe(true);
+    expect(r.channels.map((c) => c.id)).toEqual(["c2"]);
+    expect(calls.map((c) => c.url)).toEqual(["http://oll2/api/tags", "http://oll2/api/chat"]); // c1 never fetched
+    expect(r.assignments.every((a) => a.channel !== "c1")).toBe(true);
+  });
+
   it("does not write any config files", async () => {
     const userLayer: ConfigLayer = {};
     const answer = JSON.stringify({ assignments: [{ role: "tester", channel: "c1", model: "m1" }] });

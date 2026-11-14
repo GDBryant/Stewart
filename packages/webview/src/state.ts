@@ -214,7 +214,7 @@ export class Store {
   retryProbe(): void {
     this.bridge.post({ type: "setup.probe.retry" });
   }
-  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }): void {
+  recommend(opts?: { mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; excludeChannels?: string[] }): void {
     if (this.state.recommendBusy) return;
     this.bridge.post(opts ? { type: "setup.recommend", ...opts } : { type: "setup.recommend" });
     this.patch({ recommendBusy: true, recommendError: undefined });

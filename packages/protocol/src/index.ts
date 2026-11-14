@@ -123,7 +123,7 @@ export interface CoreRequests {
   "config.set": { params: { projectId: string; file: string; yaml: string; layer?: "user" | "project" }; result: { ok: true } };
   "channel.test": { params: { projectId: string; channelId: string }; result: { ok: boolean; models?: string[]; error?: string } };
   "channel.probe": { params: { projectId: string; channelId: string; model: string; force?: boolean; bench?: boolean }; result: { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: Record<string, unknown>; error?: string } };
-  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean }; result: unknown };
+  "setup.recommend": { params: { projectId: string; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; excludeChannels?: string[] }; result: unknown };
   "setup.qualify": { params: { projectId: string; channel: string; model: string }; result: { agent?: { passed: boolean; detail?: string }; function?: { passed: boolean; detail?: string } } };
   "setup.probe.start": { params: { projectId: string; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string }; retry?: boolean }; result: SetupProbeSnapshot };
   "setup.probe.status": { params: { projectId: string }; result: SetupProbeSnapshot };
