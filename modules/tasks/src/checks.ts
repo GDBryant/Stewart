@@ -7,6 +7,7 @@ export type EvidenceCode =
   | "file_missing"
   | "command_ok"
   | "command_failed"
+  | "command_unavailable"
   | "command_timeout"
   | "command_denied"
   | "cited"
@@ -141,12 +142,20 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
     return false;
   }
   if (timedOut.code !== 0) {
-    const cause = exitCause(timedOut.code);
-    out.push({ code: "command_failed", ok: false, detail: `${argv.join(" ")} exited ${timedOut.code}${cause ? ` (${cause})` : ""}: ${output.slice(-OUTPUT_TAIL)}` });
+    out.push(commandFailedEvidence(argv, timedOut.code, output));
     return false;
   }
   out.push({ code: "command_ok", ok: true, detail: `command ok: ${argv.join(" ")}` });
   return true;
+}
+
+const UNAVAILABLE = /Cannot find module|command not found|ENOENT|cannot start/;
+
+function commandFailedEvidence(argv: string[], code: number, output: string): Evidence {
+  const cause = exitCause(code);
+  const detail = `${argv.join(" ")} exited ${code}${cause ? ` (${cause})` : ""}: ${output.slice(-OUTPUT_TAIL)}`;
+  if (UNAVAILABLE.test(output)) return { code: "command_unavailable", ok: false, detail: `check could not run (environment): ${detail}` };
+  return { code: "command_failed", ok: false, detail };
 }
 
 /** Commands run in order; the first failure (exit/timeout) stops the rest. */

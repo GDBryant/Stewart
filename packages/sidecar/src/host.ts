@@ -1,4 +1,4 @@
-import { withStartRetry, type ConfigLayer, type ConfigStore, type HostPort, type ProcessHandle } from "@stewart/core";
+import { withShellEnv, withStartRetry, type ConfigLayer, type ConfigStore, type HostPort, type ProcessHandle } from "@stewart/core";
 import type { RpcLink } from "./rpc.js";
 
 /** HostPort implemented as reverse RPC calls into the IDE process. */
@@ -26,7 +26,7 @@ export function remoteHost(link: RpcLink): HostPort {
       delete: (path) => call("files.delete", { path }),
     },
     proc: {
-      run: withStartRetry((argv, opts): ProcessHandle => remoteProcess(link, argv, opts)),
+      run: withShellEnv(withStartRetry((argv, opts): ProcessHandle => remoteProcess(link, argv, opts))),
     },
     diff: { preview: (path, next) => call("diff.preview", { path, next }) },
     diag: { problems: (path) => call("diag.problems", { path }) },

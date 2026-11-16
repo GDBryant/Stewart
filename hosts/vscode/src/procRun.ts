@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { withStartRetry, type ProcessHandle, type ProcessPort } from "@stewart/core";
+import { withShellEnv, withStartRetry, type ProcessHandle, type ProcessPort } from "@stewart/core";
 
 function rawRun(argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle {
   const child: ChildProcess = spawn(argv[0], argv.slice(1), {
@@ -39,4 +39,4 @@ function rawRun(argv: string[], opts: { cwd: string; env?: Record<string, string
 }
 
 /** Host proc.run: no inherited stdin; one retry on Windows start failure; spawn errors report a cause. */
-export const procRun: ProcessPort["proc"]["run"] = withStartRetry(rawRun);
+export const procRun: ProcessPort["proc"]["run"] = withShellEnv(withStartRetry(rawRun));

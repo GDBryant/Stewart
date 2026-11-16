@@ -280,7 +280,12 @@ describe("remoteHost", () => {
     const chunks: string[] = [];
     const proc = host.proc.run(["node", "-v"], { cwd: "/p", onData: (d) => chunks.push(d) });
     await new Promise((r) => setTimeout(r, 5));
-    const start = lines().find((l) => l.method === "host.proc.run")!;
+    const probe = lines().find((l) => l.method === "host.proc.run")!;
+    const probeHandle = (probe.params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.output", params: { handle: probeHandle, data: "__STEWART_ENV__PATH=/x\0" } })}\n`);
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: probeHandle, code: 0 } })}\n`);
+    await new Promise((r) => setTimeout(r, 5));
+    const start = lines().filter((l) => l.method === "host.proc.run")[1];
     const handle = (start.params as { handle: string }).handle;
     link.feed(`${JSON.stringify({ method: "proc.output", params: { handle, data: "v22" } })}\n`);
     link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle, code: 0 } })}\n`);
@@ -290,11 +295,32 @@ describe("remoteHost", () => {
     expect(lines().at(-1)).toMatchObject({ method: "proc.cancel", params: { handle } });
   });
 
+  it("sends the resolved shell env on the user command, caller env winning", async () => {
+    const { link, lines } = pair();
+    const host = remoteHost(link);
+    const proc = host.proc.run(["node", "-v"], { cwd: "/p", env: { PATH: "/caller" }, onData: () => {} });
+    await new Promise((r) => setTimeout(r, 5));
+    const probe = lines().find((l) => l.method === "host.proc.run")!;
+    const probeHandle = (probe.params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.output", params: { handle: probeHandle, data: "__STEWART_ENV__PATH=/shell\0EXTRA=1\0" } })}\n`);
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: probeHandle, code: 0 } })}\n`);
+    await new Promise((r) => setTimeout(r, 5));
+    const start = lines().filter((l) => l.method === "host.proc.run")[1];
+    expect(start.params).toMatchObject({ argv: ["node", "-v"], cwd: "/p", env: { PATH: "/caller", EXTRA: "1" } });
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: (start.params as { handle: string }).handle, code: 0 } })}\n`);
+    expect(await proc.done).toEqual({ code: 0 });
+  });
+
   it("resolves done when the process cannot be started", async () => {
     const { link, lines } = pair();
     const chunks: string[] = [];
     const proc = remoteHost(link).proc.run(["nope"], { cwd: "/p", onData: (d) => chunks.push(d) });
-    const start = lines().find((l) => l.method === "host.proc.run")!;
+    await new Promise((r) => setTimeout(r, 5));
+    const probe = lines().find((l) => l.method === "host.proc.run")!;
+    const probeHandle = (probe.params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: probeHandle, code: 1 } })}\n`);
+    await new Promise((r) => setTimeout(r, 5));
+    const start = lines().filter((l) => l.method === "host.proc.run")[1];
     link.feed(`${JSON.stringify({ id: start.id, error: { message: "no such binary" } })}\n`);
     expect(await proc.done).toEqual({ code: -1 });
     expect(chunks).toEqual(["cannot start nope: no such binary\n"]);
@@ -305,14 +331,17 @@ describe("remoteHost", () => {
     const proc = remoteHost(link).proc.run(["node", "-v"], { cwd: "/p", onData: () => {} });
     const first = () => lines().filter((l) => l.method === "host.proc.run");
     await new Promise((r) => setTimeout(r, 5));
-    const h1 = (first()[0].params as { handle: string }).handle;
-    link.feed(`${JSON.stringify({ id: first()[0].id, result: { ok: true } })}\n`);
+    const probe = (first()[0].params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: probe, code: 0 } })}\n`);
+    await new Promise((r) => setTimeout(r, 5));
+    const h1 = (first()[1].params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ id: first()[1].id, result: { ok: true } })}\n`);
     link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: h1, code: 3221225794 } })}\n`);
     await new Promise((r) => setTimeout(r, 300));
-    expect(first().length).toBe(2);
-    const h2 = (first()[1].params as { handle: string }).handle;
+    expect(first().length).toBe(3);
+    const h2 = (first()[2].params as { handle: string }).handle;
     expect(h2).not.toBe(h1);
-    link.feed(`${JSON.stringify({ id: first()[1].id, result: { ok: true } })}\n`);
+    link.feed(`${JSON.stringify({ id: first()[2].id, result: { ok: true } })}\n`);
     link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: h2, code: 0 } })}\n`);
     expect(await proc.done).toEqual({ code: 0 });
   });
@@ -321,13 +350,17 @@ describe("remoteHost", () => {
     const { link, lines } = pair();
     const proc = remoteHost(link).proc.run(["node", "-v"], { cwd: "/p", onData: () => {} });
     await new Promise((r) => setTimeout(r, 5));
-    const run = lines().find((l) => l.method === "host.proc.run")!;
+    const probe = lines().find((l) => l.method === "host.proc.run")!;
+    const probeHandle = (probe.params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: probeHandle, code: 0 } })}\n`);
+    await new Promise((r) => setTimeout(r, 5));
+    const run = lines().filter((l) => l.method === "host.proc.run")[1];
     const handle = (run.params as { handle: string }).handle;
     link.feed(`${JSON.stringify({ method: "proc.output", params: { handle, data: "partial" } })}\n`);
     link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle, code: 3221225794 } })}\n`);
     expect(await proc.done).toEqual({ code: 3221225794 });
     await new Promise((r) => setTimeout(r, 300));
-    expect(lines().filter((l) => l.method === "host.proc.run").length).toBe(1);
+    expect(lines().filter((l) => l.method === "host.proc.run").length).toBe(2);
   });
 });
 

@@ -91,7 +91,7 @@ export type RunOutcome = { changed: string[]; verified: "command" | "files" | "n
 export function runOutcome(contract: Contract, res: CheckResult | undefined, changed: string[] | undefined, baseline: Baseline): RunOutcome {
   const out: RunOutcome = { changed: changed ?? [], verified: "none" };
   if (baseline.kind === "unavailable") return { ...out, tracking: "unavailable", trackingReason: baseline.reason };
-  const ran = res?.evidence.some((e) => e.code === "command_ok" || e.code === "command_failed" || e.code === "command_timeout");
+  const ran = res?.evidence.some((e) => e.code === "command_ok" || e.code === "command_failed" || e.code === "command_unavailable" || e.code === "command_timeout");
   if (res?.passed && ran) return { ...out, verified: "command", command: contract.commands.map((c) => c.argv.join(" ")).join("; ") };
   if (res?.passed && !ran && contract.files.length) return { ...out, verified: "files" };
   return out;

@@ -125,6 +125,30 @@ describe("runCheck command rule", () => {
     expect((await runCheck({ check: { mustChange: true }, input: { ...input, changed: ["a.ts"] }, host, cwd: "/p" })).passed).toBe(true);
     expect((await runCheck({ check: { mustChange: true }, input: { ...input, changed: undefined }, host, cwd: "/p" })).passed).toBe(true);
   });
+  it.each(["command not found", "Cannot find module", "ENOENT", "cannot start"])("reports command_unavailable for %s", async (text) => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler((_argv, onData) => {
+      onData(`${text}: node`);
+      return { code: 127 };
+    });
+    const r = await runCheck({ check: { commands: [["node", "--version"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_unavailable")?.detail).toBe(`check could not run (environment): node --version exited 127: ${text}: node`);
+    expect(code(r, "command_failed")).toBeUndefined();
+  });
+  it("stops later commands after command_unavailable", async () => {
+    const { host, procs, setProcHandler } = fakeHost();
+    setProcHandler((argv, onData) => {
+      if (argv[0] === "gone") {
+        onData("command not found");
+        return { code: 127 };
+      }
+      return { code: 0 };
+    });
+    const r = await runCheck({ check: { commands: [["gone"], ["never"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.evidence.map((e) => e.code)).toEqual(["command_unavailable"]);
+    expect(procs.map((p) => p.argv[0])).toEqual(["gone"]);
+  });
   it("fails on timeout and kills the process", async () => {
     const { host, procs, setProcHandler } = fakeHost();
     setProcHandler(() => "never");

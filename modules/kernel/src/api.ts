@@ -7,6 +7,8 @@ export type {
 export { systemClock, counterIds, nodeFetch } from "./ports.js";
 export { isStartFailure, exitCause, withStartRetry } from "./procStart.js";
 export type { StartRetryOpts } from "./procStart.js";
+export { resolveShellEnv, withShellEnv } from "./shellEnv.js";
+export type { ShellEnvOpts } from "./shellEnv.js";
 // In-memory fakes for tests of every module (the HostPort and Fetcher seams).
 export { fakeHost, fakeFetcher, streamOf, collect } from "./testing.js";
 export { mediaTypeFor } from "./mime.js";
