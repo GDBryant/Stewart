@@ -50,6 +50,12 @@ const boomTool: Tool = {
   },
 };
 
+const terminalTool: Tool = {
+  spec: { name: "RunTerminal", description: "run", parameters: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" } }, required: ["command"], additionalProperties: false } },
+  requiresApproval: false,
+  execute: async (args) => `ran:${String(args.command)}`,
+};
+
 const approveYes: ApproveFn = async () => ({ kind: "approved" });
 const approveNo: ApproveFn = async () => ({ kind: "rejected", reason: "denied by user" });
 
@@ -140,6 +146,34 @@ describe("native-loop", () => {
     const t = turn({ channel: ch, maxTurns: 1 });
     const evs = await collect(nativeLoop.run(t));
     expect(t.transcript[2].content).toMatch(/^Invalid tool call: unknown tool 'Nope'/);
+    expect(t.transcript[2].content).toContain("; available: ");
+    expect(evs.find((e) => e.kind === "tool.outcome")).toMatchObject({ ok: false });
+  });
+
+  it("emits tool.request before the tool executes", async () => {
+    const order: string[] = [];
+    const marking: Tool = { ...terminalTool, execute: async (args) => { order.push("execute"); return `ran:${String(args.command)}`; } };
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [call("RunTerminal", { command: "ls" })] }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([marking]), maxTurns: 1 });
+    for await (const ev of nativeLoop.run(t)) if (ev.kind === "tool.request") order.push("tool.request");
+    expect(order).toEqual(["tool.request", "execute"]);
+  });
+
+  it("aliases a foreign tool name and notes the remapping", async () => {
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [call("Bash", { command: "ls", timeout: 5 })] }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([terminalTool]), maxTurns: 1 });
+    const evs = await collect(nativeLoop.run(t));
+    const req = evs.find((e) => e.kind === "tool.request");
+    expect(req).toMatchObject({ tool: "RunTerminal", args: { command: "ls" } });
+    expect(evs.find((e) => e.kind === "tool.outcome")).toMatchObject({ ok: true });
+    expect(t.transcript[2].content).toBe("ran:ls\n['Bash' is not a tool here; ran RunTerminal instead; ignored unknown argument(s): timeout]");
+  });
+
+  it("reports an aliased call with bad args without executing", async () => {
+    const ch = fakeChannel([[{ kind: "tool_calls", calls: [call("Bash", {})] }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([terminalTool]), maxTurns: 1 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(t.transcript[2].content).toMatch(/^Invalid tool call: unknown tool 'Bash' \(tried RunTerminal:/);
     expect(evs.find((e) => e.kind === "tool.outcome")).toMatchObject({ ok: false });
   });
 

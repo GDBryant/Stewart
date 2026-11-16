@@ -120,29 +120,40 @@ function writeRecord(call: ToolCall, outcome: ToolOutcome): { path: string; ok: 
   return { path: call.arguments.path, ok, message: ok ? undefined : outcomeMessage(outcome) };
 }
 
+interface Prepared {
+  rc: ToolCall;
+  tool?: Tool;
+  preview: ToolPreview | null;
+  early?: ToolOutcome;
+  note?: string;
+}
+
+async function prepare(turn: EngineTurn, call: ToolCall): Promise<Prepared> {
+  const resolved = turn.tools.resolve(call);
+  if ("error" in resolved) return { rc: call, preview: null, early: { kind: "invalid", reason: resolved.error } };
+  const rc = resolved.call;
+  const tool = turn.tools.find(rc.name);
+  const { preview, error } = tool ? await previewOf(tool, rc) : { preview: null };
+  return { rc, tool, preview, early: error ? { kind: "failure", message: error } : undefined, note: resolved.note };
+}
+
 async function* executeCall(
   turn: EngineTurn,
   call: ToolCall,
   transcript: ChatMessage[] = turn.transcript,
   seen?: Map<string, Seen>,
 ): AsyncGenerator<EngineEvent, void> {
-  const tool = turn.tools.find(call.name);
-  const invalid = tool ? turn.tools.validate(call) : `unknown tool '${call.name}'`;
-  const { preview, error: previewErr } = tool && !invalid ? await previewOf(tool, call) : { preview: null };
-  const category = categoryOf(preview) ?? "OTHER";
-  yield { kind: "tool.request", callId: call.id, tool: call.name, args: call.arguments, category };
-  const outcome: ToolOutcome = previewErr
-    ? { kind: "failure", message: previewErr }
-    : invalid
-      ? { kind: "invalid", reason: invalid }
-      : await invoke(turn, call, tool as Tool, preview);
-  transcript.push({ role: "tool", toolCallId: call.id, content: outcomeMessage(outcome) });
+  const p = await prepare(turn, call);
+  yield { kind: "tool.request", callId: call.id, tool: p.rc.name, args: p.rc.arguments, category: categoryOf(p.preview) ?? "OTHER" };
+  const outcome = p.early ?? (await invoke(turn, p.rc, p.tool as Tool, p.preview));
+  const result = outcomeMessage(outcome) + (p.note ? `\n[${p.note}]` : "");
+  transcript.push({ role: "tool", toolCallId: call.id, content: result });
   if (outcome.kind === "success" && outcome.images?.length) {
-    transcript.push({ role: "user", content: `[image from ${call.name}]`, images: outcome.images });
+    transcript.push({ role: "user", content: `[image from ${p.rc.name}]`, images: outcome.images });
   }
-  seen?.set(call.id, { call, ok: outcome.kind === "success", result: outcomeMessage(outcome) });
+  seen?.set(call.id, { call: p.rc, ok: outcome.kind === "success", result });
   yield { kind: "tool.outcome", callId: call.id, ok: outcome.kind === "success", summary: summaryOf(outcome) };
-  const rec = writeRecord(call, outcome);
+  const rec = writeRecord(p.rc, outcome);
   if (rec) yield { kind: "write", record: rec };
 }
 

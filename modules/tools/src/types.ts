@@ -2,6 +2,7 @@ import type { Json, ToolCall, ToolSpec } from "@stewart/kernel";
 import { splitShellPrograms, type ApprovalCategory, type ToolPreview } from "@stewart/permissions";
 import type { RoleDef } from "@stewart/config";
 import { decide, PATH_TOOLS, checkReadOnlyCommand, roleIsReadOnly, type Action } from "./policy.js";
+import { TOOL_ALIASES } from "./aliases.js";
 
 export { checkReadOnlyCommand, roleIsReadOnly, PATH_TOOLS } from "./policy.js";
 
@@ -199,9 +200,44 @@ export class ToolRegistry {
   find(name: string): Tool | undefined {
     return this.byName.get(name);
   }
+  private get available(): string {
+    return this.tools.map((t) => t.spec.name).join(", ");
+  }
+  private dropUnknownArgs(args: Record<string, Json>, schema: Json, notes: string[]): void {
+    if (schema.additionalProperties !== false) return;
+    const props = (schema.properties ?? {}) as Record<string, Json>;
+    const dropped = Object.keys(args).filter((k) => !(k in props));
+    for (const k of dropped) delete args[k];
+    if (dropped.length) notes.push(`ignored unknown argument(s): ${dropped.join(", ")}`);
+  }
+  private candidate(call: ToolCall, notes: string[]): { rc: ToolCall; tool: Tool } | { error: string } {
+    const tool = this.byName.get(call.name);
+    const alias = tool ? undefined : TOOL_ALIASES[call.name];
+    const named = tool ?? (alias ? this.byName.get(alias.target) : undefined);
+    if (!named) return { error: `unknown tool '${call.name}'; available: ${this.available}` };
+    if (alias) {
+      notes.push(`'${call.name}' is not a tool here; ran ${alias.target} instead`);
+      return { rc: { ...call, name: alias.target, arguments: alias.args(call.arguments) }, tool: named };
+    }
+    return { rc: { ...call, arguments: { ...call.arguments } }, tool: named };
+  }
+  private invalidText(call: ToolCall, rc: ToolCall, invalid: string): string {
+    if (rc.name === call.name) return invalid;
+    return `unknown tool '${call.name}' (tried ${rc.name}: ${invalid}); available: ${this.available}`;
+  }
+  resolve(call: ToolCall): { call: ToolCall; note?: string } | { error: string } {
+    const notes: string[] = [];
+    const c = this.candidate(call, notes);
+    if ("error" in c) return c;
+    this.dropUnknownArgs(c.rc.arguments as Record<string, Json>, c.tool.spec.parameters, notes);
+    coerceArrayArgs(c.rc.arguments as Json, c.tool.spec.parameters);
+    const invalid = validateArgs(c.rc.arguments as Json, c.tool.spec.parameters, c.rc.name);
+    if (invalid) return { error: this.invalidText(call, c.rc, invalid) };
+    return notes.length ? { call: c.rc, note: notes.join("; ") } : { call: c.rc };
+  }
   validate(call: ToolCall): string | null {
     const tool = this.byName.get(call.name);
-    if (!tool) return `unknown tool '${call.name}'`;
+    if (!tool) return `unknown tool '${call.name}'; available: ${this.available}`;
     coerceArrayArgs(call.arguments as Json, tool.spec.parameters);
     return validateArgs(call.arguments as Json, tool.spec.parameters, call.name);
   }
