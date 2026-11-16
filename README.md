@@ -9,6 +9,14 @@ Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. One le
 
 ---
 
+### Pick your Stewart
+- Stewart little
+- Rod Stewart
+- John Stewart
+- Stuart fails to save the universe
+
+---
+
 ## Features
 
 ### Chat and models
