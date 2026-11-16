@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionOf, decide } from "../src/policy.js";
+import { actionOf, checkReadOnlyCommand, decide } from "../src/policy.js";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -65,5 +65,57 @@ describe("decide: other + actionOf", () => {
     expect(actionOf({ kind: "file", path: "a.ts" } as never)).toEqual({ kind: "write", path: "a.ts" });
     expect(actionOf({ kind: "command", command: "ls" } as never)).toEqual({ kind: "command", command: "ls" });
     expect(actionOf(null)).toEqual({ kind: "other" });
+  });
+});
+
+describe("checkReadOnlyCommand", () => {
+  const allowed = [
+    "ls -la 2>&1",
+    "grep -rn foo src 2>/dev/null",
+    "ls >/dev/null",
+    "ls &>/dev/null",
+    "ls 2>/dev/null | sort | uniq -c",
+    "cut -d: -f1 a.txt | tr a-z A-Z",
+    "basename a/b.ts",
+    "dirname a/b.ts",
+    "date",
+    "tree -L 2",
+    "node --version",
+    "node -v",
+    "python3 --version",
+    "pnpm --version && git status",
+    "uniq a.txt",
+  ];
+  it.each(allowed)("allows %s", (command) => {
+    expect(() => checkReadOnlyCommand(command, "investigator")).not.toThrow();
+  });
+
+  const refused = [
+    "ls > out",
+    "ls >> /dev/null",
+    "ls 2>err",
+    "cat < f",
+    'node -e "1"',
+    "git push",
+    "rm x",
+    "echo x | sh -v",
+    "./tool --version",
+    "node --version x",
+    "sort -o out a",
+    "sort --output=out a",
+    "tree -o out",
+    "date -s 2020-01-01",
+    "uniq a b",
+    "node --version; rm x",
+  ];
+  it.each(refused)("refuses %s", (command) => {
+    expect(() => checkReadOnlyCommand(command, "investigator")).toThrow(/not allowed for read-only role investigator/);
+  });
+
+  it.each(["pnpm test", "vitest run", "npx vitest"])("refuses %s with a tester hint", (command) => {
+    expect(() => checkReadOnlyCommand(command, "investigator")).toThrow(/delegate to tester/);
+  });
+  it("does not add the hint to a non-runner refusal", () => {
+    expect(() => checkReadOnlyCommand("rm x", "investigator")).toThrow(/not allowed for read-only role investigator$/);
   });
 });

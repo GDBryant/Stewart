@@ -10,23 +10,56 @@ export const PATH_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "Gener
 const READONLY_PROGRAMS = new Set([
   "ls", "cat", "head", "tail", "wc", "stat", "file", "find", "grep", "rg", "git",
   "pwd", "which", "echo", "uname", "printenv", "diff", "du", "df",
+  "sort", "uniq", "cut", "tr", "basename", "dirname", "date", "tree",
 ]);
 const GIT_READONLY_SUBCOMMANDS = new Set([
   "status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "describe",
 ]);
+const HARMLESS_REDIRECTS = /(?:2>&1|(?:2|&)?>\s*\/dev\/null)(?=\s|$|[|;&])/g;
+const VERSION_PROBE = /^\s*[A-Za-z0-9_.+-]+\s+(?:--version|-v)\s*$/;
+const TEST_RUNNER = /\b(vitest|jest|pytest|mocha)\b|\b(pnpm|npm|yarn|npx|gradlew?)\b.*\btest/;
+const WRITE_FLAGS: Record<string, RegExp> = {
+  sort: /^(-[A-Za-z]*o|--output)/,
+  tree: /^-o/,
+  date: /^(-s|--set)/,
+};
+
+function dropProbes(command: string): string | null {
+  const parts = command.split(/(\|\||&&|[|;&\n])/);
+  const keep: string[] = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const seg = parts[i];
+    if (!seg.trim()) continue;
+    if (VERSION_PROBE.test(seg) && parts[i - 1] !== "|") continue;
+    keep.push(seg);
+  }
+  return keep.length ? keep.join(";") : null;
+}
+
+function checkReadOnlySegment(seg: string, command: string, fail: (what: string) => never): void {
+  const words = seg.trim().split(/\s+/).filter(Boolean);
+  if (words[0] === "git") {
+    const sub = words.slice(1).find((w) => !w.startsWith("-"));
+    if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) fail(`git subcommand '${sub ?? ""}'`);
+  }
+  const prog = words[0]?.split(/[\\/]/).pop() ?? "";
+  const flag = WRITE_FLAGS[prog];
+  if (flag && words.some((w) => flag.test(w))) fail(`command '${command}'`);
+  if (prog === "uniq" && words.slice(1).filter((w) => !w.startsWith("-")).length > 1) fail(`command '${command}'`);
+}
 
 export function checkReadOnlyCommand(command: string, roleId: string): void {
-  const err = (what: string) => new Error(`${what} is not allowed for read-only role ${roleId}`);
-  if (/[><]/.test(command)) throw err(`command '${command}'`);
-  const progs = splitShellPrograms(command);
-  if (!progs || !progs.every((p) => READONLY_PROGRAMS.has(p))) throw err(`command '${command}'`);
-  for (const seg of command.split(/[|;&\n]+/)) {
-    const words = seg.trim().split(/\s+/).filter(Boolean);
-    if (words[0] === "git") {
-      const sub = words.slice(1).find((w) => !w.startsWith("-"));
-      if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) throw err(`git subcommand '${sub ?? ""}'`);
-    }
-  }
+  const fail = (what: string): never => {
+    const hint = what.startsWith("command ") && TEST_RUNNER.test(command) ? "; test runners write caches: delegate to tester" : "";
+    throw new Error(`${what} is not allowed for read-only role ${roleId}${hint}`);
+  };
+  const stripped = command.replace(HARMLESS_REDIRECTS, "");
+  if (/[><]/.test(stripped)) fail(`command '${command}'`);
+  const rest = dropProbes(stripped);
+  if (rest === null) return;
+  const progs = splitShellPrograms(rest);
+  if (!progs || !progs.every((p) => READONLY_PROGRAMS.has(p))) fail(`command '${command}'`);
+  for (const seg of rest.split(/[|;&\n]+/)) checkReadOnlySegment(seg, command, fail);
 }
 
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch", "GenerateImage"]);
