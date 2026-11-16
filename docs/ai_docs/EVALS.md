@@ -66,3 +66,21 @@ Agent qualification of the local Ollama models (same day, `setup.qualify`): none
 | north-mini-code-1.0 | fail: wrote line-number prefixes | fail |
 
 So no escalation happened in these runs: every task finished on the first qualified agent. Escalation is covered by unit tests only.
+
+## External eval: SWE-bench Verified
+
+`packages/evals/src/swebench/` runs the lead against real SWE-bench Verified instances in their official Docker images. Dataset: HF `SWE-bench/SWE-bench_Verified` exported to JSONL (each row carries `image`, `eval_script`, `log_parser`); the older `princeton-nlp` export lacks `eval_script` and is refused by the loader. No download in code — pass the file with `--dataset`.
+
+```
+node dist/swebench/main.js --dataset <jsonl> --label <name> [--gold|--no-patch] [--config dir]
+  [--only id,id|all] [--parallel n] [--timeout-min 30] [--test-timeout-min 30]
+  [--keep never|failed|always] [--rmi] [--skip-qualify]
+```
+
+Per instance: pull the official image named in the row → `docker cp /testbed` to a temp workspace → baseline commit → lead run on the host with the problem statement → `git diff` vs baseline excluding `.stewart`/`.claude` → fresh container: apply the patch, run the row's official `eval_script` verbatim, parse the output with the TS port of the row's `log_parser`, grade as upstream (truncated-id prefix match, exit-code guard). Statuses: `resolved` / `unresolved` / `error` (harness fault, reported separately — upstream counts these unresolved). Outputs: `results/<date>-swebench-<label>.json` per instance, `<same>.predictions.jsonl` usable with the official Python harness for cross-check, raw logs in `results/swebench-logs/<label>/`.
+
+Fixed 20-instance subset (`SUBSET_20` in `src/swebench/instances.ts`): django ×9 (11119, 11740, 12663, 13346, 13933, 14580, 15280, 15973, 16661), sympy ×3 (13757, 17655, 22714), sphinx ×2 (8120, 9673), matplotlib 24570, scikit-learn 14053, astropy 13579, xarray 4695, pytest 7324, pylint 6528.
+
+Validation (2026-11-16, labels `val-none-*` / `val-gold-*`): every `--no-patch` run unresolved, every `--gold` run resolved, no error rows — 20/20 and 0/20. No F2P passed at baseline in any no-patch row. Smoke run (real lead): `smoke-claude`, `configs/lead-claude`, `django__django-11119` resolved, f2p 1/1, p2p 7/7, 97 s, $0.0478.
+
+Deviation from the notes: log parsing instead of a per-id test resolver — 167 of 231 django instances have docstring ids that cannot be turned into a test label, so each row's `eval_script` runs verbatim and the row's `log_parser` port does the resolution. Known gaps: the lead works on a host checkout and cannot run the repo's tests (the prompt says so); images are ~4 GB each (use `--rmi`); amd64 only; scoring not yet cross-checked against the official Python harness.

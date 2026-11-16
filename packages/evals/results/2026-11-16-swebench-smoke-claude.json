@@ -1,0 +1,63 @@
+{
+  "label": "smoke-claude",
+  "startedAt": "2026-11-16T19:12:55.685Z",
+  "commit": "1787dee",
+  "config": "/media/gdb/Data/Projects/Stewart/packages/evals/configs/lead-claude",
+  "dataset": "/tmp/swebv/SWE-bench_Verified.jsonl",
+  "patchSource": "lead",
+  "qualification": [
+    {
+      "agent": "Claude-sonnet",
+      "channel": "Claude",
+      "model": "sonnet",
+      "agentQual": {
+        "passed": true
+      },
+      "functionQual": {
+        "passed": true
+      }
+    }
+  ],
+  "summary": {
+    "resolved": 1,
+    "unresolved": 0,
+    "errors": 0,
+    "total": 1,
+    "rate": 100,
+    "byRepo": {
+      "django/django": {
+        "resolved": 1,
+        "total": 1
+      }
+    },
+    "costUsd": 0.0478
+  },
+  "instances": [
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 7,
+        "total": 7
+      },
+      "failed": [],
+      "id": "django__django-11119",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `Engine.render_to_string()` in `django/template/engine.py` so it passes the engine's setting through: `Context(context, autoescape=self.autoescape)`. An engine created with `autoescape=False` should now render without escaping. I haven't run anything, since the test environment isn't installed.\n\nI didn't check the other branch of that method, which renders a template that's already a `Context`.",
+        "costUsd": 0.0477862,
+        "durationMs": 8794,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/smoke-claude/django__django-11119.log",
+      "durationMs": 96931,
+      "costUsd": 0.0477862
+    }
+  ]
+}

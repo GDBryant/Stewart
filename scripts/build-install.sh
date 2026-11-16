@@ -77,5 +77,6 @@ if [ "$SKIP_JETBRAINS" -eq 0 ]; then
   else
     echo "JetBrains plugin built: $(pwd)/$ZIP"
     echo "install via IDE > Settings > Plugins > gear > Install Plugin from Disk"
+    echo "plugin updates URL: https://gdbryant.github.io/Stewart/updatePlugins.xml"
   fi
 fi

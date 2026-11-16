@@ -1,0 +1,59 @@
+test__combine_inverse ok
+test_issue_3773 ok
+test_issue_3883 ok
+test_issue_4418 E
+test_issue_4700 ok
+test_issue_5168 ok
+test_issue_4559 ok
+test_issue_4883 f
+test_issue_4319 ok
+test_issue_3778 ok
+test_issue_6103 ok
+test_issue_3539 ok
+test_gh_issue_2711 ok                                                     [FAIL]
+
+sympy/polys/tests/test_polytools.py[142] 
+test_Poly_from_dict ok
+test_Poly_from_list ok
+test_Poly_from_poly ok
+test_Poly_from_expr ok
+test_Poly__new__ ok
+test_Poly__args ok
+test_Poly__gens ok
+test_Poly_zero ok
+test_Poly_one ok
+test_Poly__unify ok
+test_Poly_free_symbols ok
+test_PurePoly_free_symbols ok
+test_Poly__eq__ ok
+test_PurePoly__eq__ ok
+test_PurePoly_Poly ok
+test_Poly_get_domain ok
+test_Poly_set_domain ok
+test_Poly_get_modulus ok
+test_Poly_set_modulus ok
+test_Poly_add_ground ok
+test_Poly_sub_ground ok
+test_Poly_mul_ground ok
+test_Poly_quo_ground ok
+test_Poly_exquo_ground ok
+test_Poly_abs ok
+test_Poly_neg ok
+test_Poly_add ok
+test_Poly_sub ok
+test_Poly_mul ok
+test_issue_13079 F
+test_Poly_sqr ok
+test_Poly_pow ok
+test_Poly_divmod ok
+test_Poly_eq_ne ok
+test_Poly_nonzero ok
+________________________________________________________________________________
+_____________ sympy/polys/tests/test_polytools.py:test_issue_13079 _____________
+  File "/testbed/sympy/polys/tests/test_polytools.py", line 682, in test_issue_13079
+    assert x*Poly(x) == Poly(x**2, x, domain='ZZ')
+AssertionError
+
+ tests finished: 168 passed, 1 failed, 5 expected to fail, 5 exceptions, 
+in 4.08 seconds 
+DO *NOT* COMMIT!

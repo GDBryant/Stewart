@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json --composite false --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "eval": "node dist/main.js"
+    "eval": "node dist/main.js",
+    "swebench": "node dist/swebench/main.js"
   },
   "dependencies": {
     "@stewart/core": "workspace:*",
