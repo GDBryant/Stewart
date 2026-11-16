@@ -91,6 +91,14 @@ describe("nodeHost", () => {
     expect((await p2.done).code).not.toBe(0);
   });
 
+  it("reports a cause and code -1 when the binary does not exist", async () => {
+    const { host, root } = await hostOf();
+    const p = host.proc.run(["stewart-no-such-binary-xyz"], { cwd: root, onData: () => {} });
+    const r = await p.done;
+    expect(r.code).toBe(-1);
+    expect(r.cause).toContain("cannot start stewart-no-such-binary-xyz:");
+  });
+
   it("looks up secrets from STEWART_SECRET_ env and supports set/delete", async () => {
     const { host } = await hostOf({ STEWART_SECRET_MY_KEY: "from-env" });
     expect(await host.secrets.get("my-key")).toBe("from-env");

@@ -110,6 +110,13 @@ describe("runCheck command rule", () => {
     expect(r.passed).toBe(false);
     expect(code(r, "command_failed")?.detail).toBe("pnpm test exited -1073741502 (process failed to start (Windows 0xC0000142, DLL initialisation failed)): ");
   });
+  it("prefers a cause reported by the handle over the table", async () => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler(() => ({ code: -1, cause: "cannot start pnpm: ENOENT" }));
+    const r = await runCheck({ check: { commands: [["pnpm", "test"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_failed")?.detail).toBe("pnpm test exited -1 (cannot start pnpm: ENOENT): ");
+  });
   it("runs commands in order and stops at the first failure", async () => {
     const { host, procs, setProcHandler } = fakeHost();
     setProcHandler((argv) => (argv[0] === "fail" ? { code: 1 } : { code: 0 }));
@@ -133,7 +140,7 @@ describe("runCheck command rule", () => {
     });
     const r = await runCheck({ check: { commands: [["node", "--version"]] }, input: baseInput(), host, cwd: "/p" });
     expect(r.passed).toBe(false);
-    expect(code(r, "command_unavailable")?.detail).toBe(`check could not run (environment): node --version exited 127: ${text}: node`);
+    expect(code(r, "command_unavailable")?.detail).toBe(`check could not run (environment): node --version exited 127 (command not found): ${text}: node`);
     expect(code(r, "command_failed")).toBeUndefined();
   });
   it("stops later commands after command_unavailable", async () => {

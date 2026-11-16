@@ -26,9 +26,15 @@ describe("procRun", () => {
   it("reports a cause and code -1 when the binary does not exist", async () => {
     let out = "";
     const proc = procRun(["stewart-no-such-binary-xyz"], { cwd: "/", onData: (d) => (out += d) });
-    const { code } = await proc.done;
+    const { code, cause } = await proc.done;
     expect(code).toBe(-1);
+    expect(cause).toContain("cannot start stewart-no-such-binary-xyz:");
     expect(out).toContain("cannot start stewart-no-such-binary-xyz:");
+  });
+
+  it("names the signal when a process is killed", async () => {
+    const proc = procRun([process.execPath, "-e", "process.kill(process.pid,'SIGKILL')"], { cwd: "/", onData: () => {} });
+    expect(await proc.done).toEqual({ code: -1, cause: "killed by signal SIGKILL" });
   });
 
   it("runs a real process and resolves its exit code", async () => {

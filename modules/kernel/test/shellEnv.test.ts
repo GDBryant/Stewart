@@ -111,19 +111,19 @@ describe("withShellEnv", () => {
     expect(inner.calls[0].argv).toEqual(argv);
   });
 
-  it("cancel before start: inner never spawns, done resolves -1", async () => {
+  it("cancel before start: inner never spawns, done resolves -1 with a cause", async () => {
     const { run, inner } = shellRun("__STEWART_ENV__A=1\0");
     const h = withShellEnv(run, { shell: "/bin/sh" })(argv, { cwd: "/p", onData: () => {} });
     h.cancel();
-    expect(await h.done).toEqual({ code: -1 });
+    expect(await h.done).toEqual({ code: -1, cause: "cancelled before start" });
     expect(inner.calls.length).toBe(0);
   });
 
-  it("killTree before start: inner never spawns, done resolves -1", async () => {
+  it("killTree before start: inner never spawns, done resolves -1 with a cause", async () => {
     const { run, inner } = shellRun("__STEWART_ENV__A=1\0");
     const h = withShellEnv(run, { shell: "/bin/sh" })(argv, { cwd: "/p", onData: () => {} });
     await h.killTree();
-    expect(await h.done).toEqual({ code: -1 });
+    expect(await h.done).toEqual({ code: -1, cause: "cancelled before start" });
     expect(inner.calls.length).toBe(0);
   });
 

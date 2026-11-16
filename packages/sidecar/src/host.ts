@@ -47,8 +47,8 @@ export function remoteHost(link: RpcLink): HostPort {
 function remoteProcess(link: RpcLink, argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle {
   const handle = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let exited = false;
-  let resolveDone: (r: { code: number }) => void = () => {};
-  const done = new Promise<{ code: number }>((res) => {
+  let resolveDone: (r: { code: number; cause?: string }) => void = () => {};
+  const done = new Promise<{ code: number; cause?: string }>((res) => {
     resolveDone = res;
   });
 
@@ -65,8 +65,9 @@ function remoteProcess(link: RpcLink, argv: string[], opts: { cwd: string; env?:
   void link.request("host.proc.run", { handle, argv, cwd: opts.cwd, env: opts.env }).catch((e: unknown) => {
     if (!exited) {
       exited = true;
-      opts.onData(`cannot start ${argv[0]}: ${e instanceof Error ? e.message : String(e)}\n`);
-      resolveDone({ code: -1 });
+      const cause = `cannot start ${argv[0]}: ${e instanceof Error ? e.message : String(e)}`;
+      opts.onData(`${cause}\n`);
+      resolveDone({ code: -1, cause });
     }
   });
 

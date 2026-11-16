@@ -71,7 +71,7 @@ async function handle(rpc: Rpc, reg: ToolRegistry, ctx: McpCtx): Promise<{ statu
         body: result(rpc.id, {
           protocolVersion: String(rpc.params?.protocolVersion ?? PROTOCOL),
           capabilities: { tools: {} },
-          serverInfo: { name: "stewart", version: "3.0.2" },
+          serverInfo: { name: "stewart", version: "3.0.3" },
         }),
       };
     case "notifications/initialized":

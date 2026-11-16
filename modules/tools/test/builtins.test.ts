@@ -183,6 +183,22 @@ describe("RunTerminal", () => {
     );
   });
 
+  it("names the cause for a shell exit code", async () => {
+    const { reg, setProcHandler } = await setup({});
+    setProcHandler(() => ({ code: 127 }));
+    const t = reg.find("RunTerminal")!;
+    const p = await t.preview!({ command: "make x" });
+    expect(await t.execute({ command: "make x" }, p, sig)).toBe("exit code: 127 (command not found)\n");
+  });
+
+  it("prefers a cause reported by the handle over the table", async () => {
+    const { reg, setProcHandler } = await setup({});
+    setProcHandler(() => ({ code: -1, cause: "cannot start make: ENOENT" }));
+    const t = reg.find("RunTerminal")!;
+    const p = await t.preview!({ command: "make x" });
+    expect(await t.execute({ command: "make x" }, p, sig)).toBe("exit code: -1 (cannot start make: ENOENT)\n");
+  });
+
   it("rejects a command changed since approval", async () => {
     const { reg } = await setup({});
     const t = reg.find("RunTerminal")!;

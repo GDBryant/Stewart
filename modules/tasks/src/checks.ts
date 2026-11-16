@@ -130,8 +130,8 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
   const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = await Promise.race([
-    handle.done.then((r) => ({ code: r.code, timeout: false })),
-    new Promise<{ code: number; timeout: boolean }>((res) => {
+    handle.done.then((r) => ({ code: r.code, cause: r.cause, timeout: false })),
+    new Promise<{ code: number; cause?: string; timeout: boolean }>((res) => {
       timer = setTimeout(() => res({ code: -1, timeout: true }), timeoutMs);
     }),
   ]);
@@ -142,7 +142,7 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
     return false;
   }
   if (timedOut.code !== 0) {
-    out.push(commandFailedEvidence(argv, timedOut.code, output));
+    out.push(commandFailedEvidence(argv, timedOut.code, output, timedOut.cause));
     return false;
   }
   out.push({ code: "command_ok", ok: true, detail: `command ok: ${argv.join(" ")}` });
@@ -151,8 +151,8 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
 
 const UNAVAILABLE = /Cannot find module|command not found|ENOENT|cannot start/;
 
-function commandFailedEvidence(argv: string[], code: number, output: string): Evidence {
-  const cause = exitCause(code);
+function commandFailedEvidence(argv: string[], code: number, output: string, reported?: string): Evidence {
+  const cause = reported ?? exitCause(code);
   const detail = `${argv.join(" ")} exited ${code}${cause ? ` (${cause})` : ""}: ${output.slice(-OUTPUT_TAIL)}`;
   if (UNAVAILABLE.test(output)) return { code: "command_unavailable", ok: false, detail: `check could not run (environment): ${detail}` };
   return { code: "command_failed", ok: false, detail };

@@ -7,9 +7,33 @@ export function isStartFailure(code: number): boolean {
   return code === START_FAILURE || code === START_FAILURE - 0x1_0000_0000;
 }
 
+const WIN_CAUSES: Record<number, string> = {
+  0xc0000142: "process failed to start (Windows 0xC0000142, DLL initialisation failed)",
+  0xc0000005: "access violation (Windows 0xC0000005)",
+  0xc000013a: "interrupted (Ctrl+C) (Windows 0xC000013A)",
+  0xc0000135: "DLL not found (Windows 0xC0000135)",
+};
+
+const DIRECT_CAUSES: Record<number, string> = {
+  [-1]: "process was killed or did not report an exit code",
+  126: "not executable",
+  127: "command not found",
+};
+
+const SIGNAL_NAMES: Record<number, string> = { 2: "SIGINT", 9: "SIGKILL", 15: "SIGTERM" };
+
 /** Human-readable cause for codes the model cannot interpret, else undefined. */
 export function exitCause(code: number): string | undefined {
-  if (isStartFailure(code)) return "process failed to start (Windows 0xC0000142, DLL initialisation failed)";
+  const u = code < 0 && code !== -1 ? code + 0x1_0000_0000 : code;
+  const win = WIN_CAUSES[u];
+  if (win) return win;
+  const direct = DIRECT_CAUSES[u];
+  if (direct) return direct;
+  if (u > 128 && u <= 192) {
+    const n = u - 128;
+    const name = SIGNAL_NAMES[n];
+    return `killed by signal ${n}${name ? ` (${name})` : ""}`;
+  }
   return undefined;
 }
 

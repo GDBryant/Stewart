@@ -322,7 +322,7 @@ describe("remoteHost", () => {
     await new Promise((r) => setTimeout(r, 5));
     const start = lines().filter((l) => l.method === "host.proc.run")[1];
     link.feed(`${JSON.stringify({ id: start.id, error: { message: "no such binary" } })}\n`);
-    expect(await proc.done).toEqual({ code: -1 });
+    expect(await proc.done).toEqual({ code: -1, cause: "cannot start nope: no such binary" });
     expect(chunks).toEqual(["cannot start nope: no such binary\n"]);
   });
 

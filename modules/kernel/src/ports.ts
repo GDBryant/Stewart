@@ -20,7 +20,8 @@ export interface ProcessHandle {
   cancel(): void;
   /** Kill the whole process tree. */
   killTree(): Promise<void>;
-  readonly done: Promise<{ code: number }>;
+  /** cause: set by the producer when it knows why there is no real exit code. */
+  readonly done: Promise<{ code: number; cause?: string }>;
 }
 
 /** Narrow ports: modules ask for the slice they use (`Pick<HostPort, "files">`), so tests stub one member. */

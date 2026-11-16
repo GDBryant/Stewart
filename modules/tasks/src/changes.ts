@@ -41,17 +41,17 @@ const MAX_BYTES = 20 * 1024 * 1024;
 /** Both hosts cap `files.list` at 20000 entries; exactly the cap reads as truncated. */
 const LIST_CAP = 20_000;
 
-async function git(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<{ code: number; out: string }> {
+async function git(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<{ code: number; cause?: string; out: string }> {
   let out = "";
   const h = host.proc.run(["git", ...argv], { cwd, env, onData: (d) => (out += d) });
-  const { code } = await h.done;
-  return { code, out };
+  const { code, cause } = await h.done;
+  return { code, cause, out };
 }
 
 async function must(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<string> {
   const r = await git(host, cwd, argv, env);
   if (r.code !== 0) {
-    const cause = exitCause(r.code);
+    const cause = r.cause ?? exitCause(r.code);
     throw new Error(`git ${argv[0]} failed (${r.code})${cause ? ` (${cause})` : ""}: ${r.out.trim().slice(-300)}`);
   }
   return r.out;

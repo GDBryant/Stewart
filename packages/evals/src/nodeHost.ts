@@ -79,12 +79,12 @@ function run(argv: string[], opts: { cwd: string; env?: Record<string, string>; 
   const child = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: { ...process.env, ...opts.env }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout?.on("data", (d: Buffer) => opts.onData(d.toString()));
   child.stderr?.on("data", (d: Buffer) => opts.onData(d.toString()));
-  const done = new Promise<{ code: number }>((res) => {
+  const done = new Promise<{ code: number; cause?: string }>((res) => {
     child.on("error", (e) => {
       opts.onData(`${e.message}\n`);
-      res({ code: -1 });
+      res({ code: -1, cause: `cannot start ${argv[0]}: ${e.message}` });
     });
-    child.on("close", (code) => res({ code: code ?? -1 }));
+    child.on("close", (code, signal) => res(code !== null ? { code } : signal ? { code: -1, cause: `killed by signal ${signal}` } : { code: -1 }));
   });
   const kill = (sig: NodeJS.Signals) => {
     try {

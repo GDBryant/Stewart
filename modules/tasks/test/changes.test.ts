@@ -214,6 +214,24 @@ describe("git tracker", () => {
     const t = changeTracker(h.host, P);
     await expect(t.begin("x")).rejects.toThrow("git add failed (3221225794) (process failed to start (Windows 0xC0000142, DLL initialisation failed))");
   });
+  it("must() prefers a cause reported by the handle", async () => {
+    const h = fakeHost();
+    h.setProcHandler((argv, onData) => {
+      if (argv[1] === "rev-parse" && argv[2] === "--is-inside-work-tree") {
+        onData("true\n");
+        return { code: 0 };
+      }
+      if (argv[1] === "rev-parse") {
+        onData("abc\n");
+        return { code: 0 };
+      }
+      if (argv[1] === "read-tree") return { code: 0 };
+      if (argv[1] === "add") return { code: -1, cause: "cannot start git: ENOENT" };
+      return { code: 0 };
+    });
+    const t = changeTracker(h.host, P);
+    await expect(t.begin("x")).rejects.toThrow("git add failed (-1) (cannot start git: ENOENT)");
+  });
 });
 
 describe("dispose", () => {

@@ -12,17 +12,17 @@ function rawRun(argv: string[], opts: { cwd: string; env?: Record<string, string
   child.stdout?.on("data", (d) => opts.onData(String(d)));
   child.stderr?.on("data", (d) => opts.onData(String(d)));
   let settled = false;
-  const done = new Promise<{ code: number }>((res) => {
-    child.on("exit", (code) => {
+  const done = new Promise<{ code: number; cause?: string }>((res) => {
+    child.on("exit", (code, signal) => {
       if (settled) return;
       settled = true;
-      res({ code: code ?? -1 });
+      res(code !== null ? { code } : signal ? { code: -1, cause: `killed by signal ${signal}` } : { code: -1 });
     });
     child.on("error", (e) => {
       if (settled) return;
       settled = true;
       opts.onData(`cannot start ${argv[0]}: ${e.message}\n`);
-      res({ code: -1 });
+      res({ code: -1, cause: `cannot start ${argv[0]}: ${e.message}` });
     });
   });
   return {

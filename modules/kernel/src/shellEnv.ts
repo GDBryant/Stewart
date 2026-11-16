@@ -71,7 +71,7 @@ export function withShellEnv(run: Run, o?: ShellEnvOpts): Run {
       inner = run(argv, Object.keys(env).length === 0 && opts.env === undefined ? opts : { ...opts, env });
       return inner;
     });
-    const done = started.then((h) => (h ? h.done : { code: -1 }));
+    const done = started.then((h) => (h ? h.done : { code: -1, cause: "cancelled before start" }));
     return {
       write: (d) => inner?.write?.(d),
       cancel: () => {

@@ -69,8 +69,8 @@ export class RunTerminal extends ProjectTool {
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
     try {
-      const { code } = await proc.done;
-      const cause = exitCause(code);
+      const { code, cause: reported } = await proc.done;
+      const cause = reported ?? exitCause(code);
       return `exit code: ${code}${cause ? ` (${cause})` : ""}\n${output}`;
     } finally {
       signal.removeEventListener("abort", onAbort);

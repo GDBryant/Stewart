@@ -31,10 +31,38 @@ describe("isStartFailure / exitCause", () => {
     expect(isStartFailure(-1073741502)).toBe(true);
     expect(isStartFailure(1)).toBe(false);
     expect(isStartFailure(0)).toBe(false);
+    expect(isStartFailure(-1)).toBe(false);
+    expect(isStartFailure(0xc0000005)).toBe(false);
+    expect(isStartFailure(0xc000013a)).toBe(false);
+    expect(isStartFailure(0xc0000135)).toBe(false);
     expect(exitCause(START)).toContain("0xC0000142");
     expect(exitCause(-1073741502)).toBe(exitCause(START));
     expect(exitCause(1)).toBeUndefined();
     expect(exitCause(0)).toBeUndefined();
+  });
+
+  it("names causes for bare and platform exit codes", () => {
+    expect(exitCause(-1)).toBe("process was killed or did not report an exit code");
+    expect(exitCause(126)).toBe("not executable");
+    expect(exitCause(127)).toBe("command not found");
+    expect(exitCause(137)).toBe("killed by signal 9 (SIGKILL)");
+    expect(exitCause(143)).toBe("killed by signal 15 (SIGTERM)");
+    expect(exitCause(130)).toBe("killed by signal 2 (SIGINT)");
+    expect(exitCause(131)).toBe("killed by signal 3");
+    expect(exitCause(192)).toBe("killed by signal 64");
+    expect(exitCause(0xc0000005)).toBe("access violation (Windows 0xC0000005)");
+    expect(exitCause(0xc000013a)).toBe("interrupted (Ctrl+C) (Windows 0xC000013A)");
+    expect(exitCause(0xc0000135)).toBe("DLL not found (Windows 0xC0000135)");
+  });
+
+  it("accepts the signed Java form of Windows statuses", () => {
+    expect(exitCause(-1073741819)).toBe("access violation (Windows 0xC0000005)");
+    expect(exitCause(-1073741510)).toBe("interrupted (Ctrl+C) (Windows 0xC000013A)");
+    expect(exitCause(-1073741515)).toBe("DLL not found (Windows 0xC0000135)");
+  });
+
+  it("returns undefined for ordinary and unmapped codes", () => {
+    for (const code of [0, 1, 2, 125, 128, 193, 255]) expect(exitCause(code)).toBeUndefined();
   });
 });
 

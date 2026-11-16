@@ -76,7 +76,7 @@ describe("remoteProcess killTree", () => {
     const proc = host.proc.run(["echo", "hi"], { cwd: "/tmp", onData: () => {} });
     link.close("test done");
     await expect(proc.killTree()).resolves.toBeUndefined();
-    await expect(proc.done).resolves.toEqual({ code: -1 });
+    await expect(proc.done).resolves.toEqual({ code: -1, cause: "cancelled before start" });
   });
 });
 
