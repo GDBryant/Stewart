@@ -74,4 +74,53 @@ describe("markdown rendering", () => {
     const { container } = renderMd("");
     expect(container.textContent).toBe("");
   });
+
+  it("leaves unclosed spans as literal text", () => {
+    renderMd("a `b");
+    expect(screen.getByText("a `b")).toBeTruthy();
+    cleanup();
+    renderMd("a **b");
+    expect(screen.getByText("a **b")).toBeTruthy();
+    cleanup();
+    renderMd("a *b");
+    expect(screen.getByText("a *b")).toBeTruthy();
+    cleanup();
+    renderMd("[x](y");
+    expect(screen.getByText("[x](y")).toBeTruthy();
+    expect(document.querySelector("a")).toBeNull();
+  });
+
+  it("renders italic in an em element", () => {
+    renderMd("some *italic* text");
+    expect(screen.getByText("italic").tagName.toLowerCase()).toBe("em");
+  });
+
+  it("picks the earliest span when several are present", () => {
+    renderMd("`code` then **bold**");
+    expect(screen.getByText("code").tagName.toLowerCase()).toBe("code");
+    expect(screen.getByText("bold").tagName.toLowerCase()).toBe("strong");
+  });
+
+  it("renders code nested inside bold", () => {
+    renderMd("**bold `code` end**");
+    const strong = screen.getByText(/bold/).closest("strong");
+    expect(strong).toBeTruthy();
+    const code = strong!.querySelector("code");
+    expect(code?.textContent).toBe("code");
+  });
+
+  it("treats a table-looking line without a separator row as a paragraph", () => {
+    const { container } = renderMd("| a | b |\nnot a separator");
+    expect(document.querySelector(".md-table")).toBeNull();
+    const p = container.querySelector("p");
+    expect(p?.textContent).toContain("| a | b |");
+    expect(p?.textContent).toContain("not a separator");
+  });
+
+  it("renders an unterminated fence as a pre block", () => {
+    renderMd("```\nlet x = 1;");
+    const code = screen.getByText("let x = 1;");
+    expect(code.tagName.toLowerCase()).toBe("code");
+    expect(code.closest("pre")).toBeTruthy();
+  });
 });

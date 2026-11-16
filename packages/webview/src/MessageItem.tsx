@@ -28,12 +28,46 @@ export function activityIcon(a: ActivityEntry): string {
   return hit ? hit[1] : "⚙";
 }
 
+function roleLabel(role: ChatItem["role"]) {
+  return role === "user" ? "user" : role === "assistant" ? "Stewart (agent)" : null;
+}
+
+function bubbleBody(item: ChatItem) {
+  return item.role === "assistant"
+    ? item.text
+      ? renderMarkdown(item.text)
+      : item.streaming
+        ? "…"
+        : null
+    : item.text || (item.streaming ? "…" : "");
+}
+
+function imagesBlock(images: string[]) {
+  return (
+    <div class="msg-images">
+      {images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
+    </div>
+  );
+}
+
+function filesChangedBlock(files: string[]) {
+  return (
+    <div class="files-changed">
+      <div class="files-title">Files changed</div>
+      {files.map((f) => (
+        <div key={f} class="file-row">
+          <span class="file-ico">📄</span>
+          <span class="file-name">{f}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTurn?: () => void }) {
   return (
     <div class={`item ${item.role}`}>
-      <div class={`role-label ${item.role}`}>
-        {item.role === "user" ? "user" : item.role === "assistant" ? "Stewart (agent)" : null}
-      </div>
+      <div class={`role-label ${item.role}`}>{roleLabel(item.role)}</div>
       {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
       {item.activity.length ? <StepsBlock item={item} /> : null}
       <div class={`bubble${item.role === "assistant" ? " bubble-md" : ""}`}>
@@ -42,30 +76,10 @@ export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTu
             Revert this turn
           </button>
         ) : null}
-        {item.images?.length ? (
-          <div class="msg-images">
-            {item.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
-          </div>
-        ) : null}
-        {item.role === "assistant"
-          ? item.text
-            ? renderMarkdown(item.text)
-            : item.streaming
-              ? "…"
-              : null
-          : item.text || (item.streaming ? "…" : "")}
+        {item.images?.length ? imagesBlock(item.images) : null}
+        {bubbleBody(item)}
       </div>
-      {item.filesChanged?.length ? (
-        <div class="files-changed">
-          <div class="files-title">Files changed</div>
-          {item.filesChanged.map((f) => (
-            <div key={f} class="file-row">
-              <span class="file-ico">📄</span>
-              <span class="file-name">{f}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {item.filesChanged?.length ? filesChangedBlock(item.filesChanged) : null}
     </div>
   );
 }

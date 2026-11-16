@@ -1,6 +1,7 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { Inbound, Outbound, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
 import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
+import { finishedItems } from "./runFinished.js";
 
 export interface HandlerHost {
   getState(): State;
@@ -13,16 +14,6 @@ export interface HandlerHost {
   post(msg: Outbound): void;
   nextItemSeq(): number;
   nextInsertSeq(): number;
-}
-
-/** One short run-status line from run.finished's outcome. */
-function outcomeText(o: { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: string; trackingReason?: string }): string {
-  if (o.tracking === "unavailable") return `File changes not tracked${o.trackingReason ? `: ${o.trackingReason}` : ""}`;
-  if (!o.changed.length) return "No files changed";
-  const n = `Changed ${o.changed.length} file${o.changed.length === 1 ? "" : "s"}`;
-  if (o.verified === "command") return `${n}; verified: ${o.command}`;
-  if (o.verified === "files") return `${n}; required files present`;
-  return `${n}, not verified`;
 }
 
 type Reply = Exclude<Inbound, { type: "event" }>;
@@ -293,21 +284,8 @@ export class StoreHandlers {
   }
 
   private onRunFinished(ev: Extract<RunEvent, { kind: "run.finished" }>): void {
-    const files = ev.outcome && ev.outcome.changed.length ? ev.outcome.changed : undefined;
-    const items = this.state.items.map((i) =>
-      i.id === ev.runId ? { ...i, streaming: false, ...(files ? { filesChanged: files } : {}) } : i,
-    );
+    const items = finishedItems(this.state.items, ev, () => this.host.nextItemSeq());
     this.pendingTools.clear();
-    const last = items[items.length - 1];
-    const extra: ChatItem[] =
-      ev.status !== "done" && (!last || last.id !== ev.runId)
-        ? [...items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: ev.error ?? ev.status, activity: [] }]
-        : ev.status !== "done" && ev.error && last
-          ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || ev.error! } : i))
-          : items;
-    const items2 = ev.outcome
-      ? [...extra, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: outcomeText(ev.outcome), activity: [], revertTurn: ev.status === "failed" || undefined }]
-      : extra;
-    this.patch({ items: items2, busyRunId: undefined, lastRunId: ev.runId });
+    this.patch({ items, busyRunId: undefined, lastRunId: ev.runId });
   }
 }
