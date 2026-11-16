@@ -33,6 +33,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Permissions: `docs/ai_docs/PERMISSIONS.md` — categories, effective rule, grant granularity, unparseable constructs, scopes, revoke paths, storage.
 - Releasing: `docs/ai_docs/RELEASING.md` — VSIX packaging, per-OS bundled-Node zips, CI/release workflows, secrets-gated signing/publishing.
 - Setup wizard: `docs/ai_docs/SETUP.md` — steps, assignment engine, protocol, gaps.
+- Handover: `docs/ai_docs/HANDOVER_2026-11-16.md` — health gate status, spawn stdin/retry build (notes item 3), open items from `docs/notes_2026-11-16.md`.
 - Health reports: `docs/health_reports/` — dated repository code-health scores and verification results.
 
 `docs/archived_v2/` — superseded or completed v2-era plans and builds:

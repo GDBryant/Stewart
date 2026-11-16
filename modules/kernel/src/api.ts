@@ -5,6 +5,8 @@ export type {
   VersionedEdit, ProcessHandle, HostPort, SecretsPort, FilesPort, ProcessPort, EditorPort, ProblemsPort, WorkspacePort, LogPort, Clock, IdGen, FetchResponse, Fetcher,
 } from "./ports.js";
 export { systemClock, counterIds, nodeFetch } from "./ports.js";
+export { isStartFailure, exitCause, withStartRetry } from "./procStart.js";
+export type { StartRetryOpts } from "./procStart.js";
 // In-memory fakes for tests of every module (the HostPort and Fetcher seams).
 export { fakeHost, fakeFetcher, streamOf, collect } from "./testing.js";
 export { mediaTypeFor } from "./mime.js";

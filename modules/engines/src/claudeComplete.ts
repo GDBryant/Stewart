@@ -1,7 +1,7 @@
 import { normalizeModel } from "@stewart/catalog";
-import { claudeChildEnv, nodeSpawn } from "@stewart/channels";
+import { claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnedResult, type SpawnOpts } from "@stewart/channels";
 import { validateArgs } from "@stewart/tools";
-import type { Json } from "@stewart/kernel";
+import { exitCause, isStartFailure, type Json } from "@stewart/kernel";
 import type { ClaudeCodeDeps, CompleteRequest, CompleteResult } from "./types.js";
 import { num, obj, str, type Obj } from "./claudeLines.js";
 
@@ -36,18 +36,18 @@ function structured(res: Obj): Json | string {
   return "reply is not a JSON object";
 }
 
-async function drain(proc: { stdout: AsyncIterable<string>; done: Promise<unknown>; kill(): Promise<unknown> }, signal: AbortSignal): Promise<string> {
+async function drain(proc: SpawnedProc, signal: AbortSignal): Promise<{ line: string; result: SpawnedResult }> {
   const onAbort = () => void proc.kill();
   if (signal.aborted) onAbort();
   else signal.addEventListener("abort", onAbort, { once: true });
   let line = "";
   try {
     for await (const l of proc.stdout) line = l;
-    await proc.done;
+    const result = await proc.done;
+    return { line, result };
   } finally {
     signal.removeEventListener("abort", onAbort);
   }
-  return line;
 }
 
 function usageOf(res: Obj): { in: number; out: number } {
@@ -72,15 +72,30 @@ function parseResult(line: string, schema: Json): CompleteResult {
   return { ok: true, value: v, usage: usageOf(res), costUsd: num(res.total_cost_usd) };
 }
 
+function spawnErr(argv: string[], e: unknown): CompleteResult {
+  return { ok: false, error: `cannot start Claude CLI at ${argv[0]}: ${e instanceof Error ? e.message : String(e)}` };
+}
+
 export async function claudeComplete(req: CompleteRequest, deps: ClaudeCodeDeps = {}): Promise<CompleteResult> {
   const spawn = deps.spawn ?? nodeSpawn;
   const argv = completeArgv(req);
-  let proc;
+  const opts: SpawnOpts = { cwd: "/", env: claudeChildEnv(req.channel.cfg, deps.env ?? (process.env as Record<string, string | undefined>)), stdin: "devnull" };
+  let proc: SpawnedProc;
   try {
-    proc = spawn(argv, { cwd: "/", env: claudeChildEnv(req.channel.cfg, deps.env ?? (process.env as Record<string, string | undefined>)) });
+    proc = spawn(argv, opts);
   } catch (e) {
-    return { ok: false, error: `cannot start Claude CLI at ${argv[0]}: ${e instanceof Error ? e.message : String(e)}` };
+    return spawnErr(argv, e);
   }
-  const line = await drain(proc, req.signal);
-  return req.signal.aborted ? { ok: false, error: "cancelled" } : parseResult(line, req.schema);
+  let d = await drain(proc, req.signal);
+  if (!req.signal.aborted && isStartFailure(d.result.code)) {
+    try {
+      proc = spawn(argv, opts);
+    } catch (e) {
+      return spawnErr(argv, e);
+    }
+    d = await drain(proc, req.signal);
+  }
+  if (d.result.spawnError) return { ok: false, error: `cannot start Claude CLI at ${argv[0]}: ${d.result.spawnError}` };
+  if (isStartFailure(d.result.code)) return { ok: false, error: `Claude CLI ${exitCause(d.result.code)}` };
+  return req.signal.aborted ? { ok: false, error: "cancelled" } : parseResult(d.line, req.schema);
 }

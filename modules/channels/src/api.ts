@@ -7,6 +7,6 @@ export { OpenAICompatAdapter } from "./openai.js";
 export { ClaudeCliAdapter, claudeChildEnv } from "./claude/adapter.js";
 export type { ClaudeDeps, ClaudeLoginState } from "./claude/adapter.js";
 export { nodeSpawn, makeTempDir, classify, writeTempFile, rmDir } from "./claude/nodeSpawn.js";
-export type { SpawnedProc, SpawnFn } from "./claude/nodeSpawn.js";
+export type { SpawnedProc, SpawnFn, SpawnOpts, SpawnedResult } from "./claude/nodeSpawn.js";
 export { ChannelService } from "./service.js";
 export type { ChannelHealth, ChannelServiceDeps, ChannelSpec } from "./service.js";

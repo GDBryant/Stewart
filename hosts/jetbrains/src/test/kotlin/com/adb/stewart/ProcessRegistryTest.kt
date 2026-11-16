@@ -34,19 +34,31 @@ class ProcessRegistryTest {
     }
 
     @Test
-    fun `write feeds stdin`() {
+    fun `child sees EOF on stdin`() {
         val (reg, events) = rig()
         reg.run("h2", listOf("/bin/cat"), null, null)
-        reg.write("h2", "ping\n")
-        val out = StringBuilder()
+        var code: Int? = null
         val deadline = System.currentTimeMillis() + 10_000
-        while (!out.contains("ping") && System.currentTimeMillis() < deadline) {
+        while (code == null && System.currentTimeMillis() < deadline) {
             val (m, p) = events.poll(10, TimeUnit.SECONDS) ?: break
-            if (m == "proc.output") out.append(p["data"]!!.jsonPrimitive.content)
-            if (m == "proc.exit") break
+            if (m == "proc.exit") code = p["code"]!!.jsonPrimitive.content.toInt()
         }
-        reg.cancel("h2")
-        assertTrue(out.toString().contains("ping"))
+        assertEquals(0, code)
+    }
+
+    @Test
+    fun `write to null-stdin process does not throw`() {
+        val (reg, events) = rig()
+        reg.run("h2b", listOf("/bin/sleep", "30"), null, null)
+        reg.write("h2b", "ping\n")
+        reg.killTree("h2b")
+        val deadline = System.currentTimeMillis() + 10_000
+        var exited = false
+        while (!exited && System.currentTimeMillis() < deadline) {
+            val (m) = events.poll(10, TimeUnit.SECONDS) ?: break
+            if (m == "proc.exit") exited = true
+        }
+        assertTrue(exited)
     }
 
     @Test

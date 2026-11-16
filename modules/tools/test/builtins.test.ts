@@ -173,6 +173,16 @@ describe("RunTerminal", () => {
     expect(await t.execute({ command: "make x" }, p, sig)).toBe("exit code: 3\nout\n");
   });
 
+  it("appends the cause for a Windows start failure", async () => {
+    const { reg, setProcHandler } = await setup({});
+    setProcHandler(() => ({ code: 3221225794 }));
+    const t = reg.find("RunTerminal")!;
+    const p = await t.preview!({ command: "make x" });
+    expect(await t.execute({ command: "make x" }, p, sig)).toBe(
+      "exit code: 3221225794 (process failed to start (Windows 0xC0000142, DLL initialisation failed))\n",
+    );
+  });
+
   it("rejects a command changed since approval", async () => {
     const { reg } = await setup({});
     const t = reg.find("RunTerminal")!;

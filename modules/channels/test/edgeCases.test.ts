@@ -278,10 +278,23 @@ describe("nodeSpawn", () => {
     expect(await proc.stderrText()).toBe("");
   });
 
-  it("resolves code -1 for a missing binary", async () => {
+  it("resolves code -1 with spawnError for a missing binary", async () => {
     const proc = nodeSpawn(["definitely-not-a-real-binary-xyz"], { cwd: "/tmp", env: {} });
     for await (const _ of proc.stdout) void _;
-    expect(await proc.done).toEqual({ code: -1 });
+    const res = await proc.done;
+    expect(res.code).toBe(-1);
+    expect(res.spawnError).toContain("ENOENT");
+  });
+
+  it("devnull stdin gives the child immediate EOF and write helpers are no-ops", async () => {
+    const proc = nodeSpawn([process.execPath, "-e", "process.stdin.on('end',()=>console.log('eof'));process.stdin.resume()"], { cwd: "/tmp", env: {}, stdin: "devnull" });
+    proc.stdin("ignored");
+    proc.write?.("ignored");
+    proc.end?.();
+    const lines: string[] = [];
+    for await (const l of proc.stdout) lines.push(l);
+    expect(lines).toEqual(["eof"]);
+    expect(await proc.done).toEqual({ code: 0 });
   });
 
   it("kill terminates a sleeping process", async () => {

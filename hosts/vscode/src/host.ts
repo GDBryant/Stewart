@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
-import { spawn, type ChildProcess } from "node:child_process";
-import { ensureUserConfigDir, sharedUserConfigDir, type HostPort, type ProcessHandle, type VersionedEdit } from "@stewart/core";
+import { ensureUserConfigDir, sharedUserConfigDir, type HostPort, type VersionedEdit } from "@stewart/core";
+import { procRun } from "./procRun.js";
 
 /** HostPort implemented on the vscode API: native undo, unsaved buffers, SecretStorage. */
 export class VsCodeHost implements HostPort {
@@ -128,25 +128,7 @@ export class VsCodeHost implements HostPort {
     },
   };
 
-  readonly proc: HostPort["proc"] = {
-    run: (argv, opts): ProcessHandle => {
-      const child: ChildProcess = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: { ...process.env, ...opts.env }, shell: false });
-      child.stdout?.on("data", (d) => opts.onData(String(d)));
-      child.stderr?.on("data", (d) => opts.onData(String(d)));
-      const done = new Promise<{ code: number }>((res) => child.on("exit", (code) => res({ code: code ?? -1 })));
-      return {
-        cancel: () => child.kill("SIGTERM"),
-        killTree: async () => {
-          try {
-            process.kill(-(child.pid ?? 0), "SIGKILL");
-          } catch {
-            child.kill("SIGKILL");
-          }
-        },
-        done,
-      };
-    },
-  };
+  readonly proc: HostPort["proc"] = { run: procRun };
 
   readonly diff: HostPort["diff"] = {
     preview: async (p, next) => {

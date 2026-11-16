@@ -1,4 +1,4 @@
-import type { HostPort, ProcessHandle } from "@stewart/kernel";
+import { exitCause, type HostPort, type ProcessHandle } from "@stewart/kernel";
 
 /** Stable machine code for one piece of check evidence. */
 export type EvidenceCode =
@@ -141,7 +141,8 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
     return false;
   }
   if (timedOut.code !== 0) {
-    out.push({ code: "command_failed", ok: false, detail: `${argv.join(" ")} exited ${timedOut.code}: ${output.slice(-OUTPUT_TAIL)}` });
+    const cause = exitCause(timedOut.code);
+    out.push({ code: "command_failed", ok: false, detail: `${argv.join(" ")} exited ${timedOut.code}${cause ? ` (${cause})` : ""}: ${output.slice(-OUTPUT_TAIL)}` });
     return false;
   }
   out.push({ code: "command_ok", ok: true, detail: `command ok: ${argv.join(" ")}` });

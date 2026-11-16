@@ -5,13 +5,13 @@ import { ChannelError } from "../src/types.js";
 import type { SpawnedProc, SpawnFn } from "../src/claude/nodeSpawn.js";
 import { collect } from "@stewart/kernel";
 
-function fakeSpawn(lines: string[], opts: { code?: number; stderr?: string } = {}): { spawn: SpawnFn; captured: { argv: string[]; cwd: string; env: Record<string, string> }[] } {
-  const captured: { argv: string[]; cwd: string; env: Record<string, string> }[] = [];
+function fakeSpawn(lines: string[], opts: { code?: number; stderr?: string; spawnError?: string } = {}): { spawn: SpawnFn; captured: { argv: string[]; cwd: string; env: Record<string, string>; stdin?: string }[] } {
+  const captured: { argv: string[]; cwd: string; env: Record<string, string>; stdin?: string }[] = [];
   const spawn: SpawnFn = (a, o) => {
-    captured.push({ argv: a, cwd: o.cwd, env: o.env });
+    captured.push({ argv: a, cwd: o.cwd, env: o.env, stdin: o.stdin });
     const stdin: string[] = [];
-    let doneRes: (r: { code: number }) => void = () => {};
-    const done = new Promise<{ code: number }>((res) => (doneRes = res));
+    let doneRes: (r: { code: number; spawnError?: string }) => void = () => {};
+    const done = new Promise<{ code: number; spawnError?: string }>((res) => (doneRes = res));
     const proc: SpawnedProc = {
       stdin: (d) => stdin.push(d),
       write: (d) => stdin.push(d),
@@ -20,7 +20,7 @@ function fakeSpawn(lines: string[], opts: { code?: number; stderr?: string } = {
         try {
           for (const l of lines) yield l;
         } finally {
-          doneRes({ code: opts.code ?? 0 });
+          doneRes({ code: opts.code ?? 0, spawnError: opts.spawnError });
         }
       })(),
       stderrText: async () => opts.stderr ?? "",
@@ -74,6 +74,8 @@ describe("ClaudeCliAdapter", () => {
       throw new Error("ENOENT");
     };
     expect((await new ClaudeCliAdapter(deps(fail)).loginStatus(cfg)).detail).toContain("cannot start CLI");
+    const spawnErr = fakeSpawn([], { spawnError: "spawn claude ENOENT", code: -1 });
+    expect((await new ClaudeCliAdapter(deps(spawnErr.spawn)).loginStatus(cfg)).detail).toBe("cannot start CLI: spawn claude ENOENT");
     const hanging = fakeSpawn([]);
     hanging.spawn = (() => {
       const proc: SpawnedProc = {
@@ -91,6 +93,31 @@ describe("ClaudeCliAdapter", () => {
       return proc;
     }) as SpawnFn;
     expect((await new ClaudeCliAdapter(deps(hanging.spawn, { authTimeoutMs: 20 })).loginStatus(cfg)).detail).toBe("auth status timed out");
+  });
+
+  it("loginStatus spawns with devnull stdin and retries a start failure once", async () => {
+    const seq = fakeSpawn(['{"loggedIn":true}']);
+    const inner = seq.spawn;
+    let calls = 0;
+    const flaky: SpawnFn = (a, o) => {
+      calls++;
+      if (calls === 1) return fakeSpawn([], { code: 3221225794 }).spawn(a, o);
+      return inner(a, o);
+    };
+    const adapter = new ClaudeCliAdapter(deps(flaky));
+    const state = await adapter.loginStatus(cfg);
+    expect(state.loggedIn).toBe(true);
+    expect(calls).toBe(2);
+    expect(seq.captured[0].stdin).toBe("devnull");
+  });
+
+  it("loginStatus reports a start failure cause after the retry also fails", async () => {
+    const f = fakeSpawn([], { code: -1073741502 });
+    const adapter = new ClaudeCliAdapter(deps(f.spawn));
+    const state = await adapter.loginStatus(cfg);
+    expect(state.loggedIn).toBe(false);
+    expect(state.detail).toBe("auth status: process failed to start (Windows 0xC0000142, DLL initialisation failed)");
+    expect(f.captured.length).toBe(2);
   });
 
   it("claudeChildEnv strips direct API keys and applies extraEnv", async () => {

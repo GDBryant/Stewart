@@ -195,6 +195,25 @@ describe("git tracker", () => {
     await expect(t.begin("x")).rejects.toThrow("git add failed (128)");
     expect(calls.filter((a) => a[1] === "add").length).toBe(2);
   });
+
+  it("must() names the cause for a Windows start failure", async () => {
+    const h = fakeHost();
+    h.setProcHandler((argv, onData) => {
+      if (argv[1] === "rev-parse" && argv[2] === "--is-inside-work-tree") {
+        onData("true\n");
+        return { code: 0 };
+      }
+      if (argv[1] === "rev-parse") {
+        onData("abc\n");
+        return { code: 0 };
+      }
+      if (argv[1] === "read-tree") return { code: 0 };
+      if (argv[1] === "add") return { code: 3221225794 };
+      return { code: 0 };
+    });
+    const t = changeTracker(h.host, P);
+    await expect(t.begin("x")).rejects.toThrow("git add failed (3221225794) (process failed to start (Windows 0xC0000142, DLL initialisation failed))");
+  });
 });
 
 describe("dispose", () => {

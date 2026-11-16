@@ -103,6 +103,13 @@ describe("runCheck command rule", () => {
     expect(r.passed).toBe(false);
     expect(code(r, "command_failed")?.detail).toBe("pnpm test exited 3: boom output");
   });
+  it("appends the cause for a Windows start failure", async () => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler(() => ({ code: -1073741502 }));
+    const r = await runCheck({ check: { commands: [["pnpm", "test"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_failed")?.detail).toBe("pnpm test exited -1073741502 (process failed to start (Windows 0xC0000142, DLL initialisation failed)): ");
+  });
   it("runs commands in order and stops at the first failure", async () => {
     const { host, procs, setProcHandler } = fakeHost();
     setProcHandler((argv) => (argv[0] === "fail" ? { code: 1 } : { code: 0 }));

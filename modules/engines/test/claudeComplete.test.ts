@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { ManagedChannel, type ChannelAdapter, type SpawnedProc } from "@stewart/channels";
+import { ManagedChannel, type ChannelAdapter, type SpawnedProc, type SpawnFn, type SpawnOpts } from "@stewart/channels";
 import type { AgentDef } from "@stewart/config";
 import type { Json } from "@stewart/kernel";
 import { collect } from "@stewart/kernel";
@@ -17,14 +17,16 @@ function channel(extra: Record<string, unknown> = {}): ManagedChannel {
   return new ManagedChannel(adapter, { id: "c", type: "claude-cli", enabled: true, maxParallel: 1, cliPath: "claude", ...extra });
 }
 
-function fakeProc(lines: string[]): { spawn: (argv: string[]) => SpawnedProc; calls: string[][] } {
+function fakeProc(lines: string[], done: { code: number; spawnError?: string } = { code: 0 }): { spawn: SpawnFn; calls: string[][]; opts: (SpawnOpts | undefined)[] } {
   const calls: string[][] = [];
-  const spawn = (argv: string[]) => {
+  const opts: (SpawnOpts | undefined)[] = [];
+  const spawn: SpawnFn = (argv, o) => {
     calls.push(argv);
+    opts.push(o);
     const stdout = (async function* () { for (const l of lines) yield l; })();
-    return { write: () => {}, stdout, stderrText: async () => "", done: Promise.resolve({ code: 0 }), kill: async () => {} } as SpawnedProc;
+    return { write: () => {}, stdout, stderrText: async () => "", done: Promise.resolve(done), kill: async () => {} } as SpawnedProc;
   };
-  return { spawn, calls };
+  return { spawn, calls, opts };
 }
 
 const req = (ch = channel(), over: Partial<CompleteRequest> = {}): CompleteRequest => ({
@@ -113,5 +115,36 @@ describe("claudeCode.complete", () => {
     const res = await p;
     expect(killed).toBe(true);
     expect(res).toMatchObject({ ok: false, error: "cancelled" });
+  });
+
+  it("spawns with devnull stdin and retries a start failure once", async () => {
+    const good = fakeProc([JSON.stringify({ type: "result", is_error: false, result: '{"sum":1,"word":"w"}' })]);
+    const bad = fakeProc([], { code: 3221225794 });
+    const calls: string[][] = [];
+    const spawn: SpawnFn = (a, o) => {
+      calls.push(a);
+      return (calls.length === 1 ? bad : good).spawn(a, o);
+    };
+    const res = await claudeCodeEngine({ spawn }).complete(req());
+    expect(res.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(good.opts[0]?.stdin).toBe("devnull");
+  });
+
+  it("reports spawnError and a start-failure cause", async () => {
+    const enoent = fakeProc([], { code: -1, spawnError: "spawn claude ENOENT" });
+    const res = await claudeCodeEngine({ spawn: enoent.spawn }).complete(req());
+    expect(res).toMatchObject({ ok: false, error: "cannot start Claude CLI at claude: spawn claude ENOENT" });
+    const stuck = fakeProc([], { code: 3221225794 });
+    const res2 = await claudeCodeEngine({ spawn: stuck.spawn }).complete(req());
+    expect(res2).toMatchObject({ ok: false, error: "Claude CLI process failed to start (Windows 0xC0000142, DLL initialisation failed)" });
+    expect(stuck.calls).toHaveLength(2);
+  });
+
+  it("does not retry a normal non-zero exit", async () => {
+    const f = fakeProc([], { code: 2 });
+    const res = await claudeCodeEngine({ spawn: f.spawn }).complete(req());
+    expect(res.ok).toBe(false);
+    expect(f.calls).toHaveLength(1);
   });
 });

@@ -4,6 +4,7 @@ import { ChannelError } from "../types.js";
 import type { DebugSink } from "@stewart/diagnostics";
 import { normalizeModel } from "@stewart/catalog";
 import { nodeSpawn, makeTempDir, rmDir, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
+import { exitCause, isStartFailure } from "@stewart/kernel";
 
 export interface ClaudeDeps {
   spawn?: SpawnFn;
@@ -55,32 +56,41 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     return claudeChildEnv(cfg, this.deps.env ?? (process.env as Record<string, string | undefined>));
   }
 
+  private async authProbe(cfg: ChannelConfig, cwd: string): Promise<{ out: string[] } | { detail: string; retriable?: boolean }> {
+    let proc: SpawnedProc;
+    try {
+      proc = this.spawn([this.cliPath(cfg), "auth", "status"], { cwd, env: this.childEnv(cfg), stdin: "devnull" });
+    } catch (e) {
+      return { detail: `cannot start CLI: ${e instanceof Error ? e.message : e}` };
+    }
+    const out: string[] = [];
+    const reading = (async () => {
+      for await (const l of proc.stdout) out.push(l);
+    })();
+    const timedOut = await Promise.race([proc.done.then(() => false), reading.then(() => false), new Promise<boolean>((r) => setTimeout(() => r(true), this.authTimeoutMs))]);
+    if (timedOut) {
+      await proc.kill();
+      return { detail: "auth status timed out" };
+    }
+    const res = await proc.done;
+    await reading.catch(() => {});
+    if (res.spawnError) return { detail: `cannot start CLI: ${res.spawnError}` };
+    if (isStartFailure(res.code)) return { detail: `auth status: ${exitCause(res.code)}`, retriable: true };
+    if (res.code !== 0) return { detail: `auth status exit ${res.code}` };
+    return { out };
+  }
+
   async loginStatus(cfg: ChannelConfig): Promise<ClaudeLoginState> {
     const mk = this.deps.makeTempDir ?? makeTempDir;
     const rm = this.deps.rmDir ?? rmDir;
     const cwd = await mk();
     try {
-      let proc: SpawnedProc;
-      try {
-        proc = this.spawn([this.cliPath(cfg), "auth", "status"], { cwd, env: this.childEnv(cfg) });
-      } catch (e) {
-        return { loggedIn: false, detail: `cannot start CLI: ${e instanceof Error ? e.message : e}` };
-      }
-      const out: string[] = [];
-      const reading = (async () => {
-        for await (const l of proc.stdout) out.push(l);
-      })();
-      const timedOut = await Promise.race([proc.done.then(() => false), reading.then(() => false), new Promise<boolean>((r) => setTimeout(() => r(true), this.authTimeoutMs))]);
-      if (timedOut) {
-        await proc.kill();
-        return { loggedIn: false, detail: "auth status timed out" };
-      }
-      const { code } = await proc.done;
-      await reading.catch(() => {});
-      if (code !== 0) return { loggedIn: false, detail: `auth status exit ${code}` };
+      let probe = await this.authProbe(cfg, cwd);
+      if ("detail" in probe && probe.retriable) probe = await this.authProbe(cfg, cwd);
+      if ("detail" in probe) return { loggedIn: false, detail: probe.detail };
       let o: Record<string, unknown>;
       try {
-        o = JSON.parse(out.join("\n")) as Record<string, unknown>;
+        o = JSON.parse(probe.out.join("\n")) as Record<string, unknown>;
       } catch {
         return { loggedIn: false, detail: "non-JSON auth status" };
       }

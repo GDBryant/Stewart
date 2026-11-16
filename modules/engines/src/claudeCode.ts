@@ -1,4 +1,4 @@
-import type { ToolCall } from "@stewart/kernel";
+import { exitCause, isStartFailure, type ToolCall } from "@stewart/kernel";
 import { categoryOf } from "@stewart/permissions";
 import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
 import type { ClaudeCodeDeps, Engine, EngineEvent, EngineTurn } from "./types.js";
@@ -20,6 +20,10 @@ interface Attempt {
   result?: { subtype: string; isError: boolean; text: string };
   /** This attempt was spawned with --resume (id may be stale). */
   usedResume: boolean;
+  /** Stdout lines seen on this attempt (a bare start failure produces none). */
+  lines: number;
+  /** argv[0] for error messages. */
+  cli: string;
   guard: LoopGuard;
 }
 
@@ -153,6 +157,7 @@ async function* handleLine(a: Attempt, j: Obj): AsyncGenerator<EngineEvent, bool
 
 async function* pumpLines(a: Attempt): AsyncGenerator<EngineEvent, void> {
   for await (const line of a.proc.stdout) {
+    a.lines++;
     let j: Obj | undefined;
     try {
       j = obj(JSON.parse(line));
@@ -204,7 +209,7 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
     yield { kind: "finished", reason: "error", error: `cannot start Claude CLI at ${argv[0]}: ${err(e)}` };
     return null;
   }
-  const a: Attempt = { turn, proc, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, guard: new LoopGuard() };
+  const a: Attempt = { turn, proc, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, lines: 0, cli: argv[0], guard: new LoopGuard() };
   const unwatch = cancelWatch(turn, proc);
   try {
     proc.write?.(userLine(turn.transcript, prefix) + "\n");
@@ -229,22 +234,33 @@ async function loopGuardEnd(a: Attempt, trip: string): Promise<{ retry: boolean;
 }
 
 /** A result line arrived: let the CLI exit (kill after 5 s); a stale --resume retries fresh. */
-async function resultEnd(a: Attempt, r: NonNullable<Attempt["result"]>): Promise<{ retry: boolean; ev?: EngineEvent }> {
+async function resultEnd(a: Attempt, r: NonNullable<Attempt["result"]>): Promise<PostAttempt> {
   a.proc.end?.();
   const exited = await Promise.race([a.proc.done.then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), 5000))]);
   if (!exited) await a.proc.kill().catch(() => {});
-  if (a.usedResume && (r.isError || r.subtype.startsWith("error")) && staleResume("", r.text)) return { retry: true };
+  if (a.usedResume && (r.isError || r.subtype.startsWith("error")) && staleResume("", r.text)) return { retry: true, dropSession: true };
   return { retry: false, ev: finishedFor(a) };
 }
 
+interface PostAttempt {
+  retry: boolean;
+  ev?: EngineEvent;
+  /** Stale --resume: drop the saved CLI session id before retrying. */
+  dropSession?: boolean;
+}
+
 /** Decide what happens after one attempt: retry fresh, or emit the final event. */
-async function postAttempt(a: Attempt): Promise<{ retry: boolean; ev?: EngineEvent }> {
+async function postAttempt(a: Attempt): Promise<PostAttempt> {
   if (a.turn.signal.aborted) return { retry: false, ev: { kind: "finished", reason: "cancelled" } };
   if (a.guard.trip) return await loopGuardEnd(a, a.guard.trip);
   if (a.result) return await resultEnd(a, a.result);
   const tail = (await a.proc.stderrText()).slice(-2000);
-  await a.proc.done;
-  if (a.usedResume && staleResume(tail, "")) return { retry: true };
+  const res = await a.proc.done;
+  if (res.spawnError) return { retry: false, ev: { kind: "finished", reason: "error", error: `cannot start Claude CLI at ${a.cli}: ${res.spawnError}` } };
+  if (a.usedResume && staleResume(tail, "")) return { retry: true, dropSession: true };
+  if (isStartFailure(res.code) && a.lines === 0) {
+    return { retry: true, ev: { kind: "finished", reason: "error", error: `Claude CLI ${exitCause(res.code)}` } };
+  }
   return { retry: false, ev: exitError(tail) };
 }
 
@@ -271,7 +287,7 @@ async function* runClaude(turn: EngineTurn, deps: ClaudeCodeDeps): AsyncGenerato
       if (post.ev) yield post.ev;
       break;
     }
-    delete turn.state.cliSessionId;
+    if (post.dropSession) delete turn.state.cliSessionId;
     prefix = unseenPrefix(turn);
   }
   turn.state.cliSeen = turn.transcript.length;

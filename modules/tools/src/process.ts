@@ -1,4 +1,4 @@
-import type { Json, ToolSpec } from "@stewart/kernel";
+import { exitCause, type Json, type ToolSpec } from "@stewart/kernel";
 import type { ToolPreview } from "@stewart/permissions";
 import { MAX_COMMAND_OUTPUT } from "./projectPaths.js";
 import { arg, optBool, schema, str, bool, ProjectTool } from "./toolBase.js";
@@ -70,7 +70,8 @@ export class RunTerminal extends ProjectTool {
     else signal.addEventListener("abort", onAbort, { once: true });
     try {
       const { code } = await proc.done;
-      return `exit code: ${code}\n${output}`;
+      const cause = exitCause(code);
+      return `exit code: ${code}${cause ? ` (${cause})` : ""}\n${output}`;
     } finally {
       signal.removeEventListener("abort", onAbort);
     }

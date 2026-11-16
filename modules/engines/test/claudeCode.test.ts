@@ -14,6 +14,8 @@ interface Script {
   lines: unknown[];
   stderr?: string;
   holdUntilKill?: boolean;
+  code?: number;
+  spawnError?: string;
 }
 
 interface SpawnCall {
@@ -34,15 +36,15 @@ function fakeSpawn(scripts: Script[]): { spawn: SpawnFn; calls: SpawnCall[] } {
     const killed = new Promise<void>((r) => (killResolve = r));
     let finishStdout: () => void;
     const stdoutGate = new Promise<void>((r) => (finishStdout = r));
-    let doneResolve: (v: { code: number }) => void;
-    const done = new Promise<{ code: number }>((r) => (doneResolve = r));
+    let doneResolve: (v: { code: number; spawnError?: string }) => void;
+    const done = new Promise<{ code: number; spawnError?: string }>((r) => (doneResolve = r));
     const stdout = (async function* () {
       try {
         for (const l of script.lines) yield typeof l === "string" ? l : JSON.stringify(l);
         if (script.holdUntilKill) await killed;
       } finally {
         finishStdout();
-        doneResolve({ code: 0 });
+        doneResolve({ code: script.code ?? 0, spawnError: script.spawnError });
       }
     })();
     const proc: SpawnedProc = {
@@ -295,6 +297,45 @@ describe("claude-code engine", () => {
     const f = finish(evs);
     expect(f.reason).toBe("error");
     expect(f.error).toContain("cannot start Claude CLI at claude");
+  });
+
+  it("reports a spawn error from the child error event without retrying", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: [], code: -1, spawnError: "spawn claude ENOENT" }]);
+    const evs = await run(makeTurn(), spawn);
+    const f = finish(evs);
+    expect(f.reason).toBe("error");
+    expect(f.error).toBe("cannot start Claude CLI at claude: spawn claude ENOENT");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("retries a bare start failure once and keeps the cli session id", async () => {
+    const ok = [
+      { type: "system", subtype: "init", session_id: "kept" },
+      { type: "result", subtype: "success", is_error: false, total_cost_usd: 0, usage: {} },
+    ];
+    const { spawn, calls } = fakeSpawn([{ lines: [], code: 3221225794 }, { lines: ok }]);
+    const turn = makeTurn({ state: { cliSessionId: "sess-1" } });
+    const evs = await run(turn, spawn);
+    expect(finish(evs).reason).toBe("stop");
+    expect(calls).toHaveLength(2);
+    expect(calls[1].argv).toContain("--resume");
+    expect(turn.state.cliSessionId).toBe("kept");
+  });
+
+  it("emits the start-failure cause when the retry also fails", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: [], code: -1073741502 }, { lines: [], code: 3221225794 }]);
+    const evs = await run(makeTurn(), spawn);
+    const f = finish(evs);
+    expect(f.reason).toBe("error");
+    expect(f.error).toBe("Claude CLI process failed to start (Windows 0xC0000142, DLL initialisation failed)");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not retry a normal non-zero exit", async () => {
+    const { spawn, calls } = fakeSpawn([{ lines: [], code: 2, stderr: "boom" }]);
+    const evs = await run(makeTurn(), spawn);
+    expect(finish(evs).reason).toBe("error");
+    expect(calls).toHaveLength(1);
   });
 
   it("maps error_max_turns to turn_limit", async () => {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { HostPort } from "@stewart/kernel";
+import { exitCause, type HostPort } from "@stewart/kernel";
 
 type Host = Pick<HostPort, "files" | "proc">;
 
@@ -50,7 +50,10 @@ async function git(host: Host, cwd: string, argv: string[], env?: Record<string,
 
 async function must(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<string> {
   const r = await git(host, cwd, argv, env);
-  if (r.code !== 0) throw new Error(`git ${argv[0]} failed (${r.code}): ${r.out.trim().slice(-300)}`);
+  if (r.code !== 0) {
+    const cause = exitCause(r.code);
+    throw new Error(`git ${argv[0]} failed (${r.code})${cause ? ` (${cause})` : ""}: ${r.out.trim().slice(-300)}`);
+  }
   return r.out;
 }
 

@@ -27,7 +27,7 @@ const IGNORED = /^(\.stewart|\.claude|node_modules)\//;
 
 export function sh(command: string, opts: ShOpts & { cwd: string }): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn("/bin/sh", ["-c", command], { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
+    const child = spawn("/bin/sh", ["-c", command], { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     const add = (d: Buffer) => {
       if (out.length < 100_000) out += d.toString();

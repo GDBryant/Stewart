@@ -76,7 +76,7 @@ function files(abs: (p: string) => string): HostPort["files"] {
 }
 
 function run(argv: string[], opts: { cwd: string; env?: Record<string, string>; onData(d: string): void }): ProcessHandle {
-  const child = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: { ...process.env, ...opts.env }, detached: true });
+  const child = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: { ...process.env, ...opts.env }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout?.on("data", (d: Buffer) => opts.onData(d.toString()));
   child.stderr?.on("data", (d: Buffer) => opts.onData(d.toString()));
   const done = new Promise<{ code: number }>((res) => {
@@ -93,7 +93,7 @@ function run(argv: string[], opts: { cwd: string; env?: Record<string, string>; 
       child.kill(sig);
     }
   };
-  return { write: (d) => child.stdin?.write(d), cancel: () => kill("SIGTERM"), killTree: async () => kill("SIGKILL"), done };
+  return { write: () => {}, cancel: () => kill("SIGTERM"), killTree: async () => kill("SIGKILL"), done };
 }
 
 /** HostPort on plain Node: real files under `root`, real processes, secrets from `STEWART_SECRET_<REF>` env vars. */

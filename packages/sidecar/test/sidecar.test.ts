@@ -292,10 +292,42 @@ describe("remoteHost", () => {
 
   it("resolves done when the process cannot be started", async () => {
     const { link, lines } = pair();
-    const proc = remoteHost(link).proc.run(["nope"], { cwd: "/p", onData: () => {} });
+    const chunks: string[] = [];
+    const proc = remoteHost(link).proc.run(["nope"], { cwd: "/p", onData: (d) => chunks.push(d) });
     const start = lines().find((l) => l.method === "host.proc.run")!;
     link.feed(`${JSON.stringify({ id: start.id, error: { message: "no such binary" } })}\n`);
     expect(await proc.done).toEqual({ code: -1 });
+    expect(chunks).toEqual(["cannot start nope: no such binary\n"]);
+  });
+
+  it("retries a bare start failure with a fresh handle id", async () => {
+    const { link, lines } = pair();
+    const proc = remoteHost(link).proc.run(["node", "-v"], { cwd: "/p", onData: () => {} });
+    const first = () => lines().filter((l) => l.method === "host.proc.run");
+    await new Promise((r) => setTimeout(r, 5));
+    const h1 = (first()[0].params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ id: first()[0].id, result: { ok: true } })}\n`);
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: h1, code: 3221225794 } })}\n`);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(first().length).toBe(2);
+    const h2 = (first()[1].params as { handle: string }).handle;
+    expect(h2).not.toBe(h1);
+    link.feed(`${JSON.stringify({ id: first()[1].id, result: { ok: true } })}\n`);
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle: h2, code: 0 } })}\n`);
+    expect(await proc.done).toEqual({ code: 0 });
+  });
+
+  it("does not retry a start failure that produced output", async () => {
+    const { link, lines } = pair();
+    const proc = remoteHost(link).proc.run(["node", "-v"], { cwd: "/p", onData: () => {} });
+    await new Promise((r) => setTimeout(r, 5));
+    const run = lines().find((l) => l.method === "host.proc.run")!;
+    const handle = (run.params as { handle: string }).handle;
+    link.feed(`${JSON.stringify({ method: "proc.output", params: { handle, data: "partial" } })}\n`);
+    link.feed(`${JSON.stringify({ method: "proc.exit", params: { handle, code: 3221225794 } })}\n`);
+    expect(await proc.done).toEqual({ code: 3221225794 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(lines().filter((l) => l.method === "host.proc.run").length).toBe(1);
   });
 });
 

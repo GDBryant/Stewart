@@ -22,6 +22,8 @@ class ProcessRegistry(private val notify: (String, JsonObject) -> Unit) {
         val pb = ProcessBuilder(argv)
         if (!cwd.isNullOrBlank()) pb.directory(File(cwd))
         env?.let { pb.environment().putAll(it) }
+        val nullDevice = if (System.getProperty("os.name").startsWith("Windows")) "NUL" else "/dev/null"
+        pb.redirectInput(ProcessBuilder.Redirect.from(File(nullDevice)))
         pb.redirectErrorStream(true)
         val p = pb.start()
         handles[handle] = p
@@ -58,8 +60,12 @@ class ProcessRegistry(private val notify: (String, JsonObject) -> Unit) {
 
     fun write(handle: String, data: String) {
         val p = handles[handle] ?: throw IOException("no such process: $handle")
-        p.outputStream.write(data.toByteArray(Charsets.UTF_8))
-        p.outputStream.flush()
+        try {
+            p.outputStream.write(data.toByteArray(Charsets.UTF_8))
+            p.outputStream.flush()
+        } catch (_: IOException) {
+            /* stdin redirected to the null device or stream already closed */
+        }
     }
 
     fun cancel(handle: String) {

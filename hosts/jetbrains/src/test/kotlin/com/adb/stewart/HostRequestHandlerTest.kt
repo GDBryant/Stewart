@@ -252,14 +252,13 @@ class HostRequestHandlerTest : BasePlatformTestCase() {
             put("handle", JsonPrimitive("wh"))
             put("data", JsonPrimitive("in\n"))
         })
+        var code: Int? = null
         val deadline = System.currentTimeMillis() + 10_000
-        var got = ""
-        while (!got.contains("in") && System.currentTimeMillis() < deadline) {
+        while (code == null && System.currentTimeMillis() < deadline) {
             val (m, p) = events.poll(10, TimeUnit.SECONDS) ?: break
-            if (m == "proc.output") got += p["data"]!!.jsonPrimitive.content
+            if (m == "proc.exit") code = p["code"]!!.jsonPrimitive.content.toInt()
         }
-        procs.killTree("wh")
-        assertTrue(got.contains("in"))
+        assertEquals(0, code)
     }
 
     fun testDisposeKillsProcesses() {

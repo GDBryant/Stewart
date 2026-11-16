@@ -1,4 +1,4 @@
-import type { ConfigLayer, ConfigStore, HostPort, ProcessHandle } from "@stewart/core";
+import { withStartRetry, type ConfigLayer, type ConfigStore, type HostPort, type ProcessHandle } from "@stewart/core";
 import type { RpcLink } from "./rpc.js";
 
 /** HostPort implemented as reverse RPC calls into the IDE process. */
@@ -26,7 +26,7 @@ export function remoteHost(link: RpcLink): HostPort {
       delete: (path) => call("files.delete", { path }),
     },
     proc: {
-      run: (argv, opts): ProcessHandle => remoteProcess(link, argv, opts),
+      run: withStartRetry((argv, opts): ProcessHandle => remoteProcess(link, argv, opts)),
     },
     diff: { preview: (path, next) => call("diff.preview", { path, next }) },
     diag: { problems: (path) => call("diag.problems", { path }) },
@@ -62,9 +62,10 @@ function remoteProcess(link: RpcLink, argv: string[], opts: { cwd: string; env?:
     }
   });
 
-  void link.request("host.proc.run", { handle, argv, cwd: opts.cwd, env: opts.env }).catch(() => {
+  void link.request("host.proc.run", { handle, argv, cwd: opts.cwd, env: opts.env }).catch((e: unknown) => {
     if (!exited) {
       exited = true;
+      opts.onData(`cannot start ${argv[0]}: ${e instanceof Error ? e.message : String(e)}\n`);
       resolveDone({ code: -1 });
     }
   });
