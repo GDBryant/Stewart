@@ -1,10 +1,11 @@
 import type { Bridge } from "./bridge.js";
 import { StoreHandlers } from "./stateHandlers.js";
 import { MAX_IMAGE_BYTES, MAX_PENDING_IMAGES } from "./stateTypes.js";
-import type { ChatItem, State, TaskRow } from "./stateTypes.js";
+import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
 
 export { MAX_IMAGE_BYTES, MAX_PENDING_IMAGES } from "./stateTypes.js";
 export type {
+  ActivityEntry,
   ChatItem,
   CostState,
   PendingApproval,
@@ -38,6 +39,7 @@ export class Store {
     patch: (p) => this.patch(p),
     mutateAssistant: (runId, fn) => this.mutateAssistant(runId, fn),
     addActivity: (runId, kind, text) => this.addActivity(runId, kind, text),
+    updateActivityAt: (runId, index, patch) => this.updateActivityAt(runId, index, patch),
     patchTask: (taskId, update) => this.patchTask(taskId, update),
     requestConfig: () => this.requestConfig(),
     post: (m) => this.bridge.post(m),
@@ -227,13 +229,13 @@ export class Store {
     if (view === "settings") this.requestConfig();
   }
 
-  private assistantFor(runId: string): ChatItem {
+  private assistantFor(runId: string): { it: ChatItem; index: number } {
     const items = this.state.items;
     const last = items[items.length - 1];
-    if (last && last.role === "assistant" && last.streaming && last.id === runId) return last;
+    if (last && last.role === "assistant" && last.streaming && last.id === runId) return { it: last, index: items.length - 1 };
     const it: ChatItem = { id: runId, role: "assistant", text: "", streaming: true, activity: [] };
     this.state.items = [...items, it];
-    return it;
+    return { it, index: items.length };
   }
 
   private patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void {
@@ -241,13 +243,29 @@ export class Store {
   }
 
   private mutateAssistant(runId: string, fn: (it: ChatItem) => void): void {
-    fn(this.assistantFor(runId));
+    fn(this.assistantFor(runId).it);
     this.changed();
   }
 
-  private addActivity(runId: string, kind: string, text: string): void {
-    this.mutateAssistant(runId, (it) => {
-      it.activity = [...it.activity, { kind, text }];
-    });
+  /** Append a step to the assistant turn; returns the index of the new step within its activity array. */
+  private addActivity(runId: string, kind: string, text: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string }) = {}): number {
+    const entry: ActivityEntry =
+      typeof text === "string"
+        ? { kind, text }
+        : { kind, text: text.text ?? "", ...(text.tool !== undefined ? { tool: text.tool } : {}), ...(text.category !== undefined ? { category: text.category } : {}) };
+    const { it } = this.assistantFor(runId);
+    const index = it.activity.length;
+    it.activity = [...it.activity, entry];
+    this.changed();
+    return index;
+  }
+
+  /** Patch the step at `index` in place (used by tool.outcome to complete a tool.request step). */
+  private updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void {
+    if (index === undefined) return;
+    const { it } = this.assistantFor(runId);
+    if (index < 0 || index >= it.activity.length) return;
+    it.activity = it.activity.map((a, i) => (i === index ? { ...a, ...patch } : a));
+    this.changed();
   }
 }

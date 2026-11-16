@@ -1,5 +1,15 @@
 import type { ConfigReply, SessionSummary, SetupProbeSnapshot } from "./bridge.js";
 
+/** One collapsed step in an assistant turn: a tool call, a check, or an escalation. */
+export interface ActivityEntry {
+  kind: string;
+  text?: string;
+  /** Tool name when this entry is a tool call (drives the icon). */
+  tool?: string;
+  /** Tool category from tool.request, e.g. READ / SEARCH / WRITE. */
+  category?: string;
+}
+
 export interface ChatItem {
   id: string;
   role: "user" | "assistant" | "system";
@@ -7,8 +17,10 @@ export interface ChatItem {
   reasoning?: string;
   streaming?: boolean;
   images?: string[];
-  /** Collapsed activity rows: tool calls, tasks, approvals. */
-  activity: { kind: string; text: string }[];
+  /** Collapsed step rows: tool calls, checks, escalations. */
+  activity: ActivityEntry[];
+  /** Files changed by this run; shown in the "Files changed" footer. */
+  filesChanged?: string[];
   /** Show a "Revert this turn" action (failed run with a turn baseline). */
   revertTurn?: boolean;
 }

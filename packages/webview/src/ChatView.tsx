@@ -6,7 +6,7 @@ import { MessageItem, ApprovalCard } from "./MessageItem.js";
 export function ChatView({ store }: { store: Store }) {
   const s = store.state;
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text]);
+  useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [s.items.length, s.items.at(-1)?.text, s.items.at(-1)?.activity.length]);
   const approve: Store["approve"] = (approvalId, grant) => store.approve(approvalId, grant);
   return (
     <div class="chat">

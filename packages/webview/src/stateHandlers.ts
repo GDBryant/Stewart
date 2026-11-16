@@ -1,12 +1,13 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { Inbound, Outbound, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
-import type { ChatItem, State, TaskRow } from "./stateTypes.js";
+import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
 
 export interface HandlerHost {
   getState(): State;
   patch(p: Partial<State>): void;
   mutateAssistant(runId: string, fn: (it: ChatItem) => void): void;
-  addActivity(runId: string, kind: string, text: string): void;
+  addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): number;
+  updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void;
   patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void;
   requestConfig(): void;
   post(msg: Outbound): void;
@@ -62,7 +63,14 @@ export class StoreHandlers {
   };
 
   private eventHandlers: EventHandlers = {
-    "run.started": (ev) => this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined }),
+    "run.started": (ev) => {
+      this.patch({ busyRunId: ev.runId, lastRunId: ev.runId, tasks: [], cost: undefined });
+      // Open the assistant turn immediately so steps and the files-changed footer have a home
+      // even when the run produces no text deltas.
+      this.host.mutateAssistant(ev.runId, (it) => {
+        it.streaming = true;
+      });
+    },
     "task.created": (ev) => this.onTaskEvent(ev),
     "task.started": (ev) => this.onTaskEvent(ev),
     "task.done": (ev) => this.onTaskEvent(ev),
@@ -78,8 +86,20 @@ export class StoreHandlers {
       this.mutateAssistant(ev.runId, (it) => {
         it.reasoning = (it.reasoning ?? "") + ev.text;
       }),
-    "tool.request": (ev) => this.addActivity(ev.runId, "tool", ev.tool),
-    "tool.outcome": (ev) => this.addActivity(ev.runId, ev.ok ? "tool-ok" : "tool-fail", ev.summary),
+    "tool.request": (ev) => {
+      const idx = this.host.addActivity(ev.runId, "tool", { tool: ev.tool, category: ev.category, text: ev.tool });
+      this.pendingTools.set(ev.callId, { tool: ev.tool, category: ev.category, index: idx });
+    },
+    "tool.outcome": (ev) => {
+      const p = this.pendingTools.get(ev.callId);
+      this.pendingTools.delete(ev.callId);
+      this.host.updateActivityAt(ev.runId, p?.index, {
+        kind: ev.ok ? "tool-ok" : "tool-fail",
+        text: ev.summary || p?.tool || "",
+        ...(p?.tool !== undefined ? { tool: p.tool } : {}),
+        ...(p?.category !== undefined ? { category: p.category } : {}),
+      });
+    },
     "check.result": (ev) => this.onCheckResult(ev),
     "run.escalated": (ev) => this.addActivity(ev.runId, "escalated", `${ev.from} → ${ev.to}: ${ev.reason}`),
     ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
@@ -101,6 +121,7 @@ export class StoreHandlers {
   };
 
   constructor(private readonly host: HandlerHost) {}
+  private pendingTools = new Map<string, { tool: string; category: string; index: number }>();
 
   private get state(): State {
     return this.host.getState();
@@ -111,8 +132,11 @@ export class StoreHandlers {
   private mutateAssistant(runId: string, fn: (it: ChatItem) => void): void {
     this.host.mutateAssistant(runId, fn);
   }
-  private addActivity(runId: string, kind: string, text: string): void {
-    this.host.addActivity(runId, kind, text);
+  private addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): number {
+    return this.host.addActivity(runId, kind, text);
+  }
+  private updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void {
+    this.host.updateActivityAt(runId, index, patch);
   }
   private patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void {
     this.host.patchTask(taskId, update);
@@ -195,7 +219,10 @@ export class StoreHandlers {
   }
 
   private onCheckResult(ev: Extract<RunEvent, { kind: "check.result" }>): void {
-    if (ev.passed) return this.addActivity(ev.runId, "tool-ok", "check passed");
+    if (ev.passed) {
+      this.addActivity(ev.runId, "tool-ok", "check passed");
+      return;
+    }
     this.patch({
       items: [...this.state.items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: `Check failed: ${ev.evidence.join("; ")}`, activity: [] }],
     });
@@ -266,13 +293,17 @@ export class StoreHandlers {
   }
 
   private onRunFinished(ev: Extract<RunEvent, { kind: "run.finished" }>): void {
-    const items = this.state.items.map((i) => (i.id === ev.runId ? { ...i, streaming: false } : i));
+    const files = ev.outcome && ev.outcome.changed.length ? ev.outcome.changed : undefined;
+    const items = this.state.items.map((i) =>
+      i.id === ev.runId ? { ...i, streaming: false, ...(files ? { filesChanged: files } : {}) } : i,
+    );
+    this.pendingTools.clear();
     const last = items[items.length - 1];
     const extra: ChatItem[] =
       ev.status !== "done" && (!last || last.id !== ev.runId)
         ? [...items, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: ev.error ?? ev.status, activity: [] }]
         : ev.status !== "done" && ev.error && last
-          ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || `(${ev.error})` } : i))
+          ? items.map((i, idx) => (idx === items.length - 1 ? { ...i, streaming: false, text: i.text || ev.error! } : i))
           : items;
     const items2 = ev.outcome
       ? [...extra, { id: `sys${this.host.nextItemSeq()}`, role: "system" as const, text: outcomeText(ev.outcome), activity: [], revertTurn: ev.status === "failed" || undefined }]

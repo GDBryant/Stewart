@@ -1,10 +1,42 @@
-import type { ChatItem, PendingApproval, Store } from "./state.js";
+import { useEffect, useState } from "preact/hooks";
+import type { ActivityEntry, ChatItem, PendingApproval, Store } from "./state.js";
+import { renderMarkdown } from "./markdown.js";
+
+const ICONS: [string, string][] = [
+  ["read", "📖"],
+  ["search", "🔍"],
+  ["glob", "🔍"],
+  ["grep", "🔍"],
+  ["list", "📂"],
+  ["ls", "📂"],
+  ["write", "✎"],
+  ["edit", "✎"],
+  ["create", "✎"],
+  ["patch", "✎"],
+  ["terminal", "⌨"],
+  ["command", "⌨"],
+  ["exec", "⌨"],
+];
+
+/** A per-tool glyph for a step; falls back to a gear for any other tool. */
+export function activityIcon(a: ActivityEntry): string {
+  if (a.kind === "tool-ok" && !a.tool) return "✅";
+  if (a.kind === "tool-fail") return "❌";
+  if (a.kind === "escalated") return "⤴";
+  const t = (a.tool ?? a.text ?? "").toLowerCase();
+  const hit = ICONS.find(([k]) => t.includes(k));
+  return hit ? hit[1] : "⚙";
+}
 
 export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTurn?: () => void }) {
   return (
     <div class={`item ${item.role}`}>
+      <div class={`role-label ${item.role}`}>
+        {item.role === "user" ? "user" : item.role === "assistant" ? "Stewart (agent)" : null}
+      </div>
       {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
-      <div class="bubble">
+      {item.activity.length ? <StepsBlock item={item} /> : null}
+      <div class={`bubble${item.role === "assistant" ? " bubble-md" : ""}`}>
         {item.revertTurn ? (
           <button class="small" onClick={onRevertTurn}>
             Revert this turn
@@ -15,14 +47,54 @@ export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTu
             {item.images.map((src, i) => <img key={i} src={src} alt={`image-${i + 1}`} />)}
           </div>
         ) : null}
-        {item.text || (item.streaming ? "…" : "")}
+        {item.role === "assistant"
+          ? item.text
+            ? renderMarkdown(item.text)
+            : item.streaming
+              ? "…"
+              : null
+          : item.text || (item.streaming ? "…" : "")}
       </div>
-      {item.activity.length ? (
-        <div class="activity">
+      {item.filesChanged?.length ? (
+        <div class="files-changed">
+          <div class="files-title">Files changed</div>
+          {item.filesChanged.map((f) => (
+            <div key={f} class="file-row">
+              <span class="file-ico">📄</span>
+              <span class="file-name">{f}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The collapsible step list. Open by default while the run is streaming (so the user
+ * follows progress), auto-collapsed once it finishes; a manual toggle is sticky.
+ * A plain button drives open/close (no <details> native toggle to fight React).
+ */
+function StepsBlock({ item }: { item: ChatItem }) {
+  const [open, setOpen] = useState(!!item.streaming);
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched) return;
+    setOpen(!!item.streaming);
+  }, [item.streaming, touched]);
+  const n = item.activity.length;
+  return (
+    <div class="steps">
+      <button class="steps-head" aria-expanded={open} onClick={() => { setTouched(true); setOpen(!open); }}>
+        <span class={`steps-caret${open ? "" : " closed"}`}>▸</span>
+        <span class="steps-title">{n} {n === 1 ? "step" : "steps"}</span>
+      </button>
+      {open ? (
+        <div class="steps-list">
           {item.activity.map((a, i) => (
             <div key={i} class={`act ${a.kind}`}>
-              {a.kind.startsWith("tool") ? "⚙ " : ""}
-              {a.text}
+              <span class="act-ico">{activityIcon(a)}</span>
+              <span class="act-text">{a.text ?? ""}</span>
             </div>
           ))}
         </div>
@@ -49,3 +121,4 @@ export function ApprovalCard({ approval, onApprove }: { approval: PendingApprova
     </div>
   );
 }
+

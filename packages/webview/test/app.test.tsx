@@ -7,6 +7,7 @@ import { App } from "../src/App.js";
 import { Store } from "../src/state.js";
 import { MockBridge, agentCosts, type ConfigReply } from "../src/bridge.js";
 import { modelsForChannel } from "../src/SettingsView.js";
+import { activityIcon } from "../src/MessageItem.js";
 
 afterEach(cleanup);
 
@@ -283,6 +284,97 @@ describe("webview chat", () => {
     expect(screen.queryByText("Insert into editor")).toBeNull();
     act(() => bridge.inbound(ev("run.finished", { status: "done" })));
     expect(screen.queryByText("…")).toBeNull();
+  });
+
+  it("shows the role/agent labels for user and assistant turns", () => {
+    const { bridge } = mk();
+    // input and click in separate act scopes so the draft re-render flushes between them
+    store_send();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("text_delta", { seq: 0, text: "reply" }));
+      bridge.inbound(ev("run.finished", { status: "done" }));
+    });
+    expect(screen.getByText("user")).toBeTruthy();
+    expect(screen.getByText("Stewart (agent)")).toBeTruthy();
+  });
+
+  function store_send() {
+    fireEvent.input(screen.getByPlaceholderText("Ask Stewart"), { target: { value: "hi" } });
+    fireEvent.click(screen.getByText("Send"));
+  }
+
+  it("shows steps expanded while streaming and auto-collapses when the run finishes", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("tool.request", { callId: "c1", tool: "ReadFile", args: {}, category: "READ" }));
+    });
+    expect(screen.getByText("ReadFile")).toBeTruthy();
+    expect(screen.getByText("1 step")).toBeTruthy();
+    act(() => bridge.inbound(ev("run.finished", { status: "done" })));
+    expect(screen.queryByText("ReadFile")).toBeNull();
+    expect(screen.getByText("1 step")).toBeTruthy();
+  });
+
+  it("keeps steps open when the user expanded them, even after the run finishes", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("tool.request", { callId: "c1", tool: "ReadFile", args: {}, category: "READ" }));
+    });
+    act(() => bridge.inbound(ev("run.finished", { status: "done" })));
+    expect(screen.queryByText("ReadFile")).toBeNull();
+    fireEvent.click(screen.getByText("1 step"));
+    expect(screen.getByText("ReadFile")).toBeTruthy();
+    fireEvent.click(screen.getByText("1 step"));
+    expect(screen.queryByText("ReadFile")).toBeNull();
+  });
+
+  it("pairs a tool.request with its tool.outcome into a single step", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("tool.request", { callId: "c1", tool: "EditFile", args: {}, category: "WRITE" }));
+      bridge.inbound(ev("tool.outcome", { callId: "c1", ok: true, summary: "updated a.ts" }));
+    });
+    const a = store.state.items.at(-1)!;
+    expect(a.activity).toHaveLength(1);
+    expect(a.activity[0]).toMatchObject({ kind: "tool-ok", text: "updated a.ts", tool: "EditFile", category: "WRITE" });
+  });
+
+  it("shows a Files changed footer for the run and notes when nothing changed", () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("run.finished", { status: "done", outcome: { changed: ["src/a.ts", "src/b.ts"], verified: "none" } }));
+    });
+    expect(screen.getByText("Files changed")).toBeTruthy();
+    expect(screen.getByText("src/a.ts")).toBeTruthy();
+    const a = store.state.items.at(-2)!;
+    expect(a.filesChanged).toEqual(["src/a.ts", "src/b.ts"]);
+    act(() => bridge.inbound(ev("run.finished", { status: "done", outcome: { changed: [], verified: "none" } })));
+    expect(screen.getByText("No files changed")).toBeTruthy();
+  });
+
+  it("picks the right icon for each kind of step", () => {
+    expect(activityIcon({ kind: "tool", tool: "ReadFile" })).toBe("📖");
+    expect(activityIcon({ kind: "tool", tool: "SearchCodebase" })).toBe("🔍");
+    expect(activityIcon({ kind: "tool", tool: "EditFile" })).toBe("✎");
+    expect(activityIcon({ kind: "tool", tool: "RunTerminal" })).toBe("⌨");
+    expect(activityIcon({ kind: "tool", tool: "MysteryTool" })).toBe("⚙");
+    expect(activityIcon({ kind: "tool-fail", tool: "EditFile" })).toBe("❌");
+    expect(activityIcon({ kind: "escalated" })).toBe("⤴");
+    expect(activityIcon({ kind: "tool-ok", text: "check passed" })).toBe("✅");
+  });
+
+  it("renders the reasoning block as a thinking toggle", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("reasoning_delta", { seq: 0, text: "pondering" }));
+    });
+    expect(screen.getByText("thinking")).toBeTruthy();
   });
 
   it("Enter sends the draft, Shift+Enter does not, and empty Enter posts nothing", () => {
