@@ -31,8 +31,8 @@ export function observeSystem(obs: ClaudeObs, j: Obj): void {
 
 export function contextEvent(obs: ClaudeObs): EngineEvent {
   return {
-    kind: "claude.context",
-    cliSessionId: obs.cliSessionId,
+    kind: "engine.context",
+    engineSessionId: obs.cliSessionId,
     inputTokens: obs.inputTokens,
     windowTokens: obs.windowTokens,
     compacted: obs.compacted,

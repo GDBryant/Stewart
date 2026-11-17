@@ -86,9 +86,9 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tool.outcome"), ...base, callId: z.string(), ok: z.boolean(), summary: z.string() }),
   z.object({ kind: z.literal("check.result"), ...base, passed: z.boolean(), evidence: z.array(z.string()) }),
   z.object({
-    kind: z.literal("claude.context"),
+    kind: z.literal("engine.context"),
     ...base,
-    cliSessionId: z.string().optional(),
+    engineSessionId: z.string().optional(),
     inputTokens: z.number().optional(),
     windowTokens: z.number().optional(),
     compacted: z.boolean(),

@@ -289,7 +289,7 @@ export class SessionService {
 }
 
 function contextAtFailure(rs: RunState): string | undefined {
-  const c = rs.claudeContext;
+  const c = rs.engineContext;
   return c?.inputTokens === undefined ? undefined : `${c.inputTokens}/${c.windowTokens ?? "unknown"}`;
 }
 

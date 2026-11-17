@@ -152,14 +152,14 @@ async function onUsage(ev: Extract<EngineEvent, { kind: "usage" }>, c: Ctx, agen
   }
 }
 
-function onClaudeContext(ev: Extract<EngineEvent, { kind: "claude.context" }>, c: Ctx, agent: AgentDef): void {
+function onEngineContext(ev: Extract<EngineEvent, { kind: "engine.context" }>, c: Ctx, agent: AgentDef): void {
   const { spec, deps } = c;
   const windowTokens = ev.windowTokens ?? agentContext(agent, deps.config().channels);
-  spec.run.claudeContext = { inputTokens: ev.inputTokens, windowTokens };
+  spec.run.engineContext = { inputTokens: ev.inputTokens, windowTokens };
   deps.bus.emit({
-    kind: "claude.context",
+    kind: "engine.context",
     ...evBase(spec),
-    cliSessionId: ev.cliSessionId,
+    engineSessionId: ev.engineSessionId,
     inputTokens: ev.inputTokens,
     windowTokens,
     compacted: ev.compacted,
@@ -192,7 +192,7 @@ async function onEvent(ev: EngineEvent, c: Ctx, agent: AgentDef): Promise<void> 
     return void spec.onWrite?.(ev.record);
   }
   if (ev.kind === "usage") return await onUsage(ev, c, agent);
-  if (ev.kind === "claude.context") return onClaudeContext(ev, c, agent);
+  if (ev.kind === "engine.context") return onEngineContext(ev, c, agent);
   ts.reason = ev.reason;
   ts.error = ev.error;
   return void spec.onStep?.();

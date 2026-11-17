@@ -315,17 +315,17 @@ describe("SessionService", () => {
     expect(h.events.some((e) => e.kind === "cost.limit_reached")).toBe(true);
   });
 
-  it("emits claude.context once and contextAtFailure on a failed run", async () => {
+  it("emits engine.context once and contextAtFailure on a failed run", async () => {
     const engine = scriptedEngine([
       async function* () {
-        yield { kind: "claude.context", cliSessionId: "cli-1", inputTokens: 123, windowTokens: 1_000, compacted: true, turnCount: 2 };
+        yield { kind: "engine.context", engineSessionId: "cli-1", inputTokens: 123, windowTokens: 1_000, compacted: true, turnCount: 2 };
         yield { kind: "finished", reason: "error", error: "boom" };
       },
     ]);
     const h = harness({ engine });
     await h.svc.send({ text: "x" });
-    const ctx = await h.waitFor("claude.context");
-    expect(ctx).toMatchObject({ cliSessionId: "cli-1", inputTokens: 123, windowTokens: 1_000, compacted: true, turnCount: 2 });
+    const ctx = await h.waitFor("engine.context");
+    expect(ctx).toMatchObject({ engineSessionId: "cli-1", inputTokens: 123, windowTokens: 1_000, compacted: true, turnCount: 2 });
     const ask = await h.waitFor("ask_user");
     h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
     expect(await h.waitFor("run.finished")).toMatchObject({ status: "failed", contextAtFailure: "123/1000" });
@@ -334,7 +334,7 @@ describe("SessionService", () => {
   it("uses the qualified context window when the CLI omits it", async () => {
     const engine = scriptedEngine([
       async function* () {
-        yield { kind: "claude.context", cliSessionId: "cli-1", inputTokens: 123, compacted: false };
+        yield { kind: "engine.context", engineSessionId: "cli-1", inputTokens: 123, compacted: false };
         yield { kind: "finished", reason: "error", error: "boom" };
       },
     ]);

@@ -66,7 +66,7 @@ flowchart TD
     SS --> PROMPT["lead system prompt + skill index<br/>+ context.loadProjectContext (8k cap)"]
     SS --> TOOLS["projectTools(...).for(lead)<br/>+ hostTools: delegate · health_report ·<br/>plan_write · load_skill · ask_user · set_check"]
     TOOLS --> ENG{"engineFor(channel)"}
-    ENG -->|"claude-cli channel"| CC["claude-code engine<br/>claude -p stream-json subprocess<br/>--setting-sources '' · --resume · MCP hostTools<br/>claude.context observability"]
+    ENG -->|"claude-cli channel"| CC["claude-code engine<br/>claude -p stream-json subprocess<br/>--setting-sources '' · --resume · MCP hostTools<br/>engine.context observability"]
     ENG -->|"all other channels"| NL["native-loop engine<br/>channel.chat + native tools<br/>foreign names resolve · LoopGuard shared by both"]
     CC --> CH["channels<br/>ManagedChannel (retry/backoff) → adapter"]
     NL --> CH
@@ -75,7 +75,7 @@ flowchart TD
     CC -- "tool.request / can_use_tool" --> PA["policyApprove → tools/policy.decide(role, action)<br/>→ permissions.gate → interaction card"]
     NL -- "preview + approve" --> PA
     PA -- "chat.approve / chat.answer" --> SS
-    SS -- "run.* · text_delta · tool.* · check.result · claude.context" --> EV["packages/protocol → host → webview"]
+    SS -- "run.* · text_delta · tool.* · check.result · engine.context" --> EV["packages/protocol → host → webview"]
     SS --> LED["ledger (per-run cost cap)"]
     SS --> TRK["tasks: changeTracker begin/diff/restore<br/>runCheck(declaredCheck(set_check) + project verify:)"]
     TRK -- "pass + engine stop → done<br/>else escalate next agent in chain" --> SS
@@ -83,7 +83,7 @@ flowchart TD
 
 Escalation: each failed attempt (check failure, engine error, `turn_limit`, `loop_guard`) appends a handover message, emits `run.escalated {from,to,reason}`, and moves to the next eligible agent; after the chain, one `ask_user` retry, then fail with evidence.
 
-Process spawns are wrapped by kernel helpers: no inherited stdin except interactive `claude-code` and the sidecar RPC link, login-shell env at both host seams, one retry on the Windows start failure, and `done.cause`/`exitCause` text instead of bare exit codes. `claude.context` carries `cliSessionId`, `inputTokens`, `windowTokens`, `compacted` and `turnCount`; failed `run.finished` adds `contextAtFailure: "<tokens>/<window>"`.
+Process spawns are wrapped by kernel helpers: no inherited stdin except interactive `claude-code` and the sidecar RPC link, login-shell env at both host seams, one retry on the Windows start failure, and `done.cause`/`exitCause` text instead of bare exit codes. `engine.context` carries `engineSessionId`, `inputTokens`, `windowTokens`, `compacted` and `turnCount`; failed `run.finished` adds `contextAtFailure: "<tokens>/<window>"`.
 
 ## 4. Delegation (depth 1)
 
