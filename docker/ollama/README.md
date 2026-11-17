@@ -17,4 +17,4 @@ Larger models are commented out in `models.txt`; uncomment to pull them.
 ./scripts/ollama-local.sh down
 ```
 
-Env: `OLLAMA_CONTAINER` (default `ollama`), `WEBUI_SECRET_KEY`.
+Env: `OLLAMA_CONTAINER` (default: auto-detect `ollama`/`ollama-gpu`), `WEBUI_SECRET_KEY`. The cpu profile runs container `ollama`, the gpu profile `ollama-gpu`; both share the `ollama` network alias.

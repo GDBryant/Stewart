@@ -1,6 +1,5 @@
 x-ollama-base: &ollama-base
   image: ollama/ollama
-  container_name: ollama
   restart: unless-stopped
   networks:
     ai_net:
@@ -19,10 +18,12 @@ x-ollama-base: &ollama-base
 services:
   ollama:
     <<: *ollama-base
+    container_name: ollama
     profiles: [cpu]
 
   ollama-gpu:
     <<: *ollama-base
+    container_name: ollama-gpu
     profiles: [gpu]
     deploy:
       resources:

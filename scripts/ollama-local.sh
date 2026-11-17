@@ -2,7 +2,16 @@
 set -euo pipefail
 
 dir="$(cd "$(dirname "$0")/../docker/ollama" && pwd)"
-container="${OLLAMA_CONTAINER:-ollama}"
+container="${OLLAMA_CONTAINER:-}"
+if [ -z "$container" ]; then
+  container="ollama"
+  for c in ollama ollama-gpu; do
+    if docker inspect --format '{{.State.Running}}' "$c" 2>/dev/null | grep -qx true; then
+      container="$c"
+      break
+    fi
+  done
+fi
 compose() { docker compose -f "$dir/docker-compose.yml" "$@"; }
 
 running() { docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null | grep -qx true; }
