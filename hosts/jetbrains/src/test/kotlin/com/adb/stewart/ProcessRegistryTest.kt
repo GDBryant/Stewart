@@ -5,9 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
-import java.io.IOException
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -47,21 +45,6 @@ class ProcessRegistryTest {
     }
 
     @Test
-    fun `write to null-stdin process does not throw`() {
-        val (reg, events) = rig()
-        reg.run("h2b", listOf("/bin/sleep", "30"), null, null)
-        reg.write("h2b", "ping\n")
-        reg.killTree("h2b")
-        val deadline = System.currentTimeMillis() + 10_000
-        var exited = false
-        while (!exited && System.currentTimeMillis() < deadline) {
-            val (m) = events.poll(10, TimeUnit.SECONDS) ?: break
-            if (m == "proc.exit") exited = true
-        }
-        assertTrue(exited)
-    }
-
-    @Test
     fun `killTree terminates process`() {
         val (reg, events) = rig()
         reg.run("h3", listOf("/bin/sleep", "30"), null, null)
@@ -75,17 +58,6 @@ class ProcessRegistryTest {
         }
         assertTrue(exited)
         assertTrue(reg.running().isEmpty())
-    }
-
-    @Test
-    fun `write to unknown handle throws`() {
-        val (reg) = rig()
-        try {
-            reg.write("nope", "x")
-            fail("expected IOException")
-        } catch (e: IOException) {
-            assertTrue(e.message!!.contains("no such process"))
-        }
     }
 
     @Test

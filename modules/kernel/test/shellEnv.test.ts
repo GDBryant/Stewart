@@ -58,6 +58,34 @@ describe("resolveShellEnv", () => {
     expect(await resolveShellEnv(f.run, { shell: "/bin/sh" })).toEqual({});
   });
 
+  it("retries the shell after a timeout instead of caching the failure", async () => {
+    const good = fakeRun({ code: 0, emit: "__STEWART_ENV__PATH=/ok\0" });
+    let calls = 0;
+    const run: Run = (a, o) => {
+      calls++;
+      if (calls === 1)
+        return {
+          cancel: () => {},
+          killTree: async () => {},
+          done: new Promise<{ code: number }>(() => {}),
+        };
+      return good.run(a, o);
+    };
+    expect(await resolveShellEnv(run, { shell: "/bin/sh", timeoutMs: 10 })).toEqual({});
+    expect(await resolveShellEnv(run, { shell: "/bin/sh" })).toEqual({ PATH: "/ok" });
+    expect(calls).toBe(2);
+  });
+
+  it("retries the shell after a non-zero exit", async () => {
+    const good = fakeRun({ code: 0, emit: "__STEWART_ENV__PATH=/ok\0" });
+    const bad = fakeRun({ code: 1 });
+    let calls = 0;
+    const run: Run = (a, o) => (++calls === 1 ? bad : good).run(a, o);
+    expect(await resolveShellEnv(run, { shell: "/bin/sh" })).toEqual({});
+    expect(await resolveShellEnv(run, { shell: "/bin/sh" })).toEqual({ PATH: "/ok" });
+    expect(calls).toBe(2);
+  });
+
   it("returns {} when run throws", async () => {
     const f = fakeRun("throw");
     expect(await resolveShellEnv(f.run, { shell: "/bin/sh" })).toEqual({});
@@ -127,15 +155,13 @@ describe("withShellEnv", () => {
     expect(inner.calls.length).toBe(0);
   });
 
-  it("forwards cancel, killTree and write after the inner starts", async () => {
-    let wrote = "";
+  it("forwards cancel and killTree after the inner starts", async () => {
     let cancelled = false;
     let killed = false;
     const probe = fakeRun({ code: 0, emit: "__STEWART_ENV__A=1\0" });
     const run: Run = (a, o) => {
       if (a[0] === "/bin/sh") return probe.run(a, o);
       return {
-        write: (d) => (wrote += d),
         cancel: () => {
           cancelled = true;
         },
@@ -147,10 +173,8 @@ describe("withShellEnv", () => {
     };
     const h = withShellEnv(run, { shell: "/bin/sh" })(argv, { cwd: "/p", onData: () => {} });
     expect(await h.done).toEqual({ code: 0 });
-    h.write?.("in");
     h.cancel();
     await h.killTree();
-    expect(wrote).toBe("in");
     expect(cancelled).toBe(true);
     expect(killed).toBe(true);
   });

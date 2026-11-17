@@ -85,6 +85,15 @@ describe("checkReadOnlyCommand", () => {
     "python3 --version",
     "pnpm --version && git status",
     "uniq a.txt",
+    "find . -name '*.ts'",
+    "find . -executable",
+    "git branch",
+    "git branch -a",
+    "git branch --show-current",
+    "git log --oneline",
+    "rg foo src",
+    "git --version",
+    "foo --version",
   ];
   it.each(allowed)("allows %s", (command) => {
     expect(() => checkReadOnlyCommand(command, "investigator")).not.toThrow();
@@ -107,6 +116,19 @@ describe("checkReadOnlyCommand", () => {
     "date -s 2020-01-01",
     "uniq a b",
     "node --version; rm x",
+    "find . -delete",
+    "find . -execdir rm {} ;",
+    "find . -fprintf out %p",
+    "find . -exec rm {} ;",
+    "find . -fprint out",
+    "git branch -D main",
+    "git branch newb",
+    "git log --output=f",
+    "git diff --output f",
+    "rg --pre rm x",
+    "rm -v",
+    "fc-cache -v",
+    "pkill -v",
   ];
   it.each(refused)("refuses %s", (command) => {
     expect(() => checkReadOnlyCommand(command, "investigator")).toThrow(/not allowed for read-only role investigator/);

@@ -108,10 +108,9 @@ class HostRequestHandler(
         else -> throw IOException("unknown host method: $method")
     }
 
-    /** Sidecar→host notifications: process stdin/cancel and log lines. */
+    /** Sidecar→host notifications: process cancel and log lines. */
     fun notifyHandler(method: String, params: JsonElement?) {
         when (method) {
-            "proc.write" -> procs.write(str(params, "handle"), str(params, "data"))
             "proc.cancel" -> procs.cancel(str(params, "handle"))
             "log" -> LOG.info(strOrNull(params, "line") ?: params.toString())
         }

@@ -12,6 +12,7 @@ export type { ShellEnvOpts } from "./shellEnv.js";
 // In-memory fakes for tests of every module (the HostPort and Fetcher seams).
 export { fakeHost, fakeFetcher, streamOf, collect } from "./testing.js";
 export { mediaTypeFor } from "./mime.js";
+export { STEWART_VERSION } from "./version.js";
 export { EventBus } from "./events.js";
 export type { EventSink, EventSubscriber } from "./events.js";
 export type { FaultKind } from "./faults.js";

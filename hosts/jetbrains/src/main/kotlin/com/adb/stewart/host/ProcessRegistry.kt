@@ -58,16 +58,6 @@ class ProcessRegistry(private val notify: (String, JsonObject) -> Unit) {
         return JsonObject(mapOf("ok" to JsonPrimitive(true)))
     }
 
-    fun write(handle: String, data: String) {
-        val p = handles[handle] ?: throw IOException("no such process: $handle")
-        try {
-            p.outputStream.write(data.toByteArray(Charsets.UTF_8))
-            p.outputStream.flush()
-        } catch (_: IOException) {
-            /* stdin redirected to the null device or stream already closed */
-        }
-    }
-
     fun cancel(handle: String) {
         handles[handle]?.destroy()
     }

@@ -1,81 +1,8 @@
-import { exitCause, type HostPort, type ProcessHandle } from "@stewart/kernel";
+import type { HostPort } from "@stewart/kernel";
+import { checkCommands } from "./commandChecks.js";
+import type { Check, CheckInput, CheckResult, Evidence, RunCheckArgs, WriteRecord } from "./checkTypes.js";
 
-/** Stable machine code for one piece of check evidence. */
-export type EvidenceCode =
-  | "write_failed"
-  | "file_present"
-  | "file_missing"
-  | "command_ok"
-  | "command_failed"
-  | "command_unavailable"
-  | "command_timeout"
-  | "command_denied"
-  | "cited"
-  | "citation_missing"
-  | "citation_bad_line"
-  | "no_read"
-  | "no_change"
-  | "policy_violation"
-  | "empty_reply"
-  | "health_ok"
-  | "health_invalid";
-
-/** One check fact: `ok` decides the result; `detail` is the human text. */
-export interface Evidence {
-  code: EvidenceCode;
-  ok: boolean;
-  detail: string;
-}
-
-/** A check code runs after a turn: files that must exist, and/or a command that must exit 0. */
-export interface Check {
-  /** Workspace-relative paths that must exist after the turn. */
-  files?: string[];
-  /** Argv commands run in order in the project root; each must exit 0 and the first failure stops the rest. */
-  commands?: string[][];
-  /** Every slash-path citation in the reply must exist and cited line numbers must be in range (bare names count only when they exist). */
-  cites?: boolean;
-  /** At least one successful read/search call this turn. */
-  needsRead?: boolean;
-  /** The reply must end with exactly one ```json block validating as a HealthReport. */
-  schema?: "health";
-  /** At least one file must have changed since the baseline (skipped when tracking is unavailable). */
-  mustChange?: boolean;
-  /** Per-changed-path policy check: returns a deny reason or null. Skipped when tracking is unavailable. */
-  pathRule?: (path: string) => string | null;
-}
-
-/** One write-tool call outcome, in call order. */
-export interface WriteRecord {
-  path: string;
-  ok: boolean;
-  message?: string;
-}
-
-export interface CheckInput {
-  reply: string;
-  writes: WriteRecord[];
-  /** Paths the change tracker reports as differing from the turn baseline; undefined = tracking unavailable. */
-  changed: string[] | undefined;
-  /** Successful read/search tool calls this turn. */
-  reads?: number;
-}
-
-export interface CheckResult {
-  passed: boolean;
-  evidence: Evidence[];
-}
-
-export interface RunCheckArgs {
-  check: Check;
-  input: CheckInput;
-  host: Pick<HostPort, "files" | "proc">;
-  cwd: string;
-  timeoutMs?: number;
-}
-
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-const OUTPUT_TAIL = 1500;
+export type { Check, CheckInput, CheckResult, Evidence, EvidenceCode, RunCheckArgs, WriteRecord } from "./checkTypes.js";
 
 /** Evidence details, for wire events and human text. */
 export function evidenceText(evidence: Evidence[]): string[] {
@@ -115,53 +42,6 @@ async function checkFiles(files: string[], host: Pick<HostPort, "files">, out: E
     } catch {
       out.push({ code: "file_missing", ok: false, detail: `missing: ${f}` });
     }
-  }
-}
-
-function runCommand(argv: string[], host: Pick<HostPort, "proc">, cwd: string, onData: (d: string) => void): ProcessHandle {
-  return host.proc.run(argv, { cwd, onData });
-}
-
-async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence[]): Promise<boolean> {
-  let output = "";
-  const handle = runCommand(argv, args.host, args.cwd, (d) => {
-    output += d;
-  });
-  const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = await Promise.race([
-    handle.done.then((r) => ({ code: r.code, cause: r.cause, timeout: false })),
-    new Promise<{ code: number; cause?: string; timeout: boolean }>((res) => {
-      timer = setTimeout(() => res({ code: -1, timeout: true }), timeoutMs);
-    }),
-  ]);
-  clearTimeout(timer);
-  if (timedOut.timeout) {
-    await handle.killTree();
-    out.push({ code: "command_timeout", ok: false, detail: `${argv.join(" ")} timed out after ${timeoutMs}ms` });
-    return false;
-  }
-  if (timedOut.code !== 0) {
-    out.push(commandFailedEvidence(argv, timedOut.code, output, timedOut.cause));
-    return false;
-  }
-  out.push({ code: "command_ok", ok: true, detail: `command ok: ${argv.join(" ")}` });
-  return true;
-}
-
-const UNAVAILABLE = /Cannot find module|command not found|ENOENT|cannot start/;
-
-function commandFailedEvidence(argv: string[], code: number, output: string, reported?: string): Evidence {
-  const cause = reported ?? exitCause(code);
-  const detail = `${argv.join(" ")} exited ${code}${cause ? ` (${cause})` : ""}: ${output.slice(-OUTPUT_TAIL)}`;
-  if (UNAVAILABLE.test(output)) return { code: "command_unavailable", ok: false, detail: `check could not run (environment): ${detail}` };
-  return { code: "command_failed", ok: false, detail };
-}
-
-/** Commands run in order; the first failure (exit/timeout) stops the rest. */
-async function checkCommands(args: RunCheckArgs, out: Evidence[]): Promise<void> {
-  for (const argv of args.check.commands ?? []) {
-    if (!(await checkOneCommand(args, argv, out))) return;
   }
 }
 

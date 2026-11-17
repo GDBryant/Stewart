@@ -30,7 +30,7 @@ object SidecarWiring {
         link.onRequest { method, params -> hostHandler.handler(method, params) }
         link.onNotification { method, params ->
             when (method) {
-                "proc.write", "proc.cancel", "log" -> hostHandler.notifyHandler(method, params)
+                "proc.cancel", "log" -> hostHandler.notifyHandler(method, params)
                 "event" -> pushInbound(JsonObject(mapOf("type" to JsonPrimitive("event"), "ev" to (params ?: JsonPrimitive("")))))
                 "protocol.error" -> LOG.warn("sidecar protocol error: $params")
             }

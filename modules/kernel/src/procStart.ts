@@ -83,7 +83,6 @@ export function withStartRetry(run: Run, o?: StartRetryOpts): Run {
     ctx.respawn = () => (current = tracked());
     const done = drive(current, retries, delayMs, ctx).then((a) => a.handle.done);
     return {
-      write: (d) => current.handle.write?.(d),
       cancel: () => {
         ctx.cancelled = true;
         current.handle.cancel();

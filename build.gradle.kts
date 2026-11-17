@@ -10,7 +10,8 @@ plugins {
 }
 
 group = "com.adb.stewart"
-version = providers.gradleProperty("version").orNull ?: "3.0.3"
+version = providers.gradleProperty("version").orNull
+    ?: (groovy.json.JsonSlurper().parse(file("hosts/vscode/package.json")) as Map<*, *>)["version"] as String
 
 repositories {
     mavenCentral()

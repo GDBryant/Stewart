@@ -1,6 +1,6 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
-import type { Json, ToolCall } from "@stewart/kernel";
+import { STEWART_VERSION, type Json, type ToolCall } from "@stewart/kernel";
 import type { ApproveFn } from "@stewart/permissions";
 import type { Tool, ToolRegistry } from "@stewart/tools";
 
@@ -71,7 +71,7 @@ async function handle(rpc: Rpc, reg: ToolRegistry, ctx: McpCtx): Promise<{ statu
         body: result(rpc.id, {
           protocolVersion: String(rpc.params?.protocolVersion ?? PROTOCOL),
           capabilities: { tools: {} },
-          serverInfo: { name: "stewart", version: "3.0.3" },
+          serverInfo: { name: "stewart", version: STEWART_VERSION },
         }),
       };
     case "notifications/initialized":

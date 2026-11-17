@@ -16,13 +16,23 @@ const GIT_READONLY_SUBCOMMANDS = new Set([
   "status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "describe",
 ]);
 const HARMLESS_REDIRECTS = /(?:2>&1|(?:2|&)?>\s*\/dev\/null)(?=\s|$|[|;&])/g;
-const VERSION_PROBE = /^\s*[A-Za-z0-9_.+-]+\s+(?:--version|-v)\s*$/;
+const VERSION_PROBE = /^\s*([A-Za-z0-9_.+-]+)\s+(--version|-v)\s*$/;
+const SHORT_VERSION_PROGRAMS = new Set(["node", "npm", "pnpm", "yarn", "npx", "git", "tsc", "docker"]);
 const TEST_RUNNER = /\b(vitest|jest|pytest|mocha)\b|\b(pnpm|npm|yarn|npx|gradlew?)\b.*\btest/;
 const WRITE_FLAGS: Record<string, RegExp> = {
   sort: /^(-[A-Za-z]*o|--output)/,
   tree: /^-o/,
   date: /^(-s|--set)/,
+  find: /^-(delete|exec|execdir|ok|okdir|fls|fprint\w*)$/,
+  git: /^--output(=|$)/,
+  rg: /^(--pre|--hostname-bin)/,
 };
+const GIT_BRANCH_READONLY = new Set(["-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--list", "--show-current"]);
+
+function isVersionProbe(seg: string): boolean {
+  const m = VERSION_PROBE.exec(seg);
+  return m !== null && (m[2] === "--version" || SHORT_VERSION_PROGRAMS.has(m[1]));
+}
 
 function dropProbes(command: string): string | null {
   const parts = command.split(/(\|\||&&|[|;&\n])/);
@@ -30,18 +40,22 @@ function dropProbes(command: string): string | null {
   for (let i = 0; i < parts.length; i += 2) {
     const seg = parts[i];
     if (!seg.trim()) continue;
-    if (VERSION_PROBE.test(seg) && parts[i - 1] !== "|") continue;
+    if (isVersionProbe(seg) && parts[i - 1] !== "|") continue;
     keep.push(seg);
   }
   return keep.length ? keep.join(";") : null;
 }
 
+function checkGitSegment(words: string[], command: string, fail: (what: string) => never): void {
+  const at = words.findIndex((w, i) => i > 0 && !w.startsWith("-"));
+  const sub = at < 0 ? undefined : words[at];
+  if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) fail(`git subcommand '${sub ?? ""}'`);
+  if (sub === "branch" && !words.slice(at + 1).every((w) => GIT_BRANCH_READONLY.has(w))) fail(`command '${command}'`);
+}
+
 function checkReadOnlySegment(seg: string, command: string, fail: (what: string) => never): void {
   const words = seg.trim().split(/\s+/).filter(Boolean);
-  if (words[0] === "git") {
-    const sub = words.slice(1).find((w) => !w.startsWith("-"));
-    if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) fail(`git subcommand '${sub ?? ""}'`);
-  }
+  if (words[0] === "git") checkGitSegment(words, command, fail);
   const prog = words[0]?.split(/[\\/]/).pop() ?? "";
   const flag = WRITE_FLAGS[prog];
   if (flag && words.some((w) => flag.test(w))) fail(`command '${command}'`);

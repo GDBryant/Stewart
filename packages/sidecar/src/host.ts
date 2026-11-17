@@ -72,7 +72,6 @@ function remoteProcess(link: RpcLink, argv: string[], opts: { cwd: string; env?:
   });
 
   return {
-    write: (data) => link.notify("proc.write", { handle, data }),
     cancel: () => link.notify("proc.cancel", { handle }),
     killTree: async () => {
       await link.request("host.proc.killTree", { handle }).catch(() => {});

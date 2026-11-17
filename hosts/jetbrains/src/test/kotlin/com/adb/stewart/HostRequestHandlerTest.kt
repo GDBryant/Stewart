@@ -240,17 +240,13 @@ class HostRequestHandlerTest : BasePlatformTestCase() {
         }
     }
 
-    fun testNotifyHandlerProcWrite() {
+    fun testProcStdinSeesEof() {
         val events = java.util.concurrent.LinkedBlockingQueue<Pair<String, kotlinx.serialization.json.JsonObject>>()
         val procs = ProcessRegistry { m, p -> events.add(m to p) }
         val h = HostRequestHandler(project, procs = procs)
         call(h, "host.proc.run", buildJsonObject {
             put("handle", JsonPrimitive("wh"))
             put("argv", kotlinx.serialization.json.Json.parseToJsonElement("""["/bin/cat"]"""))
-        })
-        h.notifyHandler("proc.write", buildJsonObject {
-            put("handle", JsonPrimitive("wh"))
-            put("data", JsonPrimitive("in\n"))
         })
         var code: Int? = null
         val deadline = System.currentTimeMillis() + 10_000

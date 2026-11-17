@@ -14,8 +14,6 @@ export interface VersionedEdit {
 }
 
 export interface ProcessHandle {
-  /** Write to stdin (optional). */
-  write?(data: string): void;
   /** SIGTERM equivalent. */
   cancel(): void;
   /** Kill the whole process tree. */

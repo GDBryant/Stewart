@@ -14,9 +14,9 @@ const DROPPED = new Set(["PWD", "OLDPWD", "SHLVL", "_"]);
 const KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const cache = new WeakMap<Run, Promise<Record<string, string>>>();
 
-function parseEnv(out: string): Record<string, string> {
+function parseEnv(out: string): Record<string, string> | null {
   const at = out.lastIndexOf(MARKER);
-  if (at < 0) return {};
+  if (at < 0) return null;
   const env: Record<string, string> = {};
   for (const entry of out.slice(at + MARKER.length).split("\0")) {
     const eq = entry.indexOf("=");
@@ -27,27 +27,27 @@ function parseEnv(out: string): Record<string, string> {
   return env;
 }
 
-function collect(run: Run, shell: string, cwd: string, timeoutMs: number): Promise<Record<string, string>> {
+function collect(run: Run, shell: string, cwd: string, timeoutMs: number): Promise<Record<string, string> | null> {
   return new Promise((resolve) => {
     let out = "";
     let handle: ProcessHandle;
     try {
       handle = run([shell, "-ilc", `printf '%s' ${MARKER}; env -0`], { cwd, onData: (d) => (out += d) });
     } catch {
-      resolve({});
+      resolve(null);
       return;
     }
     const timer = setTimeout(() => {
-      void handle.killTree().finally(() => resolve({}));
+      void handle.killTree().finally(() => resolve(null));
     }, timeoutMs);
     void handle.done.then((r) => {
       clearTimeout(timer);
-      resolve(r.code === 0 ? parseEnv(out) : {});
+      resolve(r.code === 0 ? parseEnv(out) : null);
     });
   });
 }
 
-/** Resolve the login-shell environment once per `run` (`$SHELL -ilc … env -0`); `{}` on Windows, timeout, or failure. */
+/** Resolve the login-shell environment once per `run` (`$SHELL -ilc … env -0`); `{}` on Windows, timeout, or failure (failures are not cached, so the next call retries). */
 export function resolveShellEnv(run: Run, o?: ShellEnvOpts): Promise<Record<string, string>> {
   const hit = cache.get(run);
   if (hit) return hit;
@@ -55,7 +55,11 @@ export function resolveShellEnv(run: Run, o?: ShellEnvOpts): Promise<Record<stri
   const p =
     platform === "win32"
       ? Promise.resolve({})
-      : collect(run, o?.shell ?? process.env.SHELL ?? "/bin/sh", o?.cwd ?? "/", o?.timeoutMs ?? 5000);
+      : collect(run, o?.shell ?? process.env.SHELL ?? "/bin/sh", o?.cwd ?? "/", o?.timeoutMs ?? 5000).then((env) => {
+          if (env !== null) return env;
+          cache.delete(run);
+          return {};
+        });
   cache.set(run, p);
   return p;
 }
@@ -73,7 +77,6 @@ export function withShellEnv(run: Run, o?: ShellEnvOpts): Run {
     });
     const done = started.then((h) => (h ? h.done : { code: -1, cause: "cancelled before start" }));
     return {
-      write: (d) => inner?.write?.(d),
       cancel: () => {
         if (inner) inner.cancel();
         else cancelled = true;

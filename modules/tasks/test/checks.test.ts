@@ -115,7 +115,7 @@ describe("runCheck command rule", () => {
     setProcHandler(() => ({ code: -1, cause: "cannot start pnpm: ENOENT" }));
     const r = await runCheck({ check: { commands: [["pnpm", "test"]] }, input: baseInput(), host, cwd: "/p" });
     expect(r.passed).toBe(false);
-    expect(code(r, "command_failed")?.detail).toBe("pnpm test exited -1 (cannot start pnpm: ENOENT): ");
+    expect(code(r, "command_unavailable")?.detail).toBe("check could not run (environment): pnpm test exited -1 (cannot start pnpm: ENOENT): ");
   });
   it("runs commands in order and stops at the first failure", async () => {
     const { host, procs, setProcHandler } = fakeHost();
@@ -132,26 +132,45 @@ describe("runCheck command rule", () => {
     expect((await runCheck({ check: { mustChange: true }, input: { ...input, changed: ["a.ts"] }, host, cwd: "/p" })).passed).toBe(true);
     expect((await runCheck({ check: { mustChange: true }, input: { ...input, changed: undefined }, host, cwd: "/p" })).passed).toBe(true);
   });
-  it.each(["command not found", "Cannot find module", "ENOENT", "cannot start"])("reports command_unavailable for %s", async (text) => {
+  it.each(["Cannot find module './foo'", "ENOENT: no such file"])("reports command_failed, not unavailable, for %s in output", async (text) => {
     const { host, setProcHandler } = fakeHost();
     setProcHandler((_argv, onData) => {
       onData(`${text}: node`);
-      return { code: 127 };
+      return { code: 1 };
+    });
+    const r = await runCheck({ check: { commands: [["node", "x.ts"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_failed")?.detail).toBe(`node x.ts exited 1: ${text}: node`);
+    expect(code(r, "command_unavailable")).toBeUndefined();
+  });
+  it.each([127, 126])("reports command_unavailable for exit %s", async (exitCode) => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler((_argv, onData) => {
+      onData("some output");
+      return { code: exitCode };
     });
     const r = await runCheck({ check: { commands: [["node", "--version"]] }, input: baseInput(), host, cwd: "/p" });
     expect(r.passed).toBe(false);
-    expect(code(r, "command_unavailable")?.detail).toBe(`check could not run (environment): node --version exited 127 (command not found): ${text}: node`);
+    expect(code(r, "command_unavailable")?.detail).toContain(`check could not run (environment): node --version exited ${exitCode}`);
     expect(code(r, "command_failed")).toBeUndefined();
+  });
+  it("reports command_unavailable when the cause starts with 'cannot start'", async () => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler(() => ({ code: -1, cause: "cannot start node: ENOENT" }));
+    const r = await runCheck({ check: { commands: [["node", "--version"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_unavailable")?.detail).toBe("check could not run (environment): node --version exited -1 (cannot start node: ENOENT): ");
+  });
+  it("reports command_failed for a killed-by-signal cause", async () => {
+    const { host, setProcHandler } = fakeHost();
+    setProcHandler(() => ({ code: -1, cause: "killed by signal SIGTERM" }));
+    const r = await runCheck({ check: { commands: [["node", "--version"]] }, input: baseInput(), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(code(r, "command_failed")?.detail).toBe("node --version exited -1 (killed by signal SIGTERM): ");
   });
   it("stops later commands after command_unavailable", async () => {
     const { host, procs, setProcHandler } = fakeHost();
-    setProcHandler((argv, onData) => {
-      if (argv[0] === "gone") {
-        onData("command not found");
-        return { code: 127 };
-      }
-      return { code: 0 };
-    });
+    setProcHandler((argv) => (argv[0] === "gone" ? { code: 127 } : { code: 0 }));
     const r = await runCheck({ check: { commands: [["gone"], ["never"]] }, input: baseInput(), host, cwd: "/p" });
     expect(r.evidence.map((e) => e.code)).toEqual(["command_unavailable"]);
     expect(procs.map((p) => p.argv[0])).toEqual(["gone"]);

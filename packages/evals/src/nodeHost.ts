@@ -93,7 +93,7 @@ function run(argv: string[], opts: { cwd: string; env?: Record<string, string>; 
       child.kill(sig);
     }
   };
-  return { write: () => {}, cancel: () => kill("SIGTERM"), killTree: async () => kill("SIGKILL"), done };
+  return { cancel: () => kill("SIGTERM"), killTree: async () => kill("SIGKILL"), done };
 }
 
 /** HostPort on plain Node: real files under `root`, real processes, secrets from `STEWART_SECRET_<REF>` env vars. */

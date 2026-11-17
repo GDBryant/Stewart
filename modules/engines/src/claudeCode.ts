@@ -1,41 +1,16 @@
-import { exitCause, isStartFailure, type ToolCall } from "@stewart/kernel";
+import type { ToolCall } from "@stewart/kernel";
 import { categoryOf } from "@stewart/permissions";
-import { classify, claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
+import { claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
 import type { ClaudeCodeDeps, Engine, EngineEvent, EngineTurn } from "./types.js";
 import { mcpConfigArg, startMcp, type McpHandle } from "./mcp.js";
 import { LoopGuard } from "./loopGuard.js";
 import { claudeComplete } from "./claudeComplete.js";
+import { contextEvent, inputTokensOf, observeSystem, windowTokensOf, type ClaudeObs } from "./claudeContext.js";
+import { postAttempt, type Attempt } from "./claudePost.js";
 import {
   arr, claudeArgv, controlError, controlResponse, FILE_TOOLS, interruptLine, num, obj, previewFor,
   relPath, resultText, str, unseenPrefix, userLine, type Obj,
 } from "./claudeLines.js";
-
-interface ClaudeObs {
-  cliSessionId?: string;
-  inputTokens?: number;
-  windowTokens?: number;
-  compacted: boolean;
-  turnCount?: number;
-  spawnError?: string;
-}
-
-interface Attempt {
-  turn: EngineTurn;
-  proc: SpawnedProc;
-  obs: ClaudeObs;
-  /** API message ids already streamed as deltas (their assistant text must not be re-emitted). */
-  deltaIds: Set<string>;
-  /** tool_use_id → name/input, filled from assistant blocks. */
-  pending: Map<string, { name: string; input: Obj }>;
-  result?: { subtype: string; isError: boolean; text: string };
-  /** This attempt was spawned with --resume (id may be stale). */
-  usedResume: boolean;
-  /** Stdout lines seen on this attempt (a bare start failure produces none). */
-  lines: number;
-  /** argv[0] for error messages. */
-  cli: string;
-  guard: LoopGuard;
-}
 
 function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -137,25 +112,6 @@ function streamDelta(a: Attempt, j: Obj): EngineEvent | null {
   return { kind: field === "text" ? "text" : "reasoning", text };
 }
 
-function inputTokensOf(u: Obj | undefined): number | undefined {
-  const vals = [num(u?.input_tokens), num(u?.cache_creation_input_tokens), num(u?.cache_read_input_tokens)];
-  return vals.some((v) => v !== undefined) ? vals.reduce<number>((n, v) => n + (v ?? 0), 0) : undefined;
-}
-
-function windowTokensOf(j: Obj): number | undefined {
-  const usage = obj(j.modelUsage);
-  for (const raw of Object.values(usage ?? {})) {
-    const window = num(obj(raw)?.contextWindow);
-    if (window !== undefined) return window;
-  }
-  return undefined;
-}
-
-function observeSystem(a: Attempt, j: Obj): void {
-  a.obs.cliSessionId = str(j.session_id) ?? a.obs.cliSessionId;
-  if (j.subtype === "compact_boundary" || str(j.compact_result) === "success") a.obs.compacted = true;
-}
-
 function emitResult(a: Attempt, j: Obj): EngineEvent[] {
   const u = obj(j.usage);
   const inTok = inputTokensOf(u);
@@ -170,7 +126,7 @@ function emitResult(a: Attempt, j: Obj): EngineEvent[] {
 /** Handle one stream-json line; returns true when the turn-ending `result` line arrived. */
 async function* handleLine(a: Attempt, j: Obj): AsyncGenerator<EngineEvent, boolean> {
   if (j.type === "system") {
-    observeSystem(a, j);
+    observeSystem(a.obs, j);
     if (j.subtype === "init" && typeof j.session_id === "string") a.turn.state.cliSessionId = j.session_id;
   } else if (j.type === "assistant") {
     yield* emitAssistant(a, j);
@@ -201,19 +157,6 @@ async function* pumpLines(a: Attempt): AsyncGenerator<EngineEvent, void> {
   }
 }
 
-function finishedFor(a: Attempt): EngineEvent {
-  const r = a.result;
-  if (!r || r.subtype === "success") return { kind: "finished", reason: "stop" };
-  if (r.subtype === "error_max_turns") return { kind: "finished", reason: "turn_limit" };
-  if (r.isError || r.subtype.startsWith("error")) return { kind: "finished", reason: "error", error: r.text || r.subtype };
-  return { kind: "finished", reason: "stop" };
-}
-
-/** True when a --resume attempt died because the CLI session id is stale. */
-function staleResume(stderr: string, text: string): boolean {
-  return /no conversation|conversation.{0,40}not found|could not resume|cannot resume|invalid.{0,20}session/i.test(`${stderr}\n${text}`);
-}
-
 /** Abort → interrupt control_request, SIGTERM the tree after 3 s. Returns the detach fn. */
 function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
   const onAbort = () => {
@@ -224,17 +167,6 @@ function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
   if (turn.signal.aborted) onAbort();
   else turn.signal.addEventListener("abort", onAbort, { once: true });
   return () => turn.signal.removeEventListener("abort", onAbort);
-}
-
-function contextEvent(obs: ClaudeObs): EngineEvent {
-  return {
-    kind: "claude.context",
-    cliSessionId: obs.cliSessionId,
-    inputTokens: obs.inputTokens,
-    windowTokens: obs.windowTokens,
-    compacted: obs.compacted,
-    turnCount: obs.turnCount,
-  };
 }
 
 async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: string, obs: ClaudeObs): AsyncGenerator<EngineEvent, Attempt | null> {
@@ -263,49 +195,6 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
     await mcp?.close();
   }
   return a;
-}
-
-function exitError(tail: string): EngineEvent {
-  const detail = tail.trim() || "stream ended before completion";
-  return { kind: "finished", reason: "error", error: classify(tail) === "auth" ? `Claude CLI not logged in: ${detail}` : `Claude CLI exited: ${detail}` };
-}
-
-/** The loop guard tripped: stop the CLI and finish as loop_guard. */
-async function loopGuardEnd(a: Attempt, trip: string): Promise<{ retry: boolean; ev: EngineEvent }> {
-  a.proc.end?.();
-  await a.proc.kill().catch(() => {});
-  return { retry: false, ev: { kind: "finished", reason: "loop_guard", error: trip } };
-}
-
-/** A result line arrived: let the CLI exit (kill after 5 s); a stale --resume retries fresh. */
-async function resultEnd(a: Attempt, r: NonNullable<Attempt["result"]>): Promise<PostAttempt> {
-  a.proc.end?.();
-  const exited = await Promise.race([a.proc.done.then(() => true), new Promise<boolean>((res) => setTimeout(() => res(false), 5000))]);
-  if (!exited) await a.proc.kill().catch(() => {});
-  if (a.usedResume && (r.isError || r.subtype.startsWith("error")) && staleResume("", r.text)) return { retry: true, dropSession: true };
-  return { retry: false, ev: finishedFor(a) };
-}
-
-interface PostAttempt {
-  retry: boolean;
-  ev?: EngineEvent;
-  /** Stale --resume: drop the saved CLI session id before retrying. */
-  dropSession?: boolean;
-}
-
-/** Decide what happens after one attempt: retry fresh, or emit the final event. */
-async function postAttempt(a: Attempt): Promise<PostAttempt> {
-  if (a.turn.signal.aborted) return { retry: false, ev: { kind: "finished", reason: "cancelled" } };
-  if (a.guard.trip) return await loopGuardEnd(a, a.guard.trip);
-  if (a.result) return await resultEnd(a, a.result);
-  const tail = (await a.proc.stderrText()).slice(-2000);
-  const res = await a.proc.done;
-  if (res.spawnError) return { retry: false, ev: { kind: "finished", reason: "error", error: `cannot start Claude CLI at ${a.cli}: ${res.spawnError}` } };
-  if (a.usedResume && staleResume(tail, "")) return { retry: true, dropSession: true };
-  if (isStartFailure(res.code) && a.lines === 0) {
-    return { retry: true, ev: { kind: "finished", reason: "error", error: `Claude CLI ${exitCause(res.code)}` } };
-  }
-  return { retry: false, ev: exitError(tail) };
 }
 
 /** Yield an attempt's events through, returning its Attempt record (or null on spawn failure). */
