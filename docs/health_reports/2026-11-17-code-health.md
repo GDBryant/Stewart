@@ -45,3 +45,16 @@ Failed: `docker compose -f docker/ollama/docker-compose.yml --profile cpu --prof
 ## Caveats
 
 Nesting AST walk is a throwaway heuristic, not the `check:functions` counter. Duplication, captured state, and cohesion scores remain provisional. Gradle `buildPlugin`/`verifyPlugin` and the Kotlin test suite were not run for this report.
+
+## Follow-up fixes
+
+Done same day, after this report:
+
+1. `file.diff` covered end to end: core dispatch tests, JetBrains `host.diff.show` handler tests, session `diffArgs` unit tests.
+2. `showFileDiff` validates path (no empty/absolute/`..`/`.git`) and baseline id before any tracker or host call.
+3. Manifest `read` returns undefined for a missing or unparseable manifest.
+4. VS Code `diff.show` uses read-only `stewart-diff:` virtual documents (capped at 50) instead of untitled tabs.
+5. Generic contracts de-Clauded: `claude.context` → `engine.context`, `cliSessionId` → `engineSessionId`, `claudeContext`/`onClaudeContext` → `engineContext`/`onEngineContext`.
+6. `session.ts`/`taskRun.ts` split (`runEvents.ts`, `taskEvents.ts`): both under 300 lines; size warnings now 3 files (session/child 301, setup/assign 357, setup/probe 309).
+7. `pnpm version:set <x.y.z>` (`scripts/sync-version.mjs`) sets the product version in all four guarded files.
+8. `changeTracker` and `runOutcome` helpers extracted: complexity-scan now reports `>10 branches: 0` (`>8`: 42).
