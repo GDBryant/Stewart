@@ -6,7 +6,7 @@ Settings → `settings.yaml`: `log: { level: off|calls|full, retainDays: 7 }` (d
 
 - `off`: nothing is written.
 - `calls`: provider requests, responses, HTTP/connection errors, stream errors and Claude CLI stdin/stdout/stderr/exit.
-- `full`: `calls` plus every bus event as `[core] [-]` with a JSON payload. `text_delta` frames are skipped.
+- `full`: `calls` plus every bus event as `[core] [-]` with a JSON payload. `text_delta` frames are skipped. `claude.context` reports each `claude-code` turn's CLI session id, input tokens, window tokens, compaction flag and turn count; failed `run.finished` payloads can include `contextAtFailure: "<tokens>/<window>"`.
 
 Core: `packages/core/src/debug/debug.ts` (`DebugLogger` gating + redaction, `formatDebugLine`, `redact`, `eventEntry`).
 Adapters receive the logger via `ChannelDeps.debug` / `ClaudeDeps.debug`. Core builds the sink through

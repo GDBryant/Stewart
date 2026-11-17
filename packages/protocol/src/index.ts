@@ -63,6 +63,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
     ...base,
     status: z.enum(["done", "failed", "cancelled"]),
     error: z.string().optional(),
+    contextAtFailure: z.string().optional(),
     outcome: z
       .object({
         changed: z.array(z.string()),
@@ -83,6 +84,15 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tool.request"), ...base, callId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),
   z.object({ kind: z.literal("tool.outcome"), ...base, callId: z.string(), ok: z.boolean(), summary: z.string() }),
   z.object({ kind: z.literal("check.result"), ...base, passed: z.boolean(), evidence: z.array(z.string()) }),
+  z.object({
+    kind: z.literal("claude.context"),
+    ...base,
+    cliSessionId: z.string().optional(),
+    inputTokens: z.number().optional(),
+    windowTokens: z.number().optional(),
+    compacted: z.boolean(),
+    turnCount: z.number().optional(),
+  }),
   z.object({ kind: z.literal("ask_user"), ...base, questionId: z.string(), question: z.string(), options: z.array(z.string()).optional() }),
   z.object({ kind: z.literal("question.withdrawn"), ...base, questionId: z.string() }),
   z.object({ kind: z.literal("approval.request"), ...base, approvalId: z.string(), tool: z.string(), args: z.unknown(), category: z.string() }),

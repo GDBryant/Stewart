@@ -1,0 +1,593 @@
+{
+  "label": "lead-claude-20",
+  "startedAt": "2026-11-17T06:37:28.933Z",
+  "commit": "9c2cf9c",
+  "config": "/media/gdb/Data/Projects/Stewart/packages/evals/configs/lead-claude",
+  "dataset": "/tmp/swebv/SWE-bench_Verified.jsonl",
+  "patchSource": "lead",
+  "qualification": [
+    {
+      "agent": "Claude-sonnet",
+      "channel": "Claude",
+      "model": "sonnet",
+      "agentQual": {
+        "passed": true
+      },
+      "functionQual": {
+        "passed": true
+      }
+    }
+  ],
+  "summary": {
+    "resolved": 18,
+    "unresolved": 2,
+    "errors": 0,
+    "total": 20,
+    "rate": 90,
+    "byRepo": {
+      "django/django": {
+        "resolved": 7,
+        "total": 9
+      },
+      "sympy/sympy": {
+        "resolved": 3,
+        "total": 3
+      },
+      "sphinx-doc/sphinx": {
+        "resolved": 2,
+        "total": 2
+      },
+      "matplotlib/matplotlib": {
+        "resolved": 1,
+        "total": 1
+      },
+      "scikit-learn/scikit-learn": {
+        "resolved": 1,
+        "total": 1
+      },
+      "astropy/astropy": {
+        "resolved": 1,
+        "total": 1
+      },
+      "pydata/xarray": {
+        "resolved": 1,
+        "total": 1
+      },
+      "pytest-dev/pytest": {
+        "resolved": 1,
+        "total": 1
+      },
+      "pylint-dev/pylint": {
+        "resolved": 1,
+        "total": 1
+      }
+    },
+    "costUsd": 1.4383
+  },
+  "instances": [
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 7,
+        "total": 7
+      },
+      "failed": [],
+      "id": "django__django-11119",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `Engine.render_to_string()` in `django/template/engine.py` (line 163) so it builds the context with `Context(context, autoescape=self.autoescape)`. An engine created with `autoescape=False` now renders unescaped output. I confirmed the edit by printing the line back. I didn't run any tests, since the environment isn't installed.",
+        "costUsd": 0.0474508,
+        "durationMs": 9046,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-11119.log",
+      "durationMs": 137137,
+      "costUsd": 0.0474508
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 109,
+        "total": 109
+      },
+      "failed": [],
+      "id": "django__django-11740",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `generate_altered_fields` in `django/db/migrations/autodetector.py` so that changing a field to a `ForeignKey` now adds a dependency on the related model's app. I haven't run anything, including the test suite, which can't run here.\n\nThe cause was that the `AlterField` operation was created with no dependencies, unlike the add-field and create-model paths. With no dependency on `testapp2`, the migration could run before `App2` existed, which gives the \"Related model cannot be resolved\" error. The fix reuses the existing `_get_dependencies_for_foreign_key` helper whenever the new field has a related model.\n\nI didn't add or change any tests.",
+        "costUsd": 0.0799808,
+        "durationMs": 15783,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-11740.log",
+      "durationMs": 139282,
+      "costUsd": 0.0799808
+    },
+    {
+      "status": "unresolved",
+      "reason": "1 FAIL_TO_PASS and 0 PASS_TO_PASS tests failed",
+      "f2p": {
+        "passed": 0,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 135,
+        "total": 135
+      },
+      "failed": [
+        "test_subquery_filter_by_lazy (expressions.tests.BasicExpressionsTests)"
+      ],
+      "id": "django__django-12663",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `ForeignKey.get_prep_value` in `django/db/models/fields/related.py` so it accepts a model instance. I haven't run anything, including your repro, because the test environment isn't installed.\n\n**Cause:** In your example, the `owner_user` annotation is a nested `Subquery` whose output field is `C.owner`, a `ForeignKey`. Because the left-hand side is an annotation rather than a real FK column, the filter uses a plain exact lookup instead of the related lookup. That plain lookup passes the `SimpleLazyObject` straight to `ForeignKey.get_prep_value`. This then reaches `int()` on the wrapped `User` object and raises the `TypeError`.\n\n**Fix:** `get_prep_value` now checks whether the value is a `Model` instance and, if so, replaces it with the target field's value, falling back to `pk`. A `SimpleLazyObject` wrapping a model counts as one, because it forwards `__class__`. The unwrapped value then goes through the target field's `get_prep_value` as before.\n\nI did not trace what happens to the lazy object before the lookup runs, so I'm assuming it isn't already unwrapped there. I also haven't checked whether any other code calls `ForeignKey.get_prep_value` with a model instance and relies on it failing.",
+        "costUsd": 0.10454390000000001,
+        "durationMs": 31469,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-12663.log",
+      "durationMs": 161773,
+      "costUsd": 0.10454390000000001
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 2,
+        "total": 2
+      },
+      "p2p": {
+        "passed": 65,
+        "total": 65
+      },
+      "failed": [],
+      "id": "django__django-13346",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I added a `KeyTransformIn` lookup to `django/db/models/fields/json.py` and registered it on `KeyTransform`. I haven't run it, since the test environment isn't installed here, and I didn't touch any tests.\n\nOn backends without a native JSON field (MySQL/MariaDB, Oracle, SQLite), the `__in` values are now wrapped the same way `__exact` already handles them. That means `our_field__key__in=[0]` should now match the same rows as `our_field__key=0`.\n\n- **SQLite and MySQL:** each value is wrapped in `JSON_EXTRACT(%s, '$')`.\n- **MariaDB:** the wrapper is `JSON_UNQUOTE(JSON_EXTRACT(%s, '$'))`.\n- **Oracle:** each value is inlined as `JSON_VALUE` or `JSON_QUERY`, depending on whether it's a scalar or a list/dict.\n\nBackends with a native JSON field (PostgreSQL) go through the default `In` lookup unchanged.",
+        "costUsd": 0.08865970000000001,
+        "durationMs": 17338,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-13346.log",
+      "durationMs": 148892,
+      "costUsd": 0.08865970000000001
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 19,
+        "total": 19
+      },
+      "failed": [],
+      "id": "django__django-13933",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "`ModelChoiceField` now includes the invalid value in its `invalid_choice` error, the same way `ModelMultipleChoiceField` already did. I haven't run anything, since the test environment isn't installed here.\n\nBoth changes are in `django/forms/models.py`:\n- **Message:** the default text is now \"Select a valid choice. %(value)s is not one of the available choices.\"\n- **`to_python`:** it now passes `params={'value': value}` when it raises the `ValidationError`.\n\nThe `value` in the error is whatever `to_python` held when the lookup failed. If you pass a model instance, that is the instance's key (`pk` or `to_field_name`) rather than the instance itself.\n\nI didn't touch any tests or docs.",
+        "costUsd": 0.05602070000000001,
+        "durationMs": 15248,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-13933.log",
+      "durationMs": 143721,
+      "costUsd": 0.05602070000000001
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 49,
+        "total": 49
+      },
+      "failed": [],
+      "id": "django__django-14580",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the missing import in `django/db/migrations/serializer.py`. I haven't run anything, since the test environment isn't installed here.\n\n`TypeSerializer` writes `models.Model` into the migration's `bases` but returned no import for it. When no field in the migration pulled in `from django.db import models`, the writer left it out and the migration failed with `NameError`. `TypeSerializer` now returns `from django.db import models` along with `models.Model`, so the writer includes the import.\n\nI didn't add or change any tests.",
+        "costUsd": 0.062779,
+        "durationMs": 8719,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-14580.log",
+      "durationMs": 142539,
+      "costUsd": 0.062779
+    },
+    {
+      "status": "unresolved",
+      "reason": "1 FAIL_TO_PASS and 0 PASS_TO_PASS tests failed",
+      "f2p": {
+        "passed": 0,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 85,
+        "total": 85
+      },
+      "failed": [
+        "The prefetched relationship is used rather than populating the reverse"
+      ],
+      "id": "django__django-15280",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I've made a change in `django/db/models/query.py`, but I haven't run it. The project's test environment isn't installed, as you said.\n\n**Cause:** when the outer prefetch loads `Profile` objects, the descriptor's `get_prefetch_queryset` caches the *outer* `User` instance on each profile (`profile.user`). When the inner `Prefetch(\"user\", queryset=User.objects.only(\"kind\"))` runs, `is_fetched` already returns true, so that prefetch is skipped. `profile.user` therefore stays the outer instance, which has `kind` deferred.\n\n**Fix:** in `prefetch_related_objects`, a single-valued relation that has an explicit `Prefetch(queryset=...)` at its final level is now always fetched, instead of being skipped because of an existing cache entry. Related-manager descriptors (reverse FK and M2M) are unaffected.\n\nThe `ForeignKey` variant from the report goes through the same path. I haven't traced it separately.\n\nI'm also not sure the new condition's level check matches how `level` is counted in that function. Please run the issue's test case to confirm.",
+        "costUsd": 0.09417189999999999,
+        "durationMs": 27971,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-15280.log",
+      "durationMs": 163478,
+      "costUsd": 0.09417189999999999
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 157,
+        "total": 157
+      },
+      "failed": [],
+      "id": "django__django-15973",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the bug in `django/db/migrations/autodetector.py`, in `_get_dependencies_for_foreign_key`. I haven't run anything, since the test environment isn't installed.\n\nThe through-model dependency was being resolved from the M2M's target model (`remote_field_model`) instead of from `field.remote_field.through`. That's why the generated `fonte` migration only depended on `('variavel', '__first__')` and never on `fonte_variavel`. When `fonte.0001_initial` ran, the through model wasn't in the migration state yet, so `through` was still a string. That produced the `'str' object has no attribute '_meta'` error. It now resolves the dependency from the through model, so the migration depends on `fonte_variavel` as well.\n\nExisting migrations like the `fonte` one in your report won't change on their own. You'll need to regenerate them, or add the `fonte_variavel` dependency by hand.",
+        "costUsd": 0.0807423,
+        "durationMs": 14174,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-15973.log",
+      "durationMs": 148653,
+      "costUsd": 0.0807423
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 36,
+        "total": 36
+      },
+      "failed": [],
+      "id": "django__django-16661",
+      "repo": "django/django",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed the shortcut check in `ModelAdmin.lookup_allowed()` (`django/contrib/admin/options.py`). I haven't run anything, including the test from the issue, because the test environment isn't installed.\n\nThe old check skipped any part of the lookup that was one of the previous relation's target fields. A `OneToOneField` primary key like `Restaurant.place` is a target field, so `restaurant__place__country` collapsed to `restaurant__country`. That isn't in `list_filter`, so the lookup was refused.\n\nThe check now treats a part as redundant only in these cases:\n- **Concrete-inheritance parent link:** the part is one of the model's parent links (`model._meta.parents`).\n- **Auto primary key:** the part is the model's auto primary key.\n- **FK `to_field`:** the model has an auto primary key and the part is named in the previous field's `to_fields`.\n\nA foreign key used as a primary key, like `place` here, is none of these, so it stays in the lookup and `restaurant__place__country` matches `list_filter`.",
+        "costUsd": 0.0603761,
+        "durationMs": 13664,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/django__django-16661.log",
+      "durationMs": 156878,
+      "costUsd": 0.0603761
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 166,
+        "total": 166
+      },
+      "failed": [],
+      "id": "sympy__sympy-13757",
+      "repo": "sympy/sympy",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I set `Poly._op_priority = 10.001` in `sympy/polys/polytools.py`, just after `is_commutative = True`. I haven't run it or any tests, since the environment isn't installed.\n\nThe fix relies on how `Expr` dispatches binary operators. `x*Poly(x)` calls `Expr.__mul__`, which only defers to `Poly.__rmul__` if the right operand has a higher `_op_priority`. `Expr` uses 10.0 and `Poly` inherited it, so the deferral never happened and you got an unevaluated `x*Poly(x, x, domain='ZZ')`. With 10.001, `x*Poly(x)` should reach `Poly.__rmul__` and evaluate to `Poly(x**2, x, domain='ZZ')`, like `Poly(x)*x` does.\n\nThe same priority check applies to the other operators, so `x + Poly(x)` and similar cases should now also go through `Poly`'s reflected methods.",
+        "costUsd": 0.0571573,
+        "durationMs": 12718,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/sympy__sympy-13757.log",
+      "durationMs": 146844,
+      "costUsd": 0.0571573
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 2,
+        "total": 2
+      },
+      "p2p": {
+        "passed": 9,
+        "total": 9
+      },
+      "failed": [],
+      "id": "sympy__sympy-17655",
+      "repo": "sympy/sympy",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `sympy/geometry/point.py` so that `point1 + sympy.sympify(2.0) * point2` should now give the same result as `point1 + point2 * sympy.sympify(2.0)`. I haven't run it, since Python isn't installed here and you said not to run the suite.\n\n- **`__add__`:** `2.0 * Point2D(1, 1)` doesn't reach the point. The number's own `__mul__` accepts the point and returns an unevaluated `Mul`, which `Point.__add__` then rejects. `__add__` now spots a `Mul` that contains exactly one `Point`, multiplies that point by the remaining factors, and adds the result.\n- **`__rmul__`:** I added `Point.__rmul__`, which calls `__mul__`. It covers cases where the left operand defers to the point, such as `2 * Point(1, 1)`.\n\nThe fix leans on the `Mul` check in `__add__` rather than on `__rmul__` alone, because the left operand never defers to the point in the issue's case.",
+        "costUsd": 0.0850305,
+        "durationMs": 18453,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/sympy__sympy-17655.log",
+      "durationMs": 147447,
+      "costUsd": 0.0850305
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 11,
+        "total": 11
+      },
+      "failed": [],
+      "id": "sympy__sympy-22714",
+      "repo": "sympy/sympy",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed the imaginary-coordinate check in `sympy/geometry/point.py:155` so `Point2D(Integer(1), Integer(2))` should no longer raise under `with evaluate(False)`. I haven't run anything, per your note, so the fix is untested.\n\nThe cause was that `im(a)` stays unevaluated when `evaluate` is false. The unevaluated `im(...)` object is always truthy, so every numeric coordinate looked imaginary. The check is now `im(a).is_zero is False`. It only rejects a coordinate when its imaginary part is known to be nonzero, and an unevaluated `im(...)` whose zero-ness can't be determined passes.\n\nOne gap: a genuinely imaginary coordinate such as `I` may not be rejected when `evaluate` is false. In that case `im(I)` stays unevaluated and its zero-ness can't be determined, so it passes the check. With evaluation on, imaginary coordinates are still rejected as before.",
+        "costUsd": 0.061656600000000006,
+        "durationMs": 13066,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/sympy__sympy-22714.log",
+      "durationMs": 136487,
+      "costUsd": 0.061656600000000006
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 44,
+        "total": 44
+      },
+      "failed": [],
+      "id": "sphinx-doc__sphinx-8120",
+      "repo": "sphinx-doc/sphinx",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed the order in which Sphinx searches for message catalogs, so a user's `locale/<language>/LC_MESSAGES/sphinx.mo` now overrides the built-in translation. I haven't run it or any tests, as instructed.\n\n**Cause:** `locale.init` uses the first catalog it finds for a message and treats later ones as fallbacks. `sphinx/application.py` listed the built-in `sphinx/locale` directory ahead of the user's `locale_dirs`, so the official translation (`da` in the report) always won.\n\n**Fix:** line 296 of `sphinx/application.py` now reads:\n\n```python\nlocale_dirs = list(repo.locale_dirs) + [path.join(package_dir, 'locale'), None]\n```\n\nUser directories come first, then the built-in directory, then the system default (`None`). Before, `None` came first. The built-in catalog still covers any message the user's `.po` doesn't define.\n\nI haven't checked whether the system default path has its own `sphinx` catalog that could now be consulted later than before.",
+        "costUsd": 0.0671321,
+        "durationMs": 14546,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/sphinx-doc__sphinx-8120.log",
+      "durationMs": 138441,
+      "costUsd": 0.0671321
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 24,
+        "total": 24
+      },
+      "failed": [],
+      "id": "sphinx-doc__sphinx-9673",
+      "repo": "sphinx-doc/sphinx",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed this in `sphinx/ext/autodoc/typehints.py`, but I haven't run it or any tests, as instructed.\n\nNapoleon turns a Google-style `Returns:` section into a `:returns:` field. `augment_descriptions_with_types` only recognised `:return:`. With `autodoc_typehints_description_target = \"documented\"`, it therefore never saw the return description and skipped the `rtype`. The check now accepts both `return` and `returns`, so the return type is added when a return description exists.",
+        "costUsd": 0.0580647,
+        "durationMs": 7381,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/sphinx-doc__sphinx-9673.log",
+      "durationMs": 129435,
+      "costUsd": 0.0580647
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 2,
+        "total": 2
+      },
+      "p2p": {
+        "passed": 267,
+        "total": 267
+      },
+      "failed": [],
+      "id": "matplotlib__matplotlib-24570",
+      "repo": "matplotlib/matplotlib",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the reversed `align` in `HPacker` by swapping the two options in `_get_aligned_offsets` in `lib/matplotlib/offsetbox.py`. I haven't run anything, so the fix is untested.\n\n`\"bottom\"` now shares the zero-offset branch with `\"left\"`, and `\"top\"` shares the shifted branch with `\"right\"`. Before, they were the other way round.\n\n`VPacker` only uses `left`/`right`, so its behaviour doesn't change.\n\nI didn't check the docstrings. The `align` description around line 398 says \"left-aligned (or top-aligned)\", which may need updating.",
+        "costUsd": 0.0692792,
+        "durationMs": 10803,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/matplotlib__matplotlib-24570.log",
+      "durationMs": 387887,
+      "costUsd": 0.0692792
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 5,
+        "total": 5
+      },
+      "failed": [],
+      "id": "scikit-learn__scikit-learn-14053",
+      "repo": "scikit-learn/scikit-learn",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the `IndexError` in `export_text` in `sklearn/tree/export.py`, but I haven't run it. You said not to run the test suite, and I didn't try the reproduction script either.\n\nThe cause was the list of feature names that `export_text` builds from `tree_.feature`. Leaf nodes store `_tree.TREE_UNDEFINED` (-2) there instead of a feature index. With several features, `feature_names[-2]` happens to be a valid index. With a single feature, it falls outside a one-item list and raises the error. The list now holds `None` for leaf nodes and only looks up names for real feature indices. The same guard covers the default `feature_{i}` names.",
+        "costUsd": 0.0585988,
+        "durationMs": 10529,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/scikit-learn__scikit-learn-14053.log",
+      "durationMs": 168029,
+      "costUsd": 0.0585988
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 40,
+        "total": 40
+      },
+      "failed": [],
+      "id": "astropy__astropy-13579",
+      "repo": "astropy/astropy",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I changed `world_to_pixel_values` in `astropy/wcs/wcsapi/wrappers/sliced_wcs.py`, but I haven't run it or any tests, since Python isn't installed on this machine.\n\n**Cause:** for each world axis that the slice drops, `world_to_pixel_values` filled in a placeholder value of `1.` before calling the full WCS. With a PC matrix that couples the spectral and spatial axes, a wrong value on the dropped wavelength axis skews the spatial result. That is why your first pixel came back near 1.8e11.\n\n**Fix:** the dropped axes are now filled with their actual world values at the slice position. These come from `_pixel_to_world_values_all(*[0]*len(self._pixel_keep))`, the same call `dropped_world_dimensions` already uses.\n\nI didn't add or change any tests.",
+        "costUsd": 0.08532690000000001,
+        "durationMs": 17183,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/astropy__astropy-13579.log",
+      "durationMs": 189051,
+      "costUsd": 0.08532690000000001
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 1,
+        "total": 1
+      },
+      "p2p": {
+        "passed": 875,
+        "total": 875
+      },
+      "failed": [],
+      "id": "pydata__xarray-4695",
+      "repo": "pydata/xarray",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the `.loc` failure for a dimension named `method`. I haven't run it, since the test environment isn't installed.\n\nThe bug was in `.loc` lookups in `xarray/core/dataarray.py`. The indexer dict was passed to `sel` as keyword arguments (`sel(**key)`), so `method='a'` was read as `sel`'s own `method` option (the fill method) instead of a dimension name. That produced the \"Invalid fill method\" error. It is now passed as a single dict (`sel(key)`), so a dimension called `method` is treated like any other.\n\nI didn't add or change any tests.",
+        "costUsd": 0.0630532,
+        "durationMs": 8365,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/pydata__xarray-4695.log",
+      "durationMs": 244338,
+      "costUsd": 0.0630532
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 3,
+        "total": 3
+      },
+      "p2p": {
+        "passed": 58,
+        "total": 58
+      },
+      "failed": [],
+      "id": "pytest-dev__pytest-7324",
+      "repo": "pytest-dev/pytest",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "I fixed the crash in `src/_pytest/mark/expression.py`, but I haven't run it. Per your instructions I didn't run the test suite, and I didn't try the reproducer either.\n\nThe parser turned identifiers like `False`, `True` and `None` into `ast.Name` nodes, and a debug-build CPython asserts when compiling a `Name` with one of those names. Every identifier now gets a `$` prefix when the `ast.Name` is built, so no name can collide with a constant. `MatcherAdapter.__getitem__` strips the prefix before calling the user's matcher, so matchers still receive the original text.\n\n`compile()` accepts the `$` names because it doesn't validate identifier names in an AST. As far as I recall, upstream pytest fixed this with the same prefix idea, but I didn't check.",
+        "costUsd": 0.0635907,
+        "durationMs": 11873,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/pytest-dev__pytest-7324.log",
+      "durationMs": 126055,
+      "costUsd": 0.0635907
+    },
+    {
+      "status": "resolved",
+      "reason": "all FAIL_TO_PASS and PASS_TO_PASS tests pass",
+      "f2p": {
+        "passed": 4,
+        "total": 4
+      },
+      "p2p": {
+        "passed": 171,
+        "total": 171
+      },
+      "failed": [],
+      "id": "pylint-dev__pylint-6528",
+      "repo": "pylint-dev/pylint",
+      "turn": {
+        "runId": "run-1",
+        "status": "done",
+        "reply": "Recursive mode now applies `--ignore`, `--ignore-patterns` and `--ignore-paths` while it walks the directory tree. I haven't run or tested it, since the test environment isn't installed here.\n\nThe cause was that these options were only checked against the paths you passed on the command line. Files found by the recursive walk were never checked.\n\nThe change is in `pylint/lint/pylinter.py`. `_discover_files` is no longer a static method, and a new `_is_ignored` helper checks each directory and file name:\n\n- **`--ignore`:** the base name must not be in the list.\n- **`--ignore-patterns`:** a regex must not match the base name.\n- **`--ignore-paths`:** a regex must not match the full path.\n\nIgnored directories are pruned, so their contents are never visited. With the default `ignore-patterns` this should also skip `.a/foo.py` in your example. I used `config.ignore`, `config.ignore_patterns` and `config.ignore_paths`, matching how `_expand_files` reads them.\n\nOne gap: a directory containing `__init__.py` is yielded as a package and its subdirectories aren't walked. An ignored subdirectory inside such a package is therefore left to the existing module-expansion code, and I didn't touch that path.",
+        "costUsd": 0.094723,
+        "durationMs": 20665,
+        "escalations": []
+      },
+      "log": "/media/gdb/Data/Projects/Stewart/packages/evals/results/swebench-logs/lead-claude-20/pylint-dev__pylint-6528.log",
+      "durationMs": 151825,
+      "costUsd": 0.094723
+    }
+  ]
+}

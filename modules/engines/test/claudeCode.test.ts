@@ -118,7 +118,11 @@ describe("claude-code engine", () => {
     expect(usage.inTokens).toBe(2 + 18911 + 13423);
     expect(usage.outTokens).toBe(5);
     expect(usage.costUsd).toBeCloseTo(0.0039, 3);
+    const ctx = evs.find((e) => e.kind === "claude.context") as Extract<EngineEvent, { kind: "claude.context" }>;
+    expect(ctx).toMatchObject({ cliSessionId: "604e1b57-786c-4676-b314-de9bc94d18c9", inputTokens: 32336, windowTokens: 1_000_000, compacted: false, turnCount: 1 });
+    expect(evs.indexOf(ctx)).toBeLessThan(evs.findIndex((e) => e.kind === "finished"));
     const argv = calls[0].argv;
+    expect(argv[argv.indexOf("--model") + 1]).toBe("haiku");
     expect(argv).toContain("--include-partial-messages");
     expect(argv).toContain("--permission-prompt-tool");
     expect(argv).not.toContain("--resume");
@@ -130,6 +134,38 @@ describe("claude-code engine", () => {
     const kindsSeen = new Set(kinds(evs));
     expect(kindsSeen.has("reasoning")).toBe(false);
     expect(evs.filter((e) => e.kind === "text")).toHaveLength(1);
+  });
+
+  it("detects CLI compaction from the verbatim Haiku compaction events", async () => {
+    const lines = [
+      ...(await fixture("claude-compact-boundary.jsonl")),
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "c30e0440-deae-43b0-88d5-e1f3231591ee",
+        total_cost_usd: 0.001,
+        num_turns: 4,
+        usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 2 },
+        modelUsage: { "claude-haiku-5-5": { contextWindow: 1_000_000 } },
+      },
+    ];
+    const { spawn } = fakeSpawn([{ lines }]);
+    const evs = await run(makeTurn(), spawn);
+    const ctx = evs.find((e) => e.kind === "claude.context") as Extract<EngineEvent, { kind: "claude.context" }>;
+    expect(ctx).toMatchObject({ cliSessionId: "c30e0440-deae-43b0-88d5-e1f3231591ee", inputTokens: 100, windowTokens: 1_000_000, compacted: true, turnCount: 4 });
+  });
+
+  it("tolerates absent usage, model usage, session and turn fields", async () => {
+    const lines = [{ type: "result", subtype: "success", is_error: false, total_cost_usd: 0, usage: {} }];
+    const { spawn } = fakeSpawn([{ lines }]);
+    const evs = await run(makeTurn(), spawn);
+    const ctx = evs.find((e) => e.kind === "claude.context") as Extract<EngineEvent, { kind: "claude.context" }>;
+    expect(ctx.compacted).toBe(false);
+    expect(ctx.cliSessionId).toBeUndefined();
+    expect(ctx.inputTokens).toBeUndefined();
+    expect(ctx.windowTokens).toBeUndefined();
+    expect(ctx.turnCount).toBeUndefined();
   });
 
   it("approves an Edit from the verbatim fixture and records the write", async () => {

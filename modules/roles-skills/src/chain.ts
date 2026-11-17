@@ -24,9 +24,10 @@ function capsOf(agent: AgentDef, channels: ChannelDef[]) {
   return resolveModelProfile({ channels }, { channel: agent.channel, model: agent.model });
 }
 
-/** The agent's usable context window in tokens, or undefined when unknown. */
+/** The agent's usable context window in tokens, or undefined when unknown; the agent qualification probe's measured window is the fallback. */
 export function agentContext(agent: AgentDef, channels: ChannelDef[]): number | undefined {
-  return capsOf(agent, channels).contextTokens;
+  const p = capsOf(agent, channels);
+  return p.contextTokens ?? p.caps.qualified?.agent?.context;
 }
 
 /**

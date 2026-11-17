@@ -25,6 +25,7 @@ export interface RunState {
   seq: number;
   accrued: number;
   costCapped: boolean;
+  claudeContext?: { inputTokens?: number; windowTokens?: number };
 }
 
 /** Per-task facts one runTask accumulates (the lead turn is one task; each delegated child is another). */

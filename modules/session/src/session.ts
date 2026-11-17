@@ -153,7 +153,7 @@ export class SessionService {
       await this.persist(w);
       await this.finish(w, res);
     } catch (e) {
-      bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: err(e) });
+      bus.emit(failedRunEvent(runId, rs, err(e)));
     } finally {
       this.active.delete(runId);
     }
@@ -242,14 +242,14 @@ export class SessionService {
     try {
       const w = await this.turnWork(runId, sessionId, rs);
       const plan = await w.plan.resumePlan();
-      if (!plan) return bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: "no active plan for this session" });
+      if (!plan) return bus.emit(failedRunEvent(runId, rs, "no active plan for this session"));
       bus.emit({ kind: "run.started", runId, roleId: "lead", title: `Resume plan: ${plan.goal}` });
       const first = await w.tracker.begin(`resume-${runId}`);
       const res = await this.drive(w, first);
       await this.persist(w);
       await this.finish(w, res, first);
     } catch (e) {
-      bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "failed", error: err(e) });
+      bus.emit(failedRunEvent(runId, rs, err(e)));
     } finally {
       this.active.delete(runId);
     }
@@ -283,11 +283,29 @@ export class SessionService {
   }
 }
 
+function contextAtFailure(rs: RunState): string | undefined {
+  const c = rs.claudeContext;
+  return c?.inputTokens === undefined ? undefined : `${c.inputTokens}/${c.windowTokens ?? "unknown"}`;
+}
+
+function failedRunEvent(runId: string, rs: RunState, error: string, outcome?: ReturnType<typeof runOutcome>): RunEvent {
+  const context = contextAtFailure(rs);
+  return {
+    kind: "run.finished",
+    runId,
+    roleId: "lead",
+    status: "failed",
+    error,
+    ...(context ? { contextAtFailure: context } : {}),
+    ...(outcome ? { outcome } : {}),
+  };
+}
+
 /** The terminal run.finished event: cancel and cost cap short-circuit without an outcome. */
 function finishedEvent(runId: string, rs: RunState, res: TaskResult, outcome: ReturnType<typeof runOutcome>): RunEvent {
-  if (rs.costCapped) return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: "cost cap reached" };
+  if (rs.costCapped) return failedRunEvent(runId, rs, "cost cap reached");
   if (res.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
   if (res.status === "done") return { kind: "run.finished", runId, roleId: "lead", status: "done", outcome };
-  return { kind: "run.finished", runId, roleId: "lead", status: "failed", error: res.error ?? "failed", outcome };
+  return failedRunEvent(runId, rs, res.error ?? "failed", outcome);
 }
 

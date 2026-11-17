@@ -7,7 +7,7 @@ import { questionPrompt } from "@stewart/interaction";
 import type { RunLedger } from "@stewart/ledger";
 import { costOfCall } from "@stewart/ledger";
 import type { RunEvent } from "@stewart/protocol";
-import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
+import { agentContext, eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { engineFor as defaultEngineFor, type Engine, type EngineEvent, type WriteRecord } from "@stewart/engines";
 import { evidenceText, failureText, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
 import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewart/tools";
@@ -152,6 +152,22 @@ async function onUsage(ev: Extract<EngineEvent, { kind: "usage" }>, c: Ctx, agen
   }
 }
 
+function onClaudeContext(ev: Extract<EngineEvent, { kind: "claude.context" }>, c: Ctx, agent: AgentDef): void {
+  const { spec, deps } = c;
+  const windowTokens = ev.windowTokens ?? agentContext(agent, deps.config().channels);
+  spec.run.claudeContext = { inputTokens: ev.inputTokens, windowTokens };
+  deps.bus.emit({
+    kind: "claude.context",
+    ...evBase(spec),
+    cliSessionId: ev.cliSessionId,
+    inputTokens: ev.inputTokens,
+    windowTokens,
+    compacted: ev.compacted,
+    turnCount: ev.turnCount,
+  });
+  void spec.onStep?.();
+}
+
 function onTool(ev: Extract<EngineEvent, { kind: "tool.request" | "tool.outcome" }>, c: Ctx): void {
   const { spec, deps, ts } = c;
   if (ev.kind === "tool.request") {
@@ -176,6 +192,7 @@ async function onEvent(ev: EngineEvent, c: Ctx, agent: AgentDef): Promise<void> 
     return void spec.onWrite?.(ev.record);
   }
   if (ev.kind === "usage") return await onUsage(ev, c, agent);
+  if (ev.kind === "claude.context") return onClaudeContext(ev, c, agent);
   ts.reason = ev.reason;
   ts.error = ev.error;
   return void spec.onStep?.();

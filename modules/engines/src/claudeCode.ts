@@ -10,9 +10,19 @@ import {
   relPath, resultText, str, unseenPrefix, userLine, type Obj,
 } from "./claudeLines.js";
 
+interface ClaudeObs {
+  cliSessionId?: string;
+  inputTokens?: number;
+  windowTokens?: number;
+  compacted: boolean;
+  turnCount?: number;
+  spawnError?: string;
+}
+
 interface Attempt {
   turn: EngineTurn;
   proc: SpawnedProc;
+  obs: ClaudeObs;
   /** API message ids already streamed as deltas (their assistant text must not be re-emitted). */
   deltaIds: Set<string>;
   /** tool_use_id → name/input, filled from assistant blocks. */
@@ -127,18 +137,41 @@ function streamDelta(a: Attempt, j: Obj): EngineEvent | null {
   return { kind: field === "text" ? "text" : "reasoning", text };
 }
 
+function inputTokensOf(u: Obj | undefined): number | undefined {
+  const vals = [num(u?.input_tokens), num(u?.cache_creation_input_tokens), num(u?.cache_read_input_tokens)];
+  return vals.some((v) => v !== undefined) ? vals.reduce<number>((n, v) => n + (v ?? 0), 0) : undefined;
+}
+
+function windowTokensOf(j: Obj): number | undefined {
+  const usage = obj(j.modelUsage);
+  for (const raw of Object.values(usage ?? {})) {
+    const window = num(obj(raw)?.contextWindow);
+    if (window !== undefined) return window;
+  }
+  return undefined;
+}
+
+function observeSystem(a: Attempt, j: Obj): void {
+  a.obs.cliSessionId = str(j.session_id) ?? a.obs.cliSessionId;
+  if (j.subtype === "compact_boundary" || str(j.compact_result) === "success") a.obs.compacted = true;
+}
+
 function emitResult(a: Attempt, j: Obj): EngineEvent[] {
   const u = obj(j.usage);
-  const inTok = (num(u?.input_tokens) ?? 0) + (num(u?.cache_creation_input_tokens) ?? 0) + (num(u?.cache_read_input_tokens) ?? 0);
-  const outTok = num(u?.output_tokens) ?? 0;
+  const inTok = inputTokensOf(u);
+  a.obs.inputTokens = inTok;
+  a.obs.windowTokens = windowTokensOf(j) ?? a.obs.windowTokens;
+  a.obs.turnCount = num(j.num_turns) ?? a.obs.turnCount;
+  a.obs.cliSessionId = str(j.session_id) ?? a.obs.cliSessionId;
   a.result = { subtype: str(j.subtype) ?? "success", isError: j.is_error === true, text: str(j.result) ?? "" };
-  return [{ kind: "usage", inTokens: inTok, outTokens: outTok, costUsd: num(j.total_cost_usd) }];
+  return [{ kind: "usage", inTokens: inTok ?? 0, outTokens: num(u?.output_tokens) ?? 0, costUsd: num(j.total_cost_usd) }];
 }
 
 /** Handle one stream-json line; returns true when the turn-ending `result` line arrived. */
 async function* handleLine(a: Attempt, j: Obj): AsyncGenerator<EngineEvent, boolean> {
-  if (j.type === "system" && j.subtype === "init") {
-    if (typeof j.session_id === "string") a.turn.state.cliSessionId = j.session_id;
+  if (j.type === "system") {
+    observeSystem(a, j);
+    if (j.subtype === "init" && typeof j.session_id === "string") a.turn.state.cliSessionId = j.session_id;
   } else if (j.type === "assistant") {
     yield* emitAssistant(a, j);
   } else if (j.type === "user") {
@@ -193,7 +226,18 @@ function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
   return () => turn.signal.removeEventListener("abort", onAbort);
 }
 
-async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: string): AsyncGenerator<EngineEvent, Attempt | null> {
+function contextEvent(obs: ClaudeObs): EngineEvent {
+  return {
+    kind: "claude.context",
+    cliSessionId: obs.cliSessionId,
+    inputTokens: obs.inputTokens,
+    windowTokens: obs.windowTokens,
+    compacted: obs.compacted,
+    turnCount: obs.turnCount,
+  };
+}
+
+async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: string, obs: ClaudeObs): AsyncGenerator<EngineEvent, Attempt | null> {
   const spawn = deps.spawn ?? nodeSpawn;
   const argv = claudeArgv(turn, str(turn.state.cliSessionId));
   let mcp: McpHandle | undefined;
@@ -206,10 +250,10 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
   try {
     proc = spawn(argv, { cwd: turn.cwd, env: claudeChildEnv(turn.channel.cfg, deps.env ?? (process.env as Record<string, string | undefined>)) });
   } catch (e) {
-    yield { kind: "finished", reason: "error", error: `cannot start Claude CLI at ${argv[0]}: ${err(e)}` };
+    obs.spawnError = `cannot start Claude CLI at ${argv[0]}: ${err(e)}`;
     return null;
   }
-  const a: Attempt = { turn, proc, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, lines: 0, cli: argv[0], guard: new LoopGuard() };
+  const a: Attempt = { turn, proc, obs, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, lines: 0, cli: argv[0], guard: new LoopGuard() };
   const unwatch = cancelWatch(turn, proc);
   try {
     proc.write?.(userLine(turn.transcript, prefix) + "\n");
@@ -278,12 +322,18 @@ async function* runClaude(turn: EngineTurn, deps: ClaudeCodeDeps): AsyncGenerato
     yield { kind: "finished", reason: "cancelled" };
     return;
   }
+  const obs: ClaudeObs = { cliSessionId: str(turn.state.cliSessionId), compacted: false };
   let prefix = unseenPrefix(turn);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const a = yield* driveAttempt(runAttempt(turn, deps, prefix));
-    if (!a) break;
+    const a = yield* driveAttempt(runAttempt(turn, deps, prefix, obs));
+    if (!a) {
+      yield contextEvent(obs);
+      yield { kind: "finished", reason: "error", error: obs.spawnError ?? "cannot start Claude CLI" };
+      break;
+    }
     const post = await postAttempt(a);
     if (!post.retry || attempt === 1) {
+      yield contextEvent(obs);
       if (post.ev) yield post.ev;
       break;
     }
