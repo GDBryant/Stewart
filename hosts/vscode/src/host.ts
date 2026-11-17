@@ -3,10 +3,11 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { ensureUserConfigDir, sharedUserConfigDir, type HostPort, type VersionedEdit } from "@stewart/core";
 import { procRun } from "./procRun.js";
+import type { DiffContent } from "./diffContent.js";
 
 /** HostPort implemented on the vscode API: native undo, unsaved buffers, SecretStorage. */
 export class VsCodeHost implements HostPort {
-  constructor(private context: vscode.ExtensionContext) {}
+  constructor(private context: vscode.ExtensionContext, private diffDocs: DiffContent) {}
 
   private wsRoot(): string {
     const ws = vscode.workspace.workspaceFolders?.[0];
@@ -136,14 +137,14 @@ export class VsCodeHost implements HostPort {
       await vscode.commands.executeCommand("vscode.diff", uri.with({ scheme: "untitled" }), uri, `Stewart: ${path.basename(p)}`);
     },
     show: async (p, before, after) => {
-      const left = await vscode.workspace.openTextDocument({ content: before ?? "" });
-      let right: vscode.TextDocument;
+      const left = vscode.Uri.parse(this.diffDocs.put("before", p, before ?? ""));
+      let right: vscode.Uri;
       try {
-        right = await this.docFor(p);
+        right = (await this.docFor(p)).uri;
       } catch {
-        right = await vscode.workspace.openTextDocument({ content: after ?? "" });
+        right = vscode.Uri.parse(this.diffDocs.put("after", p, after ?? ""));
       }
-      await vscode.commands.executeCommand("vscode.diff", left.uri, right.uri, `Stewart: ${path.basename(p)}`);
+      await vscode.commands.executeCommand("vscode.diff", left, right, `Stewart: ${path.basename(p)}`);
     },
   };
 

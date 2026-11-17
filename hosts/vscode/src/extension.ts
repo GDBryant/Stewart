@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import { Core, type ConfigLayer, type ConfigStore } from "@stewart/core";
 import type { RunEvent } from "@stewart/protocol";
 import { VsCodeHost } from "./host.js";
+import { DiffContent } from "./diffContent.js";
 import { PROJECT_ID, route } from "./routes.js";
 
 const CONFIG_FILES = ["channels.yaml", "agents.yaml", "roles.yaml", "settings.yaml"];
@@ -104,7 +105,8 @@ async function insertSelection(host: VsCodeHost, ref: PanelRef): Promise<void> {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const host = new VsCodeHost(context);
+  const diffDocs = new DiffContent();
+  const host = new VsCodeHost(context, diffDocs);
   const ref: PanelRef = {};
 
   const core = new Core({
@@ -125,6 +127,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider("stewart-diff", {
+      provideTextDocumentContent: (uri) => diffDocs.get(uri.toString()) ?? "",
+    }),
     vscode.commands.registerCommand("stewart.openChat", openPanel),
     vscode.commands.registerCommand("stewart.openSettings", openPanel),
     vscode.commands.registerCommand("stewart.addSelectionToChat", async () => {
