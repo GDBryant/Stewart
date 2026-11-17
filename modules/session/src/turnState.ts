@@ -88,12 +88,22 @@ export function lastReply(transcript: ChatMessage[]): string {
 
 export type RunOutcome = { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: "unavailable"; trackingReason?: string; baseline?: string };
 
+const COMMAND_EVIDENCE = new Set(["command_ok", "command_failed", "command_unavailable", "command_timeout"]);
+
+function ranCommand(res: CheckResult | undefined): boolean {
+  return res?.evidence.some((e) => COMMAND_EVIDENCE.has(e.code)) ?? false;
+}
+
+function verifiedBy(contract: Contract, res: CheckResult | undefined): Pick<RunOutcome, "verified" | "command"> {
+  if (!res?.passed) return { verified: "none" };
+  if (ranCommand(res)) return { verified: "command", command: contract.commands.map((c) => c.argv.join(" ")).join("; ") };
+  if (contract.files.length) return { verified: "files" };
+  return { verified: "none" };
+}
+
 /** How the finished run changed files and how that was verified, from the contract and last check. */
 export function runOutcome(contract: Contract, res: CheckResult | undefined, changed: string[] | undefined, baseline: Baseline): RunOutcome {
   const out: RunOutcome = { changed: changed ?? [], verified: "none", ...(baseline.kind !== "unavailable" ? { baseline: baseline.id } : {}) };
   if (baseline.kind === "unavailable") return { ...out, tracking: "unavailable", trackingReason: baseline.reason };
-  const ran = res?.evidence.some((e) => e.code === "command_ok" || e.code === "command_failed" || e.code === "command_unavailable" || e.code === "command_timeout");
-  if (res?.passed && ran) return { ...out, verified: "command", command: contract.commands.map((c) => c.argv.join(" ")).join("; ") };
-  if (res?.passed && !ran && contract.files.length) return { ...out, verified: "files" };
-  return out;
+  return { ...out, ...verifiedBy(contract, res) };
 }

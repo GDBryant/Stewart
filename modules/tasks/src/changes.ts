@@ -221,6 +221,21 @@ async function manRestore(c: Ctx, id: string): Promise<{ restored: string[]; del
   return { restored: restored.sort(), deleted: deleted.sort() };
 }
 
+const beginBaseline = async (c: Ctx, label: string): Promise<Baseline> => ((await c.isGit()) ? await gitBegin(c, label) : await manBegin(c));
+
+const reBaseline = async (c: Ctx, id: string): Promise<Baseline> => ({ id, kind: (await c.isGit()) ? ("git" as const) : ("manifest" as const) });
+
+const diffBaseline = async (c: Ctx, b: Baseline): Promise<string[] | undefined> =>
+  b.kind === "unavailable" ? undefined : b.kind === "git" ? await gitDiff(c, b.id) : await manDiff(c, b.id);
+
+const readBaseline = async (c: Ctx, b: Baseline, path: string): Promise<string | undefined> =>
+  b.kind === "unavailable" ? undefined : b.kind === "git" ? await gitRead(c, b.id, path) : await manRead(c, b.id, path);
+
+const restoreBaseline = async (c: Ctx, b: Baseline): Promise<{ restored: string[]; deleted: string[] }> => {
+  if (b.kind === "unavailable") throw new Error(`change tracking unavailable: ${b.reason ?? "unknown"}`);
+  return b.kind === "git" ? await gitRestore(c, b.id) : await manRestore(c, b.id);
+};
+
 /**
  * Serialized change tracker: git worktrees checkpoint the whole tree through a temp index kept between calls
  * into `refs/stewart/<sessionId>`; other projects hash a manifest of project files with content-addressed blobs.
@@ -250,18 +265,11 @@ export function changeTracker(host: Host, p: CpPaths): ChangeTracker {
     return r;
   };
   return {
-    begin: (label) => queued(async () => ((await c.isGit()) ? await gitBegin(c, label) : await manBegin(c))),
-    baseline: (id) => queued(async () => ({ id, kind: (await c.isGit()) ? ("git" as const) : ("manifest" as const) })),
-    diff: (b) => queued(async () => (b.kind === "unavailable" ? undefined : b.kind === "git" ? await gitDiff(c, b.id) : await manDiff(c, b.id))),
-    read: (b, path) => queued(async () => {
-      if (b.kind === "unavailable") return undefined;
-      return b.kind === "git" ? await gitRead(c, b.id, path) : await manRead(c, b.id, path);
-    }),
-    restore: (b) =>
-      queued(async () => {
-        if (b.kind === "unavailable") throw new Error(`change tracking unavailable: ${b.reason ?? "unknown"}`);
-        return b.kind === "git" ? await gitRestore(c, b.id) : await manRestore(c, b.id);
-      }),
+    begin: (label) => queued(() => beginBaseline(c, label)),
+    baseline: (id) => queued(() => reBaseline(c, id)),
+    diff: (b) => queued(() => diffBaseline(c, b)),
+    read: (b, path) => queued(() => readBaseline(c, b, path)),
+    restore: (b) => queued(() => restoreBaseline(c, b)),
     dispose: () => queued(() => disposeTracker(c)),
   };
 }

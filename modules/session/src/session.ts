@@ -18,6 +18,7 @@ import { compactTranscript, expandArchived } from "./compact.js";
 import { planSummary, revertSession, showFileDiff } from "./planOps.js";
 import { drivePlan, leadContract } from "./planDrive.js";
 import { err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
+import { failedRunEvent, finishedEvent } from "./runEvents.js";
 import { stepSaver } from "./stepSave.js";
 import { runTask, type Contract, type TaskDeps, type TaskResult } from "./taskRun.js";
 import { policyApprove } from "./policyApprove.js";
@@ -286,31 +287,5 @@ export class SessionService {
     const cap = this.deps.config().settings.costLimit.perRunUsd;
     this.deps.bus.emit({ kind: "cost.summary", runId, roleId: "lead", capUsd: cap, accruedUsd: c.costUsd || accrued, overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent });
   }
-}
-
-function contextAtFailure(rs: RunState): string | undefined {
-  const c = rs.engineContext;
-  return c?.inputTokens === undefined ? undefined : `${c.inputTokens}/${c.windowTokens ?? "unknown"}`;
-}
-
-function failedRunEvent(runId: string, rs: RunState, error: string, outcome?: ReturnType<typeof runOutcome>): RunEvent {
-  const context = contextAtFailure(rs);
-  return {
-    kind: "run.finished",
-    runId,
-    roleId: "lead",
-    status: "failed",
-    error,
-    ...(context ? { contextAtFailure: context } : {}),
-    ...(outcome ? { outcome } : {}),
-  };
-}
-
-/** The terminal run.finished event: cancel and cost cap short-circuit without an outcome. */
-function finishedEvent(runId: string, rs: RunState, res: TaskResult, outcome: ReturnType<typeof runOutcome>): RunEvent {
-  if (rs.costCapped) return failedRunEvent(runId, rs, "cost cap reached");
-  if (res.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
-  if (res.status === "done") return { kind: "run.finished", runId, roleId: "lead", status: "done", outcome };
-  return failedRunEvent(runId, rs, res.error ?? "failed", outcome);
 }
 
