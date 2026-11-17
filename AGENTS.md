@@ -47,6 +47,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Architecture improvements (done): `docs/archived_v2/ARCHITECTURE_IMPROVEMENTS.md` — docs check, repo-wide file-size/fan-out gates, `run-contract`/`EffectiveConfig`/`v1-import` ownership, `RunFeature` plugins, `userCaps`/`capsFor` guard, setup-owned channel adds (built; deviations inline).
 - Image attachments plan (done): `docs/archived_v2/2026-11-03-image-attachments.md` — implementation plan; as-built in `docs/ai_docs/IMAGES.md`.
 - Setup wizard rewrite (done): `docs/archived_v2/2026-11-06-setup-wizard.md` — problem and rewrite plan; as-built in `docs/ai_docs/SETUP.md`.
+- Rich UI status (done): `docs/archived_v2/RICH_UI_STATUS.md` — implementation history for the shipped webview Markdown/steps/files-changed rewrite; durable summary is in `ARCHITECTURE_NOW.md`.
 - Handoff: `docs/archived_v2/HANDOFF.md` — post-M10 plans for the outstanding items (runIde check, AIF model list, Qwen edits + write verification, Ollama native tools, Visual Studio, Nemotron). Previous handoff text is in git history (`0ee6ce2`).
 - Phase 2: `docs/archived_v2/PHASE2.md` — Phase 1 plan/build audit, missing items, and Phase 2 multi-layered agent roadmap (M11–M15).
 - Code health: `docs/archived_v2/2026-11-07-code-health.md` — code-health skill + code-health-reviewer role plan (score / score+issues; Stewart heuristic rubric).

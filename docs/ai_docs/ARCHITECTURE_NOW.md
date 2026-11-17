@@ -2,7 +2,7 @@
 
 Living description of the code **as it is**. Update in the same commit as any change to modules, run paths, protocol, config, or host wiring. Plans live elsewhere (`docs/building/` = active; `docs/archived_v2/` = superseded v2-era docs).
 
-Last updated: 2026-11-17 (O5 `claude.context` observability, external SWE-bench eval, process-exit causes, login-shell process env; history: `git log -- docs/ai_docs/ARCHITECTURE_NOW.md`).
+Last updated: 2026-11-17 (O5 `claude.context` observability, rich webview rendering, external SWE-bench eval, process-exit causes, login-shell process env; history: `git log -- docs/ai_docs/ARCHITECTURE_NOW.md`).
 
 Diagrams (Mermaid — runtime topology, module layers, lead run path, delegation, state files): `docs/ARCHITECTURE_DIAGRAM.md`.
 
@@ -63,6 +63,7 @@ webview ─postMessage─ host ─(in-process | stdio NDJSON JSON-RPC)─ Core.d
 | Checks | `@stewart/tasks` | §3a |
 | JetBrains updates | `hosts/jetbrains` | `plugin.xml` registers `StewartUpdateSettingsProvider`, which contributes the baked `https://gdbryant.github.io/Stewart/updatePlugins.xml` feed so disk installs get IDE update checks without manual repository setup |
 | Setup | `@stewart/setup` | rules + AI assignment over the shipped role set (`lead`), benchmarks; `setup.recommend` takes `excludeChannels` (wizard channel checkboxes) filtered out at discovery/bench/researcher; `ProbeLoop` for bench is built in `packages/core/src/probeLoop.ts` from `nativeLoop`: one-shot synthetic tool call, toolOk when the probed tool's outcome arrives |
+| Webview | `packages/webview` | Preact chat/settings over the protocol: assistant text renders through a safe Markdown subset (`markdown.tsx`: fenced code, headings, tables, lists, inline marks/links; text nodes are safe by construction and unsafe link schemes drop); `tool.request`/`tool.outcome` pair by `callId` into one collapsible step with tool icons and a sticky manual toggle; `outcome.changed` becomes the files-changed footer; auto-scroll follows text and step growth |
 | Model facts | `@stewart/models` `profile.ts` | `resolveModelProfile`/`profileFromChannel`: caps, toolsMode, perf, price (agent > live > catalog), cost tier, `contextTokens`; `mergeProbeCaps` (user > probe); `capsFor`/`userCaps` guard raw `modelCaps` reads (`check:boundaries`) |
 
 ## 3. Run paths
