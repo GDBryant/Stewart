@@ -37,6 +37,19 @@ export function renderPlan(plan: Plan): string {
   return `# Plan: ${plan.goal}\n\nStatus: ${plan.status}\nSession: ${plan.sessionId}\n\n${plan.milestones.map(milestoneBlock).join("\n\n")}\n`;
 }
 
+export function renderPlanSummary(plan: Plan): string {
+  const blocks = plan.milestones.map((m) => {
+    const lines = [`### ${m.id}: ${m.title}`];
+    if (m.detail) lines.push("", m.detail);
+    const bullets: string[] = [];
+    if (m.check.command?.length) bullets.push(`- **Check:** \`${m.check.command.join(" ")}\``);
+    if (m.check.files?.length) bullets.push(`- **Files:** ${m.check.files.map((f) => `\`${f}\``).join(", ")}`);
+    if (bullets.length) lines.push("", ...bullets);
+    return lines.join("\n");
+  });
+  return `## Plan: ${plan.goal}\n\n${blocks.join("\n\n")}\n`;
+}
+
 function parseCheck(line: string): MilestoneCheck {
   const m = line.match(/^Check: (.*)$/);
   if (!m) throw new Error(`bad Check line: ${line}`);

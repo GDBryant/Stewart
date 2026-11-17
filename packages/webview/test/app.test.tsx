@@ -111,6 +111,31 @@ describe("webview chat", () => {
     expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q2", answer: "check the version property first" });
   });
 
+  it("renders a markdown question with headings and lists", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("ask_user", { questionId: "q3", question: "## Plan: X\n\n1. a\n2. b", options: ["Approve"] }));
+    });
+    expect(document.querySelector(".question-body .md-h2")).toBeTruthy();
+    expect(document.querySelectorAll(".question-body ol li")).toHaveLength(2);
+    fireEvent.click(screen.getByText("Approve"));
+    expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q3", answer: "Approve" });
+  });
+
+  it("does not inject raw HTML in a question as an element", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("ask_user", { questionId: "q4", question: "<b>x</b>", options: ["ok"] }));
+    });
+    const card = screen.getByText("<b>x</b>").closest(".card") as HTMLElement;
+    expect(card.querySelector("b")).toBeNull();
+    fireEvent.click(screen.getByText("ok"));
+    expect(bridge.sent).toContainEqual({ type: "chat.answer", questionId: "q4", answer: "ok" });
+  });
+
+
 
   it("renders orchestration tasks with their live status", () => {
     const { bridge } = mk();

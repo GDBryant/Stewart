@@ -2,7 +2,7 @@ import type { HostPort, Json } from "@stewart/kernel";
 import type { Interaction } from "@stewart/interaction";
 import { questionPrompt } from "@stewart/interaction";
 import type { Tool, ProjectPaths } from "@stewart/tools";
-import { currentMilestone, parsePlan, renderPlan, type Baseline, type ChangeTracker, type Milestone, type Plan } from "@stewart/tasks";
+import { currentMilestone, parsePlan, renderPlan, renderPlanSummary, type Baseline, type ChangeTracker, type Milestone, type Plan } from "@stewart/tasks";
 import type { RunEvent } from "@stewart/protocol";
 
 export interface PlanDeps {
@@ -211,8 +211,7 @@ export class PlanRunner {
       return { id: `M${i + 1}`, title: String(m.title), detail: m.detail ?? "", check, status: "pending" as const };
     });
     const plan: Plan = { goal: String(args.goal ?? ""), status: "active", sessionId: this.d.sessionId, milestones };
-    const text = renderPlan(plan);
-    const o = await this.d.interaction.ask(questionPrompt("plan_write", `Approve this plan?\n\n${text}`, ["Approve", "Revise"]), { runId: this.d.runId, roleId: "lead" }, signal);
+    const o = await this.d.interaction.ask(questionPrompt("plan_write", `**Approve this plan?**\n\n${renderPlanSummary(plan)}`, ["Approve", "Revise"]), { runId: this.d.runId, roleId: "lead" }, signal);
     if (o.kind !== "answered" || o.value !== "Approve") return `not approved: ${o.kind === "answered" ? o.value : o.kind}`;
     const baseline = await this.d.tracker.begin("start");
     this.st = { plan, baseline: baseline.id };

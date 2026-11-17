@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentMilestone, parsePlan, renderPlan, type Plan } from "../src/plan.js";
+import { currentMilestone, parsePlan, renderPlan, renderPlanSummary, type Plan } from "../src/plan.js";
 
 const plan: Plan = {
   goal: "build hello.js",
@@ -31,6 +31,29 @@ describe("plan render + parse", () => {
     const back = parsePlan(text);
     expect(back.milestones[0].check).toEqual({ command: ["sh", "-c", "npm test"], files: ["a.ts"] });
     expect(back.milestones[0]).not.toHaveProperty("attempts");
+  });
+
+  it("renders a markdown summary with detail, check command and files", () => {
+    const text = renderPlanSummary(plan);
+    expect(text).toBe(
+      "## Plan: build hello.js\n\n" +
+        "### M1: print hello\n\ncreate bin/hello.js\n\n- **Check:** `node bin/hello.js --name a b`\n- **Files:** `bin/hello.js`\n\n" +
+        "### M2: name arg\n\n- **Files:** `bin/hello.js`\n\n" +
+        "### M3: cmd only\n\n- **Check:** `npm test`\n",
+    );
+    expect(text).not.toContain("Status:");
+    expect(text).not.toContain("Session:");
+    expect(text).not.toContain("[pending]");
+    expect(text).not.toContain('["');
+  });
+
+  it("omits the Check bullet and detail blank line when both are empty", () => {
+    const p: Plan = { ...plan, milestones: [{ id: "M1", title: "files only", detail: "", check: { files: ["a.ts", "b.ts"] }, status: "pending" }] };
+    const text = renderPlanSummary(p);
+    expect(text).toBe("## Plan: build hello.js\n\n### M1: files only\n\n- **Files:** `a.ts`, `b.ts`\n");
+    expect(text).not.toContain("**Check:**");
+    const bare: Plan = { ...p, milestones: [{ ...p.milestones[0], check: {} }] };
+    expect(renderPlanSummary(bare)).toBe("## Plan: build hello.js\n\n### M1: files only\n");
   });
 
   it("reports clear parse errors", () => {

@@ -48,6 +48,7 @@ body { margin: 0; font: 13px/1.45 system-ui, sans-serif; background: var(--st-bg
 .file-name { word-break: break-all; font-family: ui-monospace, monospace; font-size: 11px; }
 .card { border: 1px solid #8885; border-radius: 8px; padding: 8px; }
 .card-title { font-weight: 500; margin-bottom: 6px; }
+.question-body { max-height: 50vh; overflow-y: auto; margin-bottom: 6px; }
 .args { max-height: 160px; overflow: auto; font-size: 11px; background: #8882; padding: 6px; border-radius: 4px; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; }
 button { cursor: pointer; border: 1px solid var(--st-border); background: #8882; color: var(--st-fg); border-radius: 6px; padding: 4px 10px; transition: transform 60ms ease, filter 60ms ease; }
