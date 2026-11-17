@@ -167,6 +167,7 @@ export class Core implements CoreCtx {
     "chat.cancel": (p) => chat.handleChatCancel(this, p),
     "chat.resume": (p) => chat.handleChatResume(this, p),
     "chat.revert": (p) => chat.handleChatRevert(this, p),
+    "file.diff": (p) => chat.handleFileDiff(this, p),
     "chat.answer": (p) => chat.handleChatAnswer(this, p),
     "chat.approve": (p) => chat.handleChatApprove(this, p),
     "history.list": (p) => chat.handleHistoryList(this, p),

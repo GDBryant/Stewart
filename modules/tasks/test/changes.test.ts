@@ -101,6 +101,15 @@ describe("manifest tracker", () => {
     for (let i = 0; i < 2001; i++) files[`f${i}.ts`] = "x";
     await expect(tracker.restore(b)).rejects.toThrow("change tracking unavailable");
   });
+  it("read returns baseline content, undefined for added files and unavailable baselines", async () => {
+    const { tracker, files } = manifestTracker({ "a.ts": "old", "b.ts": "keep" });
+    const b = await tracker.begin("t");
+    files["a.ts"] = "new";
+    files["c.ts"] = "added";
+    expect(await tracker.read(b, "a.ts")).toBe("old");
+    expect(await tracker.read(b, "c.ts")).toBeUndefined();
+    expect(await tracker.read({ id: "", kind: "unavailable", reason: "x" }, "a.ts")).toBeUndefined();
+  });
   it("serializes baseline ids and re-derives kind with baseline()", async () => {
     const { tracker } = manifestTracker({ "a.ts": "x" });
     const b1 = await tracker.begin("one");
@@ -142,6 +151,21 @@ describe("git tracker", () => {
       expect(r.deleted).toContain("new.txt");
       expect(sh(root, "cat", "a.txt")).toBe("one\n");
       expect(sh(root, "cat", "del.txt")).toBe("d\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("read returns the committed content of a path at the baseline", async () => {
+    const { root, state } = repo();
+    try {
+      const t = changeTracker(nodeHost(root), { cwd: root, stateDir: state, sessionId: "s1" });
+      const b = await t.begin("turn-1");
+      writeFileSync(join(root, "a.txt"), "two\n");
+      writeFileSync(join(root, "new.txt"), "n\n");
+      expect(await t.read(b, "a.txt")).toBe("one\n");
+      expect(await t.read(b, "new.txt")).toBeUndefined();
+      expect(await t.read(b, "missing.txt")).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

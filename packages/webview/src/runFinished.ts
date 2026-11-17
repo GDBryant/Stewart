@@ -15,7 +15,12 @@ function outcomeText(o: { changed: string[]; verified: "command" | "files" | "no
 
 function markRunItem(items: ChatItem[], ev: Finished): ChatItem[] {
   const files = ev.outcome && ev.outcome.changed.length ? ev.outcome.changed : undefined;
-  return items.map((i) => (i.id === ev.runId ? { ...i, streaming: false, ...(files ? { filesChanged: files } : {}) } : i));
+  const baseline = ev.outcome?.baseline;
+  return items.map((i) =>
+    i.id === ev.runId
+      ? { ...i, streaming: false, ...(files ? { filesChanged: files } : {}), ...(baseline ? { filesBaseline: baseline } : {}) }
+      : i,
+  );
 }
 
 function applyFailure(items: ChatItem[], ev: Finished, nextSeq: () => number): ChatItem[] {

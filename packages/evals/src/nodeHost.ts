@@ -109,7 +109,7 @@ export function nodeHost(o: NodeHostOpts): HostPort {
     },
     files: files(abs),
     proc: { run },
-    diff: { preview: async () => {} },
+    diff: { preview: async () => {}, show: async () => {} },
     diag: { problems: async () => [] },
     editor: { selection: async () => null },
     workspace: { roots: async () => [o.root], stateDir: async () => o.stateDir, trusted: async () => true },

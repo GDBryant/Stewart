@@ -382,6 +382,28 @@ describe("webview chat", () => {
     expect(screen.getByText("No files changed")).toBeTruthy();
   });
 
+  it("posts file.diff with the run baseline when a changed file is clicked", () => {
+    const { bridge, store } = mk();
+    act(() => store.send("go"));
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("run.finished", { status: "done", outcome: { changed: ["src/a.ts"], verified: "none", baseline: "base-1" } }));
+    });
+    fireEvent.click(screen.getByText("src/a.ts"));
+    expect(bridge.sent).toContainEqual({ type: "file.diff", sessionId: store.state.sessionId, path: "src/a.ts", baseline: "base-1" });
+  });
+
+  it("keeps changed files non-clickable without a baseline", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("run.finished", { status: "done", outcome: { changed: ["src/a.ts"], verified: "none" } }));
+    });
+    const row = screen.getByText("src/a.ts").closest(".file-row")!;
+    expect(row.tagName).toBe("DIV");
+    expect(bridge.sent.filter((m) => m.type === "file.diff")).toEqual([]);
+  });
+
   it("picks the right icon for each kind of step", () => {
     expect(activityIcon({ kind: "tool", tool: "ReadFile" })).toBe("📖");
     expect(activityIcon({ kind: "tool", tool: "SearchCodebase" })).toBe("🔍");

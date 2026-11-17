@@ -33,10 +33,11 @@ describe("finishedItems", () => {
     const s = seq();
     const items = finishedItems(
       [assistant()],
-      ev({ status: "done", outcome: { changed: ["a.ts", "b.ts"], verified: "none" } }),
+      ev({ status: "done", outcome: { changed: ["a.ts", "b.ts"], verified: "none", baseline: "base-1" } }),
       s.next,
     );
     expect(items[0].filesChanged).toEqual(["a.ts", "b.ts"]);
+    expect(items[0].filesBaseline).toBe("base-1");
     expect(items.length).toBe(2);
     expect(items[1].role).toBe("system");
     expect(items[1].id).toBe("sys0");

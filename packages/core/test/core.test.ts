@@ -37,7 +37,7 @@ const fakeHost = (trusted = true): HostPort => {
   secrets: { get: async () => undefined, set: async () => {}, delete: async () => {} },
   files,
   proc: { run: () => { throw new Error("no proc in test"); } },
-  diff: { preview: async () => {} },
+  diff: { preview: async () => {}, show: async () => {} },
   diag: { problems: async () => [] },
   workspace: { roots: async () => ["/p"], stateDir: async () => "/tmp/st", trusted: async () => trusted },
   log: () => {},

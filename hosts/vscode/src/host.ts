@@ -135,6 +135,16 @@ export class VsCodeHost implements HostPort {
       const uri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, p);
       await vscode.commands.executeCommand("vscode.diff", uri.with({ scheme: "untitled" }), uri, `Stewart: ${path.basename(p)}`);
     },
+    show: async (p, before, after) => {
+      const left = await vscode.workspace.openTextDocument({ content: before ?? "" });
+      let right: vscode.TextDocument;
+      try {
+        right = await this.docFor(p);
+      } catch {
+        right = await vscode.workspace.openTextDocument({ content: after ?? "" });
+      }
+      await vscode.commands.executeCommand("vscode.diff", left.uri, right.uri, `Stewart: ${path.basename(p)}`);
+    },
   };
 
   readonly diag: HostPort["diag"] = {

@@ -86,11 +86,11 @@ export function lastReply(transcript: ChatMessage[]): string {
   return "";
 }
 
-export type RunOutcome = { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: "unavailable"; trackingReason?: string };
+export type RunOutcome = { changed: string[]; verified: "command" | "files" | "none"; command?: string; tracking?: "unavailable"; trackingReason?: string; baseline?: string };
 
 /** How the finished run changed files and how that was verified, from the contract and last check. */
 export function runOutcome(contract: Contract, res: CheckResult | undefined, changed: string[] | undefined, baseline: Baseline): RunOutcome {
-  const out: RunOutcome = { changed: changed ?? [], verified: "none" };
+  const out: RunOutcome = { changed: changed ?? [], verified: "none", ...(baseline.kind !== "unavailable" ? { baseline: baseline.id } : {}) };
   if (baseline.kind === "unavailable") return { ...out, tracking: "unavailable", trackingReason: baseline.reason };
   const ran = res?.evidence.some((e) => e.code === "command_ok" || e.code === "command_failed" || e.code === "command_unavailable" || e.code === "command_timeout");
   if (res?.passed && ran) return { ...out, verified: "command", command: contract.commands.map((c) => c.argv.join(" ")).join("; ") };

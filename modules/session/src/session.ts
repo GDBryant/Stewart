@@ -15,7 +15,7 @@ import { askUserTool, loadSkillTool, setCheckTool, type Declared } from "./sessi
 import { ChildRunner } from "./child.js";
 import { PlanRunner } from "./plan.js";
 import { compactTranscript, expandArchived } from "./compact.js";
-import { planSummary, revertSession } from "./planOps.js";
+import { planSummary, revertSession, showFileDiff } from "./planOps.js";
 import { drivePlan, leadContract } from "./planDrive.js";
 import { err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
 import { stepSaver } from "./stepSave.js";
@@ -258,6 +258,11 @@ export class SessionService {
   /** Revert the session's worktree: "turn" = last turn baseline; else a checkpoint id, "baseline", or latest. */
   async revert(sessionId: string, checkpoint?: string): Promise<{ ok: boolean; filesRestored?: string[]; reason?: string }> {
     return await revertSession(this.deps, sessionId, checkpoint);
+  }
+
+  /** Diff one file of a finished run: baseline content vs the current file, in the host diff viewer. */
+  async fileDiff(sessionId: string, path: string, baseline: string): Promise<void> {
+    return await showFileDiff(this.deps, sessionId, path, baseline);
   }
 
   /** Latest session plan summary for history.load. */

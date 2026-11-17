@@ -45,6 +45,11 @@ class HostRequestHandler(
 
     private fun strOrNull(params: JsonElement?, key: String): String? = params?.jsonObject?.get(key)?.jsonPrimitive?.content
 
+    private fun nullableStr(params: JsonElement?, key: String): String? {
+        val v = params?.jsonObject?.get(key) as? JsonPrimitive ?: return null
+        return if (v.isString) v.content else null
+    }
+
     fun handler(method: String, params: JsonElement?): CompletableFuture<JsonElement?> =
         CompletableFuture<JsonElement?>().also { fut ->
             if (ApplicationManager.getApplication().isDispatchThread) {
@@ -100,6 +105,10 @@ class HostRequestHandler(
             diffPreview(str(params, "path"), str(params, "next"))
             JsonObject(emptyMap())
         }
+        "host.diff.show" -> {
+            diffShow(str(params, "path"), nullableStr(params, "before"), nullableStr(params, "after"))
+            JsonObject(emptyMap())
+        }
         "host.diag.problems" -> diagnostics.problems(strOrNull(params, "path"))
         "host.editor.selection" -> editorSelection()
         "host.workspace.roots" -> JsonArray(listOfNotNull(project.basePath).map { JsonPrimitive(it) })
@@ -138,6 +147,21 @@ class HostRequestHandler(
             }
         }
         return result
+    }
+
+    private fun diffShow(path: String, before: String?, after: String?) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val factory = DiffContentFactory.getInstance()
+                val base = project.basePath
+                val vf = base?.let { LocalFileSystem.getInstance().findFileByIoFile(File(it, path)) }
+                val old = factory.create(project, before ?: "")
+                val new = vf?.let { factory.create(project, it) } ?: factory.create(project, after ?: "")
+                DiffManager.getInstance().showDiff(project, SimpleDiffRequest("Stewart: $path", old, new, "Before", "After"))
+            } catch (t: Throwable) {
+                LOG.warn("diff show failed for $path: ${t.message}")
+            }
+        }
     }
 
     private fun diffPreview(path: String, next: String) {

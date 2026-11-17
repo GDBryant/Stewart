@@ -63,6 +63,47 @@ describe("lead turn checks", () => {
     expect("src/new.ts" in h.files).toBe(false);
   });
 
+  it("carries the turn baseline id in the outcome and fileDiff shows before/after", async () => {
+    const h = harness({
+      files: { "src/a.ts": "old" },
+      engine: scriptedEngine([
+        async function* (turn: EngineTurn) {
+          h.files["src/a.ts"] = "new";
+          h.files["src/b.ts"] = "added";
+          turn.transcript.push({ role: "assistant", content: "edited" });
+          yield { kind: "finished", reason: "stop" };
+        },
+      ]),
+    });
+    const { sessionId } = await h.svc.send({ text: "edit" });
+    const fin = (await h.waitFor("run.finished")) as { outcome?: { baseline?: string; changed: string[] } };
+    expect(fin.outcome?.baseline).toBeTruthy();
+    expect(fin.outcome?.changed).toEqual(["src/a.ts", "src/b.ts"]);
+    await h.svc.fileDiff(sessionId, "src/a.ts", fin.outcome!.baseline!);
+    await h.svc.fileDiff(sessionId, "src/b.ts", fin.outcome!.baseline!);
+    expect(h.diffShows).toEqual([
+      { path: "src/a.ts", before: "old", after: "new" },
+      { path: "src/b.ts", before: undefined, after: "added" },
+    ]);
+  });
+
+  it("fileDiff reports an absent side for a deleted file", async () => {
+    const h = harness({
+      files: { "src/a.ts": "old" },
+      engine: scriptedEngine([
+        async function* (turn: EngineTurn) {
+          delete h.files["src/a.ts"];
+          turn.transcript.push({ role: "assistant", content: "deleted" });
+          yield { kind: "finished", reason: "stop" };
+        },
+      ]),
+    });
+    const { sessionId } = await h.svc.send({ text: "delete" });
+    const fin = (await h.waitFor("run.finished")) as { outcome?: { baseline?: string } };
+    await h.svc.fileDiff(sessionId, "src/a.ts", fin.outcome!.baseline!);
+    expect(h.diffShows).toEqual([{ path: "src/a.ts", before: "old", after: undefined }]);
+  });
+
   it("revert 'turn' without a baseline reports no turn baseline", async () => {
     const h = harness();
     expect(await h.svc.revert("nope", "turn")).toMatchObject({ ok: false, reason: "no turn baseline for this session" });

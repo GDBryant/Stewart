@@ -96,17 +96,25 @@ function fakeProc(procs: { argv: string[]; killed: boolean }[], getHandler: () =
   };
 }
 
+function fakeDiff(diffShows: { path: string; before?: string; after?: string }[]): HostPort["diff"] {
+  return {
+    preview: async () => {},
+    show: async (path, before, after) => void diffShows.push({ path, before, after }),
+  };
+}
+
 export function fakeHost(files: Record<string, string> = {}, opts: { trusted?: boolean; roots?: string[] } = {}) {
   const procs: { argv: string[]; killed: boolean }[] = [];
   let procHandler: ProcHandler | null = null;
   const edits: { path: string; content?: string; edits?: { oldText: string; newText: string }[] }[] = [];
   let problems: { path: string; line: number; message: string; severity: string }[] = [];
   let selection: { path: string; text: string; startLine: number; endLine: number } | null = null;
+  const diffShows: { path: string; before?: string; after?: string }[] = [];
   const host: HostPort = {
     secrets: { get: async () => undefined, set: async () => {}, delete: async () => {} },
     files: fakeFiles(files, edits),
     proc: fakeProc(procs, () => procHandler),
-    diff: { preview: async () => {} },
+    diff: fakeDiff(diffShows),
     diag: { problems: async () => problems },
     editor: { selection: async () => selection },
     workspace: {
@@ -121,6 +129,7 @@ export function fakeHost(files: Record<string, string> = {}, opts: { trusted?: b
     procs,
     edits,
     files,
+    diffShows,
     setProcHandler: (h: typeof procHandler) => {
       procHandler = h;
     },

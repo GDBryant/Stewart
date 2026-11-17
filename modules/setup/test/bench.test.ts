@@ -62,7 +62,7 @@ const fakeHost = (): HostPort => ({
     delete: async () => {},
   },
   proc: { run: () => { throw new Error("no proc in test"); } },
-  diff: { preview: async () => {} },
+  diff: { preview: async () => {}, show: async () => {} },
   diag: { problems: async () => [] },
   editor: { selection: async () => null },
   workspace: { roots: async () => ["/p"], stateDir: async () => "/tmp/st", trusted: async () => true },

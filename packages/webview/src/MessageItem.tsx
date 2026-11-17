@@ -50,21 +50,29 @@ function imagesBlock(images: string[]) {
   );
 }
 
-function filesChangedBlock(files: string[]) {
+function filesChangedBlock(files: string[], baseline: string | undefined, onOpenFile?: (path: string) => void) {
+  const clickable = !!onOpenFile;
   return (
     <div class="files-changed">
       <div class="files-title">Files changed</div>
-      {files.map((f) => (
-        <div key={f} class="file-row">
-          <span class="file-ico">📄</span>
-          <span class="file-name">{f}</span>
-        </div>
-      ))}
+      {files.map((f) =>
+        clickable ? (
+          <button key={f} class="file-row file-link" title={`Diff ${f}`} onClick={() => onOpenFile!(f)}>
+            <span class="file-ico">📄</span>
+            <span class="file-name">{f}</span>
+          </button>
+        ) : (
+          <div key={f} class="file-row">
+            <span class="file-ico">📄</span>
+            <span class="file-name">{f}</span>
+          </div>
+        ),
+      )}
     </div>
   );
 }
 
-export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTurn?: () => void }) {
+export function MessageItem({ item, onRevertTurn, onOpenFile }: { item: ChatItem; onRevertTurn?: () => void; onOpenFile?: (path: string) => void }) {
   return (
     <div class={`item ${item.role}`}>
       <div class={`role-label ${item.role}`}>{roleLabel(item.role)}</div>
@@ -79,7 +87,7 @@ export function MessageItem({ item, onRevertTurn }: { item: ChatItem; onRevertTu
         {item.images?.length ? imagesBlock(item.images) : null}
         {bubbleBody(item)}
       </div>
-      {item.filesChanged?.length ? filesChangedBlock(item.filesChanged) : null}
+      {item.filesChanged?.length ? filesChangedBlock(item.filesChanged, item.filesBaseline, item.filesBaseline ? onOpenFile : undefined) : null}
     </div>
   );
 }

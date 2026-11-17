@@ -28,7 +28,10 @@ export function remoteHost(link: RpcLink): HostPort {
     proc: {
       run: withShellEnv(withStartRetry((argv, opts): ProcessHandle => remoteProcess(link, argv, opts))),
     },
-    diff: { preview: (path, next) => call("diff.preview", { path, next }) },
+    diff: {
+      preview: (path, next) => call("diff.preview", { path, next }),
+      show: (path, before, after) => call("diff.show", { path, before, after }),
+    },
     diag: { problems: (path) => call("diag.problems", { path }) },
     editor: { selection: () => call("editor.selection", {}) },
     workspace: {

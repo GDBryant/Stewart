@@ -5,6 +5,7 @@ export type Outbound =
   | { type: "chat.cancel"; runId: string }
   | { type: "chat.resume"; sessionId: string }
   | { type: "chat.revert"; sessionId: string; checkpoint?: string }
+  | { type: "file.diff"; sessionId: string; path: string; baseline: string }
   | { type: "chat.answer"; questionId: string; answer: string }
   | { type: "chat.approve"; approvalId: string; grant: "once" | "chat" | "always" | "deny" }
   | { type: "config.get" }

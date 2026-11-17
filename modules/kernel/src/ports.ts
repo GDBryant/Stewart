@@ -64,6 +64,8 @@ export interface ProcessPort {
 export interface EditorPort {
   diff: {
     preview(path: string, next: string): Promise<void>;
+    /** Show `path` in the host diff viewer: baseline (`before`) vs current (`after`); undefined = absent side. */
+    show(path: string, before: string | undefined, after: string | undefined): Promise<void>;
   };
   editor: {
     /** Active editor selection, or null when nothing is selected. */

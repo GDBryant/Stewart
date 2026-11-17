@@ -60,10 +60,11 @@ export interface Harness {
   waitFor(kind: RunEvent["kind"], timeoutMs?: number): Promise<RunEvent>;
   setProcHandler: ReturnType<typeof fakeHost>["setProcHandler"];
   procs: ReturnType<typeof fakeHost>["procs"];
+  diffShows: ReturnType<typeof fakeHost>["diffShows"];
 }
 
 export function harness(over: { config?: EffectiveConfig; channel?: ManagedChannel; engine?: Engine; files?: Record<string, string> } = {}): Harness {
-  const { host, files, setProcHandler, procs } = fakeHost(over.files ?? {});
+  const { host, files, setProcHandler, procs, diffShows } = fakeHost(over.files ?? {});
   const events: RunEvent[] = [];
   const waiters: { kind: string; res: (e: RunEvent) => void }[] = [];
   const bus = {
@@ -99,6 +100,6 @@ export function harness(over: { config?: EffectiveConfig; channel?: ManagedChann
       setTimeout(() => rej(new Error(`timeout waiting for ${kind}; got ${events.map((e) => e.kind).join(",")}`)), timeoutMs);
     });
   };
-  return { svc, events, host, files, interaction, config, channel, waitFor, setProcHandler, procs };
+  return { svc, events, host, files, interaction, config, channel, waitFor, setProcHandler, procs, diffShows };
 }
 

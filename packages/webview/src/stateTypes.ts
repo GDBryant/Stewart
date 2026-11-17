@@ -21,6 +21,8 @@ export interface ChatItem {
   activity: ActivityEntry[];
   /** Files changed by this run; shown in the "Files changed" footer. */
   filesChanged?: string[];
+  /** Change-tracker baseline id for this run's filesChanged (enables per-file diff). */
+  filesBaseline?: string;
   /** Show a "Revert this turn" action (failed run with a turn baseline). */
   revertTurn?: boolean;
 }

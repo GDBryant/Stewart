@@ -39,6 +39,20 @@ export async function revertSession(d: PlanOpsDeps, sessionId: string, checkpoin
   return { ok: true, filesRestored };
 }
 
+/** Open the host diff viewer for `path`: baseline content vs the current file. */
+export async function showFileDiff(d: PlanOpsDeps, sessionId: string, path: string, baselineId: string): Promise<void> {
+  const { tracker } = await runnerFor(d, sessionId, "diff");
+  const b = await tracker.baseline(baselineId);
+  const before = await tracker.read(b, path);
+  let after: string | undefined;
+  try {
+    after = (await d.host.files.read(path)).content;
+  } catch {
+    after = undefined;
+  }
+  await d.host.diff.show(path, before, after);
+}
+
 /** Latest session plan summary for history.load. */
 export async function planSummary(d: PlanOpsDeps, sessionId: string): Promise<unknown> {
   const { runner } = await runnerFor(d, sessionId, "history");

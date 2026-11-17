@@ -128,6 +128,9 @@ export class Store {
   revert(checkpoint?: string): void {
     if (this.state.sessionId) this.bridge.post({ type: "chat.revert", sessionId: this.state.sessionId, checkpoint });
   }
+  openFileDiff(path: string, baseline?: string): void {
+    if (this.state.sessionId && baseline) this.bridge.post({ type: "file.diff", sessionId: this.state.sessionId, path, baseline });
+  }
   answer(questionId: string, answer: string): void {
     this.bridge.post({ type: "chat.answer", questionId, answer });
     this.patch({ questions: this.state.questions.filter((q) => q.questionId !== questionId) });

@@ -24,6 +24,8 @@ export interface ChangeTracker {
   baseline(id: string): Promise<Baseline>;
   /** Project-relative paths that differ from the baseline (added, modified, deleted); undefined when unavailable. */
   diff(b: Baseline): Promise<string[] | undefined>;
+  /** Content of `path` as recorded at the baseline; undefined when absent there (added file) or unreadable. */
+  read(b: Baseline, path: string): Promise<string | undefined>;
   restore(b: Baseline): Promise<{ restored: string[]; deleted: string[] }>;
   /** Remove all tracker state for the session: checkpoint dir, temp index, and the git ref. Best-effort. */
   dispose(): Promise<void>;
@@ -124,6 +126,18 @@ async function gitDiff(c: Ctx, id: string): Promise<string[]> {
   });
   const out = nulLines(await must(c.host, c.p.cwd, ["diff", "--name-only", "-z", id, tree]));
   return out.filter((f) => !c.ignored(f)).sort();
+}
+
+async function gitRead(c: Ctx, id: string, path: string): Promise<string | undefined> {
+  const r = await git(c.host, c.p.cwd, ["show", `${id}:${path}`]);
+  return r.code === 0 ? r.out : undefined;
+}
+
+async function manRead(c: Ctx, id: string, path: string): Promise<string | undefined> {
+  const manifest = JSON.parse((await c.host.files.read(manifestPath(c, id))).content) as { files: Record<string, string> };
+  const sha = manifest.files[path];
+  if (!sha) return undefined;
+  return Buffer.from((await c.host.files.readBinary(`${c.blobs}/${sha}`)).base64, "base64").toString("utf8");
 }
 
 async function gitRestore(c: Ctx, id: string): Promise<{ restored: string[]; deleted: string[] }> {
@@ -234,6 +248,10 @@ export function changeTracker(host: Host, p: CpPaths): ChangeTracker {
     begin: (label) => queued(async () => ((await c.isGit()) ? await gitBegin(c, label) : await manBegin(c))),
     baseline: (id) => queued(async () => ({ id, kind: (await c.isGit()) ? ("git" as const) : ("manifest" as const) })),
     diff: (b) => queued(async () => (b.kind === "unavailable" ? undefined : b.kind === "git" ? await gitDiff(c, b.id) : await manDiff(c, b.id))),
+    read: (b, path) => queued(async () => {
+      if (b.kind === "unavailable") return undefined;
+      return b.kind === "git" ? await gitRead(c, b.id, path) : await manRead(c, b.id, path);
+    }),
     restore: (b) =>
       queued(async () => {
         if (b.kind === "unavailable") throw new Error(`change tracking unavailable: ${b.reason ?? "unknown"}`);

@@ -46,6 +46,12 @@ export async function handleChatRevert(core: CoreCtx, params: unknown): Promise<
   return await core.ctx(p.projectId).sessions.revert(p.sessionId, p.checkpoint);
 }
 
+export async function handleFileDiff(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; sessionId: string; path: string; baseline: string };
+  await core.ctx(p.projectId).sessions.fileDiff(p.sessionId, p.path, p.baseline);
+  return { ok: true };
+}
+
 export async function handleHistoryLoad(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
   const sessions = core.ctx(p.projectId).sessions;

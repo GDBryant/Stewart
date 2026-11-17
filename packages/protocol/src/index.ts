@@ -71,6 +71,7 @@ export const runEventSchema = z.discriminatedUnion("kind", [
         command: z.string().optional(),
         tracking: z.literal("unavailable").optional(),
         trackingReason: z.string().optional(),
+        baseline: z.string().optional(),
       })
       .optional(),
   }),
@@ -127,6 +128,7 @@ export interface CoreRequests {
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
   "chat.resume": { params: { projectId: string; sessionId: string }; result: { runId?: string; ok?: boolean; reason?: string } };
   "chat.revert": { params: { projectId: string; sessionId: string; checkpoint?: string }; result: { ok: boolean; filesRestored?: string[]; reason?: string } };
+  "file.diff": { params: { projectId: string; sessionId: string; path: string; baseline: string }; result: { ok: true } };
   "chat.answer": { params: { projectId: string; questionId: string; answer: string }; result: { ok: true } };
   "chat.approve": { params: { projectId: string; approvalId: string; grant: "once" | "chat" | "always" | "deny" }; result: { ok: true } };
   "config.get": { params: { projectId: string }; result: { files: Record<string, string | undefined>; summary: unknown; errors: string[]; secrets: Record<string, boolean> } };
@@ -165,6 +167,7 @@ export const METHODS = [
   "chat.cancel",
   "chat.resume",
   "chat.revert",
+  "file.diff",
   "chat.answer",
   "chat.approve",
   "history.list",
