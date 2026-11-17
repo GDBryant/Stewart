@@ -138,6 +138,33 @@ class HostRequestHandlerTest : BasePlatformTestCase() {
         })
     }
 
+    fun testDiffShowDoesNotThrow() {
+        val h = handler()
+        call(h, "host.diff.show", buildJsonObject {
+            put("path", JsonPrimitive("f/x.txt"))
+            put("before", JsonPrimitive("old"))
+            put("after", JsonPrimitive("new"))
+        })
+    }
+
+    fun testDiffShowNullBeforeDoesNotThrow() {
+        val h = handler()
+        call(h, "host.diff.show", buildJsonObject {
+            put("path", JsonPrimitive("f/new.txt"))
+            put("after", JsonPrimitive("added"))
+        })
+    }
+
+    fun testDiffShowMissingPathParam() {
+        val h = handler()
+        try {
+            call(h, "host.diff.show", buildJsonObject { put("after", JsonPrimitive("x")) })
+            fail("expected failure")
+        } catch (e: Exception) {
+            assertTrue(e.cause?.message == "path required" || e.message?.contains("path required") == true)
+        }
+    }
+
     fun testEnvInProcRun() {
         val h = handler()
         call(h, "host.proc.run", buildJsonObject {

@@ -4,6 +4,7 @@ import type { Interaction } from "@stewart/interaction";
 import { ProjectPaths } from "@stewart/tools";
 import { changeTracker } from "@stewart/tasks";
 import { PlanRunner } from "./plan.js";
+import { isBaselineId, isDiffPath } from "./diffArgs.js";
 
 /** What the out-of-turn plan operations (revert, history, resume) need. */
 export interface PlanOpsDeps {
@@ -41,6 +42,8 @@ export async function revertSession(d: PlanOpsDeps, sessionId: string, checkpoin
 
 /** Open the host diff viewer for `path`: baseline content vs the current file. */
 export async function showFileDiff(d: PlanOpsDeps, sessionId: string, path: string, baselineId: string): Promise<void> {
+  if (!isDiffPath(path)) throw new Error(`invalid diff path: ${path}`);
+  if (!isBaselineId(baselineId)) throw new Error(`invalid baseline: ${baselineId}`);
   const { tracker } = await runnerFor(d, sessionId, "diff");
   const b = await tracker.baseline(baselineId);
   const before = await tracker.read(b, path);

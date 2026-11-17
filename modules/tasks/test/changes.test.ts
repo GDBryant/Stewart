@@ -110,6 +110,13 @@ describe("manifest tracker", () => {
     expect(await tracker.read(b, "c.ts")).toBeUndefined();
     expect(await tracker.read({ id: "", kind: "unavailable", reason: "x" }, "a.ts")).toBeUndefined();
   });
+  it("read returns undefined when the manifest is missing or not valid JSON", async () => {
+    const { tracker, files } = manifestTracker({ "a.ts": "old" });
+    await tracker.begin("t");
+    expect(await tracker.read({ id: "base-9", kind: "manifest" }, "a.ts")).toBeUndefined();
+    files["/tmp/st/checkpoints/s1/base-bad.json"] = "{not json";
+    expect(await tracker.read({ id: "base-bad", kind: "manifest" }, "a.ts")).toBeUndefined();
+  });
   it("serializes baseline ids and re-derives kind with baseline()", async () => {
     const { tracker } = manifestTracker({ "a.ts": "x" });
     const b1 = await tracker.begin("one");

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventBus } from "@stewart/kernel";
+import { createHash } from "node:crypto";
+import { EventBus, fakeHost as kernelHost } from "@stewart/kernel";
 import { loadEffectiveConfig } from "@stewart/roles-skills";
 import { Core } from "../src/core.js";
 import type { HostPort } from "@stewart/kernel";
@@ -242,6 +243,38 @@ describe("Core", () => {
       const { core } = mkLead(['{"done":true}'], roles);
       await core.attachProject("p", fakeHost());
       await expect(core.dispatch("chat.send", { projectId: "p", text: "yo" })).rejects.toThrow(/lead role is disabled/);
+    });
+  });
+
+  describe("file.diff", () => {
+    function mkDiff() {
+      const { host, files, diffShows } = kernelHost({ "src/a.ts": "new" });
+      const sha = createHash("sha256").update("old").digest("hex");
+      files["/tmp/st/checkpoints/s1/base-1.json"] = JSON.stringify({ files: { "src/a.ts": sha } });
+      files[`/tmp/st/checkpoints/s1/blobs/${sha}`] = "old";
+      const core = new Core({
+        fetcher: fakeFetcher([{ body: ['{"done":true}'] }]).fetcher,
+        defaults,
+        userConfig: memStore(),
+        projectConfig: async () => memStore(),
+        emitEvent: () => {},
+      });
+      return { core, host, diffShows };
+    }
+
+    it("shows baseline vs current content through host diff.show", async () => {
+      const { core, host, diffShows } = mkDiff();
+      await core.attachProject("p", host);
+      await expect(core.dispatch("file.diff", { projectId: "p", sessionId: "s1", path: "src/a.ts", baseline: "base-1" })).resolves.toEqual({ ok: true });
+      expect(diffShows).toEqual([{ path: "src/a.ts", before: "old", after: "new" }]);
+    });
+
+    it("rejects traversal paths and bad baseline ids", async () => {
+      const { core, host, diffShows } = mkDiff();
+      await core.attachProject("p", host);
+      await expect(core.dispatch("file.diff", { projectId: "p", sessionId: "s1", path: "../x", baseline: "base-1" })).rejects.toThrow(/invalid diff path/);
+      await expect(core.dispatch("file.diff", { projectId: "p", sessionId: "s1", path: "src/a.ts", baseline: "a/b" })).rejects.toThrow(/invalid baseline/);
+      expect(diffShows).toHaveLength(0);
     });
   });
 });

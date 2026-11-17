@@ -134,8 +134,13 @@ async function gitRead(c: Ctx, id: string, path: string): Promise<string | undef
 }
 
 async function manRead(c: Ctx, id: string, path: string): Promise<string | undefined> {
-  const manifest = JSON.parse((await c.host.files.read(manifestPath(c, id))).content) as { files: Record<string, string> };
-  const sha = manifest.files[path];
+  let manifest: { files: Record<string, string> };
+  try {
+    manifest = JSON.parse((await c.host.files.read(manifestPath(c, id))).content) as { files: Record<string, string> };
+  } catch {
+    return undefined;
+  }
+  const sha = manifest.files?.[path];
   if (!sha) return undefined;
   return Buffer.from((await c.host.files.readBinary(`${c.blobs}/${sha}`)).base64, "base64").toString("utf8");
 }
