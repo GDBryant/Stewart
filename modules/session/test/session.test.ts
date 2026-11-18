@@ -1193,7 +1193,11 @@ describe("lead escalation over the chain", () => {
   });
 
   it("offers Continue after a turn-limit stop and resumes with a continue instruction", async () => {
-    const fail = async function* () { yield { kind: "finished" as const, reason: "turn_limit" as const }; };
+    const budgets: number[] = [];
+    const fail = async function* (turn: EngineTurn) {
+      budgets.push(turn.maxTurns);
+      yield { kind: "finished" as const, reason: "turn_limit" as const };
+    };
     const seen: string[] = [];
     const resume = async function* (turn: EngineTurn) {
       seen.push(String(turn.transcript[turn.transcript.length - 1].content));
@@ -1204,7 +1208,7 @@ describe("lead escalation over the chain", () => {
     await h.svc.send({ text: "hard task" });
     const ask = await h.waitFor("ask_user");
     expect(ask).toMatchObject({ options: ["Continue", "Stop"] });
-    expect((ask as { question: string }).question).toContain("Ran out of turns");
+    expect((ask as { question: string }).question).toContain(`Ran out of turns (${budgets[budgets.length - 1]})`);
     expect((ask as { question: string }).question).not.toContain("All agents for this task failed.");
     h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Continue");
     const fin = await h.waitFor("run.finished");

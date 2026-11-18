@@ -204,29 +204,34 @@ async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: Pum
   }
 }
 
-/** Budget nudge this many turns before the end (budgets of at least BUDGET_NOTE_MIN). */
+/** Budget nudge this many turns before the end. */
 const NUDGE_LEFT = 3;
-const BUDGET_NOTE_MIN = 6;
-const SALVAGE_MIN = 3;
+/** Budgets below this (bench probes, conformance) get no nudge and no report-only last turn. */
+const BUDGET_MIN = 10;
+const EMPTY_REPORT = "(No report: the last turn only requested tools, which were ignored.)";
 
 /**
- * Turn view for model turn `n`: warns NUDGE_LEFT turns before the end, and makes the last turn of a
- * budget >= SALVAGE_MIN tool-less so the model reports its findings instead of losing them.
+ * Budget notes for model turn `n`: warns NUDGE_LEFT turns before the end, and makes the last turn
+ * report-only. Tools stay in the request so the history renders unchanged; calls made on it are dropped.
+ * Returns true for that last turn.
  */
-export function budgetTurn(turn: EngineTurn, n: number): { turn: EngineTurn; salvage: boolean } {
+export function budgetTurn(turn: EngineTurn, n: number): boolean {
+  if (turn.maxTurns < BUDGET_MIN) return false;
   const left = turn.maxTurns - n;
-  if (turn.maxTurns >= BUDGET_NOTE_MIN && left === NUDGE_LEFT) {
-    turn.transcript.push({ role: "user", content: `[Stewart] ${left} model turns left; the last has no tools. Stop investigating: make the change and verify it now.` });
+  if (left === NUDGE_LEFT) {
+    turn.transcript.push({ role: "user", content: `[Stewart] ${left} model turns left; the last is for your report only. Stop investigating: make the change and verify it now.` });
   }
-  if (turn.maxTurns < SALVAGE_MIN || left !== 1) return { turn, salvage: false };
-  turn.transcript.push({ role: "user", content: "[Stewart] Turn budget used up; this is your last reply and tools are disabled. Report what you found, what you changed, and the exact remaining change (file, code) so the task can continue." });
-  return { turn: { ...turn, tools: new ToolRegistry([]) }, salvage: true };
+  if (left !== 1) return false;
+  turn.transcript.push({ role: "user", content: "[Stewart] Turn budget used up; this is your last reply. Do not call tools: any call is ignored. Report what you found, what you changed, and the exact remaining change (file, code) so the task can continue." });
+  return true;
 }
 
-/** Salvage replies must not leave dangling tool calls in the transcript. */
+/** The report-only reply must not leave dangling tool calls, nor an empty assistant message. */
 function dropCalls(turn: EngineTurn): void {
   const msg = turn.transcript[turn.transcript.length - 1];
-  if (msg?.role === "assistant") delete msg.toolCalls;
+  if (msg?.role !== "assistant" || !msg.toolCalls) return;
+  delete msg.toolCalls;
+  if (!msg.content.trim()) msg.content = EMPTY_REPORT;
 }
 
 async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
@@ -238,10 +243,10 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
       return;
     }
     await turn.beforeModelTurn?.();
-    const step = budgetTurn(turn, n);
-    const out = yield* modelTurn(step.turn);
+    const salvage = budgetTurn(turn, n);
+    const out = yield* modelTurn(turn);
     if (!out) return;
-    if (step.salvage) {
+    if (salvage) {
       dropCalls(turn);
       break;
     }

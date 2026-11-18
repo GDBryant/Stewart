@@ -36,6 +36,8 @@ export interface TaskState {
   reason: FinishReason;
   error?: string;
   repairAttempted?: boolean;
+  /** Turn budget of the latest attempt (1 for a repair). */
+  maxTurns?: number;
 }
 
 /** Repairs a transcript interrupted mid tool batch: unanswered calls of the last open batch get a tool message each. */

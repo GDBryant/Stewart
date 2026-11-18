@@ -490,31 +490,47 @@ describe("native-loop engine contract", () => {
 describe("native-loop turn budget", () => {
   const step = (n: number): ChatEvent[] => [{ kind: "tool_calls", calls: [call("Echo", { text: `x${n}` }, `c${n}`)] }, { kind: "done" }];
 
-  it("nudges before the end and makes the last turn tool-less, finishing turn_limit", async () => {
-    const tools: number[] = [];
-    const ch = fakeChannel([step(1), step(2), step(3), step(4), step(5), [{ kind: "text", text: "found it" }, { kind: "done" }]], (req) => tools.push((req as { tools: unknown[] }).tools.length));
-    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 6 });
+  const steps = (k: number): ChatEvent[][] => Array.from({ length: k }, (_, i) => step(i + 1));
+
+  it("nudges before the end and keeps tools and history intact on the report-only last turn", async () => {
+    const reqs: { tools: unknown[]; messages: ChatMessage[] }[] = [];
+    const ch = fakeChannel([...steps(9), [{ kind: "text", text: "found it" }, { kind: "done" }]], (req) => reqs.push(req as (typeof reqs)[number]));
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 10 });
     const evs = await collect(nativeLoop.run(t));
     expect(last(evs)).toEqual({ kind: "finished", reason: "turn_limit" });
-    expect(tools).toEqual([1, 1, 1, 1, 1, 0]);
+    expect(reqs.map((r) => r.tools.length)).toEqual(Array(10).fill(1));
+    const final = reqs[9].messages;
+    expect(final.filter((m) => m.role === "tool")).toHaveLength(9);
+    expect(final.filter((m) => m.role === "assistant" && m.toolCalls?.length)).toHaveLength(9);
     const notes = t.transcript.filter((m) => m.role === "user" && String(m.content).startsWith("[Stewart]"));
     expect(notes).toHaveLength(2);
     expect(String(notes[0].content)).toContain("3 model turns left");
+    expect(String(notes[1].content)).toContain("Do not call tools");
     expect(t.transcript[t.transcript.length - 1]).toMatchObject({ role: "assistant", content: "found it" });
   });
 
-  it("drops tool calls the model still emits on the salvage turn", async () => {
-    const ch = fakeChannel([step(1), step(2), step(3)]);
-    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 3 });
+  it("drops tool calls made on the last turn without running them, leaving a placeholder report", async () => {
+    const ch = fakeChannel(steps(10));
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 10 });
     const evs = await collect(nativeLoop.run(t));
     expect(last(evs)).toEqual({ kind: "finished", reason: "turn_limit" });
-    expect(t.transcript[t.transcript.length - 1].toolCalls).toBeUndefined();
-    expect(t.transcript.some((m) => String(m.content).includes("3 model turns left"))).toBe(false);
+    expect(evs.filter((e) => e.kind === "tool.outcome")).toHaveLength(9);
+    const tail = t.transcript[t.transcript.length - 1];
+    expect(tail).toMatchObject({ role: "assistant", content: expect.stringContaining("No report") });
+    expect(tail.role === "assistant" && tail.toolCalls).toBeFalsy();
   });
 
-  it("keeps tools on the last turn of a tiny budget", () => {
-    const t = turn({ tools: new ToolRegistry([echoTool]), maxTurns: 2 });
-    expect(budgetTurn(t, 1)).toEqual({ turn: t, salvage: false });
+  it("keeps a last turn's text when it also made tool calls", async () => {
+    const ch = fakeChannel([...steps(9), [{ kind: "text", text: "the fix is X" }, { kind: "tool_calls", calls: [call("Echo", { text: "y" }, "cy")] }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 10 });
+    await collect(nativeLoop.run(t));
+    expect(t.transcript[t.transcript.length - 1]).toEqual({ role: "assistant", content: "the fix is X" });
+  });
+
+  it("adds no notes below the minimum budget (bench probes, conformance)", () => {
+    const t = turn({ tools: new ToolRegistry([echoTool]), maxTurns: 9 });
+    expect(budgetTurn(t, 6)).toBe(false);
+    expect(budgetTurn(t, 8)).toBe(false);
     expect(t.transcript).toHaveLength(1);
   });
 });

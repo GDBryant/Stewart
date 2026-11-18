@@ -142,6 +142,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
   const { spec, deps, ts } = c;
   const channel = deps.channelFor(agent.channel);
   const engine = (deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
+  ts.maxTurns = repair ? 1 : spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget;
   const turn = {
     sessionId: spec.sessionId,
     transcript: spec.transcript,
@@ -155,7 +156,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
     state: spec.engineState,
     cwd: deps.paths.base,
     signal: spec.run.controller.signal,
-    maxTurns: repair ? 1 : spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget,
+    maxTurns: ts.maxTurns,
     ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
   };
   try {
@@ -224,16 +225,15 @@ async function repairHealth(c: Ctx, baseline: Baseline, agent: AgentDef): Promis
 
 /** The fallback question: a turn-limit stop offers Continue; other failures only guidance or Stop. */
 function retryPrompt(c: Ctx): { question: string; options: string[] } {
-  const { spec, ts } = c;
+  const { ts } = c;
   const agent = c.st.agent!;
   if (ts.reason === "turn_limit") {
-    const budget = spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget;
-    return { question: `Ran out of turns (${budget}) on ${agent.id}. Continue with a fresh budget, reply with guidance, or stop.`, options: ["Continue", "Stop"] };
+    return { question: `Ran out of turns (${ts.maxTurns}) on ${agent.id}. Continue with a fresh budget, reply with guidance, or stop.`, options: ["Continue", "Stop"] };
   }
   return { question: `All agents for this task failed. ${ts.error ?? "failed"}\nReply with guidance to retry once more on ${agent.id}, or stop.`, options: ["Stop"] };
 }
 
-const CONTINUE_TEXT = "Continue the task from where you stopped; apply the change you found and verify it.";
+const CONTINUE_TEXT = "Continue the task from where you stopped. If you identified the change, apply it and verify it; otherwise finish the investigation first.";
 
 async function askAndRetry(c: Ctx, baseline: Baseline): Promise<boolean> {
   const { spec, deps, ts } = c;
