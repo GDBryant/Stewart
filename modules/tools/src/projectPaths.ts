@@ -1,3 +1,4 @@
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { HostPort } from "@stewart/kernel";
 
@@ -12,14 +13,17 @@ export const MAX_COMMAND_OUTPUT = 200_000;
  * denied dirs (.git/, .stewart/) are rejected.
  */
 export class ProjectPaths {
+  private canonRoots?: Promise<string[]>;
+
   private constructor(
     private readonly host: Pick<HostPort, "files" | "workspace">,
     readonly base: string,
+    private readonly readRoots: string[] = [],
   ) {}
 
-  static async forProject(host: Pick<HostPort, "files" | "workspace">): Promise<ProjectPaths> {
+  static async forProject(host: Pick<HostPort, "files" | "workspace">, opts: { readRoots?: string[] } = {}): Promise<ProjectPaths> {
     const roots = await host.workspace.roots();
-    return new ProjectPaths(host, roots[0] ?? ".");
+    return new ProjectPaths(host, roots[0] ?? ".", opts.readRoots ?? []);
   }
 
   /** Resolve a model path to a workspace-relative path. */
@@ -36,6 +40,33 @@ export class ProjectPaths {
     const rel = this.base === "." ? abs : abs === this.base ? "." : abs.slice(this.base.length + 1);
     this.checkDenied(rel);
     return rel;
+  }
+
+  async resolveRead(raw: string): Promise<string> {
+    const clean = raw.replace(/\\/g, "/");
+    if (!path.posix.isAbsolute(clean)) return this.resolve(raw);
+    const abs = path.posix.normalize(clean);
+    if (this.base !== "." && (abs === this.base || abs.startsWith(`${this.base}/`))) return this.resolve(raw);
+    return this.resolveExternal(abs);
+  }
+
+  private async resolveExternal(abs: string): Promise<string> {
+    const roots = await this.canonicalRoots();
+    if (roots.length === 0) {
+      throw new Error(`absolute path outside workspace needs the readRoots capability: ${abs} — enable via .stewart/project.yaml readRoots`);
+    }
+    const real = await fsp.realpath(abs).catch(() => null);
+    if (!real) throw new Error(`file not found: ${abs}`);
+    const canon = real.replace(/\\/g, "/");
+    if (roots.some((r) => canon === r || canon.startsWith(`${r}/`))) return canon;
+    throw new Error(`path outside configured readRoots: ${abs} (grant the dir via .stewart/project.yaml readRoots)`);
+  }
+
+  private canonicalRoots(): Promise<string[]> {
+    this.canonRoots ??= Promise.all(this.readRoots.map((r) => fsp.realpath(r).then((p) => p.replace(/\\/g, "/"), () => null))).then(
+      (rs) => rs.filter((r): r is string => r !== null),
+    );
+    return this.canonRoots;
   }
 
   absolute(rel: string): string {

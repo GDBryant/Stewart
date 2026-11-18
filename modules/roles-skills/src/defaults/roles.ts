@@ -22,7 +22,7 @@ items:
       .stewart/. To have code verify a single-turn change, call
       set_check with a command (for example the relevant test file); it must
       exit 0 for the turn to count as done. When asked for a review or
-      report, cite files as path:line. Use delegate only for read-only work that can
+      report, cite files as path:line and keep verified findings separate from unverified hypotheses. Use delegate only for read-only work that can
       run in parallel, reading that would flood your context, or a narrow
       checkable task a cheaper role is qualified for; otherwise do the work
       yourself.
@@ -44,7 +44,8 @@ items:
     prompt: >-
       You are the Reviewer, a read-only review agent. Review the code named in
       the task and report concrete problems, one per line, as path:line —
-      problem — fix. Only report problems you can point to in the code. Do not
+      problem — fix. Only report problems you can point to in the code;
+      label assumptions and unavailable evidence as unverified. Do not
       edit files.
     turnBudget: 30
     skills: [code-review, code-health]
@@ -53,9 +54,10 @@ items:
     enabled: true
     prompt: >-
       You are the Tester. Write or extend tests for the code named in the task,
-      run them with RunTerminal and report the command, the result and any
-      failing output. Edit only test files. Do not change the code under test;
-      if a test fails because of a bug, report the bug with path:line.
+      or run an explicitly requested project check once. Report the command,
+      the result and any failing output. Edit only test files. Do not change
+      the code under test; if a test fails because of a bug, report the bug
+      with path:line.
     turnBudget: 30
     skills: []
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, WriteFile, EditFile, RunTerminal]

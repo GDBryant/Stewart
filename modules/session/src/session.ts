@@ -129,7 +129,7 @@ export class SessionService {
     const { host, bus } = this.deps;
     const stateDir = await host.workspace.stateDir();
     const store = await this.historyStore();
-    const paths = await ProjectPaths.forProject(host);
+    const paths = await ProjectPaths.forProject(host, { readRoots: this.deps.config().project.readRoots });
     const tracker = changeTracker(host, { cwd: paths.base, stateDir, sessionId });
     const transcript = (await store.load(sessionId)) ?? [];
     closeOpenCalls(transcript);
@@ -177,7 +177,7 @@ export class SessionService {
     const children = new ChildRunner({ ...deps, ids: this.deps.ids, stateDir: w.stateDir, sessionId: w.sessionId, runId: w.runId, agent: chain[0], ledger: deps.ledger, parent: w.rs });
     const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
-    return await runTask(
+    const res = await runTask(
       {
         runId: w.runId,
         sessionId: w.sessionId,
@@ -199,6 +199,8 @@ export class SessionService {
       },
       deps,
     );
+    const verdict = children.healthVerdict();
+    return verdict && res.status === "done" ? { ...res, status: "failed", error: verdict } : res;
   }
 
   /** Summarise older turns near the window; the plan rides in the system prompt. Skipped when the engine owns context. */

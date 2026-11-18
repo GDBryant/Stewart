@@ -60,7 +60,7 @@ export class ReadFile extends ProjectTool {
   requiresApproval = false;
 
   async execute(args: Json): Promise<string> {
-    const rel = this.paths.resolve(arg(args, "path"));
+    const rel = await this.paths.resolveRead(arg(args, "path"));
     if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);
     const st = await this.paths.stat(rel);
     if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
@@ -101,7 +101,7 @@ export class FindFiles extends ProjectTool {
 
   async execute(args: Json): Promise<string> {
     const matcher = findMatcher(arg(args, "glob"));
-    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    const dir = args["path"] !== undefined ? await this.paths.resolveRead(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const base = dir === "." ? "" : `${dir.replace(/\/+$/, "")}/`;
     const results: string[] = [];
@@ -144,7 +144,7 @@ export class ListCodeFiles extends ProjectTool {
   requiresApproval = false;
 
   async execute(args: Json): Promise<string> {
-    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    const dir = args["path"] !== undefined ? await this.paths.resolveRead(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const includeTests = optBool(args, "include_tests");
     const entries: { path: string; loc: number | null }[] = [];
@@ -200,7 +200,7 @@ export class Search extends ProjectTool {
   async execute(args: Json): Promise<string> {
     const query = arg(args, "query");
     const regex = queryRegex(query, optBool(args, "regex"));
-    const dir = args["path"] !== undefined ? this.paths.resolve(arg(args, "path")) : ".";
+    const dir = args["path"] !== undefined ? await this.paths.resolveRead(arg(args, "path")) : ".";
     if (!(await this.paths.exists(dir))) throw new Error(`file not found: ${dir}`);
     const max = Math.min(Math.max(optInt(args, "max_results") ?? MAX_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
     const { results, overflow } = await searchTree(this.paths, { dir, query, regex, max });

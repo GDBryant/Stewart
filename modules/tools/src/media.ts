@@ -13,7 +13,7 @@ export class ReadImage extends ProjectTool {
   requiresApproval = false;
 
   async execute(args: Json): Promise<{ text: string; images: string[] }> {
-    const rel = this.paths.resolve(arg(args, "path"));
+    const rel = await this.paths.resolveRead(arg(args, "path"));
     const mediaType = mediaTypeFor(rel);
     if (!mediaType) throw new Error(`not an image (png/jpg/jpeg/gif/webp): ${rel}`);
     if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);

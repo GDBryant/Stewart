@@ -110,9 +110,9 @@ describe("code-health skill", () => {
   it("stays under the size budget", () => {
     expect(body().length).toBeLessThan(2900);
   });
-  it("covers listed-file scope and the health JSON block", () => {
+  it("covers listed-file scope and the supplied health JSON contract", () => {
     expect(body()).toContain("every listed file");
-    expect(body()).toContain("```json");
-    expect(body()).toContain('"notChecked"');
+    expect(body()).toContain("required JSON contract supplied in the task");
+    expect(body()).toContain("declared file or path:start-end scope");
   });
 });

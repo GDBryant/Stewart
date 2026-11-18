@@ -50,6 +50,15 @@ describe("mergeReports", () => {
   });
 });
 
+describe("mergeReports ranges", () => {
+  it("keeps separate results for the same path at different ranges", () => {
+    const a: HealthReport = { files: [{ ...fh("a.ts", 10, 5), range: "1-10" }], findings: [], notChecked: [] };
+    const b: HealthReport = { files: [{ ...fh("a.ts", 20, 9), range: "11-30" }, fh("a.ts", 30, 8)], findings: [], notChecked: [] };
+    const m = mergeReports([a, b]);
+    expect(m.files.map((f) => `${f.path}:${f.range ?? "file"}`)).toEqual(["a.ts:1-10", "a.ts:11-30", "a.ts:file"]);
+  });
+});
+
 describe("mergeReports checks", () => {
   it("concatenates checks deduped by name+command, last wins, and always returns checks", () => {
     const a: HealthReport = { files: [], findings: [], notChecked: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "10 ok" }] };
@@ -87,9 +96,9 @@ describe("aggregate", () => {
     const a = aggregate({
       files: [fh("a.ts", 10, 10), fh("b.ts", 10, 3)],
       findings: [
-        { path: "b.ts", line: 1, smell: "long-function", severity: "high", refactor: "split" },
-        { path: "b.ts", line: 9, smell: "long-function", severity: "low", refactor: "split" },
-        { path: "a.ts", smell: "dead-code", severity: "med", refactor: "remove" },
+        { path: "b.ts", line: 1, smell: "long-function", severity: "high", refactor: "split", evidence: "verified" },
+        { path: "b.ts", line: 9, smell: "long-function", severity: "low", refactor: "split", evidence: "verified" },
+        { path: "a.ts", smell: "dead-code", severity: "med", refactor: "remove", evidence: "verified" },
       ],
       notChecked: [],
     });
@@ -102,8 +111,8 @@ describe("renderReport", () => {
   const report: HealthReport = {
     files: [fh("src/small.ts", 100, 10), fh("src/big.ts", 900, 5)],
     findings: [
-      { path: "src/big.ts", line: 9, smell: "dup", severity: "low", refactor: "extract" },
-      { path: "src/big.ts", line: 3, smell: "god-class", severity: "high", refactor: "split" },
+      { path: "src/big.ts", line: 9, smell: "dup", severity: "low", refactor: "extract", evidence: "verified" },
+      { path: "src/big.ts", line: 3, smell: "god-class", severity: "high", refactor: "split", evidence: "verified" },
     ],
     notChecked: ["src/huge.ts"],
   };
@@ -121,8 +130,34 @@ describe("renderReport", () => {
 
   it("orders findings high→low in issues mode", () => {
     const out = renderReport(aggregate(report), report, "issues");
-    expect(out).toContain("src/big.ts:3\tgod-class | high | split");
-    expect(out.indexOf("high | split")).toBeLessThan(out.indexOf("low | extract"));
+    expect(out).toContain("src/big.ts:3\tgod-class | high | verified | split");
+    expect(out.indexOf("high | verified | split")).toBeLessThan(out.indexOf("low | verified | extract"));
+  });
+
+  it("renders coverage, failed tasks, unchecked scope, and evidence labels", () => {
+    const r: HealthReport = { ...report, findings: [{ path: "src/big.ts", line: 3, smell: "runtime guess", severity: "med", refactor: "verify", evidence: "unverified", verification: "needs runtime check" }] };
+    const out = renderReport(aggregate(r), r, "issues", { coverage: {
+      status: "partial",
+      declared: ["src/small.ts", "src/missing.ts:1-10"],
+      checked: ["src/small.ts"],
+      missing: ["src/missing.ts:1-10"],
+      failed: [{ taskId: "task-2", title: "review src/missing.ts", error: "turn_limit" }],
+    } });
+    expect(out).toContain("Coverage: partial (1/2 scopes)");
+    expect(out).toContain("task-2: review src/missing.ts — turn_limit");
+    expect(out).toContain("- src/missing.ts:1-10");
+    expect(out).toContain("runtime guess | med | unverified (needs runtime check) | verify");
+  });
+
+  it("keeps the incident float hypothesis unverified with its missing check", () => {
+    const r: HealthReport = {
+      files: [],
+      findings: [{ path: "controllers/main.py", line: 9, smell: "wrong exception claim", severity: "med", refactor: "verify exception type", evidence: "unverified", verification: 'run Python: float("1e") raises ValueError' }],
+      notChecked: [],
+    };
+    const out = renderReport(aggregate(r), r, "issues");
+    expect(out).toContain('unverified (run Python: float("1e") raises ValueError)');
+    expect(out).not.toContain("wrong exception claim | med | verified");
   });
 
   it("places the measured line right after Overall and renders the checks section", () => {
@@ -130,7 +165,7 @@ describe("renderReport", () => {
       ...report,
       checks: [{ name: "unit", command: "npm test", status: "pass", detail: "42/42" }],
     };
-    const out = renderReport(aggregate(r), r, "score", "Measured (lexical scan, approximate): 2 files / 1000 LOC");
+    const out = renderReport(aggregate(r), r, "score", { measured: "Measured (lexical scan, approximate): 2 files / 1000 LOC" });
     const lines = out.split("\n");
     expect(lines[1]).toBe("Overall: 5.5/10 (Red)");
     expect(lines[2]).toBe("Measured (lexical scan, approximate): 2 files / 1000 LOC");
@@ -198,8 +233,15 @@ describe("isSourceFile", () => {
 });
 
 describe("mergeReports findings", () => {
+  it("keeps the unverified version when duplicate findings disagree", () => {
+    const base = { path: "src/a.ts", line: 2, smell: "runtime claim", severity: "med" as const, refactor: "check" };
+    const verified: HealthReport = { files: [], findings: [{ ...base, evidence: "verified" }], notChecked: [] };
+    const unverified: HealthReport = { files: [], findings: [{ ...base, evidence: "unverified", verification: "run it" }], notChecked: [] };
+    expect(mergeReports([verified, unverified]).findings[0]).toMatchObject({ evidence: "unverified", verification: "run it" });
+    expect(mergeReports([unverified, verified]).findings[0]).toMatchObject({ evidence: "unverified" });
+  });
   const f = (over: Partial<import("../src/api.js").Finding>): import("../src/api.js").Finding =>
-    ({ path: "a.ts", smell: "long-fn", severity: "high", refactor: "split", ...over });
+    ({ path: "a.ts", smell: "long-fn", severity: "high", refactor: "split", evidence: "verified", ...over });
 
   it("dedupes findings with the same path, line, smell and severity, last wins", () => {
     const a: HealthReport = { files: [], findings: [f({ line: 3, refactor: "old" })], notChecked: [] };

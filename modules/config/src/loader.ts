@@ -12,8 +12,7 @@ export interface Config {
   agents: AgentDef[];
   roles: RoleDef[];
   settings: Settings;
-  /** Project-layer facts (`.stewart/project.yaml`, trusted workspaces only): verify commands for writing tasks. */
-  project: { verify: string[][] };
+  project: { verify: string[][]; readRoots: string[] };
   /** Errors surfaced in Settings; last-good config kept on failure. */
   errors: string[];
 }
@@ -94,5 +93,5 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
 
   const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
 
-  return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), project: { verify: prj?.verify ?? [] }, errors };
+  return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), project: { verify: prj?.verify ?? [], readRoots: prj?.readRoots ?? [] }, errors };
 }

@@ -3,15 +3,15 @@ import type { ChatMessage, Json } from "@stewart/kernel";
 import type { ApproveFn } from "@stewart/permissions";
 import { roleIsReadOnly, ToolRegistry, type Tool } from "@stewart/tools";
 import { projectTools } from "@stewart/tools";
-import { failureText } from "@stewart/tasks";
-import { aggregate, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthReport } from "@stewart/code-health";
+import { failureText, healthReportInstruction } from "@stewart/tasks";
+import { aggregate, mergeReports, renderMetricsSummary, renderReport, scanMetrics, summarizeMetrics, type FileMetrics, type HealthCoverage, type HealthReport } from "@stewart/code-health";
 import { loadSkillTool } from "./sessionTools.js";
 import { stepSaver } from "./stepSave.js";
 import type { ChildDeps } from "./childTypes.js";
 import { runFunctionTask } from "./functionTask.js";
 import { systemPrompt } from "./lead.js";
 import { policyApprove } from "./policyApprove.js";
-import { lastReply } from "./turnState.js";
+import { err, lastReply } from "./turnState.js";
 import { runTask, type Contract, type TaskResult } from "./taskRun.js";
 
 function capReply(raw: string): string {
@@ -31,6 +31,15 @@ interface ChildJob {
   task: string;
   report: "text" | "health";
   check?: DelegateCheck;
+  scope?: string[];
+}
+
+type ChildRequest = Omit<ChildJob, "taskId">;
+
+interface HealthJob {
+  job: ChildJob;
+  status: "running" | "done" | "failed" | "cancelled";
+  error?: string;
 }
 
 /** What code verifies after a delegated task: files that must exist, a command that must exit 0. */
@@ -62,6 +71,7 @@ export class ChildRunner {
   private running = 0;
   private readonly waiters: (() => void)[] = [];
   private readonly reports = new Map<string, HealthReport>();
+  private readonly healthJobs = new Map<string, HealthJob>();
   /** Read/write lock: a waiting writer blocks later readers (FIFO); readers share. */
   private readers = 0;
   private writerActive = false;
@@ -88,6 +98,7 @@ export class ChildRunner {
               additionalProperties: false,
               properties: { files: { type: "array", items: { type: "string" } }, command: { type: "array", items: { type: "string" } } },
             },
+            scope: { type: "array", items: { type: "string" }, description: "Health report scope entries: path or path:start-end" },
           },
           required: ["role", "task"],
         },
@@ -125,16 +136,22 @@ export class ChildRunner {
     this.waiters.shift()?.();
   }
 
-  private async delegate(args: Json): Promise<string> {
+  private childRequest(args: Json): ChildRequest {
     const roleId = String(args.role ?? "");
     const role = this.d.config().roles.find((r) => r.id === roleId);
     if (!role || role.id === "lead" || !role.enabled) throw new Error(`unknown delegate role '${roleId}'`);
     const report = args.report === undefined ? "text" : String(args.report);
     this.checkReport(role, report);
-    if (role.kind === "function") return await this.limited(() => runFunctionTask(this.d, role, String(args.task ?? ""), functionSchema(args.schema)));
-    const check = parseCheck(args.check);
-    const run = () => this.limited(() => this.childTurn(role, String(args.task ?? ""), report as "text" | "health", check));
-    return roleIsReadOnly(role) ? await this.asReader(run) : await this.asWriter(run);
+    const scope = strings(args.scope);
+    if (report === "health" && roleIsReadOnly(role) && !scope?.length) throw new Error("health report needs scope entries");
+    return { role, task: String(args.task ?? ""), report: report as "text" | "health", check: parseCheck(args.check), scope };
+  }
+
+  private async delegate(args: Json): Promise<string> {
+    const req = this.childRequest(args);
+    if (req.role.kind === "function") return await this.limited(() => runFunctionTask(this.d, req.role, req.task, functionSchema(args.schema)));
+    const run = () => this.limited(() => this.childTurn(req));
+    return roleIsReadOnly(req.role) ? await this.asReader(run) : await this.asWriter(run);
   }
 
   private pump(): void {
@@ -183,7 +200,8 @@ export class ChildRunner {
 
   private checkReport(role: RoleDef, report: string): void {
     if (report !== "text" && report !== "health") throw new Error(`unknown report mode '${report}'`);
-    if (report === "health" && !role.skills.includes("code-health")) {
+    if (report === "health" && role.kind === "function") throw new Error(`role '${role.id}' cannot report health`);
+    if (report === "health" && roleIsReadOnly(role) && !role.skills.includes("code-health")) {
       const able = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead" && roleIsReadOnly(r) && r.skills.includes("code-health")).map((r) => r.id);
       throw new Error(`role '${role.id}' cannot report health (no code-health skill); use ${able.length ? able.join(", ") : "no configured role"}`);
     }
@@ -197,15 +215,18 @@ export class ChildRunner {
     return policyApprove(role, this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal));
   }
 
-  private async childTurn(role: RoleDef, task: string, report: "text" | "health", check?: DelegateCheck): Promise<string> {
+  private async childTurn(req: ChildRequest): Promise<string> {
     const { bus, ids } = this.d;
+    const { role, task } = req;
     const taskId = ids.next("task");
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80) });
     bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
-    const res = await this.runChild({ role, taskId, task, report, check });
+    const res = await this.runChild({ ...req, taskId });
     const reply = capReply(res.reply);
     const line = `status: ${res.status === "done" ? "done" : "failed"}`;
-    return res.status === "done" ? `${line}\n${reply}` : `${line}\n${reply}\ncheck: ${res.error ?? "failed"}`;
+    if (res.status === "done") return `${line}\n${reply}`;
+    const check = `check: ${res.error ?? "failed"}`;
+    return req.report === "health" ? `${line}\n${check}\nWorker output failed validation; call health_report for merged coverage.` : `${line}\n${reply}\n${check}`;
   }
 
   private contract(job: ChildJob): () => Contract {
@@ -222,30 +243,40 @@ export class ChildRunner {
   private async runChild(job: ChildJob): Promise<TaskResult> {
     const { role, taskId, task, report } = job;
     const ro = roleIsReadOnly(role);
-    const transcript: ChatMessage[] = [{ role: "user", content: task }];
+    if (report === "health") this.healthJobs.set(taskId, { job, status: "running" });
+    const taskText = report === "health" ? `${healthReportInstruction(job.scope)}
+
+${task}` : task;
+    const transcript: ChatMessage[] = [{ role: "user", content: taskText }];
     const stepSave = stepSaver(() => this.persistChild(taskId, transcript));
     stepSave();
     const tools = new ToolRegistry([...projectTools(this.d.host, this.d.paths).for(role).tools, loadSkillTool(this.d.config().skills)]);
-    const res = await runTask(
-      {
-        runId: this.d.runId,
-        taskId,
-        sessionId: `${this.d.sessionId}/${taskId}`,
-        role,
-        goal: task,
-        transcript,
-        system: () => systemPrompt(this.d.host, role, this.d.config()),
-        tools,
-        approve: this.childApprove(role),
-        engineState: {},
-        contract: this.contract(job),
-        needs: { cites: ro, needsRead: ro, ...(report === "health" ? { schema: "health" as const } : {}) },
-        interactive: false,
-        run: this.d.parent,
-        onStep: stepSave,
-      },
-      this.d,
-    );
+    let res: TaskResult;
+    try {
+      res = await runTask(
+        {
+          runId: this.d.runId,
+          taskId,
+          sessionId: `${this.d.sessionId}/${taskId}`,
+          role,
+          goal: taskText,
+          transcript,
+          system: () => systemPrompt(this.d.host, role, this.d.config()),
+          tools,
+          approve: this.childApprove(role),
+          engineState: {},
+          contract: this.contract(job),
+          needs: { cites: ro, needsRead: ro, ...(report === "health" ? { schema: "health" as const, healthScope: job.scope ?? [] } : {}) },
+          interactive: false,
+          run: this.d.parent,
+          onStep: stepSave,
+        },
+        this.d,
+      );
+    } catch (e) {
+      this.failHealthJob(job, err(e));
+      throw e;
+    }
     return this.finishChild(job, transcript, res);
   }
 
@@ -254,6 +285,7 @@ export class ChildRunner {
     await this.persistChild(taskId, transcript);
     const ok = res.status === "done";
     if (ok && report === "health") this.keepReport(taskId, res.reply);
+    this.markHealthJob(job, res);
     if (ok) this.d.bus.emit({ kind: "task.done", runId: this.d.runId, taskId, roleId: role.id, summary: res.reply.split("\n")[0] ?? "" });
     else this.d.bus.emit({ kind: "task.failed", runId: this.d.runId, taskId, roleId: role.id, error: res.error ?? "failed" });
     return res;
@@ -269,6 +301,20 @@ export class ChildRunner {
     }
   }
 
+  private failHealthJob(job: ChildJob, error: string): void {
+    const j = this.healthJobs.get(job.taskId);
+    if (j) {
+      j.status = "failed";
+      j.error = error;
+    }
+  }
+
+  private markHealthJob(job: ChildJob, res: TaskResult): void {
+    const j = this.healthJobs.get(job.taskId);
+    if (j) j.status = res.status;
+    if (j && res.status !== "done") j.error = res.error ?? res.reason ?? "failed";
+  }
+
   private async persistChild(taskId: string, transcript: ChatMessage[]): Promise<void> {
     try {
       await this.d.host.files.writeAtomic(`${this.d.stateDir}/sessions/${this.d.sessionId}/${taskId}.json`, JSON.stringify(transcript));
@@ -277,13 +323,35 @@ export class ChildRunner {
     }
   }
 
+  private coverage(): HealthCoverage {
+    const jobs = [...this.healthJobs.values()];
+    const declared = [...new Set(jobs.flatMap((j) => j.job.scope ?? []))];
+    const checked = [...new Set(jobs.filter((j) => j.status === "done").flatMap((j) => j.job.scope ?? []))];
+    const failed = jobs.filter((j) => j.status !== "done").map((j) => ({ taskId: j.job.taskId, title: j.job.task, error: j.error ?? j.status }));
+    const done = new Set(checked);
+    const missing = declared.filter((s) => !done.has(s));
+    const checkFailed = jobs.some((j) => j.status !== "done" && !j.job.scope?.length);
+    return { status: missing.length || checkFailed ? "partial" : declared.length ? "complete" : "unknown", declared, checked, missing, failed };
+  }
+
+  /** Why the run is not a complete health check, or undefined when coverage is complete or no health tasks ran. */
+  healthVerdict(): string | undefined {
+    if (!this.healthJobs.size) return undefined;
+    const c = this.coverage();
+    return c.status === "partial" ? `health coverage partial: ${c.checked.length}/${c.declared.length} scopes checked, ${c.failed.length} delegated task(s) failed` : undefined;
+  }
+
   private async healthReport(): Promise<string> {
-    if (!this.reports.size) throw new Error("no health reports in this run");
+    if (!this.reports.size && !this.healthJobs.size) throw new Error("no health reports in this run");
     const merged = mergeReports([...this.reports.values()]);
-    const rendered = renderReport(aggregate(merged), merged, "issues", await this.measure(merged));
+    const coverage = this.coverage();
+    merged.notChecked = [...new Set([...merged.notChecked, ...coverage.missing])];
+    const rendered = renderReport(aggregate(merged), merged, "issues", { measured: await this.measure(merged), coverage });
     const path = `.stewart/reports/health-${this.d.runId}.md`;
     await this.d.host.files.writeAtomic(path, rendered);
-    return `${rendered}\n\nReport: ${path}`;
+    const running = [...this.healthJobs.values()].filter((j) => j.status === "running").length;
+    const note = running ? `\n${running} delegated health task(s) still running; call health_report again after they finish for the final report.` : "";
+    return `${rendered}\n\nReport: ${path}${note}`;
   }
 
   private async measure(report: HealthReport): Promise<string | undefined> {

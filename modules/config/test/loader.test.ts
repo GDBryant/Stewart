@@ -148,6 +148,16 @@ items:
     expect(untrusted.errors.join(" ")).toContain("untrusted workspace");
   });
 
+  it("loads project.yaml readRoots only in trusted workspaces, defaulting to []", () => {
+    const project = { "project.yaml": "version: 1\nreadRoots: [/srv/refs, /tmp/docs]" };
+    const trusted = loadConfig({}, project, {}, { trusted: true });
+    expect(trusted.errors).toEqual([]);
+    expect(trusted.project.readRoots).toEqual(["/srv/refs", "/tmp/docs"]);
+    const untrusted = loadConfig({}, project, {}, { trusted: false });
+    expect(untrusted.project.readRoots).toEqual([]);
+    expect(loadConfig({}, {}, {}, { trusted: true }).project.readRoots).toEqual([]);
+  });
+
   it("surfaces a malformed project.yaml as a config error", () => {
     const c = loadConfig({}, { "project.yaml": "verify: not-a-list" }, {}, { trusted: true });
     expect(c.project.verify).toEqual([]);

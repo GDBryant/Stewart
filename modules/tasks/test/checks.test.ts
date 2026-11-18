@@ -260,9 +260,9 @@ describe("runCheck health schema", () => {
     const { host } = fakeHost(files);
     return runCheck({ check: { schema: "health" }, input: baseInput({ reply }), host, cwd: "/p" });
   };
-  const good = { files: [{ path: "src/a.ts", loc: 10, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 3, smell: "deep nesting", severity: "med", refactor: "extract" }], notChecked: ["src/x.ts"], checks: [] };
+  const good = { files: [{ path: "src/a.ts", loc: 10, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 3, smell: "deep nesting", severity: "med", refactor: "extract", evidence: "verified" }], notChecked: ["src/x.ts"], checks: [] };
   it("passes a valid report", async () => {
-    const r = await health({ "src/a.ts": "x" }, `Review done.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``);
+    const r = await health({ "src/a.ts": "x", "src/x.ts": "x" }, `Review done.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``);
     expect(r.passed).toBe(true);
     expect(code(r, "health_ok")?.detail).toBe("health: 1 files, 1 findings");
   });
@@ -276,6 +276,12 @@ describe("runCheck health schema", () => {
     expect(r.passed).toBe(false);
     expect(details(r)[0]).toContain("health report: files[0]");
   });
+  it("fails invalid loc and score values", async () => {
+    const bad = { ...good, files: [{ path: "src/a.ts", loc: 10, score: 342, band: "Yellow" }], findings: [], notChecked: [] };
+    const r = await health({ "src/a.ts": "x" }, `\`\`\`json\n${JSON.stringify(bad)}\n\`\`\``);
+    expect(r.passed).toBe(false);
+    expect(details(r)[0]).toContain("health report: files[0]");
+  });
   it("fails when a reported path is missing", async () => {
     const r = await health({}, `\`\`\`json\n${JSON.stringify(good)}\n\`\`\``);
     expect(r.passed).toBe(false);
@@ -285,6 +291,51 @@ describe("runCheck health schema", () => {
     expect(details(await health({}, "no block"))).toContain("health report: expected exactly one ```json block, found 0");
     const two = `\`\`\`json\n${JSON.stringify(good)}\n\`\`\`\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\``;
     expect(details(await health({ "src/a.ts": "x" }, two))).toContain("health report: expected exactly one ```json block, found 2");
+  });
+  it("requires evidence status and a structured check status", async () => {
+    for (const bad of [
+      { ...good, findings: [{ ...good.findings[0], evidence: "seen" }], notChecked: [] },
+      { ...good, findings: [], notChecked: [], checks: [{ name: "test", command: "npm test", status: "blocked", detail: "policy" }] },
+    ]) {
+      const r = await health({ "src/a.ts": "x" }, `\`\`\`json\n${JSON.stringify(bad)}\n\`\`\``);
+      expect(r.passed).toBe(false);
+      expect(details(r)[0]).toMatch(/health report: (findings|checks)\[0\]/);
+    }
+  });
+  it("requires declared file and range scopes in files", async () => {
+    const { host } = fakeHost({ "src/a.ts": "x", "src/b.ts": "x" });
+    const scoped = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    const reply = `\`\`\`json\n${JSON.stringify(scoped)}\n\`\`\``;
+    const r = await runCheck({ check: { schema: "health", healthScope: ["src/a.ts", "src/b.ts:10-20"] }, input: baseInput({ reply }), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(details(r)).toContain("health report: scope not covered: src/b.ts:10-20");
+    scoped.files.push({ path: "src/b.ts", loc: 2, score: 8, band: "Yellow", range: "10-20" });
+    const ok = await runCheck({ check: { schema: "health", healthScope: ["src/a.ts", "src/b.ts:10-20"] }, input: baseInput({ reply: `\`\`\`json\n${JSON.stringify(scoped)}\n\`\`\`` }), host, cwd: "/p" });
+    expect(ok.passed).toBe(true);
+  });
+  it("treats a null or empty range as omitted for a whole-file scope", async () => {
+    const { host } = fakeHost({ "src/a.ts": "x" });
+    for (const range of [null, ""]) {
+      const report = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow", range }], findings: [], notChecked: [] };
+      const r = await runCheck({ check: { schema: "health", healthScope: ["src/a.ts"] }, input: baseInput({ reply: `\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` }), host, cwd: "/p" });
+      expect(r.passed).toBe(true);
+    }
+  });
+  it("limits a scope-less health task to checks only", async () => {
+    const check = { schema: "health" as const, healthScope: [] };
+    const only = { files: [], findings: [], notChecked: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "ok" }] };
+    const { host } = fakeHost({ "src/a.ts": "x" });
+    const ok = await runCheck({ check, input: baseInput({ reply: `\`\`\`json\n${JSON.stringify(only)}\n\`\`\`` }), host, cwd: "/p" });
+    expect(ok.passed).toBe(true);
+    const polluted = { ...only, files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }] };
+    const r = await runCheck({ check, input: baseInput({ reply: `\`\`\`json\n${JSON.stringify(polluted)}\n\`\`\`` }), host, cwd: "/p" });
+    expect(r.passed).toBe(false);
+    expect(details(r)[0]).toContain("checks task");
+  });
+  it("rejects absolute report paths", async () => {
+    const r = await health({}, `\`\`\`json\n${JSON.stringify({ files: [{ path: "/tmp/a.ts", loc: 1, score: 8, band: "Yellow" }], findings: [], notChecked: [] })}\n\`\`\``);
+    expect(r.passed).toBe(false);
+    expect(details(r)[0]).toContain("path must be project-relative");
   });
 });
 

@@ -4,6 +4,6 @@ export {
 } from "./types.js";
 export type {
   Band, FileHealth, Finding, HealthReport, InventoryEntry, Aggregate, ProjectCheck,
-  FunctionMetric, Suppression, FileMetrics, MetricsSummary,
+  FunctionMetric, Suppression, FileMetrics, MetricsSummary, FindingEvidence, CheckStatus, HealthTaskFailure, HealthCoverage,
 } from "./types.js";
 export { scanMetrics, summarizeMetrics, renderMetricsSummary, renderMetrics } from "./metrics.js";

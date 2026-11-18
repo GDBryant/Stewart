@@ -1,6 +1,7 @@
 import type { HostPort } from "@stewart/kernel";
 import { checkCommands } from "./commandChecks.js";
 import type { Check, CheckInput, CheckResult, Evidence, RunCheckArgs, WriteRecord } from "./checkTypes.js";
+import { CHECK_STATUS, FINDING_EVIDENCE } from "./healthContract.js";
 
 export type { Check, CheckInput, CheckResult, Evidence, EvidenceCode, RunCheckArgs, WriteRecord } from "./checkTypes.js";
 
@@ -86,35 +87,59 @@ async function checkCites(args: RunCheckArgs, out: Evidence[]): Promise<void> {
 const JSON_BLOCK = /```json\s*\n([\s\S]*?)```/g;
 const BANDS = new Set(["Green", "Yellow", "Red"]);
 const SEVERITIES = new Set(["high", "med", "low"]);
+const EVIDENCE = new Set<string>(FINDING_EVIDENCE);
+const CHECK_STATUSES = new Set<string>(CHECK_STATUS);
+const RANGE = /^\d+-\d+$/;
+
+function relPathErr(p: unknown): string | null {
+  if (typeof p !== "string" || !p) return "missing path";
+  const n = p.replace(/\\/g, "/");
+  return n.startsWith("/") || /^[A-Za-z]:\//.test(n) || n.split("/").includes("..") ? `path must be project-relative: ${p}` : null;
+}
+
+function badLoc(v: unknown): boolean {
+  return !Number.isInteger(v) || (v as number) < 0;
+}
+
+function badScore(v: unknown): boolean {
+  return typeof v !== "number" || v < 0 || v > 10;
+}
 
 function fileErr(f: unknown, i: number): string | null {
   const e = f as Record<string, unknown>;
-  if (typeof e?.path !== "string" || typeof e?.loc !== "number" || typeof e?.score !== "number" || !BANDS.has(e?.band as string))
-    return `files[${i}] needs {path, loc, score, band: Green|Yellow|Red}`;
+  const path = relPathErr(e?.path);
+  if (path || badLoc(e?.loc) || badScore(e?.score) || !BANDS.has(e?.band as string))
+    return `files[${i}] needs {path, loc, score, band: Green|Yellow|Red}${path ? ` (${path})` : ""}`;
+  return e.range != null && e.range !== "" && (typeof e.range !== "string" || !RANGE.test(e.range)) ? `files[${i}].range must be start-end` : null;
+}
+
+function findingShapeErr(f: unknown, i: number): string | null {
+  const e = f as Record<string, unknown>;
+  const path = relPathErr(e?.path);
+  if (path || (e.line !== undefined && (!Number.isInteger(e.line) || (e.line as number) < 1)) || typeof e?.smell !== "string" || !SEVERITIES.has(e?.severity as string) || typeof e?.refactor !== "string" || !EVIDENCE.has(e?.evidence as string))
+    return `findings[${i}] needs {path, smell, severity: high|med|low, refactor, evidence: verified|unverified}${path ? ` (${path})` : ""}`;
   return null;
 }
 
 function findingErr(f: unknown, i: number): string | null {
+  const shape = findingShapeErr(f, i);
+  if (shape) return shape;
   const e = f as Record<string, unknown>;
-  if (typeof e?.path !== "string" || typeof e?.smell !== "string" || !SEVERITIES.has(e?.severity as string) || typeof e?.refactor !== "string")
-    return `findings[${i}] needs {path, smell, severity: high|med|low, refactor}`;
-  return null;
+  return e.evidence === "unverified" && (typeof e.verification !== "string" || !e.verification.trim()) ? `findings[${i}].verification names the missing check` : null;
 }
 
-function filesErr(files: unknown): string | null {
-  if (!Array.isArray(files)) return "files is not an array";
-  for (const [i, f] of files.entries()) {
-    const err = fileErr(f, i);
-    if (err) return err;
-  }
-  return null;
+function checkErr(c: unknown, i: number): string | null {
+  const e = c as Record<string, unknown>;
+  return typeof e?.name !== "string" || typeof e?.command !== "string" || !CHECK_STATUSES.has(e?.status as string) || typeof e?.detail !== "string"
+    ? `checks[${i}] needs {name, command, status: ${CHECK_STATUS.join("|")}, detail}`
+    : null;
 }
 
-function findingsErr(findings: unknown): string | null {
-  if (findings !== undefined && !Array.isArray(findings)) return "findings is not an array";
-  for (const [i, f] of ((findings as unknown[] | undefined) ?? []).entries()) {
-    const err = findingErr(f, i);
-    if (err) return err;
+function entriesErr(entries: unknown, field: string, err: (v: unknown, i: number) => string | null): string | null {
+  if (!Array.isArray(entries)) return `${field} is not an array`;
+  for (const [i, e] of entries.entries()) {
+    const bad = err(e, i);
+    if (bad) return bad;
   }
   return null;
 }
@@ -122,7 +147,51 @@ function findingsErr(findings: unknown): string | null {
 function shapeErr(v: unknown): string | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return "report is not an object";
   const r = v as Record<string, unknown>;
-  return filesErr(r.files) ?? findingsErr(r.findings) ?? (Array.isArray(r.notChecked) ? null : "notChecked is not an array");
+  return entriesErr(r.files, "files", fileErr)
+    ?? (r.findings === undefined ? null : entriesErr(r.findings, "findings", findingErr))
+    ?? (r.checks === undefined ? null : entriesErr(r.checks, "checks", checkErr))
+    ?? notCheckedErr(r.notChecked);
+}
+
+function notCheckedErr(v: unknown): string | null {
+  if (!Array.isArray(v)) return "notChecked is not an array";
+  for (const [i, p] of v.entries()) {
+    const bad = relPathErr(p);
+    if (bad || typeof p !== "string") return `notChecked[${i}] needs a project-relative path`;
+  }
+  return null;
+}
+
+function scopeOf(s: string): { path: string; range?: string } {
+  const m = /^(.*):(\d+-\d+)$/.exec(s);
+  return m ? { path: m[1], range: m[2] } : { path: s };
+}
+
+function inScope(s: string, path: string, line: number | undefined): boolean {
+  const want = scopeOf(s);
+  if (want.path !== path) return false;
+  if (!want.range) return true;
+  const [start, end] = want.range.split("-").map(Number);
+  return line !== undefined && line >= start && line <= end;
+}
+
+function scopeErr(files: { path: string; range?: string }[], findings: { path: string; line?: number; evidence: string }[] | undefined, scope: string[] | undefined): string | null {
+  for (const s of scope ?? []) {
+    const want = scopeOf(s);
+    if (!files.some((f) => f.path === want.path && (f.range || undefined) === want.range)) return `health report: scope not covered: ${s}`;
+  }
+  const outside = scope?.length ? (findings ?? []).find((f) => f.evidence !== "verified" && !scope.some((s) => inScope(s, f.path, f.line))) : undefined;
+  return outside ? `health report: unverified finding outside declared scope: ${outside.path}${outside.line === undefined ? "" : `:${outside.line}`}` : null;
+}
+
+type HealthJson = { files: { path: string; range?: string }[]; findings?: { path: string; line?: number; evidence: string }[]; notChecked: string[] };
+
+function healthStaticErr(report: unknown, scope: string[] | undefined): string | null {
+  const shape = shapeErr(report);
+  if (shape) return `health report: ${shape}`;
+  const r = report as HealthJson;
+  if (scope && !scope.length && (r.files.length || r.findings?.length || r.notChecked.length)) return "health report: a checks task reports only checks[]; files, findings and notChecked must be empty";
+  return scopeErr(r.files, r.findings, scope);
 }
 
 async function checkHealth(args: RunCheckArgs, out: Evidence[]): Promise<void> {
@@ -139,13 +208,13 @@ async function checkHealth(args: RunCheckArgs, out: Evidence[]): Promise<void> {
     bad("health report: invalid JSON");
     return;
   }
-  const shape = shapeErr(report);
-  if (shape) {
-    bad(`health report: ${shape}`);
+  const stat = healthStaticErr(report, args.check.healthScope);
+  if (stat) {
+    bad(stat);
     return;
   }
-  const r = report as { files: { path: string }[]; findings?: { path: string }[] };
-  const paths = [...r.files.map((f) => f.path), ...(r.findings ?? []).map((f) => f.path)];
+  const r = report as HealthJson;
+  const paths = [...r.files.map((f) => f.path), ...(r.findings ?? []).map((f) => f.path), ...r.notChecked];
   let missing = 0;
   for (const p of paths)
     if (!(await args.host.files.exists(p))) {

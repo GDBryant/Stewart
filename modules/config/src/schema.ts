@@ -111,5 +111,6 @@ export const projectFile = z.object({
   version: z.number().int().default(CONFIG_VERSION),
   /** Argv commands run after a task that changed files; each goes through the normal permission gate. */
   verify: z.array(z.array(z.string()).min(1)).default([]),
+  readRoots: z.array(z.string()).default([]),
 });
 export type ProjectFile = z.infer<typeof projectFile>;

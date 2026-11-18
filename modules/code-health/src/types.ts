@@ -5,9 +5,13 @@ export interface FileHealth {
   loc: number;
   score: number;
   band: Band;
+  range?: string;
 }
 
-export interface Finding {
+export type FindingEvidence = "verified" | "unverified";
+export type CheckStatus = "pass" | "fail" | "not run" | "denied" | "unavailable" | "timeout";
+
+interface FindingBase {
   path: string;
   line?: number;
   smell: string;
@@ -15,10 +19,12 @@ export interface Finding {
   refactor: string;
 }
 
+export type Finding = FindingBase & ({ evidence: "verified"; verification?: string } | { evidence: "unverified"; verification: string });
+
 export interface ProjectCheck {
   name: string;
   command: string;
-  status: "pass" | "fail" | "not run";
+  status: CheckStatus;
   detail: string;
 }
 
@@ -64,6 +70,20 @@ export interface FileMetrics {
   measured: boolean;
   functions: FunctionMetric[];
   suppressions: Suppression[];
+}
+
+export interface HealthTaskFailure {
+  taskId: string;
+  title: string;
+  error: string;
+}
+
+export interface HealthCoverage {
+  status: "complete" | "partial" | "unknown";
+  declared: string[];
+  checked: string[];
+  missing: string[];
+  failed: HealthTaskFailure[];
 }
 
 export interface MetricsSummary {
@@ -121,9 +141,17 @@ function checkKey(c: ProjectCheck): string {
 }
 
 /** Folds one report into the merge state; a later report overwrites an earlier entry with the same key. */
+function mergeFindings(state: MergeState, findings: Finding[] | undefined): void {
+  for (const f of findings ?? []) {
+    const key = findingKey(f);
+    if (state.findings.get(key)?.evidence === "unverified") continue;
+    state.findings.set(key, f);
+  }
+}
+
 function mergeInto(state: MergeState, r: HealthReport): void {
-  for (const f of r.files ?? []) state.files.set(f.path, f);
-  for (const f of r.findings ?? []) state.findings.set(findingKey(f), f);
+  for (const f of r.files ?? []) state.files.set(`${f.path}#${f.range ?? ""}`, f);
+  mergeFindings(state, r.findings);
   for (const p of r.notChecked ?? []) state.notChecked.add(p);
   for (const c of r.checks ?? []) state.checks.set(checkKey(c), c);
 }
@@ -164,7 +192,7 @@ function redLines(red: FileHealth[]): string[] {
 
 function fileLines(files: FileHealth[]): string[] {
   const sorted = [...files].sort((x, y) => y.loc - x.loc);
-  return sorted.map((f) => `${f.path}\t${f.loc}\t${f.score}/10 ${f.band}`);
+  return sorted.map((f) => `${f.path}${f.range ? `[${f.range}]` : ""}\t${f.loc}\t${f.score}/10 ${f.band}`);
 }
 
 function notCheckedLines(notChecked: string[]): string[] {
@@ -175,16 +203,28 @@ function notCheckedLines(notChecked: string[]): string[] {
 function findingLines(findings: Finding[]): string[] {
   if (findings.length === 0) return [];
   const ordered = [...findings].sort((x, y) => SEVERITY_ORDER[x.severity] - SEVERITY_ORDER[y.severity]);
-  return ["Findings:", ...ordered.map((f) => `${f.path}:${f.line ?? "?"}\t${f.smell} | ${f.severity} | ${f.refactor}`)];
+  const label = (f: Finding) => (f.evidence === "unverified" ? `unverified (${f.verification})` : "verified");
+  return ["Findings:", ...ordered.map((f) => `${f.path}:${f.line ?? "?"}\t${f.smell} | ${f.severity} | ${label(f)} | ${f.refactor}`)];
 }
 
-export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "issues", measured?: string): string {
+function coverageLines(c: HealthCoverage | undefined): string[] {
+  if (!c) return [];
+  const status = c.status === "unknown" ? "unknown (scope not declared)" : `${c.status} (${c.checked.length}/${c.declared.length} scopes)`;
+  return [
+    `Coverage: ${status}`,
+    ...(c.failed.length ? ["Failed tasks:", ...c.failed.map((f) => `- ${f.taskId}: ${f.title} — ${f.error}`)] : []),
+    ...(c.missing.length ? ["Unchecked scope:", ...c.missing.map((s) => `- ${s}`)] : []),
+  ];
+}
+
+export function renderReport(a: Aggregate, r: HealthReport, mode: "score" | "issues", opts: { measured?: string; coverage?: HealthCoverage } = {}): string {
   const sections: string[][] = [
     [
       `Scope: project · Mode: ${mode} · Checked: ${a.files} files / ${a.loc} LOC · Not checked: ${a.notChecked.length}`,
       `Overall: ${a.score}/10 (${a.band})`,
     ],
-    measured ? [measured] : [],
+    coverageLines(opts.coverage),
+    opts.measured ? [opts.measured] : [],
     checkLines(r.checks),
     redLines(a.red),
     fileLines(r.files),

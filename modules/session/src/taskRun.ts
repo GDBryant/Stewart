@@ -8,7 +8,7 @@ import type { RunLedger } from "@stewart/ledger";
 import type { RunEvent } from "@stewart/protocol";
 import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { engineFor as defaultEngineFor, type Engine, type WriteRecord } from "@stewart/engines";
-import { evidenceText, failureText, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
+import { evidenceText, failureText, healthRepairInstruction, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
 import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewart/tools";
 import { err, lastReply, newTaskState, type Contract, type ContractCommand, type FinishReason, type RunState, type TaskState } from "./turnState.js";
 import { evBase, onEvent } from "./taskEvents.js";
@@ -138,7 +138,7 @@ async function verify(c: Ctx, baseline: Baseline): Promise<Verify> {
   return { res, input, contract };
 }
 
-async function attempt(c: Ctx, agent: AgentDef): Promise<void> {
+async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
   const { spec, deps, ts } = c;
   const channel = deps.channelFor(agent.channel);
   const engine = (deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
@@ -149,13 +149,13 @@ async function attempt(c: Ctx, agent: AgentDef): Promise<void> {
     agent,
     channel,
     roleId: spec.role.id,
-    tools: spec.tools,
-    hostTools: spec.hostTools,
+    tools: repair ? new ToolRegistry([]) : spec.tools,
+    hostTools: repair ? undefined : spec.hostTools,
     approve: spec.approve,
     state: spec.engineState,
     cwd: deps.paths.base,
     signal: spec.run.controller.signal,
-    maxTurns: spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget,
+    maxTurns: repair ? 1 : spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget,
     ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
   };
   try {
@@ -173,6 +173,11 @@ function escalate(c: Ctx, next: AgentDef): void {
   deps.bus.emit({ kind: "run.escalated", runId: spec.runId, ...(spec.taskId ? { taskId: spec.taskId } : {}), roleId: spec.role.id, from: c.st.prev!.id, to: next.id, reason });
 }
 
+function formatRepairable(res: CheckResult): boolean {
+  const failed = res.evidence.filter((e) => !e.ok);
+  return failed.length > 0 && failed.every((e) => e.code === "health_invalid" && !e.detail.includes("missing file") && !e.detail.includes("scope not covered"));
+}
+
 function result(c: Ctx, baseline: Baseline, status: TaskResult["status"]): TaskResult {
   const { spec, ts } = c;
   return {
@@ -186,6 +191,35 @@ function result(c: Ctx, baseline: Baseline, status: TaskResult["status"]): TaskR
     agentId: c.st.agent?.id,
     contract: c.st.last?.contract ?? spec.contract(),
   };
+}
+
+function canRepair(spec: TaskSpec, ts: TaskState, last: Verify | undefined): boolean {
+  return !ts.repairAttempted && spec.needs?.schema === "health" && last !== undefined && formatRepairable(last.res);
+}
+
+async function repairResult(c: Ctx, baseline: Baseline): Promise<"done" | "cancelled" | false> {
+  const { spec, ts } = c;
+  if (ts.reason === "cancelled" || spec.run.costCapped) return "cancelled";
+  if (ts.reason !== "stop") {
+    if (!ts.error) ts.error = ts.reason;
+    return false;
+  }
+  c.st.last = await verify(c, baseline);
+  if (c.st.last.res.passed) return "done";
+  ts.error = failureText(c.st.last.res);
+  return false;
+}
+
+async function repairHealth(c: Ctx, baseline: Baseline, agent: AgentDef): Promise<"done" | "cancelled" | false> {
+  const { spec, deps, ts } = c;
+  if (!canRepair(spec, ts, c.st.last)) return false;
+  ts.repairAttempted = true;
+  deps.bus.emit({ kind: "task.repair", ...evBase(spec), reason: "health report format" });
+  spec.transcript.push({ role: "user", content: healthRepairInstruction(ts.error ?? "invalid report") });
+  ts.reason = "" as FinishReason;
+  ts.error = undefined;
+  await attempt(c, agent, true);
+  return await repairResult(c, baseline);
 }
 
 async function askAndRetry(c: Ctx, baseline: Baseline): Promise<boolean> {
@@ -224,6 +258,8 @@ async function tryAgent(c: Ctx, baseline: Baseline, agent: AgentDef): Promise<Ta
   c.st.last = await verify(c, baseline);
   if (c.st.last.res.passed) return result(c, baseline, "done");
   ts.error = failureText(c.st.last.res);
+  const repaired = await repairHealth(c, baseline, agent);
+  if (repaired === "done" || repaired === "cancelled") return result(c, baseline, repaired);
   return undefined;
 }
 

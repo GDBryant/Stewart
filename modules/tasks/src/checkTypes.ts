@@ -39,6 +39,7 @@ export interface Check {
   needsRead?: boolean;
   /** The reply must end with exactly one ```json block validating as a HealthReport. */
   schema?: "health";
+  healthScope?: string[];
   /** At least one file must have changed since the baseline (skipped when tracking is unavailable). */
   mustChange?: boolean;
   /** Per-changed-path policy check: returns a deny reason or null. Skipped when tracking is unavailable. */

@@ -5,7 +5,7 @@ describe("protocol", () => {
   it("accepts every declared run event kind", () => {
     for (const kind of [
       "run.started", "run.finished", "text_delta", "reasoning_delta", "terminal_output",
-      "task.created", "task.started", "task.done", "task.failed",
+      "task.created", "task.started", "task.done", "task.failed", "task.repair",
       "tool.request", "tool.outcome", "ask_user", "question.withdrawn", "approval.request",
       "milestone.started", "milestone.done", "milestone.failed",
       "run.reverted", "cost.summary",

@@ -35,6 +35,7 @@ export interface TaskState {
   reads: number;
   reason: FinishReason;
   error?: string;
+  repairAttempted?: boolean;
 }
 
 /** Repairs a transcript interrupted mid tool batch: unanswered calls of the last open batch get a tool message each. */

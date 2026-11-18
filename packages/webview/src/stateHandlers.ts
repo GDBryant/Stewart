@@ -66,6 +66,7 @@ export class StoreHandlers {
     "task.started": (ev) => this.onTaskEvent(ev),
     "task.done": (ev) => this.onTaskEvent(ev),
     "task.failed": (ev) => this.onTaskEvent(ev),
+    "task.repair": (ev) => this.addActivity(ev.runId, "repair", `format repair: ${ev.reason}`),
     "cost.limit_reached": (ev) => this.onCostEvent(ev),
     "cost.limit_raised": (ev) => this.onCostEvent(ev),
     "cost.summary": (ev) => this.onCostEvent(ev),

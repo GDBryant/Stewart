@@ -507,6 +507,22 @@ describe("SessionService delegate", () => {
     expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
   });
 
+  it("requires structured scope for read-only health delegates", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await expect(tool.execute({ role: "reviewer", task: "health src/a.ts", report: "health" }, null, turn.signal)).rejects.toThrow(/needs scope entries/);
+        turn.transcript.push({ role: "assistant", content: "checked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(h.events.some((e) => e.kind === "task.created")).toBe(false);
+  });
+
   it("serializes write-capable children and runs read-only ones in parallel", async () => {
     const writer = { id: "wr", enabled: true, prompt: "", skills: [], tools: ["WriteFile"], writePaths: [], turnBudget: 5 };
     const config = makeConfig({ roles: [makeConfig().roles[0], writer, reviewer] });
@@ -774,14 +790,14 @@ describe("SessionService delegate", () => {
 
   it("health_report merges reports, writes the file, and fails with no reports", async () => {
     const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
-    const report = { files: [{ path: "src/a.ts", loc: 5, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 2, smell: "nesting", severity: "med", refactor: "extract" }], notChecked: [] };
+    const report = { files: [{ path: "src/a.ts", loc: 5, score: 8, band: "Yellow" }], findings: [{ path: "src/a.ts", line: 2, smell: "nesting", severity: "med", refactor: "extract", evidence: "verified" }], notChecked: [] };
     let merged = "";
     const engine = scriptedEngine([
       async function* (turn) {
         const tool = turn.tools.find("delegate")!;
         const hr = turn.tools.find("health_report")!;
         await expect(hr.execute({}, null, turn.signal)).rejects.toThrow(/no health reports/);
-        const out = String(await tool.execute({ role: "reviewer", task: "health src/a.ts", report: "health" }, null, turn.signal));
+        const out = String(await tool.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal));
         expect(out).toContain("status: done");
         merged = String(await hr.execute({}, null, turn.signal));
         turn.transcript.push({ role: "assistant", content: "done" });
@@ -801,6 +817,284 @@ describe("SessionService delegate", () => {
     expect(reportFile).toBeTruthy();
     expect(h.files[reportFile!]).toContain("src/a.ts");
   });
+  it("injects the health contract and declared range scope before the child model call", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const report = { files: [{ path: "src/a.ts", loc: 2, score: 9, band: "Yellow", range: "1-2" }], findings: [], notChecked: [] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        await turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/a.ts lines 1-2", report: "health", scope: ["src/a.ts:1-2"] }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        const brief = String(turn.transcript[0].content);
+        expect(brief).toContain("Health report required.");
+        expect(brief).toContain('"evidence":"verified|unverified"');
+        expect(brief).toContain("Declared scope (cover every entry exactly): src/a.ts:1-2");
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\nb\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+  });
+
+  it("renders partial health coverage with failed task reasons and unchecked scope", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const good = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    let merged = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const d = turn.tools.find("delegate")!;
+        await d.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        await d.execute({ role: "reviewer", task: "health src/b.ts", report: "health", scope: ["src/b.ts"] }, null, turn.signal);
+        merged = String(await turn.tools.find("health_report")!.execute({}, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* () {
+        yield { kind: "finished", reason: "turn_limit" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n", "src/b.ts": "b\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "failed", error: expect.stringContaining("health coverage partial") });
+    expect(merged).toContain("Coverage: partial (1/2 scopes)");
+    expect(merged).toContain("health src/b.ts — turn_limit");
+    expect(merged).toContain("- src/b.ts");
+    expect(h.events.filter((e) => e.kind === "task.failed")).toHaveLength(1);
+  });
+
+  it("does not return rejected health worker output to the lead", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const rejected = { files: [{ path: "src/b.ts", loc: 1, score: 9, band: "Yellow" }], findings: [{ path: "src/b.ts", line: 1, smell: "untrusted", severity: "low", refactor: "x", evidence: "verified" }], notChecked: [] };
+    let out = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        out = String(await turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(rejected)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n", "src/b.ts": "b\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "failed" });
+    expect(out).toContain("status: failed");
+    expect(out).toContain("call health_report");
+    expect(out).not.toContain("untrusted");
+    expect(out).not.toContain("```json");
+  });
+
+  it("renders complete health coverage when every declared scope reports", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const report = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    let merged = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const d = turn.tools.find("delegate")!;
+        await d.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        merged = String(await turn.tools.find("health_report")!.execute({}, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(merged).toContain("Coverage: complete (1/1 scopes)");
+  });
+
+  it("lets a write-limited tester report a structured project check after approved execution", async () => {
+    const tester = { id: "tester", enabled: true, prompt: "t", skills: [], tools: ["ReadFile", "WriteFile", "RunTerminal"], writePaths: ["tests/**"], turnBudget: 5 };
+    const config = makeConfig({ roles: [makeConfig().roles[0], tester] });
+    const report = { files: [], findings: [], notChecked: [], checks: [{ name: "unit", command: "npm test", status: "pass", detail: "ok" }] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const out = await turn.tools.find("delegate")!.execute({ role: "tester", task: "Project checks", report: "health", scope: [] }, null, turn.signal);
+        expect(String(out)).toContain("status: done");
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        const tool = turn.tools.find("RunTerminal")!;
+        const args = { command: "npm test" };
+        const preview = await tool.preview!(args);
+        const reqP = h.waitFor("approval.request");
+        const decision = turn.approve({ id: "t1", name: "RunTerminal", arguments: args }, preview, {});
+        h.interaction.resolveApproval(((await reqP) as { approvalId: string }).approvalId, "once");
+        expect((await decision).kind).toBe("approved");
+        await tool.execute(args, preview, turn.signal);
+        turn.transcript.push({ role: "assistant", content: `Checked.\n\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(h.procs.map((p) => p.argv.join(" ")).filter((c) => c.includes("npm test"))).toEqual(["/bin/sh -c npm test"]);
+  });
+
+  it("repairs a health format failure once without escalating", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const report = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        await turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "reviewed but forgot JSON" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        expect(turn.tools.find("ReadFile")).toBeUndefined();
+        expect(String(turn.transcript.at(-1)!.content)).toContain("Rewrite the previous reply into the required health-report format");
+        turn.transcript.push({ role: "assistant", content: `\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(h.events.filter((e) => e.kind === "task.repair")).toHaveLength(1);
+    expect(h.events.filter((e) => e.kind === "run.escalated")).toHaveLength(0);
+  });
+
+  it("escalates once normally when health format repair fails", async () => {
+    const agents = [
+      { id: "a1", channel: "c", model: "m", effort: "medium" as const },
+      { id: "a2", channel: "c", model: "m", effort: "medium" as const },
+    ];
+    const child = { ...reviewer, chain: ["a1", "a2"] };
+    const config = makeConfig({ agents, roles: [makeConfig().roles[0], child] });
+    const report = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        await turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "bad" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        turn.transcript.push({ role: "assistant", content: "still bad" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `\`\`\`json\n${JSON.stringify(report)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(h.events.filter((e) => e.kind === "task.repair")).toHaveLength(1);
+    expect(h.events.filter((e) => e.kind === "run.escalated")).toHaveLength(1);
+  });
+
+  it("finishes done when a failed health task's scope is covered by a retry", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const good = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    let merged = "";
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const d = turn.tools.find("delegate")!;
+        await d.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        await d.execute({ role: "reviewer", task: "health src/a.ts retry", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        merged = String(await turn.tools.find("health_report")!.execute({}, null, turn.signal));
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* () {
+        yield { kind: "finished", reason: "turn_limit" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(merged).toContain("Coverage: complete (1/1 scopes)");
+    expect(merged).toContain("health src/a.ts — turn_limit");
+  });
+
+  it("notes delegated health tasks still running in the health_report result", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const good = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    let merged = "";
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const pending = turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/a.ts", report: "health", scope: ["src/a.ts"] }, null, turn.signal);
+        await new Promise((r) => setTimeout(r, 0));
+        merged = String(await turn.tools.find("health_report")!.execute({}, null, turn.signal));
+        release();
+        await pending;
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        await gate;
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `Reviewed.\n\`\`\`json\n${JSON.stringify(good)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "a\n" } });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "done" });
+    expect(merged).toContain("still running");
+  });
+
+  it("does not repair a health report that cites a missing file", async () => {
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const bad = { files: [{ path: "src/missing.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const out = await turn.tools.find("delegate")!.execute({ role: "reviewer", task: "health src/missing.ts", report: "health", scope: ["src/missing.ts"] }, null, turn.signal);
+        expect(String(out)).toContain("status: failed");
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: `\`\`\`json\n${JSON.stringify(bad)}\n\`\`\`` });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished"))).toMatchObject({ status: "failed" });
+    expect(h.events.filter((e) => e.kind === "task.repair")).toHaveLength(0);
+  });
+
 });
 
 describe("lead escalation over the chain", () => {

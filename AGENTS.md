@@ -24,6 +24,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 - New design (accepted; steps 0–6 built as v3.0.0; audit and fixes recorded in §8): `docs/NEW_DESIGN_2026-11-13.md` — log evidence of run failures, root causes, and the replacement design: one lead agent per session, engines (native tool loop, Claude Code as full agent), roles as delegated profiles, model chains with escalation, code-run checks, eval-gated build order; §9 design revision built (one task runner, change tracker, code-driven plans, single policy)
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
+- Health-check reliability plan (implemented): `docs/HEALTH_CHECK_RELIABILITY_PLAN_2026-11-18.md` - remediation for the 2026-11-17 BulkOnline run: report contracts, check execution, coverage, framework reads, recovery and evidence.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
