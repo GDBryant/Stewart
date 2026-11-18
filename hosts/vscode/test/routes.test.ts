@@ -99,6 +99,16 @@ describe("routes", () => {
     expect(s.posted[0]).toEqual({ type: "channel.probe.result", channelId: "c2", model: "a:b", ok: true });
   });
 
+  it("permissions.bypass forwards on and replies with result; query omits on", async () => {
+    const s = setup();
+    s.results.set("permissions.bypass", { on: true });
+    await s.run({ type: "permissions.bypass", on: true });
+    await s.run({ type: "permissions.bypass" });
+    expect(s.dispatchCalls[0]).toEqual({ method: "permissions.bypass", params: { projectId: PROJECT_ID, on: true } });
+    expect(s.dispatchCalls[1].params).toEqual({ projectId: PROJECT_ID, on: undefined });
+    expect(s.posted[0]).toEqual({ type: "permissions.bypass.result", on: true });
+  });
+
   it("history.list posts history.sessions", async () => {
     const s = setup();
     s.results.set("history.list", { sessions: [{ id: "s1" }] });

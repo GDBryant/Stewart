@@ -561,7 +561,7 @@ describe("webview editor insert", () => {
       bridge.inbound(ev("run.finished", { status: "done" }));
     });
     expect(screen.queryByText("Insert into editor")).toBeNull();
-    expect(bridge.sent).toEqual([{ type: "ready" }]);
+    expect(bridge.sent).toEqual([{ type: "ready" }, { type: "permissions.bypass" }]);
   });
 
   it("fills the composer from an insertText inbound message", () => {

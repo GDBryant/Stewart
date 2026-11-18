@@ -11,11 +11,7 @@ export function ChatView({ store }: { store: Store }) {
   const approve: Store["approve"] = (approvalId, grant) => store.approve(approvalId, grant);
   return (
     <div class="chat">
-      <div class="chat-bar">
-        <button class="small" onClick={() => store.newSession()}>New chat</button>
-        <button class="small" onClick={() => store.toggleHistory()}>History</button>
-        {s.sessionId ? <span class="badge">{s.sessionId}</span> : null}
-      </div>
+      <ChatBar store={store} />
       {s.historyOpen ? <HistoryPanel store={store} /> : null}
       <div class="items">
         {s.items.map((it) => (
@@ -34,6 +30,25 @@ export function ChatView({ store }: { store: Store }) {
         <div ref={endRef} />
       </div>
       <Composer store={store} />
+    </div>
+  );
+}
+
+export function ChatBar({ store }: { store: Store }) {
+  const s = store.state;
+  return (
+    <div class="chat-bar">
+      <button class="small" onClick={() => store.newSession()}>New chat</button>
+      <button class="small" onClick={() => store.toggleHistory()}>History</button>
+      <button
+        class={s.bypass ? "small deny" : "small"}
+        aria-pressed={s.bypass}
+        title="Auto-approve all tool calls"
+        onClick={() => store.toggleBypass()}
+      >
+        {s.bypass ? "Bypass is ON" : "Bypass is OFF"}
+      </button>
+      {s.sessionId ? <span class="badge">{s.sessionId}</span> : null}
     </div>
   );
 }

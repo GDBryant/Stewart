@@ -492,6 +492,20 @@ class WebviewRouterTest {
 
 
     @Test
+    fun `permissions bypass replies with result and forwards on`() {
+        val rig = Rig { m, _ ->
+            if (m == "permissions.bypass") kotlinx.serialization.json.Json.parseToJsonElement("""{"on":true}""") as JsonObject
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"permissions.bypass","on":true}""")
+        val a = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("permissions.bypass.result", a.type())
+        assertEquals("true", a["on"]!!.jsonPrimitive.content)
+        assertEquals("permissions.bypass", rig.calls[0].first)
+        assertEquals("true", rig.calls[0].second!!["on"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `chat resume and revert send shaped results`() {
         val rig = Rig { m, _ ->
             if (m == "chat.resume") kotlinx.serialization.json.Json.parseToJsonElement("""{"runId":"r2","ok":true}""") as JsonObject

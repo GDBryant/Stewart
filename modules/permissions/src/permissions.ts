@@ -20,11 +20,22 @@ export type ApproveFn = (call: ToolCall, preview: ToolPreview | null, meta?: { r
 /** Where grant policy meets prompting: session grants + run grants decide; otherwise one approval card on the Interaction. */
 export class Permissions {
   private session = new Grants();
+  private bypassOn = false;
 
   constructor(private readonly interaction: Pick<Interaction, "ask">) {}
 
-  /** `allow` when a run or session grant covers the call; any internal error yields `ask` (fail closed). */
+  /** Bypass mode: every call that would prompt is auto-approved (no grants recorded). Role policy runs before the gate and still applies. */
+  get bypass(): boolean {
+    return this.bypassOn;
+  }
+
+  setBypass(on: boolean): void {
+    this.bypassOn = on;
+  }
+
+  /** `allow` when bypass is on or a run or session grant covers the call; any internal error yields `ask` (fail closed). */
   decide(req: PermissionRequest, runGrants: Grants): "allow" | "ask" {
+    if (this.bypassOn) return "allow";
     try {
       const cat = categoryOf(req.preview) ?? "OTHER";
       return runGrants.isGranted(cat, req.preview) || this.session.isGranted(cat, req.preview) ? "allow" : "ask";

@@ -38,6 +38,7 @@ export type Outbound =
   | { type: "setup.review" }
   | { type: "setup.approve"; token: string }
   | { type: "setup.undo" }
+  | { type: "permissions.bypass"; on?: boolean }
   | { type: "ready" };
 
 export interface ChannelSummary {
@@ -139,6 +140,7 @@ export type Inbound =
   | { type: "history.sessions"; sessions: SessionSummary[] }
   | { type: "history.messages"; sessionId: string; messages: StoredMessage[] }
   | { type: "insertText"; text: string }
+  | { type: "permissions.bypass.result"; on: boolean }
   | { type: "ready" }
   | {
       type: "setup.recommend.result";

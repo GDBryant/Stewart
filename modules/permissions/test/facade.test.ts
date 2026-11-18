@@ -111,3 +111,39 @@ describe("Permissions with a real Interaction", () => {
     expect(interaction.pending()).toHaveLength(0);
   });
 });
+
+describe("Permissions bypass mode", () => {
+  it("is off by default and the gate prompts", async () => {
+    const f = fake({ kind: "answered", value: "once" });
+    const p = new Permissions(f.interaction);
+    expect(p.bypass).toBe(false);
+    expect(p.decide(req(cmd("ls")), new Grants())).toBe("ask");
+    await p.gate("r1", new AbortController().signal)(call("T"), cmd("ls"));
+    expect(f.asks).toHaveLength(1);
+  });
+
+  it("on: approves without asking and records no grant; off again restores prompting", async () => {
+    const f = fake({ kind: "answered", value: "deny" });
+    const p = new Permissions(f.interaction);
+    const runGrants = new Grants();
+    p.setBypass(true);
+    expect(p.bypass).toBe(true);
+    const gate = p.gate("r1", new AbortController().signal, runGrants);
+    expect(await gate(call("T"), cmd("rm -rf x"))).toEqual({ kind: "approved" });
+    expect(await gate(call("WriteFile"), null)).toEqual({ kind: "approved" });
+    expect(f.asks).toHaveLength(0);
+    p.setBypass(false);
+    expect(p.bypass).toBe(false);
+    expect(p.decide(req(cmd("rm -rf x")), runGrants)).toBe("ask");
+    expect(p.decide(req(null), new Grants())).toBe("ask");
+    expect(await gate(call("T"), cmd("rm -rf x"))).toEqual({ kind: "rejected", reason: "denied by user" });
+    expect(f.asks).toHaveLength(1);
+  });
+
+  it("on: allows even a preview that would make decide fail closed", () => {
+    const p = new Permissions({ ask: () => Promise.reject(new Error("must not ask")) });
+    p.setBypass(true);
+    const bad = new Proxy({}, { get: () => { throw new Error("boom"); } }) as ToolPreview;
+    expect(p.decide(req(bad), new Grants())).toBe("allow");
+  });
+});

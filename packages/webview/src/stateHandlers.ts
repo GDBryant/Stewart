@@ -37,6 +37,7 @@ export class StoreHandlers {
     "history.messages": (m) => this.onHistoryMessages(m),
     insertText: (m) => this.patch({ composerInsert: { text: m.text, seq: this.host.nextInsertSeq() } }),
     ready: () => {},
+    "permissions.bypass.result": (m) => this.onBypass(m.on),
     "setup.probe.result": (m) => {
       const { type: _t, ...snap } = m;
       this.patch({ smoke: snap });
@@ -152,6 +153,11 @@ export class StoreHandlers {
   }
 
   /** The session wrote channels.yaml (or refused): show any error and refresh the config so the channel list updates. */
+  private onBypass(on: boolean): void {
+    const pending = this.host.getState().approvals;
+    this.host.patch(on ? { bypass: on, approvals: [] } : { bypass: on });
+    if (on) for (const a of pending) this.host.post({ type: "chat.approve", approvalId: a.approvalId, grant: "once" });
+  }
   private onChannelResult(m: { ok: boolean; error?: string }): void {
     this.patch({ setupChannelError: m.ok ? undefined : (m.error ?? "could not change the channel") });
     this.host.post({ type: "config.get" });

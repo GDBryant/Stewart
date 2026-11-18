@@ -31,6 +31,14 @@ export function handleChatApprove(core: CoreCtx, params: unknown): unknown {
   return { ok: core.ctx(p.projectId).interaction.resolveApproval(p.approvalId, p.grant) };
 }
 
+/** Sets (when `on` is given) and returns the project's bypass-permissions mode. */
+export function handlePermissionsBypass(core: CoreCtx, params: unknown): unknown {
+  const p = params as { projectId: string; on?: boolean };
+  const perms = core.ctx(p.projectId).permissions;
+  if (typeof p.on === "boolean") perms.setBypass(p.on);
+  return { on: perms.bypass };
+}
+
 export async function handleHistoryList(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string };
   return { sessions: await (await core.ctx(p.projectId).sessions.historyStore()).list() };

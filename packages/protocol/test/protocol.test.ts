@@ -47,6 +47,7 @@ describe("protocol", () => {
 
   it("declares all RPC methods", () => {
     expect(METHODS).toContain("chat.send");
+    expect(METHODS).toContain("permissions.bypass");
     expect(METHODS).toContain("history.list");
     expect(METHODS).toContain("history.load");
     expect(METHODS).toContain("history.delete");
@@ -57,6 +58,6 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.retry");
     expect(METHODS).toContain("setup.session.addChannel");
     expect(METHODS).toContain("setup.session.removeChannel");
-    expect(METHODS.length).toBe(39);
+    expect(METHODS.length).toBe(40);
   });
 });

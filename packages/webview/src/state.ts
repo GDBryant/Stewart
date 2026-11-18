@@ -22,6 +22,7 @@ export class Store {
     items: [],
     tasks: [],
     approvals: [],
+    bypass: false,
     questions: [],
     channelTest: {},
     probeResults: {},
@@ -50,6 +51,7 @@ export class Store {
   constructor(private bridge: Bridge) {
     bridge.onMessage((m) => this.handlers.onInbound(m));
     bridge.post({ type: "ready" });
+    bridge.post({ type: "permissions.bypass" });
   }
 
   subscribe(fn: Listener): () => void {
@@ -138,6 +140,9 @@ export class Store {
   approve(approvalId: string, grant: "once" | "chat" | "always" | "deny"): void {
     this.bridge.post({ type: "chat.approve", approvalId, grant });
     this.patch({ approvals: this.state.approvals.filter((a) => a.approvalId !== approvalId) });
+  }
+  toggleBypass(): void {
+    this.bridge.post({ type: "permissions.bypass", on: !this.state.bypass });
   }
   requestConfig(): void {
     this.bridge.post({ type: "config.get" });

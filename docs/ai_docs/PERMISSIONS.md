@@ -2,6 +2,16 @@
 
 Per-project approval bypass for tools that ask before acting. See `docs/archived_v1/BYPASS_MODE_PLAN.md` for the build plan.
 
+## Bypass mode
+
+The chat bar (next to **New chat** and **History**) has a toggle labelled **Bypass is OFF** / **Bypass is ON** (red when on). When on, every tool call that would prompt is auto-approved:
+
+- Core: `Permissions.setBypass(on)` (`modules/permissions/src/permissions.ts`); `decide()` returns `allow` before any grant check and records no grants. Covers lead, child (`delegate`) and task runs — all go through `permissions.gate` — and both engines (Claude Code `can_use_tool` and MCP host tools route through the same gate).
+- Role policy still applies: `policyApprove` runs before the gate, so a read-only role still cannot write. Bypass skips prompts, not role limits.
+- RPC `permissions.bypass {projectId, on?}` → `{on}` (omit `on` to query). Webview posts `permissions.bypass`, hosts reply `permissions.bypass.result`; the webview queries the state on ready.
+- Turning it on also approves (`once`) any approval cards already waiting.
+- Scope: per project, in memory in the core. Not persisted; it resets to OFF when the core (VS Code extension host / JetBrains sidecar) restarts.
+
 ## Categories
 
 - `EDITS` — `WriteFile`, `EditFile` (previews `ToolPreview.FileChange`)
@@ -45,9 +55,8 @@ The command dialog offers two scopes: "These programs" (the ungranted programs o
 
 ## Revoke paths
 
-- Bypass popup (chat header): uncheck a category, "Clear chat grants", "Manage…" opens the project page
-- Project settings page (Settings → Stewart under project): ticks, program list, chat grants view, "Reset all projects"
-- `/permissions` — list; `/permissions clear` — chat grants; `/permissions revoke <edits|commands|other|all|program>` — always + chat grants; `/permissions reset` — remove this project's entry
+- v2: the chat-bar **Bypass** toggle (off); chat grants clear with the run, session grants with the core.
+- v1 (archived Kotlin plugin, kept for reference): Bypass popup, project settings page and `/permissions` commands.
 
 ## Migration
 
@@ -55,7 +64,7 @@ On first permissions read after upgrade, a single app-wide flag runs once: if th
 
 ## Audit
 
-Every auto-approved call writes a `DebugLogSink` record (`auto-approve`, tool name, category, detail) when debug logging is enabled, and the session auto-approve count is shown in the Bypass button tooltip.
+Every auto-approved call writes a `DebugLogSink` record (`auto-approve`, tool name, category, detail) when debug logging is enabled, (v1; the v2 Bypass toggle shows no count).
 
 ## Storage
 

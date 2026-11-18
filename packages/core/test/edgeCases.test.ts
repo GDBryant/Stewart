@@ -143,6 +143,24 @@ describe("chat handlers", () => {
   });
 });
 
+describe("permissions.bypass", () => {
+  it("queries, sets and clears the project's bypass mode", async () => {
+    const { core } = mk();
+    await attach(core);
+    expect(await core.dispatch("permissions.bypass", { projectId: "p" })).toEqual({ on: false });
+    expect(await core.dispatch("permissions.bypass", { projectId: "p", on: true })).toEqual({ on: true });
+    expect(core.ctx("p").permissions.bypass).toBe(true);
+    expect(await core.dispatch("permissions.bypass", { projectId: "p" })).toEqual({ on: true });
+    expect(await core.dispatch("permissions.bypass", { projectId: "p", on: false })).toEqual({ on: false });
+    expect(core.ctx("p").permissions.bypass).toBe(false);
+  });
+
+  it("rejects an unattached project", async () => {
+    const { core } = mk();
+    await expect(core.dispatch("permissions.bypass", { projectId: "nope", on: true })).rejects.toThrow("project not attached");
+  });
+});
+
 describe("setup.recommend via dispatch", () => {
   it("rules mode works without a model call", async () => {
     const { core } = mk();

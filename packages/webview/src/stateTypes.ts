@@ -85,6 +85,7 @@ export interface State {
   busyRunId?: string;
   lastRunId?: string;
   approvals: PendingApproval[];
+  bypass: boolean;
   questions: PendingQuestion[];
   config?: ConfigReply;
   channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;

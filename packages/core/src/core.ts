@@ -170,6 +170,7 @@ export class Core implements CoreCtx {
     "file.diff": (p) => chat.handleFileDiff(this, p),
     "chat.answer": (p) => chat.handleChatAnswer(this, p),
     "chat.approve": (p) => chat.handleChatApprove(this, p),
+    "permissions.bypass": (p) => chat.handlePermissionsBypass(this, p),
     "history.list": (p) => chat.handleHistoryList(this, p),
     "history.load": (p) => chat.handleHistoryLoad(this, p),
     "history.delete": (p) => chat.handleHistoryDelete(this, p),
