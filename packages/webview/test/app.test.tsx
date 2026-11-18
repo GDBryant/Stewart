@@ -641,6 +641,32 @@ describe("webview settings", () => {
     expect(setMsg && setMsg.type === "config.set" && setMsg.yaml).toContain("runTurnLimit: 1000");
   });
 
+  it("keeps settings the tab does not show when saving", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    const settings = { costLimit: { perRunUsd: 5, onLimit: "ask" }, runTurnLimit: 60, historyRetentionDays: 14, setupPriorities: { speed: 1, cost: 3, quality: 2 }, setupTypicalWork: "refactors" };
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary!, settings } }));
+    fireEvent.click(screen.getByText("settings"));
+    fireEvent.click(screen.getByText("Save settings"));
+    const setMsg = bridge.sent.find((m) => m.type === "config.set");
+    const doc = parse(setMsg && setMsg.type === "config.set" ? setMsg.yaml : "");
+    expect(doc).toMatchObject({ historyRetentionDays: 14, setupPriorities: { speed: 1, cost: 3, quality: 2 }, setupTypicalWork: "refactors", runTurnLimit: 60 });
+  });
+
+  it("drops a shown setting the user cleared instead of restoring it", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary!, settings: { runTurnLimit: 60, skillBudgetTokens: 9000, historyRetentionDays: 14 } } }));
+    fireEvent.click(screen.getByText("settings"));
+    const input = screen.getByText(/skill budget tokens/).parentElement!.querySelector("input")!;
+    fireEvent.input(input, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save settings"));
+    const setMsg = bridge.sent.find((m) => m.type === "config.set");
+    const doc = parse(setMsg && setMsg.type === "config.set" ? setMsg.yaml : "") as Record<string, unknown>;
+    expect(doc.skillBudgetTokens).toBeUndefined();
+    expect(doc.historyRetentionDays).toBe(14);
+  });
+
   it("shows config errors", () => {
     const { bridge } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);

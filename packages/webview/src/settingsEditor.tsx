@@ -12,11 +12,16 @@ const SETTINGS_FIELDS: Field[] = [
   { key: "log.retainDays", label: "log retain days", kind: "number" },
 ];
 
+/** Settings the tab does not edit (setupPriorities, historyRetentionDays, ...) are written back unchanged. */
+function settingsYaml(settings: SettingsSummary, form: Record<string, string>): string {
+  const shown = new Set(SETTINGS_FIELDS.map((f) => f.key.split(".")[0]));
+  const kept = Object.fromEntries(Object.entries(settings).filter(([k]) => !shown.has(k)));
+  return stringify({ version: 1, ...kept, ...unflatten(form, SETTINGS_FIELDS) }, null, 2);
+}
+
 export function SettingsEditor({ store, settings }: { store: Store; settings: SettingsSummary }) {
   const { form, set } = useForm(settings as object);
-  const save = () => {
-    store.saveFile("settings.yaml", stringify({ version: 1, ...unflatten(form, SETTINGS_FIELDS) }, null, 2));
-  };
+  const save = () => store.saveFile("settings.yaml", settingsYaml(settings, form));
   return (
     <section>
       <div class="form">

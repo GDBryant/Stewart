@@ -61,6 +61,7 @@ export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
   runTurnLimit?: number;
   skillBudgetTokens?: number;
+  historyRetentionDays?: number;
   setupPriorities?: { speed?: number; cost?: number; quality?: number };
   setupTypicalWork?: string;
   log?: { level?: string; retainDays?: number };
