@@ -40,9 +40,9 @@ function PrioritySliders({ priorities, onPriorities }: Pick<EvaluatorStepProps, 
   return (
     <>
       <div class="hint">What matters most? (1 = less, 3 = more)</div>
-      {(["speed", "cost", "quality"] as const).map((k) => (
+      {([["speed", "speed"], ["cost", "low cost"], ["quality", "quality"]] as const).map(([k, label]) => (
         <label key={k} class="field">
-          <span>{k}: {priorities[k]}</span>
+          <span>{label}: {priorities[k]}</span>
           <input
             type="range"
             min={1}

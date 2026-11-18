@@ -77,7 +77,7 @@ function formatContextBlock(sc: Partial<SetupContext> | undefined): string {
   const ctxLines = [
     sc?.workspace ? `- workspace: ${sc.workspace.sizeClass} (${sc.workspace.files} files, ~${sc.workspace.loc} loc${sc.workspace.monorepo ? ", monorepo" : ""})` : "",
     sc?.hardware ? `- hardware: ${sc.hardware.os}, ${sc.hardware.ramGb}GB RAM${sc.hardware.gpus?.length ? `, GPU ${sc.hardware.gpus.map((g) => `${g.name} ${g.vramGb}GB`).join("/")}` : ""}` : "",
-    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed}, cost ${sc.priorities.cost}, quality ${sc.priorities.quality}` : "",
+    sc?.priorities ? `- priorities (1-3): speed ${sc.priorities.speed} (prefer faster), low-cost ${sc.priorities.cost} (prefer cheaper), quality ${sc.priorities.quality} (prefer better)` : "",
     sc?.typicalWork ? `- typical work: ${sc.typicalWork}` : "",
   ].filter(Boolean);
   return ctxLines.length ? `\nContext:\n${ctxLines.join("\n")}\n` : "";

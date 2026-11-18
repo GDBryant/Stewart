@@ -293,7 +293,7 @@ describe("recommendAssignments prompt and validation", () => {
       priceFor: async () => ({ inPerMTok: 1, outPerMTok: 2 }),
     });
     expect(r.ok).toBe(true);
-    expect(promptText).toContain("- priorities (1-3): speed 1, cost 3, quality 2");
+    expect(promptText).toContain("- priorities (1-3): speed 1 (prefer faster), low-cost 3 (prefer cheaper), quality 2 (prefer better)");
     expect(promptText).toContain("- typical work: refactors");
     expect(promptText).toContain("- workspace: small (10 files, ~100 loc)");
     expect(promptText).toContain("- hardware: linux, 16GB RAM, GPU g 8GB");
