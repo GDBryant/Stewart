@@ -204,6 +204,31 @@ async function pump(turn: EngineTurn, call: ToolCall, buf: ChatMessage[], c: Pum
   }
 }
 
+/** Budget nudge this many turns before the end (budgets of at least BUDGET_NOTE_MIN). */
+const NUDGE_LEFT = 3;
+const BUDGET_NOTE_MIN = 6;
+const SALVAGE_MIN = 3;
+
+/**
+ * Turn view for model turn `n`: warns NUDGE_LEFT turns before the end, and makes the last turn of a
+ * budget >= SALVAGE_MIN tool-less so the model reports its findings instead of losing them.
+ */
+export function budgetTurn(turn: EngineTurn, n: number): { turn: EngineTurn; salvage: boolean } {
+  const left = turn.maxTurns - n;
+  if (turn.maxTurns >= BUDGET_NOTE_MIN && left === NUDGE_LEFT) {
+    turn.transcript.push({ role: "user", content: `[Stewart] ${left} model turns left; the last has no tools. Stop investigating: make the change and verify it now.` });
+  }
+  if (turn.maxTurns < SALVAGE_MIN || left !== 1) return { turn, salvage: false };
+  turn.transcript.push({ role: "user", content: "[Stewart] Turn budget used up; this is your last reply and tools are disabled. Report what you found, what you changed, and the exact remaining change (file, code) so the task can continue." });
+  return { turn: { ...turn, tools: new ToolRegistry([]) }, salvage: true };
+}
+
+/** Salvage replies must not leave dangling tool calls in the transcript. */
+function dropCalls(turn: EngineTurn): void {
+  const msg = turn.transcript[turn.transcript.length - 1];
+  if (msg?.role === "assistant") delete msg.toolCalls;
+}
+
 async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
   const guard = new LoopGuard();
@@ -213,8 +238,13 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
       return;
     }
     await turn.beforeModelTurn?.();
-    const out = yield* modelTurn(turn);
+    const step = budgetTurn(turn, n);
+    const out = yield* modelTurn(step.turn);
     if (!out) return;
+    if (step.salvage) {
+      dropCalls(turn);
+      break;
+    }
     if (!out.calls.length) {
       yield { kind: "finished", reason: "stop" };
       return;

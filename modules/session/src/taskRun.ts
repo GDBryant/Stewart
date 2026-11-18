@@ -222,14 +222,26 @@ async function repairHealth(c: Ctx, baseline: Baseline, agent: AgentDef): Promis
   return await repairResult(c, baseline);
 }
 
+/** The fallback question: a turn-limit stop offers Continue; other failures only guidance or Stop. */
+function retryPrompt(c: Ctx): { question: string; options: string[] } {
+  const { spec, ts } = c;
+  const agent = c.st.agent!;
+  if (ts.reason === "turn_limit") {
+    const budget = spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget;
+    return { question: `Ran out of turns (${budget}) on ${agent.id}. Continue with a fresh budget, reply with guidance, or stop.`, options: ["Continue", "Stop"] };
+  }
+  return { question: `All agents for this task failed. ${ts.error ?? "failed"}\nReply with guidance to retry once more on ${agent.id}, or stop.`, options: ["Stop"] };
+}
+
+const CONTINUE_TEXT = "Continue the task from where you stopped; apply the change you found and verify it.";
+
 async function askAndRetry(c: Ctx, baseline: Baseline): Promise<boolean> {
   const { spec, deps, ts } = c;
   const agent = c.st.agent!;
-  const evidence = ts.error ?? "failed";
-  const question = `All agents for this task failed. ${evidence}\nReply with guidance to retry once more on ${agent.id}, or stop.`;
-  const o = await deps.interaction!.ask(questionPrompt("fallback", question, ["Stop"]), { runId: spec.runId, roleId: spec.role.id }, spec.run.controller.signal);
+  const p = retryPrompt(c);
+  const o = await deps.interaction!.ask(questionPrompt("fallback", p.question, p.options), { runId: spec.runId, roleId: spec.role.id }, spec.run.controller.signal);
   if (o.kind !== "answered" || o.value === "Stop") return false;
-  spec.transcript.push({ role: "user", content: o.value });
+  spec.transcript.push({ role: "user", content: o.value === "Continue" ? CONTINUE_TEXT : o.value });
   ts.reason = "" as FinishReason;
   ts.error = undefined;
   await attempt(c, agent);

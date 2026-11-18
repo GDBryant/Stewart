@@ -26,7 +26,7 @@ items:
       run in parallel, reading that would flood your context, or a narrow
       checkable task a cheaper role is qualified for; otherwise do the work
       yourself.
-    turnBudget: 40
+    turnBudget: 60
     skills: [project-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetProblems, GetDiff, ReadImage, WriteFile, EditFile, ApplyPatch, RunTerminal, load_skill, ask_user, delegate, health_report, set_check, plan_write]
   - id: explorer

@@ -1179,7 +1179,7 @@ describe("lead escalation over the chain", () => {
   });
 
   it("asks the user after the last agent and retries once with guidance", async () => {
-    const fail = async function* () { yield { kind: "finished" as const, reason: "turn_limit" as const }; };
+    const fail = async function* () { yield { kind: "finished" as const, reason: "loop_guard" as const, error: "same call failed twice" }; };
     const engine = scriptedEngine([fail, fail, ok]);
     const h = harness({ config: cfg(), engine });
     await h.svc.send({ text: "hard task" });
@@ -1190,6 +1190,26 @@ describe("lead escalation over the chain", () => {
     h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "try reading the file first");
     const fin = await h.waitFor("run.finished");
     expect(fin).toMatchObject({ status: "done" });
+  });
+
+  it("offers Continue after a turn-limit stop and resumes with a continue instruction", async () => {
+    const fail = async function* () { yield { kind: "finished" as const, reason: "turn_limit" as const }; };
+    const seen: string[] = [];
+    const resume = async function* (turn: EngineTurn) {
+      seen.push(String(turn.transcript[turn.transcript.length - 1].content));
+      yield* ok(turn);
+    };
+    const engine = scriptedEngine([fail, fail, resume]);
+    const h = harness({ config: cfg(), engine });
+    await h.svc.send({ text: "hard task" });
+    const ask = await h.waitFor("ask_user");
+    expect(ask).toMatchObject({ options: ["Continue", "Stop"] });
+    expect((ask as { question: string }).question).toContain("Ran out of turns");
+    expect((ask as { question: string }).question).not.toContain("All agents for this task failed.");
+    h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Continue");
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "done" });
+    expect(seen[0]).toContain("Continue the task from where you stopped");
   });
 
   it("fails with the evidence when the user answers Stop", async () => {

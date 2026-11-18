@@ -7,6 +7,7 @@ import { ToolRegistry } from "@stewart/tools";
 import type { ApproveFn } from "@stewart/permissions";
 import { engineFor, nativeLoop, type EngineEvent, type EngineTurn } from "../src/api.js";
 import { collect } from "@stewart/kernel";
+import { budgetTurn } from "../src/nativeLoop.js";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;
@@ -485,3 +486,36 @@ describe("native-loop engine contract", () => {
     expect(evs.some((e) => e.kind === "finished")).toBe(true);
   });
 });
+
+describe("native-loop turn budget", () => {
+  const step = (n: number): ChatEvent[] => [{ kind: "tool_calls", calls: [call("Echo", { text: `x${n}` }, `c${n}`)] }, { kind: "done" }];
+
+  it("nudges before the end and makes the last turn tool-less, finishing turn_limit", async () => {
+    const tools: number[] = [];
+    const ch = fakeChannel([step(1), step(2), step(3), step(4), step(5), [{ kind: "text", text: "found it" }, { kind: "done" }]], (req) => tools.push((req as { tools: unknown[] }).tools.length));
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 6 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "turn_limit" });
+    expect(tools).toEqual([1, 1, 1, 1, 1, 0]);
+    const notes = t.transcript.filter((m) => m.role === "user" && String(m.content).startsWith("[Stewart]"));
+    expect(notes).toHaveLength(2);
+    expect(String(notes[0].content)).toContain("3 model turns left");
+    expect(t.transcript[t.transcript.length - 1]).toMatchObject({ role: "assistant", content: "found it" });
+  });
+
+  it("drops tool calls the model still emits on the salvage turn", async () => {
+    const ch = fakeChannel([step(1), step(2), step(3)]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 3 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "turn_limit" });
+    expect(t.transcript[t.transcript.length - 1].toolCalls).toBeUndefined();
+    expect(t.transcript.some((m) => String(m.content).includes("3 model turns left"))).toBe(false);
+  });
+
+  it("keeps tools on the last turn of a tiny budget", () => {
+    const t = turn({ tools: new ToolRegistry([echoTool]), maxTurns: 2 });
+    expect(budgetTurn(t, 1)).toEqual({ turn: t, salvage: false });
+    expect(t.transcript).toHaveLength(1);
+  });
+});
+

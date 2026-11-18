@@ -84,7 +84,7 @@ describe("Core roles + skills dispatch", () => {
     expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(3);
     await core.dispatch("roles.reset", { projectId: "p", roleId: "lead" });
     r = (await core.dispatch("config.get", { projectId: "p" })) as typeof r;
-    expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(40); // shipped default
+    expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(60); // shipped default
     await core.dispatch("roles.reset", { projectId: "p" });
     expect(layer["roles.yaml"]).toContain("items: []");
   });
