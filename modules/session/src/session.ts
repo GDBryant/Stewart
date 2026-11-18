@@ -192,6 +192,7 @@ export class SessionService {
         contract: o.contract,
         needs: o.needs ?? {},
         interactive: true,
+        maxTurns: config.settings.runTurnLimit,
         run: w.rs,
         beforeModelTurn: async (agent: AgentDef) => this.compact(w, agent, config),
         onStep: w.stepSave,

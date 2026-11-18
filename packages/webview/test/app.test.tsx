@@ -627,6 +627,20 @@ describe("webview settings", () => {
     expect(screen.getByText(/m1, m2/)).toBeTruthy();
   });
 
+  it("shows and saves the run turn limit in the settings tab", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary!, settings: { costLimit: { perRunUsd: 5, onLimit: "ask" }, runTurnLimit: 60 } } }));
+    fireEvent.click(screen.getByText("settings"));
+    const input = screen.getByText(/run turn limit/).parentElement!.querySelector("input")!;
+    expect(input.value).toBe("60");
+    fireEvent.input(input, { target: { value: "1000" } });
+    fireEvent.click(screen.getByText("Save settings"));
+    const setMsg = bridge.sent.find((m) => m.type === "config.set");
+    expect(setMsg && setMsg.type === "config.set" && setMsg.file).toBe("settings.yaml");
+    expect(setMsg && setMsg.type === "config.set" && setMsg.yaml).toContain("runTurnLimit: 1000");
+  });
+
   it("shows config errors", () => {
     const { bridge } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);

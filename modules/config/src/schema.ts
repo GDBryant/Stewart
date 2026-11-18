@@ -82,6 +82,8 @@ export const settingsSchema = z.object({
       onLimit: z.enum(["ask", "stop"]).default("ask"),
     })
     .default({}),
+  /** Turn budget of the lead run (overrides the lead role's turnBudget); >= 1000 runs until the model finishes. */
+  runTurnLimit: z.number().int().positive().default(60),
   skillBudgetTokens: z.number().int().positive().default(8000),
   historyRetentionDays: z.number().int().min(0).default(30),
   setupPriorities: z

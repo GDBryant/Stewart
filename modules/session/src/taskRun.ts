@@ -40,6 +40,8 @@ export interface TaskSpec {
   baseline?: Baseline;
   /** After the whole chain failed: ask the user once (lead only). */
   interactive: boolean;
+  /** Turn budget overriding `role.turnBudget` (lead: settings.runTurnLimit). */
+  maxTurns?: number;
   /** Shared per-run state: controller/signal, event seq, accrued cost, costCapped. */
   run: RunState;
   beforeModelTurn?: (agent: AgentDef) => Promise<void>;
@@ -138,11 +140,21 @@ async function verify(c: Ctx, baseline: Baseline): Promise<Verify> {
   return { res, input, contract };
 }
 
+/** Turn budgets at or above this run until the model finishes (no cap, no budget notes). */
+export const UNBOUNDED_TURNS = 1000;
+
+/** Model-turn budget for one attempt: 1 for a repair, else spec/role budget ("unlimited" = 200). */
+export function turnsFor(spec: Pick<TaskSpec, "maxTurns" | "role">, repair: boolean): number {
+  if (repair) return 1;
+  const budget = spec.maxTurns ?? (spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget);
+  return budget >= UNBOUNDED_TURNS ? Number.POSITIVE_INFINITY : budget;
+}
+
 async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
   const { spec, deps, ts } = c;
   const channel = deps.channelFor(agent.channel);
   const engine = (deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
-  ts.maxTurns = repair ? 1 : spec.role.turnBudget === "unlimited" ? 200 : spec.role.turnBudget;
+  ts.maxTurns = turnsFor(spec, repair);
   const turn = {
     sessionId: spec.sessionId,
     transcript: spec.transcript,

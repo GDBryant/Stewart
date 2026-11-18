@@ -527,6 +527,15 @@ describe("native-loop turn budget", () => {
     expect(t.transcript[t.transcript.length - 1]).toEqual({ role: "assistant", content: "the fix is X" });
   });
 
+  it("runs past 1000 tool turns to a normal stop when the budget is unbounded, with no budget notes", async () => {
+    const ch = fakeChannel([...steps(1200), [{ kind: "text", text: "finished" }, { kind: "done" }]]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: Number.POSITIVE_INFINITY });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    expect(evs.filter((e) => e.kind === "tool.outcome")).toHaveLength(1200);
+    expect(t.transcript.some((m) => String(m.content).startsWith("[Stewart]"))).toBe(false);
+  });
+
   it("adds no notes below the minimum budget (bench probes, conformance)", () => {
     const t = turn({ tools: new ToolRegistry([echoTool]), maxTurns: 9 });
     expect(budgetTurn(t, 6)).toBe(false);

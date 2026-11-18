@@ -6,6 +6,7 @@ import { unflatten, useForm, type Field } from "./fields.js";
 const SETTINGS_FIELDS: Field[] = [
   { key: "costLimit.perRunUsd", label: "cost limit $/run", kind: "number" },
   { key: "costLimit.onLimit", label: "on limit", kind: "select", options: ["ask", "stop"] },
+  { key: "runTurnLimit", label: "run turn limit (lead; 1000+ = until finished)", kind: "number" },
   { key: "skillBudgetTokens", label: "skill budget tokens", kind: "number" },
   { key: "log.level", label: "log level", kind: "select", options: ["off", "calls", "full"] },
   { key: "log.retainDays", label: "log retain days", kind: "number" },

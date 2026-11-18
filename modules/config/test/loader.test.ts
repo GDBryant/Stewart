@@ -57,6 +57,13 @@ historyRetentionDays: 7
     expect("budgets" in c.settings).toBe(false);
   });
 
+  it("runTurnLimit defaults to 60, takes a user value, and rejects non-positive values", () => {
+    expect(loadConfig({}, undefined, {}, { trusted: true }).settings.runTurnLimit).toBe(60);
+    expect(loadConfig({ "settings.yaml": "version: 1\nrunTurnLimit: 1000\n" }, undefined, {}, { trusted: true }).settings.runTurnLimit).toBe(1000);
+    const bad = loadConfig({ "settings.yaml": "version: 1\nrunTurnLimit: 0\n" }, undefined, {}, { trusted: true });
+    expect(bad.errors.some((e) => e.startsWith("settings.yaml"))).toBe(true);
+  });
+
   it("roles with fallbackAgent and old role ids load as inert profiles", () => {
     const old = `version: 1
 items:

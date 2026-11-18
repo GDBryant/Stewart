@@ -59,6 +59,7 @@ export interface SkillSummary {
 }
 export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
+  runTurnLimit?: number;
   skillBudgetTokens?: number;
   setupPriorities?: { speed?: number; cost?: number; quality?: number };
   setupTypicalWork?: string;

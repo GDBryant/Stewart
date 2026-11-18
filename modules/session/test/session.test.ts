@@ -390,7 +390,7 @@ describe("SessionService", () => {
     expect(await h.waitFor("run.finished")).toMatchObject({ status: "failed", error: "role 'lead' is disabled" });
   });
 
-  it("indexes skills by body first line when description is empty, and caps turnBudget at 200 for unlimited", async () => {
+  it("indexes skills by body first line when description is empty; the lead budget comes from settings.runTurnLimit, not the role", async () => {
     const captured: { system?: string; maxTurns?: number } = {};
     const engine: Engine = {
       id: "native-loop",
@@ -410,9 +410,29 @@ describe("SessionService", () => {
     const h = harness({ config, engine });
     await h.svc.send({ text: "x" });
     await h.waitFor("run.finished");
-    expect(captured.maxTurns).toBe(200);
+    expect(captured.maxTurns).toBe(60);
     expect(captured.system).toContain("- sk1: BODY FIRST LINE");
     expect(captured.system).toContain("You are lead.");
+  });
+
+  it("runs the lead without a turn cap when runTurnLimit is 1000 or more", async () => {
+    const budgets: number[] = [];
+    const engine: Engine = {
+      id: "native-loop",
+      caps: { ownTools: false, ownContext: false },
+      complete: async () => ({ ok: false as const, error: "no complete" }),
+      async *run(turn: EngineTurn) {
+        budgets.push(turn.maxTurns);
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    for (const runTurnLimit of [7, 999, 1000, 5000]) {
+      const h = harness({ config: makeConfig({ settings: { ...settingsFile.parse({}), runTurnLimit } }), engine });
+      await h.svc.send({ text: "x" });
+      await h.waitFor("run.finished");
+    }
+    expect(budgets).toEqual([7, 999, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY]);
   });
 
   it("persists engine state between turns", async () => {
@@ -451,9 +471,11 @@ describe("SessionService delegate", () => {
   }
 
   it("runs a child turn to task.done and returns status done to the lead", async () => {
-    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer] });
+    const config = makeConfig({ roles: [makeConfig().roles[0], reviewer], settings: { ...settingsFile.parse({}), runTurnLimit: 2000 } });
+    const budgets: number[] = [];
     const engine = scriptedEngine([
       async function* (turn) {
+        budgets.push(turn.maxTurns);
         yield { kind: "tool.request", callId: "1", tool: "delegate", args: {}, category: "OTHER" };
         const tool = turn.tools.find("delegate")!;
         const out = String(await tool.execute({ role: "reviewer", task: "review src/a.ts" }, null, turn.signal));
@@ -465,6 +487,7 @@ describe("SessionService delegate", () => {
         yield { kind: "finished", reason: "stop" };
       },
       async function* (turn) {
+        budgets.push(turn.maxTurns);
         yield* readOnce();
         yield { kind: "text", text: "src/a.ts:1 — fine" };
         turn.transcript.push({ role: "assistant", content: "src/a.ts:1 — fine" });
@@ -477,6 +500,7 @@ describe("SessionService delegate", () => {
     expect(fin).toMatchObject({ status: "done" });
     const created = h.events.find((e) => e.kind === "task.created");
     expect(created).toMatchObject({ roleId: "reviewer", title: "review src/a.ts" });
+    expect(budgets).toEqual([Number.POSITIVE_INFINITY, 5]);
     expect(h.events.some((e) => e.kind === "task.started")).toBe(true);
     const done = h.events.find((e) => e.kind === "task.done");
     expect(done).toMatchObject({ roleId: "reviewer" });

@@ -508,6 +508,7 @@ describe("claude-code line helpers", () => {
     expect(withSys[withSys.indexOf("--append-system-prompt") + 1]).toBe("SYS");
     const noBudget = claudeArgv(makeTurn({ maxTurns: 0 }), undefined);
     expect(noBudget).not.toContain("--max-turns");
+    expect(claudeArgv(makeTurn({ maxTurns: Number.POSITIVE_INFINITY }), undefined)).not.toContain("--max-turns");
   });
 
   it("encodes images as base64 content blocks", () => {
