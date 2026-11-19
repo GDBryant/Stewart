@@ -13,6 +13,7 @@ export type Outbound =
   | { type: "history.list" }
   | { type: "history.load"; sessionId: string }
   | { type: "history.delete"; sessionId: string }
+  | { type: "slash.list" }
   | { type: "channel.test"; channelId: string }
   | { type: "channel.probe"; channelId: string; model: string; force?: boolean; bench?: boolean }
   | { type: "secret.set"; ref: string; value: string }
@@ -138,6 +139,7 @@ export type Inbound =
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
   | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: CatalogInfo; error?: string }
   | { type: "history.sessions"; sessions: SessionSummary[] }
+  | { type: "slash.commands"; commands: import("@stewart/protocol").SlashCommandInfo[] }
   | { type: "history.messages"; sessionId: string; messages: StoredMessage[]; plan?: { goal?: string; status?: string; active?: boolean; milestones?: { id: string; title: string; status: string; checkpoint?: string }[] } }
   | { type: "insertText"; text: string }
   | { type: "permissions.bypass.result"; on: boolean }

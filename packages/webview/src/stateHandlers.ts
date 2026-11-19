@@ -35,6 +35,7 @@ export class StoreHandlers {
         },
       }),
     "history.sessions": (m) => this.patch({ sessions: m.sessions }),
+    "slash.commands": (m) => this.patch({ slashCommands: m.commands }),
     "history.messages": (m) => this.onHistoryMessages(m),
     insertText: (m) => this.patch({ composerInsert: { text: m.text, seq: this.host.nextInsertSeq() } }),
     ready: () => {},

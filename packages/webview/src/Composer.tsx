@@ -1,4 +1,7 @@
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import type { SlashCommandInfo } from "@stewart/protocol";
+import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "./slashMenu.js";
+import { SlashMenu } from "./SlashMenu.js";
 import type { Store } from "./state.js";
 
 function dataUriFromFile(file: File, done: (uri: string) => void): void {
@@ -45,6 +48,70 @@ function useComposerInsert(store: Store): void {
   }, [ins]);
 }
 
+interface SlashMenuCtl {
+  open: boolean;
+  items: SlashCommandInfo[];
+  selected: number;
+  setSel(i: number): void;
+  complete(c: SlashCommandInfo): void;
+  dismiss(): void;
+}
+
+function useSlashMenu(store: Store): SlashMenuCtl {
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [sel, setSel] = useState(0);
+  const draft = store.state.draft;
+  useEffect(() => setSel(0), [draft]);
+  const items = slashMenuOpen(draft) && draft !== dismissed ? slashMenuFilter(store.state.slashCommands, draft) : [];
+  return {
+    open: items.length > 0,
+    items,
+    selected: Math.min(sel, Math.max(items.length - 1, 0)),
+    setSel,
+    complete: (c) => {
+      store.setDraft(slashMenuComplete(c));
+      setDismissed(null);
+    },
+    dismiss: () => setDismissed(draft),
+  };
+}
+
+function slashMenuKey(e: KeyboardEvent, m: SlashMenuCtl): boolean {
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    m.setSel(slashMenuMove(m.selected, m.items.length, 1));
+    return true;
+  }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    m.setSel(slashMenuMove(m.selected, m.items.length, -1));
+    return true;
+  }
+  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+    e.preventDefault();
+    m.complete(m.items[m.selected]);
+    return true;
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    m.dismiss();
+    return true;
+  }
+  return false;
+}
+
+function useComposerKeys(store: Store, menu: SlashMenuCtl) {
+  const send = () => store.send(store.state.draft);
+  const onKey = (e: KeyboardEvent) => {
+    if (menu.open && slashMenuKey(e, menu)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+  return { send, onKey };
+}
+
 function PendingImages({ images, onRemove }: { images: string[]; onRemove(i: number): void }) {
   if (!images.length) return null;
   return (
@@ -64,22 +131,17 @@ function ComposerAction({ busy, canSend, onStop, onSend }: { busy: boolean; canS
   return <button class="send" disabled={!canSend} onClick={onSend}>Send</button>;
 }
 
-function ComposerTextarea({ draft, busy, onDraft, onAttach, onSend }: {
+function ComposerTextarea({ draft, busy, onDraft, onAttach, onKey, onBlur }: {
   draft: string;
   busy: boolean;
   onDraft(text: string): void;
   onAttach(files: File[]): void;
-  onSend(): void;
+  onKey(e: KeyboardEvent): void;
+  onBlur(): void;
 }) {
   const onPaste = (e: ClipboardEvent) => {
     const files = clipboardFiles(e.clipboardData);
     if (files.length) onAttach(files);
-  };
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      onSend();
-    }
   };
   return (
     <textarea
@@ -88,7 +150,8 @@ function ComposerTextarea({ draft, busy, onDraft, onAttach, onSend }: {
       disabled={busy}
       onInput={(e) => onDraft((e.target as HTMLTextAreaElement).value)}
       onPaste={onPaste}
-      onKeyDown={onKeyDown}
+      onKeyDown={onKey}
+      onBlur={onBlur}
     />
   );
 }
@@ -118,22 +181,26 @@ function AttachButton({ onFiles }: { onFiles(files: FileList | File[]): void }) 
 export function Composer({ store }: { store: Store }) {
   const s = store.state;
   useComposerInsert(store);
+  const menu = useSlashMenu(store);
+  const { send, onKey } = useComposerKeys(store, menu);
   const attach = (files: FileList | File[]) => attachFiles(store, files);
-  const send = () => store.send(s.draft);
   return (
-    <div
-      class="composer"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        attach(e.dataTransfer?.files ?? []);
-      }}
-    >
-      <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
-      {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
-      <ComposerTextarea draft={s.draft} busy={!!s.busyRunId} onDraft={(t) => store.setDraft(t)} onAttach={attach} onSend={send} />
-      <AttachButton onFiles={attach} />
-      <ComposerAction busy={!!s.busyRunId} canSend={!!s.draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
+    <div class="composer-wrap">
+      {menu.open ? <SlashMenu items={menu.items} selected={menu.selected} onPick={menu.complete} /> : null}
+      <div
+        class="composer"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          attach(e.dataTransfer?.files ?? []);
+        }}
+      >
+        <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
+        {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
+        <ComposerTextarea draft={s.draft} busy={!!s.busyRunId} onDraft={(t) => store.setDraft(t)} onAttach={attach} onKey={onKey} onBlur={menu.dismiss} />
+        <AttachButton onFiles={attach} />
+        <ComposerAction busy={!!s.busyRunId} canSend={!!s.draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
+      </div>
     </div>
   );
 }

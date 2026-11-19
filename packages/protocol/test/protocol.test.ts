@@ -57,6 +57,7 @@ describe("protocol", () => {
     expect(METHODS).toContain("history.list");
     expect(METHODS).toContain("history.load");
     expect(METHODS).toContain("history.delete");
+    expect(METHODS).toContain("slash.list");
     expect(METHODS).toContain("channel.probe");
     expect(METHODS).toContain("setup.probe.start");
     expect(METHODS).toContain("setup.probe.status");
@@ -64,6 +65,6 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.retry");
     expect(METHODS).toContain("setup.session.addChannel");
     expect(METHODS).toContain("setup.session.removeChannel");
-    expect(METHODS.length).toBe(40);
+    expect(METHODS.length).toBe(41);
   });
 });

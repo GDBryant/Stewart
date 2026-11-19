@@ -1,3 +1,4 @@
+import type { SlashCommandInfo } from "@stewart/protocol";
 import type { ConfigReply, SessionSummary, SetupProbeSnapshot } from "./bridge.js";
 
 /** One collapsed step in an assistant turn: a tool call, a check, or an escalation. */
@@ -102,6 +103,7 @@ export interface State {
   view: "chat" | "settings";
   sessionId?: string;
   sessions: SessionSummary[];
+  slashCommands: SlashCommandInfo[];
   historyOpen: boolean;
   pendingImages: string[];
   draft: string;

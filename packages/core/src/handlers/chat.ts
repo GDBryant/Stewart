@@ -1,9 +1,8 @@
 import { expandMentions, normalizeImages } from "@stewart/context";
 import { counterIds } from "@stewart/kernel";
-import { createSlashRegistry, runSlash, slashPlainText } from "@stewart/slash";
+import { runSlash, slashPlainText } from "@stewart/slash";
+import { slashRegistry } from "./slash.js";
 import type { CoreCtx } from "./types.js";
-
-const slashRegistry = createSlashRegistry();
 
 type ChatParams = { projectId: string; text: string; images?: string[]; sessionId?: string };
 

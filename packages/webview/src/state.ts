@@ -30,6 +30,7 @@ export class Store {
     qualResults: {},
     view: "chat",
     sessions: [],
+    slashCommands: [],
     historyOpen: false,
     pendingImages: [],
     draft: "",
@@ -54,6 +55,7 @@ export class Store {
     bridge.onMessage((m) => this.handlers.onInbound(m));
     bridge.post({ type: "ready" });
     bridge.post({ type: "permissions.bypass" });
+    bridge.post({ type: "slash.list" });
   }
 
   subscribe(fn: Listener): () => void {

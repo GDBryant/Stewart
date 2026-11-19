@@ -394,6 +394,20 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `slash list shaped reply`() {
+        val rig = Rig { m, _ ->
+            if (m == "slash.list") Json.parseToJsonElement("""{"commands":[{"name":"help","argHint":"","description":"d"}]}""")
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"slash.list"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("slash.commands", m.type())
+        assertTrue(m.containsKey("commands"))
+        assertEquals("slash.list", rig.calls[0].first)
+        assertEquals("p1", rig.calls[0].second!!["projectId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `history load shaped reply carries session id`() {
         val rig = Rig { m, _ ->
             if (m == "history.load") Json.parseToJsonElement("""{"messages":[{"role":"user","content":"hi"}]}""")

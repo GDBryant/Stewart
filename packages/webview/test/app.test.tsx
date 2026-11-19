@@ -628,7 +628,7 @@ describe("webview editor insert", () => {
       bridge.inbound(ev("run.finished", { status: "done" }));
     });
     expect(screen.queryByText("Insert into editor")).toBeNull();
-    expect(bridge.sent).toEqual([{ type: "ready" }, { type: "permissions.bypass" }]);
+    expect(bridge.sent).toEqual([{ type: "ready" }, { type: "permissions.bypass" }, { type: "slash.list" }]);
   });
 
   it("fills the composer from an insertText inbound message", () => {
@@ -1634,6 +1634,13 @@ describe("webview store replies", () => {
     expect(store.state.items).toHaveLength(0);
   });
 
+  it("requests slash.list on ready and stores slash.commands", () => {
+    const { bridge, store } = mkStore();
+    expect(bridge.sent).toContainEqual({ type: "slash.list" });
+    bridge.inbound({ type: "slash.commands", commands: [{ name: "help", argHint: "", description: "d" }] });
+    expect(store.state.slashCommands).toEqual([{ name: "help", argHint: "", description: "d" }]);
+  });
+
   it("insertText replies carry incrementing seq numbers", () => {
     const { bridge, store } = mkStore();
     bridge.inbound({ type: "insertText", text: "one" });
@@ -1977,5 +1984,76 @@ describe("wizard apply agent building", () => {
     act(() => bridge.inbound({ type: "setup.review.result", error: "diff failed" }));
     expect(store.state.setupError).toBe("diff failed");
     expect(bridge.sent.filter((m) => m.type === "setup.approve")).toHaveLength(0);
+  });
+});
+
+describe("slash menu", () => {
+  const slashCommands = [
+    { name: "help", argHint: "", description: "List commands" },
+    { name: "init", aliases: ["ini"], argHint: "", description: "Init the project" },
+    { name: "clear", argHint: "", description: "Clear the chat" },
+  ];
+  const seed = (bridge: MockBridge) =>
+    act(() => {
+      bridge.inbound({ type: "slash.commands", commands: slashCommands });
+    });
+  const ta = () => screen.getByPlaceholderText("Ask Stewart") as HTMLTextAreaElement;
+  const selUsage = () => document.querySelector(".slash-item.selected .slash-usage")?.textContent;
+
+  it("Enter with the menu open completes the draft and posts no chat.send", () => {
+    const { bridge } = mk();
+    seed(bridge);
+    fireEvent.input(ta(), { target: { value: "/i" } });
+    expect(document.querySelectorAll(".slash-item")).toHaveLength(1);
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(ta().value).toBe("/init ");
+    expect(bridge.sent.filter((m) => m.type === "chat.send")).toHaveLength(0);
+    expect(document.querySelector(".slash-menu")).toBeNull();
+  });
+
+  it("Tab completes the selected command and Arrow keys move the selection", () => {
+    const { bridge } = mk();
+    seed(bridge);
+    fireEvent.input(ta(), { target: { value: "/" } });
+    expect(selUsage()).toBe("/help");
+    fireEvent.keyDown(ta(), { key: "ArrowDown" });
+    expect(selUsage()).toBe("/init");
+    fireEvent.keyDown(ta(), { key: "ArrowUp" });
+    fireEvent.keyDown(ta(), { key: "ArrowUp" });
+    expect(selUsage()).toBe("/clear");
+    fireEvent.keyDown(ta(), { key: "Tab" });
+    expect(ta().value).toBe("/clear ");
+    expect(bridge.sent.filter((m) => m.type === "chat.send")).toHaveLength(0);
+  });
+
+  it("Enter with the menu closed sends the draft", () => {
+    const { bridge } = mk();
+    seed(bridge);
+    fireEvent.input(ta(), { target: { value: "hello" } });
+    expect(document.querySelector(".slash-menu")).toBeNull();
+    fireEvent.keyDown(ta(), { key: "Enter" });
+    expect(bridge.sent).toContainEqual(expect.objectContaining({ type: "chat.send", text: "hello" }));
+  });
+
+  it("Escape closes the menu until the draft changes", () => {
+    const { bridge } = mk();
+    seed(bridge);
+    fireEvent.input(ta(), { target: { value: "/" } });
+    expect(document.querySelector(".slash-menu")).toBeTruthy();
+    fireEvent.keyDown(ta(), { key: "Escape" });
+    expect(document.querySelector(".slash-menu")).toBeNull();
+    expect(ta().value).toBe("/");
+    fireEvent.input(ta(), { target: { value: "/h" } });
+    expect(document.querySelector(".slash-menu")).toBeTruthy();
+  });
+
+  it("ArrowUp with the menu closed leaves the draft untouched", () => {
+    const { bridge } = mk();
+    seed(bridge);
+    fireEvent.input(ta(), { target: { value: "draft text" } });
+    const e = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+    ta().dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    expect(ta().value).toBe("draft text");
   });
 });

@@ -222,3 +222,13 @@ describe("setup.recommend via dispatch", () => {
     expect(seeded.uLayer["settings.yaml"]).toBe("version: 1\nsetupPriorities: { speed: 1, cost: 3, quality: 2 }\nsetupTypicalWork: refactors\n");
   });
 });
+
+describe("slash.list", () => {
+  it("returns the built-in commands", async () => {
+    const { core } = mk();
+    await attach(core);
+    const r = (await core.dispatch("slash.list", { projectId: "p" })) as { commands: { name: string; argHint: string; description: string }[] };
+    expect(r.commands.map((c) => c.name)).toEqual(["help", "init", "clear"]);
+    expect(r.commands[0]).toMatchObject({ name: "help", argHint: "" });
+  });
+});

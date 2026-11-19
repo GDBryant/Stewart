@@ -49,6 +49,7 @@ const ROUTES: Record<string, Handler> = {
   "chat.revert": (ctx, m) =>
     dispatchAndReply(ctx, "chat.revert", { projectId: PROJECT_ID, sessionId: m.sessionId, checkpoint: m.checkpoint }, { type: "chat.revert.result" }),
   "history.list": (ctx) => dispatchAndReply(ctx, "history.list", { projectId: PROJECT_ID }, { type: "history.sessions" }),
+  "slash.list": (ctx) => dispatchAndReply(ctx, "slash.list", { projectId: PROJECT_ID }, { type: "slash.commands" }),
   "history.load": (ctx, m) =>
     dispatchAndReply(ctx, "history.load", { projectId: PROJECT_ID, sessionId: m.sessionId }, { type: "history.messages", sessionId: m.sessionId }),
   "history.delete": async (ctx, m) => {

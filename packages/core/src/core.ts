@@ -21,6 +21,7 @@ import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
 import * as setupProbe from "./handlers/setupProbe.js";
 import * as qualify from "./handlers/qualify.js";
+import * as slash from "./handlers/slash.js";
 import { createProbeLoop } from "./probeLoop.js";
 import { applyProbes } from "./handlers/util.js";
 import type { CoreCtx, CoreDeps, ProjectCtx } from "./handlers/types.js";
@@ -174,6 +175,7 @@ export class Core implements CoreCtx {
     "history.list": (p) => chat.handleHistoryList(this, p),
     "history.load": (p) => chat.handleHistoryLoad(this, p),
     "history.delete": (p) => chat.handleHistoryDelete(this, p),
+    "slash.list": (p) => slash.handleSlashList(this, p),
     "config.get": (p) => cfg.handleConfigGet(this, p),
     "config.reload": (p) => cfg.handleConfigReload(this, p),
     "config.set": (p) => cfg.handleConfigSet(this, p),

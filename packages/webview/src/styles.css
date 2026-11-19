@@ -136,3 +136,10 @@ button.small { padding: 1px 6px; font-size: 11px; }
 }
 .card.qa { margin: 4px 0; font-size: 12px; }
 .qa-a { margin-top: 6px; padding-top: 6px; border-top: 1px solid #8885; font-weight: 500; }
+
+.composer-wrap { position: relative; }
+.slash-menu { position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; z-index: 20; background: var(--st-input-bg); border: 1px solid var(--st-border); border-radius: 6px; max-height: 220px; overflow-y: auto; box-shadow: 0 4px 12px #0004; }
+.slash-item { display: flex; gap: 8px; align-items: baseline; width: 100%; border: 0; background: none; text-align: left; padding: 4px 10px; border-radius: 0; }
+.slash-item.selected { background: var(--st-accent); color: var(--st-accent-fg); }
+.slash-usage { font-family: ui-monospace, monospace; flex: none; }
+.slash-desc { opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

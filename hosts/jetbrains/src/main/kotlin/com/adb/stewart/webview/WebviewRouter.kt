@@ -94,6 +94,10 @@ class WebviewRouter(
                     val r = request("history.list", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("history.sessions"))))
                 }
+                "slash.list" -> {
+                    val r = request("slash.list", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("slash.commands"))))
+                }
                 "history.load" -> {
                     val r = request("history.load", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("history.messages")) + ("sessionId" to (m["sessionId"] ?: JsonPrimitive("")))))

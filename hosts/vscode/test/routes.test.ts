@@ -117,6 +117,14 @@ describe("routes", () => {
     expect(s.posted[0]).toEqual({ type: "history.sessions", sessions: [{ id: "s1" }] });
   });
 
+  it("slash.list posts slash.commands", async () => {
+    const s = setup();
+    s.results.set("slash.list", { commands: [{ name: "help", argHint: "", description: "d" }] });
+    await s.run({ type: "slash.list" });
+    expect(s.dispatchCalls[0]).toEqual({ method: "slash.list", params: { projectId: PROJECT_ID } });
+    expect(s.posted[0]).toEqual({ type: "slash.commands", commands: [{ name: "help", argHint: "", description: "d" }] });
+  });
+
   it("history.load picks sessionId and posts history.messages", async () => {
     const s = setup();
     s.results.set("history.load", { messages: [] });

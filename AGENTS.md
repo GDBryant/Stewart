@@ -26,7 +26,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
 - Health-check reliability plan (implemented): `docs/HEALTH_CHECK_RELIABILITY_PLAN_2026-11-18.md` - remediation for the 2026-11-17 BulkOnline run: report contracts, check execution, coverage, framework reads, recovery and evidence.
 - Chat segments plan (implemented): `docs/CHAT_SEGMENTS_PLAN_2026-11-19.md` — webview run segmentation: assistant segments per run, Q&A items, paragraph break, `:final` output block.
-- Slash commands refactor plan (proposed): `docs/SLASH_COMMANDS_REFACTOR_PLAN_2026-11-19.md` — new `@stewart/slash` module, one file per command, `SlashSessionPort`, registry with duplicate/alias check, central error capture, `slash.list` + composer autocomplete; build order S1–S5.
+- Slash commands refactor plan (implemented S1–S4; S5 optional, not built): `docs/SLASH_COMMANDS_REFACTOR_PLAN_2026-11-19.md` — new `@stewart/slash` module, one file per command, `SlashSessionPort`, registry with duplicate/alias check, central error capture, `slash.list` + composer autocomplete; build order S1–S5.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
