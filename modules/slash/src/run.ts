@@ -20,6 +20,10 @@ export async function runSlash(
     say(`Unknown command \`/${parsed.name}\` — type \`/help\``);
     return true;
   }
-  await cmd.run({ args: parsed.args, sessionId, ids: deps.ids, files: deps.files, interaction: deps.interaction, session: deps.session, say });
+  try {
+    await cmd.run({ args: parsed.args, sessionId, ids: deps.ids, files: deps.files, interaction: deps.interaction, session: deps.session, say });
+  } catch (e) {
+    say(`/${cmd.name} failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return true;
 }

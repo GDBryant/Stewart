@@ -1,9 +1,9 @@
 import { counterIds, fakeHost, systemClock } from "@stewart/kernel";
 import { Interaction } from "@stewart/interaction";
 import type { RunEvent } from "@stewart/protocol";
-import { builtinCommands, createRegistry } from "../src/api.js";
+import { createSlashRegistry } from "../src/api.js";
 
-export const REGISTRY = createRegistry(builtinCommands());
+export const REGISTRY = createSlashRegistry();
 
 export function makeDeps(files: Record<string, string> = {}) {
   const events: RunEvent[] = [];

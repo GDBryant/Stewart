@@ -35,6 +35,15 @@ describe("/clear", () => {
     expect(locals(events)[0]).toContain("a run is active for this session");
   });
 
+  it("a rejecting hook surfaces as /clear failed via the central capture", async () => {
+    const { deps, events } = makeDeps();
+    deps.session.clear = async () => {
+      throw new Error("disk gone");
+    };
+    expect(await runSlash(REGISTRY, deps, "/clear", "sess-1")).toBe(true);
+    expect(locals(events)).toEqual(["/clear failed: disk gone"]);
+  });
+
   it("answers locally without a session and never calls the hook", async () => {
     const { deps, events, cleared } = makeDeps();
     await runSlash(REGISTRY, deps, "/clear");

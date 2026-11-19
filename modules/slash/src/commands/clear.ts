@@ -6,7 +6,7 @@ export const clearCommand: SlashCommand = {
   description: "Start a new conversation: forget this chat's messages and engine state",
   async run(ctx) {
     if (!ctx.sessionId) return ctx.say("Clear: no session yet — already a new conversation.");
-    const res = await ctx.session.clear(ctx.sessionId).catch((e) => ({ ok: false, reason: e instanceof Error ? e.message : String(e) }));
+    const res = await ctx.session.clear(ctx.sessionId);
     ctx.say(res.ok ? "Cleared. Starting a new conversation." : `Clear failed: ${res.reason ?? "unknown error"}`);
   },
 };
