@@ -110,6 +110,10 @@ export class StoreHandlers {
         ],
       }),
     "setup.event": (ev) => this.onSetupEvent(ev),
+    "chat.local": (ev) =>
+      this.patch({
+        items: [...this.state.items, { id: `loc${this.host.nextItemSeq()}`, role: "assistant" as const, text: ev.text, activity: [] }],
+      }),
     "run.finished": (ev) => this.onRunFinished(ev),
   };
 

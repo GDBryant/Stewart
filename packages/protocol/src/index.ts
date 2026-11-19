@@ -116,6 +116,8 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cost.limit_reached"), ...base, capUsd: z.number(), accruedUsd: z.number() }),
   z.object({ kind: z.literal("cost.limit_raised"), ...base, capUsd: z.number() }),
   z.object({ kind: z.literal("setup.event"), projectId: z.string(), event: z.unknown() }),
+  /** Local command output (slash commands): rendered as a message, never sent to a model. */
+  z.object({ kind: z.literal("chat.local"), ...base, text: z.string() }),
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];

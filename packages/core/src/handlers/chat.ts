@@ -1,4 +1,6 @@
 import { expandMentions, normalizeImages } from "@stewart/context";
+import { counterIds } from "@stewart/kernel";
+import { runSlash, slashPlainText } from "@stewart/session";
 import type { CoreCtx } from "./types.js";
 
 type ChatParams = { projectId: string; text: string; images?: string[]; sessionId?: string };
@@ -6,9 +8,21 @@ type ChatParams = { projectId: string; text: string; images?: string[]; sessionI
 export async function handleChatSend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as ChatParams;
   const ctx = core.ctx(p.projectId);
+  const handled = await runSlash(
+    {
+      ids: core.deps.ids ?? counterIds(),
+      emit: core.deps.emitEvent,
+      files: ctx.host.files,
+      interaction: ctx.interaction,
+      sendPrompt: (sessionId, text) => ctx.sessions.send({ sessionId, text }),
+    },
+    p.text,
+    p.sessionId,
+  );
+  if (handled) return { ok: true };
   const lead = ctx.config.roles.find((r) => r.id === "lead" && r.enabled);
   if (!lead) throw new Error("the lead role is disabled; enable it to chat");
-  const mention = await expandMentions(ctx.host, p.text);
+  const mention = await expandMentions(ctx.host, slashPlainText(p.text));
   for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
   const norm = normalizeImages(p.images ?? []);
   if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
