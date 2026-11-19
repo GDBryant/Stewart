@@ -169,6 +169,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
     cwd: deps.paths.base,
     signal: spec.run.controller.signal,
     maxTurns: ts.maxTurns,
+    ...(spec.role.think !== undefined ? { think: spec.role.think } : {}),
     ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
   };
   try {

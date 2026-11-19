@@ -53,3 +53,28 @@ describe("delegate admission per channel", () => {
     expect((await peak(3, 3)).peak).toBe(3);
   });
 });
+
+describe("role think setting", () => {
+  async function seen(think: boolean | undefined): Promise<EngineTurn> {
+    const lead = { ...makeConfig().roles[0], ...(think === undefined ? {} : { think }) };
+    let got: EngineTurn | undefined;
+    const step = async function* (turn: EngineTurn): AsyncGenerator<EngineEvent, void> {
+      got = turn;
+      turn.transcript.push({ role: "assistant", content: "ok" });
+      yield { kind: "finished", reason: "stop" };
+    };
+    const h = harness({ config: makeConfig({ roles: [lead] }), engine: scriptedEngine([step]) });
+    await h.svc.send({ text: "go" });
+    await h.waitFor("run.finished", 5000);
+    return got!;
+  }
+
+  it("passes role.think to the engine turn", async () => {
+    expect((await seen(false)).think).toBe(false);
+    expect((await seen(true)).think).toBe(true);
+  });
+
+  it("leaves think unset when the role does not set it", async () => {
+    expect("think" in (await seen(undefined))).toBe(false);
+  });
+});

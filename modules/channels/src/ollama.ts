@@ -128,13 +128,14 @@ export class OllamaAdapter implements ChannelAdapter {
     const dbg = this.deps.debug;
     const caps = userCaps(cfg, req.model);
     const estTokens = estimatePromptTokens(messages, tools);
-    const numCtx = caps?.numCtx ?? autoNumCtx(estTokens, caps?.contextTokens);
+    const numCtx = caps?.numCtx ?? raiseNumCtx(autoNumCtx(estTokens, caps?.contextTokens), req.minNumCtx, caps?.contextTokens);
     const body = JSON.stringify({
       model: req.model,
       messages,
       tools: tools?.length ? tools : undefined,
       stream: true,
       format: req.responseSchema,
+      think: req.think,
       options: { temperature: req.temperature, num_ctx: numCtx },
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: `num_ctx=${numCtx ?? "default"} ${body}` });
@@ -177,11 +178,21 @@ export function estimatePromptTokens(messages: unknown, tools: unknown): number 
 
 const MIN_AUTO_CTX = 4096;
 const MAX_AUTO_CTX = 32768;
+/** Tokens reserved for the reply on top of the prompt: reasoning models spend thousands before the answer. */
+const OUTPUT_HEADROOM = 4096;
 
 /** Ollama's default context silently drops the oldest prompt content; size num_ctx to fit when none is configured. */
 export function autoNumCtx(estTokens: number, modelMax?: number): number | undefined {
   if (estTokens * 1.25 <= 2048) return undefined;
-  const want = Math.ceil((estTokens * 1.25 + 1024) / 1024) * 1024;
+  const want = Math.ceil((estTokens * 1.25 + OUTPUT_HEADROOM) / 1024) * 1024;
   const cap = Math.min(MAX_AUTO_CTX, modelMax && modelMax > 0 ? modelMax : MAX_AUTO_CTX);
   return Math.max(Math.min(want, cap), Math.min(MIN_AUTO_CTX, cap));
+}
+
+/** Raise [auto] to at least [min] (a retry after a `length` stop), within the model maximum when known. */
+export function raiseNumCtx(auto: number | undefined, min: number | undefined, modelMax?: number): number | undefined {
+  if (!min) return auto;
+  const cap = modelMax && modelMax > 0 ? modelMax : MAX_AUTO_CTX;
+  const want = Math.min(Math.ceil(min / 1024) * 1024, cap);
+  return Math.max(auto ?? 0, want);
 }

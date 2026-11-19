@@ -544,3 +544,47 @@ describe("native-loop turn budget", () => {
   });
 });
 
+
+describe("native-loop truncation and think", () => {
+  const cut = (tokens = 9216): ChatEvent[] => [{ kind: "reasoning", text: "hmm" }, { kind: "done", usage: { in: tokens - 3000, out: 3000 }, truncated: true }];
+
+  it("retries once with think off and a larger window when cut off before any reply", async () => {
+    const reqs: { think?: boolean; minNumCtx?: number }[] = [];
+    const ch = fakeChannel([cut(), [{ kind: "text", text: "report" }, { kind: "done" }]], (r) => reqs.push(r as { think?: boolean }));
+    const t = turn({ channel: ch, think: true });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]).toMatchObject({ think: true });
+    expect(reqs[0].minNumCtx).toBeUndefined();
+    expect(reqs[1]).toMatchObject({ think: false, minNumCtx: 18432 });
+    expect(t.transcript.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(t.transcript[1]).toMatchObject({ content: "report" });
+  });
+
+  it("fails with the cut-off cause when the retry is cut off too", async () => {
+    const ch = fakeChannel([cut(), cut()]);
+    const t = turn({ channel: ch });
+    const evs = await collect(nativeLoop.run(t));
+    const fin = last(evs);
+    expect(fin).toMatchObject({ kind: "finished", reason: "error" });
+    expect((fin as { error: string }).error).toMatch(/cut off by the context window/);
+    expect(t.transcript.some((m) => m.role === "assistant")).toBe(false);
+  });
+
+  it("does not retry a truncated reply that has content, or a normal one; omits think when unset", async () => {
+    const reqs: object[] = [];
+    const ch = fakeChannel([[{ kind: "text", text: "partial" }, { kind: "done", truncated: true }]], (r) => reqs.push(r as object));
+    const evs = await collect(nativeLoop.run(turn({ channel: ch })));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    expect(reqs).toHaveLength(1);
+    expect("think" in reqs[0]).toBe(false);
+  });
+
+  it("retry floor is 8192 when the provider reported no usage", async () => {
+    const reqs: { minNumCtx?: number }[] = [];
+    const ch = fakeChannel([[{ kind: "done", truncated: true }], [{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => reqs.push(r as object));
+    await collect(nativeLoop.run(turn({ channel: ch })));
+    expect(reqs[1].minNumCtx).toBe(8192);
+  });
+});

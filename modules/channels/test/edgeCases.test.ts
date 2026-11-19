@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OllamaAdapter, extractError, estimatePromptTokens, autoNumCtx } from "../src/ollama.js";
+import { OllamaAdapter, extractError, estimatePromptTokens, autoNumCtx, raiseNumCtx } from "../src/ollama.js";
 import { OpenAICompatAdapter } from "../src/openai.js";
 import { ChannelRegistry, ManagedChannel } from "../src/registry.js";
 import { ChannelError, type ChannelAdapter, type ChannelConfig, type ChatRequest } from "../src/types.js";
@@ -23,7 +23,7 @@ describe("extractError", () => {
 describe("autoNumCtx / estimatePromptTokens", () => {
   it("leaves small prompts at default, sizes and caps large ones", () => {
     expect(autoNumCtx(100)).toBeUndefined();
-    expect(autoNumCtx(5000)).toBe(8192);
+    expect(autoNumCtx(5000)).toBe(11264);
     expect(autoNumCtx(50000)).toBe(32768);
     expect(autoNumCtx(5000, 2048)).toBe(2048);
     expect(estimatePromptTokens([{ a: 1 }], undefined)).toBeGreaterThan(0);
@@ -314,5 +314,32 @@ describe("nodeSpawn", () => {
     expect(f).toContain("stewart-test-");
     await rmDir(dir);
     await rmDir(f.split("/").slice(0, -1).join("/"));
+  });
+});
+
+describe("Ollama output headroom, think and retry window", () => {
+  it("reserves 4k output tokens beyond the prompt", () => {
+    expect(autoNumCtx(3688)).toBeGreaterThanOrEqual(Math.ceil(3688 * 1.25) + 4096);
+  });
+
+  it("raiseNumCtx lifts to the floor within the model cap; no floor leaves auto", () => {
+    expect(raiseNumCtx(6144, undefined)).toBe(6144);
+    expect(raiseNumCtx(undefined, undefined)).toBeUndefined();
+    expect(raiseNumCtx(6144, 12000)).toBe(12288);
+    expect(raiseNumCtx(20000, 12000)).toBe(20000);
+    expect(raiseNumCtx(6144, 100_000)).toBe(32768);
+    expect(raiseNumCtx(6144, 100_000, 16384)).toBe(16384);
+  });
+
+  it("sends think and the raised num_ctx; omits think when unset", async () => {
+    const { fetcher, calls } = fakeFetcher([{ body: ['{"done":true}'] }, { body: ['{"done":true}'] }]);
+    const a = new OllamaAdapter({ fetcher });
+    await collect(a.chat(oCfg, undefined, req({ think: false, minNumCtx: 20000 })));
+    await collect(a.chat(oCfg, undefined, req()));
+    const b0 = JSON.parse(calls[0].body!);
+    const b1 = JSON.parse(calls[1].body!);
+    expect(b0.think).toBe(false);
+    expect(b0.options.num_ctx).toBe(20480);
+    expect("think" in b1).toBe(false);
   });
 });

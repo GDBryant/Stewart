@@ -20,7 +20,17 @@ const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch"]);
 interface ModelOut {
   calls: ToolCall[];
   content: string;
+  /** The provider stopped at its length limit (context window full). */
+  truncated: boolean;
+  /** Prompt + output tokens of the request, when reported. */
+  tokens: number;
 }
+
+const freshOut = (): ModelOut => ({ calls: [], content: "", truncated: false, tokens: 0 });
+const RETRY_MIN_CTX = 8192;
+
+/** Cut off by the length limit before producing any reply or tool call. */
+const cutOffEmpty = (o: ModelOut): boolean => o.truncated && !o.calls.length && !o.content.trim();
 
 function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -38,10 +48,17 @@ function summaryOf(outcome: ToolOutcome): string {
   return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP)}…` : first;
 }
 
-async function* streamModel(turn: EngineTurn, out: ModelOut): AsyncGenerator<EngineEvent, void> {
+/** Request options for the role's `think` setting; a retry turns reasoning off and raises the window floor. */
+function retryOpts(turn: EngineTurn, retry?: { minNumCtx: number }): { think?: boolean; minNumCtx?: number } {
+  if (retry) return { think: false, minNumCtx: retry.minNumCtx };
+  return turn.think === undefined ? {} : { think: turn.think };
+}
+
+async function* streamModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, void> {
   const req = {
     model: turn.agent.model,
     temperature: turn.agent.temperature,
+    ...retryOpts(turn, retry),
     messages: [{ role: "system" as const, content: turn.system }, ...forNative(turn.transcript, new Set(turn.tools.specs.map((s) => s.name)))],
     tools: turn.tools.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })),
     signal: turn.signal,
@@ -54,20 +71,41 @@ async function* streamModel(turn: EngineTurn, out: ModelOut): AsyncGenerator<Eng
       yield { kind: "reasoning", text: ev.text };
     } else if (ev.kind === "tool_calls") {
       out.calls.push(...ev.calls);
-    } else if (ev.kind === "done" && ev.usage) {
-      yield { kind: "usage", inTokens: ev.usage.in, outTokens: ev.usage.out, costUsd: ev.costUsd };
+    } else if (ev.kind === "done") {
+      out.truncated = ev.truncated === true;
+      out.tokens = ev.usage ? ev.usage.in + ev.usage.out : 0;
+      if (ev.usage) yield { kind: "usage", inTokens: ev.usage.in, outTokens: ev.usage.out, costUsd: ev.costUsd };
     }
   }
 }
 
-async function* modelTurn(turn: EngineTurn): AsyncGenerator<EngineEvent, ModelOut | null> {
-  const out: ModelOut = { calls: [], content: "" };
+/** One model request; a thrown channel error becomes a `finished` event and `false`. */
+async function* requestModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, boolean> {
   try {
-    yield* streamModel(turn, out);
+    yield* streamModel(turn, out, retry);
+    return true;
   } catch (e) {
     const aborted = turn.signal.aborted || (e instanceof Error && e.name === "AbortError");
     yield { kind: "finished", reason: aborted ? "cancelled" : "error", error: aborted ? undefined : err(e) };
-    return null;
+    return false;
+  }
+}
+
+/**
+ * A reply cut off by the context window before any content (a reasoning model spent it all thinking) is
+ * retried once with reasoning off and a larger window; if that is cut off too, the turn fails with that cause.
+ */
+async function* modelTurn(turn: EngineTurn): AsyncGenerator<EngineEvent, ModelOut | null> {
+  let out = freshOut();
+  if (!(yield* requestModel(turn, out))) return null;
+  if (cutOffEmpty(out)) {
+    const retry = freshOut();
+    if (!(yield* requestModel(turn, retry, { minNumCtx: Math.max(RETRY_MIN_CTX, out.tokens * 2) }))) return null;
+    out = retry;
+    if (cutOffEmpty(out)) {
+      yield { kind: "finished", reason: "error", error: `reply cut off by the context window (${out.tokens} tokens used) before any answer; raise numCtx or shorten the task` };
+      return null;
+    }
   }
   const msg: ChatMessage = { role: "assistant", content: out.content, toolCalls: out.calls.length ? out.calls : undefined };
   turn.transcript.push(msg);

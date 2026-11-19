@@ -48,6 +48,7 @@ items:
       label assumptions and unavailable evidence as unverified. Do not
       edit files.
     turnBudget: 30
+    think: false
     skills: [code-review, code-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
   - id: tester

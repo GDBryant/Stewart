@@ -14,6 +14,10 @@ export type ChatRequest = {
   tools?: { name: string; description: string; schema: unknown }[];
   temperature?: number;
   maxTokens?: number;
+  /** false disables model reasoning where the provider supports it (Ollama `think`). */
+  think?: boolean;
+  /** Floor for the Ollama context window (tokens); a retry after a `length` stop raises it. Capped by the model maximum. */
+  minNumCtx?: number;
   /** JSON Schema the provider must constrain the reply to (provider support varies; callers may retry without). */
   responseSchema?: unknown;
   signal: AbortSignal;

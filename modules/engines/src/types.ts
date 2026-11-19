@@ -42,6 +42,8 @@ export interface EngineTurn {
   cwd: string;
   signal: AbortSignal;
   maxTurns: number;
+  /** Role `think` setting: false asks the channel not to emit reasoning. */
+  think?: boolean;
   /** Called before each model request; used only when `caps.ownContext` is false (claude-code manages its own). */
   beforeModelTurn?: () => Promise<void>;
 }

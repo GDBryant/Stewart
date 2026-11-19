@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { matchGlob, validateRoles } from "../src/api.js";
+import { DEFAULT_ROLES_YAML } from "../src/defaults/roles.js";
+import { rolesFile } from "@stewart/config";
+import { parse } from "yaml";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
@@ -47,3 +50,11 @@ describe("validateRoles", () => {
 });
 
 
+
+describe("default roles think", () => {
+  it("reviewer ships think:false; other roles leave it unset", () => {
+    const items = rolesFile.parse(parse(DEFAULT_ROLES_YAML)).items;
+    expect(items.find((r) => r.id === "reviewer")?.think).toBe(false);
+    expect(items.filter((r) => r.id !== "reviewer").every((r) => r.think === undefined)).toBe(true);
+  });
+});

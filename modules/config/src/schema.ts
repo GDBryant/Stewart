@@ -72,6 +72,8 @@ export const roleSchema = z.object({
   tools: z.array(z.string()).default([]),
   writePaths: z.array(z.string()).default([]),
   turnBudget: z.union([z.number().int().positive(), z.literal("unlimited")]).default(25),
+  /** false: ask the provider not to emit reasoning (Ollama `think`); report roles spend the output window on the reply. Unset: provider default. */
+  think: z.boolean().optional(),
 });
 export type RoleDef = z.infer<typeof roleSchema>;
 

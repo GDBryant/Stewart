@@ -68,7 +68,7 @@ describe("Ollama context sizing", () => {
   it("autoNumCtx leaves small prompts alone and sizes large ones within caps", async () => {
     const { autoNumCtx, estimatePromptTokens } = await import("../src/ollama.js");
     expect(autoNumCtx(500)).toBeUndefined();
-    expect(autoNumCtx(3000)).toBe(5120);
+    expect(autoNumCtx(3000)).toBe(8192);
     expect(autoNumCtx(100_000)).toBe(32768);
     expect(autoNumCtx(3000, 4096)).toBe(4096);
     expect(estimatePromptTokens([{ content: "x".repeat(350) }], undefined)).toBeGreaterThan(100);
