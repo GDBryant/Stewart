@@ -92,7 +92,7 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .badge.warn { background: #a15c00; }
 .ch-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; flex: none; box-shadow: inset 0 0 0 1px #8885; }
 .role-agent { font-size: 11px; opacity: 0.75; margin: -2px 0 2px; }
-.card.tasks .task { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+.card.tasks .task, .card.plan .task-row { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
 .task-role { opacity: 0.8; min-width: 96px; }
 .task-title { flex: 1; }
 .task-status { opacity: 0.8; }
