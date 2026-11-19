@@ -19,7 +19,7 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
     p.text,
     p.sessionId,
   );
-  if (handled) return { ok: true };
+  if (handled) return { sessionId: p.sessionId };
   const lead = ctx.config.roles.find((r) => r.id === "lead" && r.enabled);
   if (!lead) throw new Error("the lead role is disabled; enable it to chat");
   const mention = await expandMentions(ctx.host, slashPlainText(p.text));

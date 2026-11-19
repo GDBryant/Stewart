@@ -127,7 +127,7 @@ export type RunEventKind = RunEvent["kind"];
 /** Host -> core requests (params). Every method carries projectId. */
 export interface CoreRequests {
   hello: { params: Hello; result: HelloResult };
-  "chat.send": { params: { projectId: string; text: string; images?: string[]; sessionId?: string }; result: { runId: string; sessionId: string } };
+  "chat.send": { params: { projectId: string; text: string; images?: string[]; sessionId?: string }; result: { runId?: string; sessionId?: string } };
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
   "chat.resume": { params: { projectId: string; sessionId: string }; result: { runId?: string; ok?: boolean; reason?: string } };
   "chat.revert": { params: { projectId: string; sessionId: string; checkpoint?: string }; result: { ok: boolean; filesRestored?: string[]; reason?: string } };

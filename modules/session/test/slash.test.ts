@@ -83,13 +83,24 @@ describe("runSlash", () => {
 });
 
 describe("/init", () => {
-  it("creates AGENTS.md and docs/ai_docs/MEMORY.md when missing", async () => {
+  it("creates AGENTS.md and the docs/ai_docs memory files when missing", async () => {
     const files: Record<string, string> = {};
     const { deps } = makeDeps(files);
     const res = await ensureInitFiles(deps.files);
-    expect(res.created).toEqual(["AGENTS.md", "docs/ai_docs/MEMORY.md"]);
+    expect(res.created).toEqual([
+      "AGENTS.md",
+      "docs/ai_docs/ARCHITECTURE.md",
+      "docs/ai_docs/COMMANDS.md",
+      "docs/ai_docs/DECISIONS.md",
+      "docs/ai_docs/PROGRESS.md",
+      "docs/ai_docs/EVENTS.md",
+      "docs/ai_docs/GOTCHAS.md",
+      "docs/ai_docs/MEMORY.md",
+    ]);
     expect(res.existing).toEqual([]);
-    expect(files["AGENTS.md"]).toContain("# AGENTS");
+    expect(files["AGENTS.md"]).toContain("docs/ai_docs/");
+    expect(files["docs/ai_docs/ARCHITECTURE.md"]).toContain("as actually built");
+    expect(files["docs/ai_docs/EVENTS.md"]).toContain("Dated log");
     expect(files["docs/ai_docs/MEMORY.md"]).toContain("# Project memory");
   });
 
@@ -98,7 +109,8 @@ describe("/init", () => {
     const { deps } = makeDeps(files);
     const res = await ensureInitFiles(deps.files);
     expect(res.existing).toEqual(["AGENTS.md"]);
-    expect(res.created).toEqual(["docs/ai_docs/MEMORY.md"]);
+    expect(res.created).toHaveLength(7);
+    expect(res.created).not.toContain("AGENTS.md");
     expect(files["AGENTS.md"]).toBe("keep me");
   });
 
@@ -107,7 +119,7 @@ describe("/init", () => {
     await runSlash(deps, "/init", "s1");
     const [q] = questions(events);
     expect(q.options).toEqual([INIT_INVESTIGATE, INIT_STOP]);
-    expect(locals(events)[0]).toContain("created: AGENTS.md, docs/ai_docs/MEMORY.md");
+    expect(locals(events)[0]).toContain("created: AGENTS.md, docs/ai_docs/ARCHITECTURE.md");
     interaction.resolveAnswer(q.questionId, INIT_INVESTIGATE);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toEqual({ sessionId: "s1", text: INIT_PROMPT });
