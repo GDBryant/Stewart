@@ -118,6 +118,8 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("setup.event"), projectId: z.string(), event: z.unknown() }),
   /** Local command output (slash commands): rendered as a message, never sent to a model. */
   z.object({ kind: z.literal("chat.local"), ...base, text: z.string() }),
+  /** The chat view was reset (/clear): items, tasks, cost, plan and busy state are stale. */
+  z.object({ kind: z.literal("chat.cleared"), ...base, sessionId: z.string().optional() }),
 ]);
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];

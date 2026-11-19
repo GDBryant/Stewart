@@ -117,6 +117,11 @@ export class StoreHandlers {
       this.patch({
         items: [...this.state.items, { id: `loc${this.host.nextItemSeq()}`, role: "assistant" as const, text: ev.text, activity: [] }],
       }),
+    "chat.cleared": (ev) => {
+      if (ev.sessionId !== undefined && this.state.sessionId !== undefined && ev.sessionId !== this.state.sessionId) return;
+      this.pendingTools.clear();
+      this.patch({ items: [], tasks: [], cost: undefined, plan: undefined, busyRunId: undefined, sessionId: undefined, questions: [], approvals: [] });
+    },
     "run.finished": (ev) => this.onRunFinished(ev),
   };
 

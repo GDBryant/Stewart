@@ -1803,6 +1803,76 @@ describe("SessionService incremental persistence and retention", () => {
     for (const p of paths) expect(h.files[p]).toBeUndefined();
   });
 
+  it("clear drops the history file and artifacts but not unrelated sessions", async () => {
+    const h = harness({
+      files: {
+        "/tmp/st/history/dead.json": storedChat("dead", [{ role: "user", content: "x" }]),
+        "/tmp/st/history/other.json": storedChat("other", [{ role: "user", content: "keep" }]),
+        "/tmp/st/sessions/dead.engine.json": "{}",
+        "/tmp/st/sessions/dead.turn": "b1",
+        "/tmp/st/sessions/dead.plan": "goal: x",
+        "/tmp/st/sessions/dead.archive.jsonl": "{}",
+        "/tmp/st/sessions/dead/task-1.json": "{}",
+        "/tmp/st/checkpoints/dead/manifest.json": "{}",
+        "/tmp/st/checkpoints/dead/blobs/ab12": "x",
+        "/tmp/st/checkpoints/dead.index": "x",
+        "/p/.stewart/plans/dead.md": "# Plan",
+      },
+    });
+    const res = await h.svc.clear("dead");
+    expect(res).toEqual({ ok: true });
+    expect(h.files["/tmp/st/history/dead.json"]).toBeUndefined();
+    for (const p of [
+      "/tmp/st/sessions/dead.engine.json",
+      "/tmp/st/sessions/dead.turn",
+      "/tmp/st/sessions/dead.plan",
+      "/tmp/st/sessions/dead.archive.jsonl",
+      "/tmp/st/sessions/dead/task-1.json",
+      "/tmp/st/checkpoints/dead/manifest.json",
+      "/tmp/st/checkpoints/dead.index",
+      "/p/.stewart/plans/dead.md",
+    ])
+      expect(h.files[p], p).toBeUndefined();
+    expect(h.files["/tmp/st/history/other.json"]).toBeTruthy();
+    expect(h.events.filter((e) => e.kind === "chat.cleared")).toHaveLength(1);
+    expect(h.events.find((e) => e.kind === "chat.cleared")).toMatchObject({ sessionId: "dead" });
+  });
+
+  it("clear refuses while a run is active for the session", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const engine: Engine = {
+      id: "native-loop",
+      caps: { ownTools: false, ownContext: false },
+      complete: async () => ({ ok: false as const, error: "none" }),
+      async *run(turn: EngineTurn) {
+        await gate;
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    const h = harness({ engine });
+    const { sessionId } = await h.svc.send({ text: "still running" });
+    const res = await h.svc.clear(sessionId);
+    expect(res).toEqual({ ok: false, reason: "a run is active for this session" });
+    expect(h.events.some((e) => e.kind === "chat.cleared")).toBe(false);
+    release();
+    await h.waitFor("run.finished");
+  });
+
+  it("clear reports a deletion failure instead of a silent clear", async () => {
+    const h = harness({ files: { "/tmp/st/history/dead.json": storedChat("dead", [{ role: "user", content: "x" }]) } });
+    const store = await h.svc.historyStore();
+    const realDelete = store.delete.bind(store);
+    store.delete = async (id: string) => {
+      if (id === "dead") throw new Error("disk gone");
+      await realDelete(id);
+    };
+    const res = await h.svc.clear("dead");
+    expect(res).toEqual({ ok: false, reason: "disk gone" });
+    expect(h.events.some((e) => e.kind === "chat.cleared")).toBe(false);
+  });
+
   it("delete asks git to drop the session ref and ignores failure", async () => {
     const h = harness({ files: { "/tmp/st/history/dead.json": storedChat("dead", [{ role: "user", content: "x" }]) } });
     const calls: string[][] = [];
@@ -1816,5 +1886,50 @@ describe("SessionService incremental persistence and retention", () => {
     });
     await (await h.svc.historyStore()).delete("dead");
     expect(calls).toContainEqual(["git", "update-ref", "-d", "refs/stewart/dead"]);
+  });
+
+  it("clear queues the delete on the session chain: a send issued during clear runs after it", async () => {
+    const h = harness();
+    const { sessionId } = await h.svc.send({ text: "first" });
+    await h.waitFor("run.finished");
+    await new Promise((r) => setTimeout(r));
+    const p = h.svc.clear(sessionId);
+    const sendP = h.svc.send({ sessionId, text: "second" });
+    const finP = h.waitFor("run.finished");
+    const res = await p;
+    expect(res).toEqual({ ok: true });
+    await sendP;
+    await finP;
+    expect(h.events.find((e) => e.kind === "chat.cleared")).toMatchObject({ sessionId });
+    const stored = JSON.parse(h.files[`/tmp/st/history/${sessionId}.json`]);
+    expect(stored.messages).toHaveLength(2);
+    expect(stored.messages[0]).toMatchObject({ role: "user", content: "second" });
+  });
+
+  it("delete throws the active-run refusal while a run is active", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const engine: Engine = {
+      id: "native-loop",
+      caps: { ownTools: false, ownContext: false },
+      complete: async () => ({ ok: false as const, error: "none" }),
+      async *run(turn: EngineTurn) {
+        await gate;
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    };
+    const h = harness({ engine });
+    const { sessionId } = await h.svc.send({ text: "still running" });
+    await expect(h.svc.delete(sessionId)).rejects.toThrow("a run is active for this session");
+    release();
+    await h.waitFor("run.finished");
+  });
+
+  it("delete clears the session and emits chat.cleared with the sessionId", async () => {
+    const h = harness({ files: { "/tmp/st/history/dead.json": storedChat("dead", [{ role: "user", content: "x" }]) } });
+    await h.svc.delete("dead");
+    expect(h.files["/tmp/st/history/dead.json"]).toBeUndefined();
+    expect(h.events.find((e) => e.kind === "chat.cleared")).toMatchObject({ sessionId: "dead" });
   });
 });

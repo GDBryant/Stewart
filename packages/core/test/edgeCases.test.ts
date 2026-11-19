@@ -141,6 +141,27 @@ describe("chat handlers", () => {
     expect(((await core.dispatch("history.load", { projectId: "p", sessionId: "none" })) as { messages: unknown[] }).messages).toEqual([]);
     expect(((await core.dispatch("history.delete", { projectId: "p", sessionId: "none" })) as { ok: boolean }).ok).toBe(true);
   });
+
+  it("history.delete refuses while a run is active for the session, then succeeds after it settles", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const blocking: ChannelAdapter = {
+      ...adapter,
+      chat: async function* () {
+        await gate;
+        yield { kind: "text", text: "hi" } as ChatEvent;
+        yield { kind: "done" } as ChatEvent;
+      },
+    };
+    const { core } = mk();
+    core.channels.register("fake", () => blocking);
+    await attach(core);
+    await core.dispatch("chat.send", { projectId: "p", text: "hi", sessionId: "s-block" });
+    await expect(core.dispatch("history.delete", { projectId: "p", sessionId: "s-block" })).rejects.toThrow("a run is active for this session");
+    release();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(((await core.dispatch("history.delete", { projectId: "p", sessionId: "s-block" })) as { ok: boolean }).ok).toBe(true);
+  });
 });
 
 describe("permissions.bypass", () => {

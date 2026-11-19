@@ -489,6 +489,73 @@ describe("webview history", () => {
   });
 });
 
+describe("chat.cleared", () => {
+  it("resets items, tasks, plan, busy state and the active session", async () => {
+    const { bridge, store } = mk();
+    act(() =>
+      bridge.inbound({
+        type: "history.messages",
+        sessionId: "s1",
+        messages: [{ role: "user", content: "earlier" }],
+        plan: { goal: "g", active: true, milestones: [{ id: "m1", title: "t", status: "done", checkpoint: "c1" }] },
+      }),
+    );
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "lead", title: "do" }));
+      bridge.inbound(ev("chat.local", { text: "local note" }));
+      bridge.inbound(ev("ask_user", { questionId: "q1", question: "continue?", options: ["a"] }));
+      bridge.inbound(ev("approval.request", { approvalId: "a1", tool: "EditFile", args: {}, category: "FILE" }));
+    });
+    expect(store.state.sessionId).toBe("s1");
+    expect(store.state.busyRunId).toBe("r1");
+    expect(store.state.tasks).toHaveLength(1);
+    expect(store.state.items.length).toBeGreaterThan(0);
+    expect(store.state.plan?.active).toBe(true);
+    expect(store.state.questions).toHaveLength(1);
+    expect(store.state.approvals).toHaveLength(1);
+
+    act(() => bridge.inbound(ev("chat.cleared")));
+    expect(store.state.items).toEqual([]);
+    expect(store.state.tasks).toEqual([]);
+    expect(store.state.cost).toBeUndefined();
+    expect(store.state.plan).toBeUndefined();
+    expect(store.state.busyRunId).toBeUndefined();
+    expect(store.state.sessionId).toBeUndefined();
+    expect(store.state.questions).toEqual([]);
+    expect(store.state.approvals).toEqual([]);
+  });
+
+  it("drops pending tool tracking: a late outcome after the clear is ignored", async () => {
+    const { bridge, store } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("tool.request", { callId: "c9", tool: "EditFile", args: {}, category: "FILE" }));
+      bridge.inbound(ev("chat.cleared"));
+      bridge.inbound(ev("tool.outcome", { callId: "c9", ok: true, summary: "edited" }));
+    });
+    expect(store.state.items).toEqual([]);
+  });
+
+  it("ignores a clear for a different session", () => {
+    const { bridge, store } = mk();
+    act(() => bridge.inbound({ type: "history.messages", sessionId: "s1", messages: [{ role: "user", content: "earlier" }] }));
+    act(() => bridge.inbound(ev("run.started", { title: "x" })));
+    act(() => bridge.inbound(ev("chat.cleared", { sessionId: "s2" })));
+    expect(store.state.items.length).toBeGreaterThan(0);
+    expect(store.state.sessionId).toBe("s1");
+    expect(store.state.busyRunId).toBe("r1");
+  });
+
+  it("resets when the cleared session is the open one", () => {
+    const { bridge, store } = mk();
+    act(() => bridge.inbound({ type: "history.messages", sessionId: "s1", messages: [{ role: "user", content: "earlier" }] }));
+    act(() => bridge.inbound(ev("chat.cleared", { sessionId: "s1" })));
+    expect(store.state.items).toEqual([]);
+    expect(store.state.sessionId).toBeUndefined();
+  });
+});
+
 describe("webview images", () => {
   const pngFile = (size = 4) => new File([new Uint8Array(size)], "a.png", { type: "image/png" });
   const picker = () => document.querySelector('input[type="file"]') as HTMLInputElement;

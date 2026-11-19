@@ -15,6 +15,7 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
       files: ctx.host.files,
       interaction: ctx.interaction,
       sendPrompt: (sessionId, text) => ctx.sessions.send({ sessionId, text }),
+      clearSession: (sessionId) => ctx.sessions.clear(sessionId),
     },
     p.text,
     p.sessionId,
@@ -82,6 +83,6 @@ export async function handleHistoryLoad(core: CoreCtx, params: unknown): Promise
 
 export async function handleHistoryDelete(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; sessionId: string };
-  await (await core.ctx(p.projectId).sessions.historyStore()).delete(p.sessionId);
+  await core.ctx(p.projectId).sessions.delete(p.sessionId);
   return { ok: true };
 }

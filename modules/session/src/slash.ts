@@ -31,6 +31,8 @@ export interface SlashDeps {
   interaction: Interaction;
   /** Sends [text] to the lead as a normal message in [sessionId]. */
   sendPrompt(sessionId: string | undefined, text: string): Promise<unknown>;
+  /** Clears a session's transcript and engine state (a /clear hook); undefined in tests without a session service. */
+  clearSession?(sessionId: string): Promise<{ ok: boolean; reason?: string }>;
 }
 
 function local(deps: SlashDeps, text: string): void {
@@ -150,6 +152,18 @@ export const SLASH_COMMANDS: SlashCommand[] = [
             local(deps, `Init: could not start the analysis: ${e instanceof Error ? e.message : String(e)}`);
           }
         });
+    },
+  },
+  {
+    name: "clear",
+    argHint: "",
+    description: "Start a new conversation: forget this chat's messages and engine state",
+    async run(deps, _args, sessionId) {
+      if (!sessionId) return local(deps, "Clear: no session yet — already a new conversation.");
+      const clear = deps.clearSession;
+      if (!clear) return local(deps, "Clear: unavailable in this host.");
+      const res = await clear(sessionId).catch((e) => ({ ok: false, reason: e instanceof Error ? e.message : String(e) }));
+      local(deps, res.ok ? "Cleared. Starting a new conversation." : `Clear failed: ${res.reason ?? "unknown error"}`);
     },
   },
 ];

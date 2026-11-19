@@ -23,3 +23,9 @@ hosts/vscode/webview/
 *.vsix
 *.tsbuildinfo
 temp/
+packages/webview/src/**/*.js
+packages/webview/src/**/*.js.map
+packages/webview/src/**/*.d.ts
+packages/webview/test/**/*.js
+packages/webview/test/**/*.js.map
+packages/webview/test/**/*.d.ts

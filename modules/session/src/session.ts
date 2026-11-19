@@ -110,11 +110,12 @@ export class SessionService {
     return this.ledger;
   }
 
-  private enqueue(sessionId: string, fn: () => Promise<void>): void {
+  private enqueue(sessionId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.chains.get(sessionId) ?? Promise.resolve();
-    const next = prev.then(fn);
+    const next = prev.then(fn, fn);
     this.chains.set(sessionId, next);
     void next.then(() => this.dropChain(sessionId, next), () => this.dropChain(sessionId, next));
+    return next;
   }
 
   private dropChain(sessionId: string, settled: Promise<void>): void {
@@ -283,6 +284,42 @@ export class SessionService {
     this.active.set(runId, rs);
     this.enqueue(sessionId, () => this.resumeRun(runId, sessionId, rs));
     return { runId, ok: true };
+  }
+
+  /**
+   * Shared guarded drop behind /clear and history.delete: refuse while a turn is
+   * queued or running for [sessionId], otherwise enqueue the history delete on the
+   * session's turn chain — synchronously, so sends/resumes issued from now on queue
+   * behind it — then emit `chat.cleared` carrying the sessionId. The delete's
+   * onDelete hook also drops the engine/plan/turn/archive/child artifacts, the
+   * tracker and the checkpoints. A deletion failure is reported back instead of a
+   * silent clear.
+   */
+  private async dropSession(sessionId: string): Promise<{ ok: boolean; reason?: string }> {
+    const { bus, host, ids } = this.deps;
+    if (this.chains.has(sessionId)) return { ok: false, reason: "a run is active for this session" };
+    const runId = ids.next("clear");
+    try {
+      await this.enqueue(sessionId, async () => {
+        await (await this.historyStore()).delete(sessionId);
+      });
+    } catch (e) {
+      const reason = err(e);
+      host.log(`clear session ${sessionId} failed: ${reason}`);
+      return { ok: false, reason };
+    }
+    bus.emit({ kind: "chat.cleared", runId, sessionId });
+    return { ok: true };
+  }
+
+  async clear(sessionId: string): Promise<{ ok: boolean; reason?: string }> {
+    return await this.dropSession(sessionId);
+  }
+
+  /** history.delete: same guarded drop as /clear; a refusal or failure throws for the host to surface. */
+  async delete(sessionId: string): Promise<void> {
+    const res = await this.dropSession(sessionId);
+    if (!res.ok) throw new Error(res.reason);
   }
 
   private async emitCost(runId: string, accrued: number): Promise<void> {
