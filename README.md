@@ -1,6 +1,6 @@
 # Stewart
 
-**A cross-IDE AI coding assistant — a shared TypeScript core with VS Code and JetBrains hosts, talking to Ollama, OpenAI-compatible providers (including AI Factory), or the Claude Code CLI.**
+**A cross-IDE AI coding assistant/harness — a shared TypeScript core with VS Code and JetBrains hosts, talking to Ollama, OpenAI-compatible providers (including AI Factory), or the Claude Code CLI.**
 
 Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. One lead agent per chat session reads, searches and edits project files, runs shell commands and attaches images — with configurable channels, agents, roles and skills. File edits and commands require approval unless covered by a grant.
 
@@ -12,7 +12,9 @@ Stewart adds a chat panel to VS Code and a tool window to JetBrains IDEs. One le
 ### Pick your Stewart
 - Stewart little
 - Rod Stewart
-- John Stewart
+- Sir Patrick Stewart
+- Bruce Stewart
+- James "Jimmy" Stewart
 - Stuart fails to save the universe
 
 ---
