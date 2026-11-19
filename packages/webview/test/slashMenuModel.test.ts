@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SlashCommandInfo } from "@stewart/protocol";
-import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "../src/slashMenu.js";
+import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "../src/slashMenuModel.js";
 
 const cmds: SlashCommandInfo[] = [
   { name: "help", argHint: "", description: "List commands" },

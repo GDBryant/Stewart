@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { SlashCommandInfo } from "@stewart/protocol";
-import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "./slashMenu.js";
+import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "./slashMenuModel.js";
 import { SlashMenu } from "./SlashMenu.js";
 import type { Store } from "./state.js";
 

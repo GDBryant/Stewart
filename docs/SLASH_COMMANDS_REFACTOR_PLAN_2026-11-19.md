@@ -111,7 +111,7 @@ Decisions:
 
 ### 2.5 Composer autocomplete
 
-New `packages/webview/src/SlashMenu.tsx` + pure `slashMenu.ts` (filter/selection logic, unit-tested without DOM):
+New `packages/webview/src/SlashMenu.tsx` + pure `slashMenuModel.ts` (filter/selection logic, unit-tested without DOM):
 - Opens when the draft matches `^/[a-z0-9-]*$` (single leading slash, no whitespace yet); closes otherwise, on Escape, or on blur.
 - Filters `slashCommands` by prefix on name or alias; shows `/name argHint — description`.
 - While open: Up/Down move the selection (taking precedence over prompt recall), Tab/Enter complete the draft to `/name ` (trailing space; Enter does not send while the menu is open), Escape closes.
@@ -138,7 +138,7 @@ Each step is one commit, green on its own (tests + `check:*`), with `ARCHITECTUR
 - S1: existing `/help`, `/init`, `/clear`, `parseSlash`, `slashPlainText`, unknown-command cases pass unchanged in the new files; core `chat.send` with `/help` still returns `{ sessionId }` and emits `chat.local`; session package no longer exports `runSlash` (typecheck).
 - S2: duplicate name throws; alias colliding with another name throws; lookup by alias works; names are case-insensitive; a command whose `run` throws → `runSlash` resolves `true` and emits one `chat.local` with `/<name> failed: <msg>`; a non-throwing command emits no failure text.
 - S3: protocol test covers `slash.list` in `METHODS`; core returns every built-in with `name`/`argHint`/`description`; VS Code `routes.test.ts` replies `slash.commands`; `WebviewRouterTest.kt` replies `slash.commands`; webview stores the list on `slash.commands` and requests it on `ready`.
-- S4: `slashMenu.ts`: opens on `/`, `/cl`; stays closed on `//x`, `/clear now`, `hello /x`; prefix filter by name and alias; Up/Down wrap; completion yields `/name `. Component test: Enter with menu open completes and does not post `chat.send`; Enter with menu closed sends; Up with menu closed still recalls the previous prompt.
+- S4: `slashMenuModel.ts`: opens on `/`, `/cl`; stays closed on `//x`, `/clear now`, `hello /x`; prefix filter by name and alias; Up/Down wrap; completion yields `/name `. Component test: Enter with menu open completes and does not post `chat.send`; Enter with menu closed sends; Up with menu closed still recalls the previous prompt.
 
 ## 5. Verification
 
