@@ -19,7 +19,7 @@ export function fakeChannel(turns: ChatEvent[][]): ManagedChannel {
       for (const ev of turns[Math.min(i++, turns.length - 1)]) yield ev;
     },
   };
-  return new ManagedChannel(adapter, { id: "c", type: "fake", enabled: true, maxParallel: 1 });
+  return new ManagedChannel(adapter, { id: "c", type: "fake", enabled: true, maxParallel: 8 });
 }
 
 /** Engine that replays a script of steps; each step may inspect the turn before yielding events. */

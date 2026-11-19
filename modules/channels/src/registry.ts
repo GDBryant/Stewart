@@ -2,6 +2,7 @@ import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./ty
 import { capsFor } from "@stewart/models";
 import { ChannelError } from "./types.js";
 import { stripImages } from "@stewart/kernel";
+import { Semaphore } from "./semaphore.js";
 
 /**
  * Wraps an adapter + config with per-channel concurrency (maxParallel queue),
@@ -10,19 +11,43 @@ import { stripImages } from "@stewart/kernel";
  */
 export class ManagedChannel {
   readonly adapter: ChannelAdapter;
-  readonly cfg: ChannelConfig;
+  private config: ChannelConfig;
   private secret: string | undefined;
-  private running = 0;
-  private readonly queue: { run(): Promise<void> }[] = [];
+  /** Request slots (one per in-flight chat) and admission slots (one per delegated task, held for its whole run); separate so a task never starves its own requests. */
+  private readonly requests: Semaphore;
+  private readonly admissions: Semaphore;
   private failures = 0;
   private backoffUntil = 0;
-  private waiters: (() => void)[] = [];
   unhealthy = false;
 
   constructor(adapter: ChannelAdapter, cfg: ChannelConfig, secret?: string) {
     this.adapter = adapter;
-    this.cfg = cfg;
+    this.config = cfg;
     this.secret = secret;
+    this.requests = new Semaphore(cfg.maxParallel);
+    this.admissions = new Semaphore(cfg.maxParallel);
+  }
+
+  get cfg(): ChannelConfig {
+    return this.config;
+  }
+
+  /** Applies a reloaded config in place, keeping in-flight and queued work counted against the (possibly new) limit. */
+  update(cfg: ChannelConfig): void {
+    this.config = cfg;
+    this.requests.setLimit(cfg.maxParallel);
+    this.admissions.setLimit(cfg.maxParallel);
+  }
+
+  /** Waits for a task slot on this channel (limit = maxParallel); the returned function releases it. */
+  async admit(): Promise<() => void> {
+    await this.admissions.acquire();
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.admissions.release();
+    };
   }
 
   get health(): "healthy" | "unhealthy" | "backoff" {
@@ -57,17 +82,11 @@ export class ManagedChannel {
   private async acquire(): Promise<void> {
     if (this.unhealthy) throw new ChannelError(`channel ${this.cfg.id} unhealthy`, 0);
     while (Date.now() < this.backoffUntil) await new Promise((r) => setTimeout(r, 50));
-    if (this.running < this.cfg.maxParallel) {
-      this.running++;
-      return;
-    }
-    await new Promise<void>((res) => this.waiters.push(res));
-    this.running++;
+    await this.requests.acquire();
   }
 
   private release(): void {
-    this.running--;
-    this.waiters.shift()?.();
+    this.requests.release();
   }
 
   async *chat(req: ChatRequest): AsyncIterable<ChatEvent> {

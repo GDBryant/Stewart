@@ -42,14 +42,14 @@ export class ChannelService {
 
   /** Rebuild from config: disabled rows skipped, unknown types logged and skipped (never throws). Returns the secrets it read, by ref. */
   async rebuild(channels: ChannelSpec[], host: { secrets: { get(ref: string): Promise<string | undefined> }; log(msg: string): void }): Promise<Map<string, string>> {
+    const previous = new Map(this.managed);
     this.managed.clear();
     const secrets = new Map<string, string>();
     for (const c of channels) {
       if (!c.enabled) continue;
       try {
-        const adapter = this.deps.registry.create(c.type, this.deps.adapterDeps);
         const maxParallel = c.maxParallel ?? (c.type === "ollama" ? 1 : 4);
-        const mc = new ManagedChannel(adapter, { ...c, maxParallel });
+        const mc = this.reuseOrCreate(previous.get(c.id), c, maxParallel);
         const s = await loadChannelSecret(c, host, mc);
         if (s) secrets.set(s.ref, s.secret);
         this.managed.set(c.id, mc);
@@ -58,6 +58,18 @@ export class ChannelService {
       }
     }
     return secrets;
+  }
+
+  /** A channel of the same id and type survives a reload (its limiter keeps counting in-flight work); anything else is built fresh. */
+  private reuseOrCreate(old: ManagedChannel | undefined, c: ChannelSpec, maxParallel: number): ManagedChannel {
+    const cfg = { ...c, maxParallel };
+    if (old && old.cfg.type === c.type) {
+      old.update(cfg);
+      old.resetBreaker();
+      if (!c.secretRef) old.setSecret(undefined);
+      return old;
+    }
+    return new ManagedChannel(this.deps.registry.create(c.type, this.deps.adapterDeps), cfg);
   }
 
   get(id: string): ManagedChannel | undefined {

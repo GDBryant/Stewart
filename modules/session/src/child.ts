@@ -149,7 +149,7 @@ export class ChildRunner {
 
   private async delegate(args: Json): Promise<string> {
     const req = this.childRequest(args);
-    if (req.role.kind === "function") return await this.limited(() => runFunctionTask(this.d, req.role, req.task, functionSchema(args.schema)));
+    if (req.role.kind === "function") return await this.limited(() => this.admitted(req.role, () => runFunctionTask(this.d, req.role, req.task, functionSchema(args.schema))));
     const run = () => this.limited(() => this.childTurn(req));
     return roleIsReadOnly(req.role) ? await this.asReader(run) : await this.asWriter(run);
   }
@@ -211,6 +211,25 @@ export class ChildRunner {
     return this.d.config().agents.find((a) => a.id === role.agent) ?? this.d.agent;
   }
 
+  /** Holds one admission slot on the role's channel for the whole task, so a channel with maxParallel N never has more than N delegated tasks running (the rest wait as pending). */
+  private async admitted<T>(role: RoleDef, fn: () => Promise<T>): Promise<T> {
+    const release = await this.admitChannel(role);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  private async admitChannel(role: RoleDef): Promise<() => void> {
+    try {
+      const agent = this.childAgent(role);
+      return agent ? await this.d.channelFor(agent.channel).admit() : () => {};
+    } catch {
+      return () => {}; // unknown channel: the run itself reports it
+    }
+  }
+
   private childApprove(role: RoleDef): ApproveFn {
     return policyApprove(role, this.d.permissions.gate(this.d.runId, this.d.parent.controller.signal));
   }
@@ -220,8 +239,10 @@ export class ChildRunner {
     const { role, task } = req;
     const taskId = ids.next("task");
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80) });
-    bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
-    const res = await this.runChild({ ...req, taskId });
+    const res = await this.admitted(role, () => {
+      bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
+      return this.runChild({ ...req, taskId });
+    });
     const reply = capReply(res.reply);
     const line = `status: ${res.status === "done" ? "done" : "failed"}`;
     if (res.status === "done") return `${line}\n${reply}`;
