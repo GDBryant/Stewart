@@ -1,4 +1,5 @@
 import type { Bridge } from "./bridge.js";
+import { isOpenSegment, nextSegmentId } from "./segments.js";
 import { StoreHandlers } from "./stateHandlers.js";
 import { MAX_IMAGE_BYTES, MAX_PENDING_IMAGES } from "./stateTypes.js";
 import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
@@ -41,7 +42,7 @@ export class Store {
     patch: (p) => this.patch(p),
     mutateAssistant: (runId, fn) => this.mutateAssistant(runId, fn),
     addActivity: (runId, kind, text) => this.addActivity(runId, kind, text),
-    updateActivityAt: (runId, index, patch) => this.updateActivityAt(runId, index, patch),
+    updateActivityAt: (itemId, index, patch) => this.updateActivityAt(itemId, index, patch),
     patchTask: (taskId, update) => this.patchTask(taskId, update),
     requestConfig: () => this.requestConfig(),
     post: (m) => this.bridge.post(m),
@@ -140,7 +141,11 @@ export class Store {
   }
   answer(questionId: string, answer: string): void {
     this.bridge.post({ type: "chat.answer", questionId, answer });
-    this.patch({ questions: this.state.questions.filter((q) => q.questionId !== questionId) });
+    const q = this.state.questions.find((x) => x.questionId === questionId);
+    const items = q
+      ? [...this.state.items, { id: `qa${++this.itemSeq}`, role: "system" as const, text: "", qa: { question: q.question, answer }, activity: [] }]
+      : this.state.items;
+    this.patch({ questions: this.state.questions.filter((x) => x.questionId !== questionId), items });
   }
   approve(approvalId: string, grant: "once" | "chat" | "always" | "deny"): void {
     this.bridge.post({ type: "chat.approve", approvalId, grant });
@@ -245,8 +250,8 @@ export class Store {
   private assistantFor(runId: string): { it: ChatItem; index: number } {
     const items = this.state.items;
     const last = items[items.length - 1];
-    if (last && last.role === "assistant" && last.streaming && last.id === runId) return { it: last, index: items.length - 1 };
-    const it: ChatItem = { id: runId, role: "assistant", text: "", streaming: true, activity: [] };
+    if (isOpenSegment(last, runId)) return { it: last, index: items.length - 1 };
+    const it: ChatItem = { id: nextSegmentId(items, runId), runId, role: "assistant", text: "", streaming: true, activity: [] };
     this.state.items = [...items, it];
     return { it, index: items.length };
   }
@@ -260,8 +265,8 @@ export class Store {
     this.changed();
   }
 
-  /** Append a step to the assistant turn; returns the index of the new step within its activity array. */
-  private addActivity(runId: string, kind: string, text: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string }) = {}): number {
+  /** Append a step to the assistant turn; returns its item id and index within the activity array. */
+  private addActivity(runId: string, kind: string, text: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string }) = {}): { itemId: string; index: number } {
     const entry: ActivityEntry =
       typeof text === "string"
         ? { kind, text }
@@ -270,14 +275,14 @@ export class Store {
     const index = it.activity.length;
     it.activity = [...it.activity, entry];
     this.changed();
-    return index;
+    return { itemId: it.id, index };
   }
 
   /** Patch the step at `index` in place (used by tool.outcome to complete a tool.request step). */
-  private updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void {
+  private updateActivityAt(itemId: string, index: number | undefined, patch: Partial<ActivityEntry>): void {
     if (index === undefined) return;
-    const { it } = this.assistantFor(runId);
-    if (index < 0 || index >= it.activity.length) return;
+    const it = this.state.items.find((i) => i.id === itemId);
+    if (!it || index < 0 || index >= it.activity.length) return;
     it.activity = it.activity.map((a, i) => (i === index ? { ...a, ...patch } : a));
     this.changed();
   }

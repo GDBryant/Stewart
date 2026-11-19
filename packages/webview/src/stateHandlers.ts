@@ -2,13 +2,14 @@ import type { RunEvent } from "@stewart/protocol";
 import type { Inbound, Outbound, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
 import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
 import { finishedItems } from "./runFinished.js";
+import { appendDelta, closeSegment } from "./segments.js";
 
 export interface HandlerHost {
   getState(): State;
   patch(p: Partial<State>): void;
   mutateAssistant(runId: string, fn: (it: ChatItem) => void): void;
-  addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): number;
-  updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void;
+  addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): { itemId: string; index: number };
+  updateActivityAt(itemId: string, index: number | undefined, patch: Partial<ActivityEntry>): void;
   patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void;
   requestConfig(): void;
   post(msg: Outbound): void;
@@ -72,21 +73,19 @@ export class StoreHandlers {
     "cost.limit_raised": (ev) => this.onCostEvent(ev),
     "cost.summary": (ev) => this.onCostEvent(ev),
     "text_delta": (ev) =>
-      this.mutateAssistant(ev.runId, (it) => {
-        it.text += ev.text;
-      }),
+      this.mutateAssistant(ev.runId, (it) => appendDelta(it, ev.text)),
     "reasoning_delta": (ev) =>
       this.mutateAssistant(ev.runId, (it) => {
         it.reasoning = (it.reasoning ?? "") + ev.text;
       }),
     "tool.request": (ev) => {
-      const idx = this.host.addActivity(ev.runId, "tool", { tool: ev.tool, category: ev.category, text: ev.tool });
-      this.pendingTools.set(ev.callId, { tool: ev.tool, category: ev.category, index: idx });
+      const { itemId, index } = this.host.addActivity(ev.runId, "tool", { tool: ev.tool, category: ev.category, text: ev.tool });
+      this.pendingTools.set(ev.callId, { tool: ev.tool, category: ev.category, itemId, index });
     },
     "tool.outcome": (ev) => {
       const p = this.pendingTools.get(ev.callId);
       this.pendingTools.delete(ev.callId);
-      this.host.updateActivityAt(ev.runId, p?.index, {
+      this.host.updateActivityAt(p?.itemId ?? ev.runId, p?.index, {
         kind: ev.ok ? "tool-ok" : "tool-fail",
         text: ev.summary || p?.tool || "",
         ...(p?.tool !== undefined ? { tool: p.tool } : {}),
@@ -95,7 +94,11 @@ export class StoreHandlers {
     },
     "check.result": (ev) => this.onCheckResult(ev),
     "run.escalated": (ev) => this.addActivity(ev.runId, "escalated", `${ev.from} → ${ev.to}: ${ev.reason}`),
-    ask_user: (ev) => this.patch({ questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }] }),
+    ask_user: (ev) =>
+      this.patch({
+        items: closeSegment(this.state.items, ev.runId),
+        questions: [...this.state.questions, { questionId: ev.questionId, runId: ev.runId, question: ev.question, options: ev.options }],
+      }),
     "question.withdrawn": (ev) => this.patch({ questions: this.state.questions.filter((q) => q.questionId !== ev.questionId) }),
     "approval.request": (ev) => this.patch({ approvals: [...this.state.approvals, { approvalId: ev.approvalId, runId: ev.runId, tool: ev.tool, args: ev.args, category: ev.category }] }),
     "plan.approved": () => this.patch({ plan: { active: true, milestones: [] } }),
@@ -118,7 +121,7 @@ export class StoreHandlers {
   };
 
   constructor(private readonly host: HandlerHost) {}
-  private pendingTools = new Map<string, { tool: string; category: string; index: number }>();
+  private pendingTools = new Map<string, { tool: string; category: string; itemId: string; index: number }>();
 
   private get state(): State {
     return this.host.getState();
@@ -129,17 +132,11 @@ export class StoreHandlers {
   private mutateAssistant(runId: string, fn: (it: ChatItem) => void): void {
     this.host.mutateAssistant(runId, fn);
   }
-  private addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): number {
+  private addActivity(runId: string, kind: string, text?: string | (Pick<ActivityEntry, "tool" | "category"> & { text?: string })): { itemId: string; index: number } {
     return this.host.addActivity(runId, kind, text);
-  }
-  private updateActivityAt(runId: string, index: number | undefined, patch: Partial<ActivityEntry>): void {
-    this.host.updateActivityAt(runId, index, patch);
   }
   private patchTask(taskId: string | undefined, update: (t: TaskRow) => Partial<TaskRow>): void {
     this.host.patchTask(taskId, update);
-  }
-  private requestConfig(): void {
-    this.host.requestConfig();
   }
 
   onInbound(m: Inbound): void {

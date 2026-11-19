@@ -134,3 +134,5 @@ button.small { padding: 1px 6px; font-size: 11px; }
   .spinner { animation-duration: 2.4s; }
   button { transition: none; }
 }
+.card.qa { margin: 4px 0; font-size: 12px; }
+.qa-a { margin-top: 6px; padding-top: 6px; border-top: 1px solid #8885; font-weight: 500; }

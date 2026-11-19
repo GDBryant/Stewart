@@ -72,7 +72,19 @@ function filesChangedBlock(files: string[], baseline: string | undefined, onOpen
   );
 }
 
+function QaCard({ qa }: { qa: { question: string; answer: string } }) {
+  return (
+    <div class="item system">
+      <div class="card qa">
+        <div class="qa-q">{renderMarkdown(qa.question)}</div>
+        <div class="qa-a">{qa.answer}</div>
+      </div>
+    </div>
+  );
+}
+
 export function MessageItem({ item, onRevertTurn, onOpenFile }: { item: ChatItem; onRevertTurn?: () => void; onOpenFile?: (path: string) => void }) {
+  if (item.qa) return <QaCard qa={item.qa} />;
   return (
     <div class={`item ${item.role}`}>
       <div class={`role-label ${item.role}`}>{roleLabel(item.role)}</div>

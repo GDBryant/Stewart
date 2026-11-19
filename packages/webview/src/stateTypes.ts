@@ -19,6 +19,14 @@ export interface ChatItem {
   images?: string[];
   /** Collapsed step rows: tool calls, checks, escalations. */
   activity: ActivityEntry[];
+  /** Run this segment belongs to (all segments of a run share it; id is `runId` or `runId:n`). */
+  runId?: string;
+  /** Answered ask_user exchange; rendered as a compact card. */
+  qa?: { question: string; answer: string };
+  /** Activity count at the last text append (detects steps added between turns). */
+  stepsAtText?: number;
+  /** Start offset of text written after the last step (final-output split point). */
+  tailStart?: number;
   /** Files changed by this run; shown in the "Files changed" footer. */
   filesChanged?: string[];
   /** Change-tracker baseline id for this run's filesChanged (enables per-file diff). */

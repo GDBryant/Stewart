@@ -1,5 +1,6 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { ChatItem } from "./stateTypes.js";
+import { itemRunId, lastRunIndex, splitFinal } from "./segments.js";
 
 type Finished = Extract<RunEvent, { kind: "run.finished" }>;
 
@@ -16,16 +17,17 @@ function outcomeText(o: { changed: string[]; verified: "command" | "files" | "no
 function markRunItem(items: ChatItem[], ev: Finished): ChatItem[] {
   const files = ev.outcome && ev.outcome.changed.length ? ev.outcome.changed : undefined;
   const baseline = ev.outcome?.baseline;
-  return items.map((i) =>
-    i.id === ev.runId
-      ? { ...i, streaming: false, ...(files ? { filesChanged: files } : {}), ...(baseline ? { filesBaseline: baseline } : {}) }
+  const lastIdx = lastRunIndex(items, ev.runId);
+  return items.map((i, idx) =>
+    itemRunId(i) === ev.runId
+      ? { ...i, streaming: false, ...(idx === lastIdx && files ? { filesChanged: files } : {}), ...(idx === lastIdx && baseline ? { filesBaseline: baseline } : {}) }
       : i,
   );
 }
 
 function applyFailure(items: ChatItem[], ev: Finished, nextSeq: () => number): ChatItem[] {
   const last = items[items.length - 1];
-  if (ev.status !== "done" && (!last || last.id !== ev.runId)) {
+  if (ev.status !== "done" && (!last || itemRunId(last) !== ev.runId)) {
     return [...items, { id: `sys${nextSeq()}`, role: "system" as const, text: ev.error ?? ev.status, activity: [] }];
   }
   if (ev.status !== "done" && ev.error && last) {
@@ -43,5 +45,5 @@ function appendOutcome(items: ChatItem[], ev: Finished, nextSeq: () => number): 
 }
 
 export function finishedItems(items: ChatItem[], ev: Finished, nextSeq: () => number): ChatItem[] {
-  return appendOutcome(applyFailure(markRunItem(items, ev), ev, nextSeq), ev, nextSeq);
+  return appendOutcome(applyFailure(markRunItem(splitFinal(items, ev.runId), ev), ev, nextSeq), ev, nextSeq);
 }
