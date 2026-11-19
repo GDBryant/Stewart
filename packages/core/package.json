@@ -27,6 +27,7 @@
     "@stewart/roles-skills": "workspace:*",
     "@stewart/session": "workspace:*",
     "@stewart/setup": "workspace:*",
+    "@stewart/slash": "workspace:*",
     "@stewart/tasks": "workspace:*",
     "@stewart/tools": "workspace:*",
     "yaml": "2.8.1",

@@ -428,6 +428,31 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
 
+  modules/slash:
+    dependencies:
+      '@stewart/interaction':
+        specifier: workspace:*
+        version: link:../interaction
+      '@stewart/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@stewart/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.0
+        version: 22.19.0
+      '@vitest/coverage-v8':
+        specifier: 3.2.4
+        version: 3.2.4(vitest@3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1))
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@22.19.0)(jsdom@27.0.1)(yaml@2.8.1)
+
   modules/tasks:
     dependencies:
       '@stewart/kernel':
@@ -528,6 +553,9 @@ importers:
       '@stewart/setup':
         specifier: workspace:*
         version: link:../../modules/setup
+      '@stewart/slash':
+        specifier: workspace:*
+        version: link:../../modules/slash
       '@stewart/tasks':
         specifier: workspace:*
         version: link:../../modules/tasks

@@ -1,7 +1,9 @@
 import { expandMentions, normalizeImages } from "@stewart/context";
 import { counterIds } from "@stewart/kernel";
-import { runSlash, slashPlainText } from "@stewart/session";
+import { builtinCommands, createRegistry, runSlash, slashPlainText } from "@stewart/slash";
 import type { CoreCtx } from "./types.js";
+
+const slashRegistry = createRegistry(builtinCommands());
 
 type ChatParams = { projectId: string; text: string; images?: string[]; sessionId?: string };
 
@@ -9,13 +11,16 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   const p = params as ChatParams;
   const ctx = core.ctx(p.projectId);
   const handled = await runSlash(
+    slashRegistry,
     {
       ids: core.deps.ids ?? counterIds(),
       emit: core.deps.emitEvent,
       files: ctx.host.files,
       interaction: ctx.interaction,
-      sendPrompt: (sessionId, text) => ctx.sessions.send({ sessionId, text }),
-      clearSession: (sessionId) => ctx.sessions.clear(sessionId),
+      session: {
+        send: (sessionId, text) => ctx.sessions.send({ sessionId, text }),
+        clear: (sessionId) => ctx.sessions.clear(sessionId),
+      },
     },
     p.text,
     p.sessionId,

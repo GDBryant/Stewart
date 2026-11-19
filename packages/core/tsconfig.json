@@ -52,6 +52,9 @@
       "path": "../../modules/setup"
     },
     {
+      "path": "../../modules/slash"
+    },
+    {
       "path": "../../modules/tasks"
     },
     {

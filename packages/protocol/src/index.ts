@@ -124,6 +124,14 @@ export const runEventSchema = z.discriminatedUnion("kind", [
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];
 
+/** Wire shape of a slash command for discovery (`slash.list`); owned here so hosts and the registry share one type. */
+export interface SlashCommandInfo {
+  name: string;
+  aliases?: string[];
+  argHint: string;
+  description: string;
+}
+
 // ---- RPC methods ------------------------------------------------------------
 
 /** Host -> core requests (params). Every method carries projectId. */

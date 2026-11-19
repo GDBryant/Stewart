@@ -10,6 +10,7 @@
   "permissions": 3,
   "roles-skills": 3,
   "code-health": 3,
+  "slash": 3,
   "context": 4,
   "tasks": 4,
   "tools": 5,
