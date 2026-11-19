@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import type { Store } from "./state.js";
 
 function dataUriFromFile(file: File, done: (uri: string) => void): void {
@@ -32,13 +32,15 @@ function clipboardFiles(dt: DataTransfer | null | undefined): File[] {
   return files;
 }
 
-function useComposerInsert(store: Store, setDraft: (fn: (d: string) => string) => void): void {
+const appliedInsertSeq = new WeakMap<Store, number>();
+
+function useComposerInsert(store: Store): void {
   const ins = store.state.composerInsert;
-  const insertSeq = useRef(0);
   useEffect(() => {
-    if (ins && ins.seq !== insertSeq.current) {
-      insertSeq.current = ins.seq;
-      setDraft((d) => (d ? `${d}\n${ins.text}` : ins.text));
+    if (ins && ins.seq !== appliedInsertSeq.get(store)) {
+      appliedInsertSeq.set(store, ins.seq);
+      const d = store.state.draft;
+      store.setDraft(d ? `${d}\n${ins.text}` : ins.text);
     }
   }, [ins]);
 }
@@ -115,13 +117,9 @@ function AttachButton({ onFiles }: { onFiles(files: FileList | File[]): void }) 
 
 export function Composer({ store }: { store: Store }) {
   const s = store.state;
-  const [draft, setDraft] = useState("");
-  useComposerInsert(store, setDraft);
+  useComposerInsert(store);
   const attach = (files: FileList | File[]) => attachFiles(store, files);
-  const send = () => {
-    store.send(draft);
-    setDraft("");
-  };
+  const send = () => store.send(s.draft);
   return (
     <div
       class="composer"
@@ -133,9 +131,9 @@ export function Composer({ store }: { store: Store }) {
     >
       <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
       {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
-      <ComposerTextarea draft={draft} busy={!!s.busyRunId} onDraft={setDraft} onAttach={attach} onSend={send} />
+      <ComposerTextarea draft={s.draft} busy={!!s.busyRunId} onDraft={(t) => store.setDraft(t)} onAttach={attach} onSend={send} />
       <AttachButton onFiles={attach} />
-      <ComposerAction busy={!!s.busyRunId} canSend={!!draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
+      <ComposerAction busy={!!s.busyRunId} canSend={!!s.draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
     </div>
   );
 }

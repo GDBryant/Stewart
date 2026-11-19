@@ -31,6 +31,7 @@ export class Store {
     sessions: [],
     historyOpen: false,
     pendingImages: [],
+    draft: "",
   };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
@@ -76,6 +77,7 @@ export class Store {
         { id: `u${++this.itemSeq}`, role: "user", text, images: images.length ? images : undefined, activity: [] },
       ],
       pendingImages: [],
+      draft: "",
       attachError: undefined,
       sessionId,
     });
@@ -87,6 +89,9 @@ export class Store {
     });
   }
 
+  setDraft(text: string): void {
+    this.patch({ draft: text });
+  }
   rejectAttachment(reason: string): void {
     this.patch({ attachError: reason });
   }

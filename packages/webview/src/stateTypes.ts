@@ -96,6 +96,7 @@ export interface State {
   sessions: SessionSummary[];
   historyOpen: boolean;
   pendingImages: string[];
+  draft: string;
   attachError?: string;
   /** Host pushed text into the composer (e.g. "Add selection to chat"). */
   composerInsert?: { text: string; seq: number };
