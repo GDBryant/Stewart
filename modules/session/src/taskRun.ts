@@ -10,7 +10,7 @@ import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { engineFor as defaultEngineFor, type Engine, type WriteRecord } from "@stewart/engines";
 import { evidenceText, failureText, healthRepairInstruction, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
 import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewart/tools";
-import { err, lastReply, newTaskState, type Contract, type ContractCommand, type FinishReason, type RunState, type TaskState } from "./turnState.js";
+import { abortRace, AbortedRun, err, lastReply, newTaskState, type Contract, type ContractCommand, type FinishReason, type RunState, type TaskState } from "./turnState.js";
 import { evBase, onEvent } from "./taskEvents.js";
 import { handoverText } from "./handover.js";
 
@@ -122,8 +122,9 @@ function pathRuleFor(role: RoleDef): ((p: string) => string | null) | undefined 
 
 async function verify(c: Ctx, baseline: Baseline): Promise<Verify> {
   const { spec, deps, ts } = c;
+  if (spec.run.controller.signal.aborted) throw new AbortedRun();
   const contract = spec.contract();
-  const changed = await deps.tracker.diff(baseline);
+  const changed = await abortRace(deps.tracker.diff(baseline), spec.run);
   const input = inputFor(spec, ts, changed);
   const cmds = contract.commands.filter((x) => !x.whenChanged || changed === undefined || changed.length > 0);
   const denied: Evidence[] = [];
@@ -134,7 +135,7 @@ async function verify(c: Ctx, baseline: Baseline): Promise<Verify> {
     else approved.push(x.argv);
   }
   const check: Check = { files: contract.files, commands: approved.length ? approved : undefined, pathRule: pathRuleFor(spec.role), ...spec.needs };
-  const ran = await runCheck({ check, input, host: deps.host, cwd: deps.paths.base });
+  const ran = await abortRace(runCheck({ check, input, host: deps.host, cwd: deps.paths.base, signal: spec.run.controller.signal }), spec.run);
   const res = { passed: ran.passed && !denied.length, evidence: [...denied, ...ran.evidence] };
   deps.bus.emit({ kind: "check.result", ...evBase(spec), passed: res.passed, evidence: evidenceText(res.evidence) });
   return { res, input, contract };
@@ -295,19 +296,32 @@ async function tryAgent(c: Ctx, baseline: Baseline, agent: AgentDef): Promise<Ta
 export async function runTask(spec: TaskSpec, deps: TaskDeps): Promise<TaskResult> {
   const cfg = deps.config();
   const chain = eligibleChain(spec.role, cfg.roles, cfg.agents, cfg.channels);
-  const baseline = spec.baseline ?? (await deps.tracker.begin(spec.taskId ? `task-${spec.taskId}` : `turn-${spec.runId}`));
   const c: Ctx = { spec, deps, ts: newTaskState(), st: { last: undefined, prev: undefined, agent: undefined } };
+  let baseline: Baseline;
+  try {
+    baseline = spec.baseline ?? (await abortRace(deps.tracker.begin(spec.taskId ? `task-${spec.taskId}` : `turn-${spec.runId}`), spec.run));
+  } catch (e) {
+    if (!(e instanceof AbortedRun)) throw e;
+    c.ts.reason = "cancelled";
+    return result(c, { id: "", kind: "unavailable", reason: "cancelled" }, "cancelled");
+  }
   if (!chain.length) {
     c.ts.reason = "error";
     c.ts.error = `no qualified agent for role ${spec.role.id}: run Qualify in settings`;
     return result(c, baseline, "failed");
   }
-  for (const agent of chain) {
-    const r = await tryAgent(c, baseline, agent);
-    if (r) return r;
-    c.st.prev = agent;
+  try {
+    for (const agent of chain) {
+      const r = await tryAgent(c, baseline, agent);
+      if (r) return r;
+      c.st.prev = agent;
+    }
+    return await finish(c, baseline);
+  } catch (e) {
+    if (!(e instanceof AbortedRun)) throw e;
+    c.ts.reason = "cancelled";
+    return result(c, baseline, "cancelled");
   }
-  return finish(c, baseline);
 }
 
 /** Interactive retry (lead only) then the terminal status. */

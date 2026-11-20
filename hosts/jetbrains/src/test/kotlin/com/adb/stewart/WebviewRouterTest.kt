@@ -202,6 +202,28 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `chat cancel bypasses a stuck routed request`() {
+        val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val stuck = CompletableFuture<kotlinx.serialization.json.JsonElement?>()
+        val router = WebviewRouter(
+            projectId = { "p1" },
+            request = { m, p ->
+                calls.add(m)
+                if (m == "history.load") stuck else CompletableFuture.completedFuture(JsonObject(emptyMap()))
+            },
+            send = {},
+            userConfigDir = { File(System.getProperty("java.io.tmpdir")) },
+        )
+        val t = Thread { router.route("""{"type":"history.load","sessionId":"s1"}""") }.apply { start() }
+        val deadline = System.currentTimeMillis() + 2000
+        while (calls.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        router.route("""{"type":"chat.cancel","runId":"r1"}""")
+        assertEquals("chat.cancel", calls.last())
+        stuck.complete(JsonObject(emptyMap()))
+        t.join(2000)
+    }
+
+    @Test
     fun `chat send forwarded with project id`() {
         val rig = Rig()
         rig.router.route("""{"type":"chat.send","text":"hi"}""")

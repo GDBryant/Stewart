@@ -19,12 +19,17 @@ async function checkOneCommand(args: RunCheckArgs, argv: string[], out: Evidence
     handle.done.then((r) => ({ code: r.code, cause: r.cause, timeout: false })),
     new Promise<{ code: number; cause?: string; timeout: boolean }>((res) => {
       timer = setTimeout(() => res({ code: -1, timeout: true }), timeoutMs);
+      args.signal?.addEventListener("abort", () => res({ code: -1, cause: "cancelled", timeout: true }), { once: true });
     }),
   ]);
   clearTimeout(timer);
   if (timedOut.timeout) {
     await handle.killTree();
-    out.push({ code: "command_timeout", ok: false, detail: `${argv.join(" ")} timed out after ${timeoutMs}ms` });
+    out.push(
+      timedOut.cause === "cancelled"
+        ? { code: "command_cancelled", ok: false, detail: `${argv.join(" ")} cancelled` }
+        : { code: "command_timeout", ok: false, detail: `${argv.join(" ")} timed out after ${timeoutMs}ms` },
+    );
     return false;
   }
   if (timedOut.code !== 0) {

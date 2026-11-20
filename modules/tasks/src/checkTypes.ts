@@ -9,6 +9,7 @@ export type EvidenceCode =
   | "command_failed"
   | "command_unavailable"
   | "command_timeout"
+  | "command_cancelled"
   | "command_denied"
   | "cited"
   | "citation_missing"
@@ -73,4 +74,6 @@ export interface RunCheckArgs {
   host: Pick<HostPort, "files" | "proc">;
   cwd: string;
   timeoutMs?: number;
+  /** When aborted, a running check command is killed instead of waiting out its timeout. */
+  signal?: AbortSignal;
 }

@@ -17,7 +17,7 @@ import { PlanRunner } from "./plan.js";
 import { compactTranscript, expandArchived } from "./compact.js";
 import { planSummary, revertSession, showFileDiff } from "./planOps.js";
 import { drivePlan, leadContract } from "./planDrive.js";
-import { err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
+import { abortRace, AbortedRun, err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
 import { failedRunEvent, finishedEvent } from "./runEvents.js";
 import { stepSaver } from "./stepSave.js";
 import { runTask, type Contract, type TaskDeps, type TaskResult } from "./taskRun.js";
@@ -235,7 +235,13 @@ export class SessionService {
     if (first.kind !== "unavailable") {
       await this.deps.host.files.writeAtomic(`${w.stateDir}/sessions/${w.sessionId}.turn`, `${first.id}\n`).catch((e) => this.deps.host.log(`turn baseline save failed: ${err(e)}`));
     }
-    const changed = first.kind === "unavailable" ? undefined : await w.tracker.diff(first);
+    const changed =
+      first.kind === "unavailable"
+        ? undefined
+        : await abortRace(w.tracker.diff(first), w.rs).catch((e) => {
+            if (e instanceof AbortedRun) return undefined;
+            throw e;
+          });
     const outcome = runOutcome(out.contract, out.check, changed, first);
     if (w.rs.accrued > 0) await this.emitCost(w.runId, w.rs.accrued);
     this.deps.bus.emit(finishedEvent(w.runId, w.rs, out, outcome));
@@ -249,7 +255,11 @@ export class SessionService {
       const plan = await w.plan.resumePlan();
       if (!plan) return bus.emit(failedRunEvent(runId, rs, "no active plan for this session"));
       bus.emit({ kind: "run.started", runId, roleId: "lead", title: `Resume plan: ${plan.goal}` });
-      const first = await w.tracker.begin(`resume-${runId}`);
+      const first = await abortRace(w.tracker.begin(`resume-${runId}`), rs).catch((e) => {
+        if (!(e instanceof AbortedRun)) throw e;
+        return undefined;
+      });
+      if (!first) return bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "cancelled" });
       const res = await this.drive(w, first);
       await this.persist(w);
       await this.finish(w, res, first);

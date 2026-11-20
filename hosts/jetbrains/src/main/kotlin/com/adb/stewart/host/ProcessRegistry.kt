@@ -46,7 +46,7 @@ class ProcessRegistry(private val notify: (String, JsonObject) -> Unit) {
         thread(name = "stewart-proc-wait-$handle", isDaemon = true) {
             val code = try {
                 p.waitFor()
-            } catch (_: InterruptedException) {
+            } catch (_: Throwable) {
                 -1
             }
             handles.remove(handle)

@@ -300,6 +300,11 @@ export class StoreHandlers {
   private onRunFinished(ev: Extract<RunEvent, { kind: "run.finished" }>): void {
     const items = finishedItems(this.state.items, ev, () => this.host.nextItemSeq());
     this.pendingTools.clear();
-    this.patch({ items, busyRunId: undefined, lastRunId: ev.runId });
+    const tasks = this.state.tasks.map((t) =>
+      t.status === "pending" || t.status === "running"
+        ? { ...t, status: "failed" as const, summary: t.summary ?? (ev.status === "cancelled" ? "cancelled" : "run ended") }
+        : t,
+    );
+    this.patch({ items, tasks, busyRunId: undefined, lastRunId: ev.runId });
   }
 }

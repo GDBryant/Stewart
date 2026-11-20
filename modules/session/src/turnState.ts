@@ -56,6 +56,23 @@ export function newRunState(): RunState {
   return { controller: new AbortController(), seq: 0, accrued: 0, costCapped: false };
 }
 
+/** Thrown by abortRace when the run's signal fires before the awaited work settles. */
+export class AbortedRun extends Error {
+  constructor() {
+    super("run aborted");
+    this.name = "AbortedRun";
+  }
+}
+
+/** Awaits `p`, or throws AbortedRun as soon as the run's signal fires (including already-aborted). */
+export async function abortRace<T>(p: Promise<T>, run: RunState): Promise<T> {
+  if (run.controller.signal.aborted) throw new AbortedRun();
+  return await Promise.race([
+    p,
+    new Promise<never>((_, rej) => run.controller.signal.addEventListener("abort", () => rej(new AbortedRun()), { once: true })),
+  ]);
+}
+
 export function newTaskState(): TaskState {
   return { writes: [], tried: [], reads: 0, reason: "" };
 }

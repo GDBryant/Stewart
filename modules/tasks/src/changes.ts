@@ -8,6 +8,8 @@ export interface CpPaths {
   cwd: string;
   stateDir: string;
   sessionId: string;
+  /** Per-git-op bound before killTree (default 120 s). */
+  gitTimeoutMs?: number;
 }
 
 /** One recorded state of the worktree: a git checkpoint commit or a content manifest. */
@@ -43,15 +45,28 @@ const MAX_BYTES = 20 * 1024 * 1024;
 /** Both hosts cap `files.list` at 20000 entries; exactly the cap reads as truncated. */
 const LIST_CAP = 20_000;
 
-async function git(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<{ code: number; cause?: string; out: string }> {
+const GIT_TIMEOUT_MS = 120_000;
+
+/** One git op, bounded: a stalled process (pinentry, filter, fs hang, lost exit) is killed so the serialized tracker queue always drains. */
+async function git(c: Ctx, argv: string[], env?: Record<string, string>): Promise<{ code: number; cause?: string; out: string }> {
+  const timeoutMs = c.p.gitTimeoutMs ?? GIT_TIMEOUT_MS;
   let out = "";
-  const h = host.proc.run(["git", ...argv], { cwd, env, onData: (d) => (out += d) });
+  const h = c.host.proc.run(["git", ...argv], { cwd: c.p.cwd, env, onData: (d) => (out += d) });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = await Promise.race([h.done.then(() => false), new Promise<true>((res) => {
+    timer = setTimeout(() => res(true), timeoutMs);
+  })]);
+  clearTimeout(timer);
+  if (timedOut) {
+    await h.killTree().catch(() => {});
+    return { code: -1, cause: `git ${argv[0]} timed out after ${timeoutMs}ms`, out };
+  }
   const { code, cause } = await h.done;
   return { code, cause, out };
 }
 
-async function must(host: Host, cwd: string, argv: string[], env?: Record<string, string>): Promise<string> {
-  const r = await git(host, cwd, argv, env);
+async function must(c: Ctx, argv: string[], env?: Record<string, string>): Promise<string> {
+  const r = await c.git(argv, env);
   if (r.code !== 0) {
     const cause = r.cause ?? exitCause(r.code);
     throw new Error(`git ${argv[0]} failed (${r.code})${cause ? ` (${cause})` : ""}: ${r.out.trim().slice(-300)}`);
@@ -84,13 +99,14 @@ interface Ctx {
   dir: string;
   blobs: string;
   isGit: () => Promise<boolean>;
+  git: (argv: string[], env?: Record<string, string>) => Promise<{ code: number; cause?: string; out: string }>;
 }
 
 async function ensureIndex(c: Ctx): Promise<void> {
   if (await c.host.files.exists(c.indexFile)) return;
   await c.host.files.writeAtomic(c.indexFile, "");
-  const head = await git(c.host, c.p.cwd, ["rev-parse", "HEAD"], c.indexEnv);
-  await must(c.host, c.p.cwd, ["read-tree", head.code === 0 ? head.out.trim() : "--empty"], c.indexEnv);
+  const head = await c.git(["rev-parse", "HEAD"], c.indexEnv);
+  await must(c, ["read-tree", head.code === 0 ? head.out.trim() : "--empty"], c.indexEnv);
 }
 
 /** Run an op on the temp index; on failure drop it and retry once from a fresh read-tree. */
@@ -107,29 +123,29 @@ async function withIndex<T>(c: Ctx, fn: () => Promise<T>): Promise<T> {
 
 async function gitBegin(c: Ctx, label: string): Promise<Baseline> {
   return await withIndex(c, async () => {
-    await must(c.host, c.p.cwd, ["add", "-A"], c.indexEnv);
-    const tree = (await must(c.host, c.p.cwd, ["write-tree"], c.indexEnv)).trim();
+    await must(c, ["add", "-A"], c.indexEnv);
+    const tree = (await must(c, ["write-tree"], c.indexEnv)).trim();
     const ref = `refs/stewart/${c.p.sessionId}`;
-    const parent = await git(c.host, c.p.cwd, ["rev-parse", "--verify", ref]);
-    const base = parent.code === 0 ? parent.out.trim() : (await git(c.host, c.p.cwd, ["rev-parse", "HEAD"])).out.trim();
+    const parent = await c.git(["rev-parse", "--verify", ref]);
+    const base = parent.code === 0 ? parent.out.trim() : (await c.git(["rev-parse", "HEAD"])).out.trim();
     const args = base ? ["commit-tree", tree, "-p", base, "-m", `stewart checkpoint ${c.p.sessionId} ${label}`] : ["commit-tree", tree, "-m", `stewart checkpoint ${c.p.sessionId} ${label}`];
-    const commit = (await must(c.host, c.p.cwd, args, c.indexEnv)).trim();
-    await must(c.host, c.p.cwd, ["update-ref", ref, commit], c.indexEnv);
+    const commit = (await must(c, args, c.indexEnv)).trim();
+    await must(c, ["update-ref", ref, commit], c.indexEnv);
     return { id: commit, kind: "git" as const };
   });
 }
 
 async function gitDiff(c: Ctx, id: string): Promise<string[]> {
   const tree = await withIndex(c, async () => {
-    await must(c.host, c.p.cwd, ["add", "-A"], c.indexEnv);
-    return (await must(c.host, c.p.cwd, ["write-tree"], c.indexEnv)).trim();
+    await must(c, ["add", "-A"], c.indexEnv);
+    return (await must(c, ["write-tree"], c.indexEnv)).trim();
   });
-  const out = nulLines(await must(c.host, c.p.cwd, ["diff", "--name-only", "-z", id, tree]));
+  const out = nulLines(await must(c, ["diff", "--name-only", "-z", id, tree]));
   return out.filter((f) => !c.ignored(f)).sort();
 }
 
 async function gitRead(c: Ctx, id: string, path: string): Promise<string | undefined> {
-  const r = await git(c.host, c.p.cwd, ["show", `${id}:${path}`]);
+  const r = await c.git(["show", `${id}:${path}`]);
   return r.code === 0 ? r.out : undefined;
 }
 
@@ -146,10 +162,10 @@ async function manRead(c: Ctx, id: string, path: string): Promise<string | undef
 }
 
 async function gitRestore(c: Ctx, id: string): Promise<{ restored: string[]; deleted: string[] }> {
-  const treeFiles = new Set(nulLines(await must(c.host, c.p.cwd, ["ls-tree", "-r", "--name-only", "-z", id])));
-  const changed = nulLines(await must(c.host, c.p.cwd, ["diff", "--name-only", "-z", id, "--", "."])).filter((f) => treeFiles.has(f) && !c.ignored(f));
-  if (changed.length) await must(c.host, c.p.cwd, ["restore", `--source=${id}`, "--worktree", "--", ...changed]);
-  const untracked = nulLines(await must(c.host, c.p.cwd, ["ls-files", "--others", "--exclude-standard", "-z"]));
+  const treeFiles = new Set(nulLines(await must(c, ["ls-tree", "-r", "--name-only", "-z", id])));
+  const changed = nulLines(await must(c, ["diff", "--name-only", "-z", id, "--", "."])).filter((f) => treeFiles.has(f) && !c.ignored(f));
+  if (changed.length) await must(c, ["restore", `--source=${id}`, "--worktree", "--", ...changed]);
+  const untracked = nulLines(await must(c, ["ls-files", "--others", "--exclude-standard", "-z"]));
   const deleted: string[] = [];
   for (const f of untracked) {
     if (c.ignored(f) || treeFiles.has(f)) continue;
@@ -258,6 +274,7 @@ export function changeTracker(host: Host, p: CpPaths): ChangeTracker {
     dir,
     blobs: `${dir}/blobs`,
     isGit: async () => gitRepo ?? (gitRepo = await probeGit(c)),
+    git: (argv, env) => git(c, argv, env),
   };
   const queued = <T>(fn: () => Promise<T>): Promise<T> => {
     const r = tail.then(fn, fn);
@@ -283,12 +300,12 @@ async function disposeTracker(c: Ctx): Promise<void> {
     }
   }
   await c.host.files.delete(c.indexFile).catch(() => {});
-  if (await c.isGit()) await git(c.host, c.p.cwd, ["update-ref", "-d", `refs/stewart/${c.p.sessionId}`], c.indexEnv).catch(() => {});
+  if (await c.isGit()) await c.git(["update-ref", "-d", `refs/stewart/${c.p.sessionId}`], c.indexEnv).catch(() => {});
 }
 
 async function probeGit(c: Ctx): Promise<boolean> {
   try {
-    const r = await git(c.host, c.p.cwd, ["rev-parse", "--is-inside-work-tree"]);
+    const r = await c.git(["rev-parse", "--is-inside-work-tree"]);
     return r.code === 0 && r.out.trim() === "true";
   } catch {
     return false;

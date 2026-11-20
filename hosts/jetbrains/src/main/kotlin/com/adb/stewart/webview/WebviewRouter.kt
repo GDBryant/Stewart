@@ -40,6 +40,13 @@ class WebviewRouter(
             return
         }
         try {
+            if (type == "chat.cancel" || type == "chat.approve" || type == "chat.answer") {
+                request(type, withProject(m)).exceptionally { e ->
+                    send(errorMsg(e.cause?.message ?: e.message ?: "error"))
+                    null
+                }
+                return
+            }
             synchronized(routeLock) {
             when (type) {
                 "ready" -> {

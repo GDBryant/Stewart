@@ -241,10 +241,16 @@ export class ChildRunner {
     const { role, task } = req;
     const taskId = ids.next("task");
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80) });
-    const res = await this.admitted(role, () => {
-      bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
-      return this.runChild({ ...req, taskId });
-    });
+    let res: TaskResult;
+    try {
+      res = await this.admitted(role, () => {
+        bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
+        return this.runChild({ ...req, taskId });
+      });
+    } catch (e) {
+      bus.emit({ kind: "task.failed", runId: this.d.runId, taskId, roleId: role.id, error: err(e) });
+      throw e;
+    }
     const reply = capReply(res.reply);
     const line = `status: ${res.status === "done" ? "done" : "failed"}`;
     if (res.status === "done") return `${line}\n${reply}`;

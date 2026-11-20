@@ -156,6 +156,20 @@ describe("webview chat", () => {
     expect(screen.getByText("tests failed")).toBeTruthy();
   });
 
+  it("settles pending and running task rows when the run ends", () => {
+    const { bridge } = mk();
+    act(() => {
+      bridge.inbound(ev("run.started", { title: "x" }));
+      bridge.inbound(ev("task.created", { taskId: "t1", roleId: "reviewer", title: "review a" }));
+      bridge.inbound(ev("task.started", { taskId: "t1", roleId: "reviewer" }));
+      bridge.inbound(ev("task.created", { taskId: "t2", roleId: "reviewer", title: "review b" }));
+      bridge.inbound(ev("run.finished", { status: "cancelled" }));
+    });
+    expect(screen.queryByText("running")).toBeNull();
+    expect(screen.queryByText("pending")).toBeNull();
+    expect(screen.getAllByText("cancelled").length).toBeGreaterThan(0);
+  });
+
   it("lists running tasks with role, agent and a ticking timer, and hides finished ones", () => {
     vi.useFakeTimers();
     try {
