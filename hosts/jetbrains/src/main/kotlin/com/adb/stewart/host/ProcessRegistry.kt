@@ -72,8 +72,22 @@ class ProcessRegistry(private val notify: (String, JsonObject) -> Unit) {
     }
 
     fun killAll() {
-        for (h in handles.keys.toList()) killTree(h)
+        // A process exiting mid-iteration (waiter thread's handles.remove) can make
+        // the weakly-consistent key iterator throw NoSuchElementException — retry the snapshot.
+        while (handles.isNotEmpty()) {
+            val keys = try {
+                handles.keys.toList()
+            } catch (_: NoSuchElementException) {
+                continue
+            }
+            for (h in keys) killTree(h)
+        }
     }
 
-    fun running(): Set<String> = handles.keys.toSet()
+    fun running(): Set<String> {
+        while (true) try {
+            return handles.keys.toSet()
+        } catch (_: NoSuchElementException) {
+        }
+    }
 }

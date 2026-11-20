@@ -61,6 +61,19 @@ class ProcessRegistryTest {
     }
 
     @Test
+    fun `killAll and running tolerate exits racing iteration`() {
+        val (reg) = rig()
+        repeat(50) { round ->
+            repeat(4) { reg.run("s${round}x$it", listOf("/bin/true"), null, null) }
+            repeat(8) {
+                reg.running()
+                reg.killAll()
+            }
+        }
+        assertTrue(reg.running().isEmpty())
+    }
+
+    @Test
     fun `killTree on unknown handle is a no op`() {
         val (reg) = rig()
         reg.killTree("nope")
