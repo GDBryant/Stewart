@@ -1,4 +1,5 @@
-import type { AgentDef } from "@stewart/config";
+import type { AgentDef, RoleDef } from "@stewart/config";
+import type { DelegateCheck } from "./delegateArgs.js";
 import type { TaskDeps } from "./taskRun.js";
 import type { RunState } from "./turnState.js";
 
@@ -12,4 +13,14 @@ export interface ChildDeps extends TaskDeps {
   agent: AgentDef | undefined;
   /** Shared counters with the parent turn: accrued cost, stream seq, cancel signal. */
   parent: RunState;
+}
+
+/** One delegated task (depth 1: children never get delegate/health_report). */
+export interface ChildJob {
+  role: RoleDef;
+  taskId: string;
+  task: string;
+  report: "text" | "health";
+  check?: DelegateCheck;
+  scope?: string[];
 }
