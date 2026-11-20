@@ -28,7 +28,9 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Chat segments plan (implemented): `docs/CHAT_SEGMENTS_PLAN_2026-11-19.md` — webview run segmentation: assistant segments per run, Q&A items, paragraph break, `:final` output block.
 - Channel limit plan (implemented): `docs/CHANNEL_LIMIT_PLAN_2026-11-19.md` — per-channel delegate admission, limiter state kept across reloads, atomic slot handoff.
 - Role primary/secondary plan (implemented): `docs/ROLE_PRIMARY_SECONDARY_PLAN_2026-11-20.md` — role `agent`+`chain` replaced by primary `agent` + optional `secondary` (two drop-downs), legacy `chain` migrated on load via `migrateRoleChain`, wizard/assign/admission aligned.
+- Business policy plan (accepted, not built): `docs/BUSINESS_POLICY_PLAN_2026-11-20.md` — outbound content rules (passwords, privacy) per channel, merged with the policy layer at the seam; `@stewart/business-policy`, `businessPolicy` settings, Settings > settings section; build order B1–B7.
 - Slash commands refactor plan (implemented S1–S4; S5 optional, not built): `docs/SLASH_COMMANDS_REFACTOR_PLAN_2026-11-19.md` — new `@stewart/slash` module, one file per command, `SlashSessionPort`, registry with duplicate/alias check, central error capture, `slash.list` + composer autocomplete; build order S1–S5.
+- Model refresh plan (proposed): `docs/MODEL_REFRESH_PLAN_2026-11-20.md` — `models.refresh` re-discovers channel models and reconciles `agents.yaml` via `ask_user` question cards: unreachable channel keep/retry/disable/remove, batch-add new agents, per-agent removal with role unbind; pure diff/apply in `@stewart/setup`.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
