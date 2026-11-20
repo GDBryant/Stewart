@@ -1,6 +1,6 @@
 # Business policy (outbound content rules) — plan
 
-Status: implemented (B1–B7); as-built in docs/ai_docs/ARCHITECTURE_NOW.md §3h. Open questions resolved in §5. Replaces the stub `docs/business_layer_2026-11-16.md` (requirement: checks that block outgoing messages containing passwords or private data; ticked on/off per channel; start with password + privacy rules).
+Status: implemented (B1–B7); as-built in docs/ai_docs/ARCHITECTURE_NOW.md §3h. Open questions resolved in §5. Replaces the stub `docs/archived_v3/business_layer_2026-11-16.md` (requirement: checks that block outgoing messages containing passwords or private data; ticked on/off per channel; start with password + privacy rules).
 
 ## 1. Evaluation
 
