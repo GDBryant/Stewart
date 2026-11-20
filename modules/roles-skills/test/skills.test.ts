@@ -116,3 +116,13 @@ describe("code-health skill", () => {
     expect(body()).toContain("declared file or path:start-end scope");
   });
 });
+
+describe("project-health skill", () => {
+  const body = () => shippedSkill("project-health")!.body;
+  it("routes file batches to the auditor, project checks to the tester, and merges via health_report", () => {
+    expect(body()).toContain("auditor");
+    expect(body()).toContain("tester");
+    expect(body()).toContain("health_report");
+    expect(body()).not.toContain("reviewer");
+  });
+});

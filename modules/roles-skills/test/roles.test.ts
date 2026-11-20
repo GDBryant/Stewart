@@ -52,9 +52,17 @@ describe("validateRoles", () => {
 
 
 describe("default roles think", () => {
-  it("reviewer ships think:false; other roles leave it unset", () => {
+  it("auditor ships think:false; other roles leave it unset", () => {
     const items = rolesFile.parse(parse(DEFAULT_ROLES_YAML)).items;
-    expect(items.find((r) => r.id === "reviewer")?.think).toBe(false);
-    expect(items.filter((r) => r.id !== "reviewer").every((r) => r.think === undefined)).toBe(true);
+    expect(items.find((r) => r.id === "auditor")?.think).toBe(false);
+    expect(items.filter((r) => r.id !== "auditor").every((r) => r.think === undefined)).toBe(true);
+  });
+});
+
+describe("default review/audit split", () => {
+  it("reviewer reviews code; auditor runs code-health", () => {
+    const items = rolesFile.parse(parse(DEFAULT_ROLES_YAML)).items;
+    expect(items.find((r) => r.id === "reviewer")?.skills).toEqual(["code-review"]);
+    expect(items.find((r) => r.id === "auditor")?.skills).toEqual(["code-health"]);
   });
 });

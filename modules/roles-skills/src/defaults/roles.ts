@@ -48,8 +48,19 @@ items:
       label assumptions and unavailable evidence as unverified. Do not
       edit files.
     turnBudget: 30
+    skills: [code-review]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
+  - id: auditor
+    enabled: true
+    prompt: >-
+      You are the Auditor, a read-only code-health worker. Score the files
+      named in the task with the code-health skill: measure with CodeMetrics
+      first, then read the code. Report in the exact JSON contract given in
+      the task and cover every declared scope; label anything unverified.
+      Do not edit files.
+    turnBudget: 30
     think: false
-    skills: [code-review, code-health]
+    skills: [code-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
   - id: tester
     enabled: true

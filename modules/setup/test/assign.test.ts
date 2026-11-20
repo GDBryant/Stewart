@@ -62,6 +62,11 @@ describe("scoreAssignments", () => {
     expect(pick("lead", [c("llama3:70b"), c("qwen2.5-coder:32b")]).model).toBe("qwen2.5-coder:32b");
   });
 
+  it("prefers the cheap small model for the auditor but still requires tools", () => {
+    expect(pick("auditor", [c("qwen3:30b", { tools: "native", reasoning: true }), c("gemma4:e4b", { tools: "native" })]).model).toBe("gemma4:e4b");
+    expect(scoreAssignments(["auditor"], [c("x:8b", { tools: "none" })]).unfilled[0].role).toBe("auditor");
+  });
+
   it("treats hosted models with no size as large and penalises small context", () => {
     const hosted = pick("lead", [c("gpt-x", { tools: "native" }, "openai-compatible")]);
     expect(hosted.warnings.filter((w) => w.includes("context") || w.includes("recommended"))).toEqual([]);

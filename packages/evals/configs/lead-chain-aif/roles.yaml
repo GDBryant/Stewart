@@ -28,6 +28,21 @@ items:
   secondary: AI Factory-glm-5-3-flash
   skills:
   - code-review
+  tools:
+  - ReadFile
+  - FindFiles
+  - ListCodeFiles
+  - Search
+  - GetDiff
+  - GetProblems
+  - CodeMetrics
+  - RunTerminal
+  turnBudget: 30
+- id: auditor
+  enabled: true
+  agent: local-qwen4b
+  secondary: AI Factory-glm-5-3-flash
+  skills:
   - code-health
   tools:
   - ReadFile

@@ -91,7 +91,7 @@ Process spawns are wrapped by kernel helpers: no inherited stdin except interact
 flowchart TD
     LEAD["lead runTask"] -->|"delegate(role, task, report?, check?, schema?)"| CR["ChildRunner<br/>cap 4 concurrent · read/write FIFO lock · no prompts"]
     CR --> C["child runTask (interactive: false)<br/>contract = delegate check (+ project verify: for writers)<br/>+ cites + needsRead for read-only roles"]
-    C --> RO["explorer · reviewer · planner — read-only<br/>(read-only terminal allow-list:<br/>safe redirects/version probes; no test runners)"]
+    C --> RO["explorer · reviewer · auditor · planner — read-only<br/>(read-only terminal allow-list:<br/>safe redirects/version probes; no test runners)"]
     C --> TST["tester — writes only writePaths (test files)"]
     C --> FN["kind: function → engine.complete(schema)<br/>native responseSchema · claude -p --json-schema"]
     RO --> ENG2["engineFor — same engine as lead<br/>(native-loop or claude-code)"]

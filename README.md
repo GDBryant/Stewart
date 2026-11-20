@@ -58,7 +58,7 @@ Approval prompts offer three scopes: **once**, **this chat** (run grant), **alwa
 ### Setup wizard, health check, observability
 
 - **Setup wizard**: channels → quick-probe discovery (green/orange/red per model) → evaluator-ranked assignment of agents/roles → review → staged apply with undo.
-- **Health check**: ask for a repo health report; the `code-health-reviewer` role inventories files and submits structured reports (`submit_health`/`health_report` verbs).
+- **Health check**: ask for a repo health report; the lead delegates file batches to the `auditor` role and `health_report` merges them into one report.
 - **Debug logging**: optional JSONL call log with redaction and retention (`settings.log`).
 
 ### Images

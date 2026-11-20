@@ -17,6 +17,13 @@ items:
     enabled: true
     agent: local-qwen4b
     secondary: Claude-sonnet
-    skills: [code-review, code-health]
+    skills: [code-review]
+    tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
+    turnBudget: 30
+  - id: auditor
+    enabled: true
+    agent: local-qwen4b
+    secondary: Claude-sonnet
+    skills: [code-health]
     tools: [ReadFile, FindFiles, ListCodeFiles, Search, GetDiff, GetProblems, CodeMetrics, RunTerminal]
     turnBudget: 30

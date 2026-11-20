@@ -64,6 +64,8 @@ export const ROLE_PROFILES: Record<string, Profile> = {
   lead: LEAD_LIKE,
   explorer: LEAD_LIKE,
   reviewer: LEAD_LIKE,
+  /** Scripted health batches run many at once: small, fast, cheap; tools still required for CodeMetrics/ReadFile. */
+  auditor: { needs: { tools: true }, minCtx: 32768, cheap: true, latency: "batch", typicalTurns: [2, 15], minToolReliability: 0.5, costSensitivity: "high", parallelism: "high" },
 };
 
 const DEFAULT_PROFILE: Profile = { needs: { tools: true }, latency: "interactive", typicalTurns: [1, 10], costSensitivity: "medium" };
