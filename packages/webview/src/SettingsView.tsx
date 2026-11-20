@@ -133,7 +133,14 @@ const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
     <ItemsSection<ChannelSummary>
       title="Channels" file="channels.yaml" items={channels} fields={CHANNEL_FIELDS} store={store}
       empty={{ id: "channel", type: "openai-compatible", enabled: true } as ChannelSummary}
-      renderExtra={(i, st) => <ChannelExtra item={i} store={st} />}
+      renderExtra={(i) => (
+        <>
+          {i.name && i.name !== i.id ? <span class="hint">{i.name}</span> : null}
+          {!i.enabled ? <span class="badge">disabled</span> : null}
+        </>
+      )}
+      renderDetails={(i, st) => <ChannelExtra item={i} store={st} />}
+      summarySkip={["enabled", "name"]}
       lead={(i) => <ChannelDot channel={i.id} title={`Channel colour ${channelColor(i.id)}`} />}
     />
   ),

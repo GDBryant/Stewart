@@ -27,9 +27,10 @@ export function SecuritySection({ store, settings, channels }: { store: Store; s
       <h3>Security</h3>
       <p class="hint">Business policy checks what leaves this machine. These are the defaults for every channel; a channel can override them in its own settings.</p>
       {RULES.map((r) => (
-        <label key={r.id} class="field" title={r.hint}>
+        <label key={r.id} class="sec-row" title={r.hint}>
           <input type="checkbox" checked={effective(settings.security, undefined, r.id)} onChange={(e) => store.saveFile("settings.yaml", settingsWith(settings, r.id, (e.target as HTMLInputElement).checked))} />
-          <span>{r.label}</span> <span class="hint">{r.hint}</span>
+          <span class="sec-name">{r.label}</span>
+          <span class="hint">{r.hint}</span>
         </label>
       ))}
       <p class="hint">{GLOBAL_HINT}</p>

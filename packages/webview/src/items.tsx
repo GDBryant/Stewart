@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import type { ComponentChildren } from "preact";
 import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import { FieldRow, looksLikeKey, unflatten, useForm, type Field } from "./fields.js";
@@ -9,9 +10,10 @@ function itemSecrets(fields: Field[], form: Record<string, string>): Record<stri
   return secrets;
 }
 
-function itemSummary(fields: Field[], form: Record<string, string>): string {
+function itemSummary(fields: Field[], form: Record<string, string>, skip: string[] = []): string {
+  const hidden = new Set(["id", ...skip]);
   return fields
-    .filter((f) => f.kind !== "secret" && form[f.key] !== undefined && form[f.key] !== "")
+    .filter((f) => f.kind !== "secret" && !hidden.has(f.key) && form[f.key] !== undefined && form[f.key] !== "")
     .map((f) => `${f.label}: ${form[f.key]}`)
     .join(" · ");
 }
@@ -45,14 +47,15 @@ function ItemCardTitle<T extends object>({
   );
 }
 
-function ItemCardBody({ editing, fields, form, set, modelsFor }: {
+function ItemCardBody({ editing, fields, form, set, modelsFor, summarySkip }: {
   editing: boolean;
   fields: Field[];
   form: Record<string, string>;
   set(k: string, v: string): void;
   modelsFor?: (channelId: string) => string[];
+  summarySkip?: string[];
 }) {
-  if (!editing) return <div class="summary">{itemSummary(fields, form)}</div>;
+  if (!editing) return <div class="summary">{itemSummary(fields, form, summarySkip)}</div>;
   return (
     <div class="form">
       {fields.map((f) => (
@@ -63,7 +66,7 @@ function ItemCardBody({ editing, fields, form, set, modelsFor }: {
 }
 
 function ItemCard<T extends object>({
-  item, fields, onSave, onRemove, extra, lead, startEditing, modelsFor,
+  item, fields, onSave, onRemove, extra, lead, details, startEditing, modelsFor, summarySkip,
 }: {
   item: T;
   fields: Field[];
@@ -71,8 +74,10 @@ function ItemCard<T extends object>({
   onRemove?(): void;
   extra?: (item: T) => unknown;
   lead?: (item: T) => unknown;
+  details?: (item: T) => unknown;
   startEditing?: boolean;
   modelsFor?: (channelId: string) => string[];
+  summarySkip?: string[];
 }) {
   const { form, set } = useForm(item as object);
   const [editing, setEditing] = useState(!!startEditing);
@@ -93,7 +98,8 @@ function ItemCard<T extends object>({
         item={item} form={form} lead={lead} extra={extra} onRemove={onRemove}
         editing={editing} idMissing={idMissing} onToggle={toggle} onSave={save}
       />
-      <ItemCardBody editing={editing} fields={fields} form={form} set={set} modelsFor={modelsFor} />
+      <ItemCardBody editing={editing} fields={fields} form={form} set={set} modelsFor={modelsFor} summarySkip={summarySkip} />
+      {!editing && details ? <div class="card-details">{details(item) as ComponentChildren}</div> : null}
     </div>
   );
 }
@@ -106,8 +112,10 @@ export interface ItemsSectionProps<T extends { id: string }> {
   store: Store;
   empty: T;
   renderExtra?: (item: T, store: Store) => unknown;
+  renderDetails?: (item: T, store: Store) => unknown;
   lead?: (item: T) => unknown;
   modelsFor?: (channelId: string) => string[];
+  summarySkip?: string[];
 }
 
 function saveItems<T>(store: Store, file: string, next: T[]): void {
@@ -125,9 +133,12 @@ function attachSecret<T extends { id: string }>(store: Store, next: T, secrets: 
 }
 
 export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<T>) {
-  const { title, file, items, fields, store, empty, renderExtra, lead, modelsFor } = props;
-  const extra = renderExtra ? (i: T) => renderExtra(i, store) : undefined;
+  const { title, file, items, fields, store, empty, renderExtra, renderDetails, lead, modelsFor, summarySkip } = props;
   const [draft, setDraft] = useState<T | undefined>(undefined);
+  const shared = {
+    fields, modelsFor, lead, summarySkip,
+    extra: renderExtra ? (i: T) => renderExtra(i, store) : undefined,
+  };
   return (
     <section>
       <h3>
@@ -137,10 +148,8 @@ export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<
         <ItemCard
           key={it.id}
           item={it}
-          fields={fields}
-          modelsFor={modelsFor}
-          extra={extra}
-          lead={lead}
+          {...shared}
+          details={renderDetails ? (i: T) => renderDetails(i, store) : undefined}
           onSave={(next, sec) => saveItems(store, file, items.map((x) => (x.id === it.id ? attachSecret(store, next, sec) : x)))}
           onRemove={() => saveItems(store, file, items.filter((x) => x.id !== it.id))}
         />
@@ -148,11 +157,8 @@ export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<
       {draft ? (
         <ItemCard
           item={draft}
-          fields={fields}
-          modelsFor={modelsFor}
+          {...shared}
           startEditing
-          extra={extra}
-          lead={lead}
           onSave={(next, sec) => {
             saveItems(store, file, [...items, attachSecret(store, next, sec)]);
             setDraft(undefined);

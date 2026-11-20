@@ -114,11 +114,25 @@ describe("Settings → settings → Security", () => {
 describe("channel editor security", () => {
   const card = (id: string) => screen.getByText(id, { selector: "b" }).closest(".card") as HTMLElement;
 
-  it("shows inherited vs custom with the effective value", () => {
+  it("shows the global default inside the Inherit option and the custom value as selected", () => {
     open("channels");
-    expect(within(card("c1")).getAllByText(/inherited: on/)).toHaveLength(2);
-    expect(within(card("c2")).getByText(/custom: off/)).toBeTruthy();
-    expect(within(card("c2")).getByText(/inherited: on/)).toBeTruthy();
+    const c1sel = within(card("c1")).getAllByRole("combobox") as HTMLSelectElement[];
+    expect(c1sel.map((s) => s.value)).toEqual(["inherit", "inherit"]);
+    expect(within(card("c1")).getAllByText("Inherit (on)")).toHaveLength(2);
+    const c2sel = within(card("c2")).getAllByRole("combobox") as HTMLSelectElement[];
+    expect(c2sel.map((s) => s.value)).toEqual(["off", "inherit"]);
+    expect(within(card("c2")).getByText("Reset")).toBeTruthy();
+  });
+
+  it("shows Inherit (off) when the global default is off", () => {
+    open("channels", reply({ settings: { runTurnLimit: 60, security: { passwords: true, privacy: false } } }));
+    expect(within(card("c1")).getByText("Inherit (off)")).toBeTruthy();
+  });
+
+  it("marks disabled channels and shows a distinct name in the title", () => {
+    open("channels", reply({ channels: [{ id: "c1", name: "Mine", type: "ollama", enabled: false }] }));
+    expect(within(card("c1")).getByText("disabled")).toBeTruthy();
+    expect(within(card("c1")).getByText("Mine")).toBeTruthy();
   });
 
   it("changing a rule saves only that channel's override", () => {
@@ -131,9 +145,9 @@ describe("channel editor security", () => {
     expect(items[1].security).toEqual({ passwords: false });
   });
 
-  it("Reset to default removes the override and the empty security block", () => {
+  it("Reset removes the override and the empty security block", () => {
     const { bridge } = open("channels");
-    fireEvent.click(within(card("c2")).getByText("Reset to default"));
+    fireEvent.click(within(card("c2")).getByText("Reset"));
     const items = lastSet(bridge, "channels.yaml")!.items as any[];
     expect(items[1]).not.toHaveProperty("security");
   });

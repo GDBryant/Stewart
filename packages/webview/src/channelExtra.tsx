@@ -33,18 +33,20 @@ export function ChannelExtra({ item, store }: { item: ChannelSummary; store: Sto
     store.saveFile("channels.yaml", stringify({ version: 1, items }, null, 2));
   };
   return (
-    <span class="extra">
-      <ChannelTestBadge test={test} />
-      <button class="small" onClick={() => store.testChannel(item.id)}>Test</button>
-      {leaked ? (
-        <span class="fail">
-          API key is saved as plain text in channels.yaml.{" "}
-          <button class="small" onClick={moveToStore}>Move to secret store</button>
-        </span>
-      ) : (
-        <ChannelSecretBlock secretRef={ref} stored={!!stored} onClear={() => ref && store.deleteSecret(ref)} />
-      )}
+    <>
+      <div class="ch-status">
+        <ChannelTestBadge test={test} />
+        <button class="small" onClick={() => store.testChannel(item.id)}>Test</button>
+        {leaked ? (
+          <span class="fail">
+            API key is saved as plain text in channels.yaml.{" "}
+            <button class="small" onClick={moveToStore}>Move to secret store</button>
+          </span>
+        ) : (
+          <ChannelSecretBlock secretRef={ref} stored={!!stored} onClear={() => ref && store.deleteSecret(ref)} />
+        )}
+      </div>
       <ChannelSecurity item={item} store={store} />
-    </span>
+    </>
   );
 }
