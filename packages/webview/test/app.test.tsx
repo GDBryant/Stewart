@@ -578,8 +578,7 @@ describe("webview images", () => {
   it("attaches a valid image via the picker and sends it with the message", async () => {
     const { bridge, store } = mk();
     fireEvent.change(picker(), { target: { files: [pngFile()] } });
-    await flush();
-    expect(store.state.pendingImages).toHaveLength(1);
+    await vi.waitFor(() => expect(store.state.pendingImages).toHaveLength(1));
     expect(document.querySelector(".pending-img")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Send"));
@@ -615,8 +614,7 @@ describe("webview images", () => {
     fireEvent.drop(composer, {
       dataTransfer: { files: [pngFile(), new File(["x"], "a.txt", { type: "text/plain" })] },
     });
-    await flush();
-    expect(store.state.pendingImages).toHaveLength(1);
+    await vi.waitFor(() => expect(store.state.pendingImages).toHaveLength(1));
     expect(reject).toHaveBeenCalledWith("only PNG, JPEG, GIF and WebP images can be attached");
   });
 
@@ -628,8 +626,7 @@ describe("webview images", () => {
         items: [{ kind: "string", type: "text/plain" }, { kind: "file", getAsFile: () => pngFile() }],
       },
     });
-    await flush();
-    expect(store.state.pendingImages).toHaveLength(1);
+    await vi.waitFor(() => expect(store.state.pendingImages).toHaveLength(1));
   });
 });
 
