@@ -133,7 +133,7 @@ describe("channel colour badges", () => {
     fireEvent.click(screen.getAllByText("Edit")[0]);
     const card = roleCard("general-worker");
     const opts = [...card.querySelectorAll("select")[0].options].map((o) => o.value);
-    expect(opts).toEqual([""]);
+    expect(opts).toEqual(["", "a1"]);
     expect(card.textContent).toContain("No agent is qualified as function: run Qualify in Setup.");
   });
 
@@ -165,9 +165,8 @@ describe("channel colour badges", () => {
 
 describe("review step channel colour", () => {
   const reviewProps = (rowFor: (roleId: string) => string) => ({
-    chainFor: () => [] as string[],
-    onChainMove: () => {},
-    onChainRemove: () => { },
+    secondaryFor: () => "",
+    onSecondaryChange: () => { },
     rec: { assignments: [{ role: "general-worker", channel: "c1", model: "m" }], unfilled: [] },
     recommendBusy: false,
     recommendError: undefined,

@@ -51,7 +51,7 @@ export interface AgentSummary {
   price?: { inPerMTok: number; outPerMTok: number };
 }
 export interface RoleSummary {
-  id: string; enabled: boolean; agent?: string; chain?: string[]; skills?: string[];
+  id: string; enabled: boolean; agent?: string; secondary?: string; skills?: string[];
   kind?: "agent" | "function"; needs?: { vision?: boolean; minContext?: number };
   tools?: string[]; writePaths?: string[]; turnBudget?: number | string; prompt?: string;
 }
@@ -147,7 +147,7 @@ export type Inbound =
   | {
       type: "setup.recommend.result";
       ok: boolean;
-      assignments?: { role: string; channel: string; model: string; chain?: { channel: string; model: string }[]; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
+      assignments?: { role: string; channel: string; model: string; secondary?: { channel: string; model: string }; reason?: string; score?: number; warnings?: string[]; source?: "rules" | "ai" }[];
       researcher?: { channel: string; model: string };
       unfilled?: { role: string; reason: string }[];
       dropped?: string[];

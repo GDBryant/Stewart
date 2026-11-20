@@ -41,7 +41,8 @@ items:
 `;
 const ROLES = `version: 1
 items:
-  - { id: lead, enabled: true, agent: a-small, chain: [a-small, a-big, a-big-again] }
+  - { id: lead, enabled: true, agent: a-small, secondary: a-big }
+  - { id: legacy, enabled: true, agent: a-small, chain: [a-small, a-big, a-big-again] }
   - { id: off, enabled: false, agent: a-unused }
 `;
 

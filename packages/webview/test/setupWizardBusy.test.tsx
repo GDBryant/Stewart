@@ -18,9 +18,8 @@ const roles = [
 ] as never;
 
 const reviewProps = {
-  chainFor: () => [] as string[],
-  onChainMove: () => {},
-  onChainRemove: () => { },
+  secondaryFor: () => "",
+  onSecondaryChange: () => { },
   rec: undefined,
   recommendError: undefined,
   evalMode: "rules" as const,

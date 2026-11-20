@@ -18,7 +18,7 @@ cd packages/evals
 node dist/main.js --label <name> [--config <dir>] [--disable-lead] [--only id,id] [--parallel n] [--keep never|failed|always] [--skip-qualify]
 ```
 
-`--config` defaults to `~/.config/stewart` (copied per task). Shipped eval configs: `configs/lead-glm` (native-loop, AI Factory glm-5-3-flash), `configs/lead-claude` (claude-code, sonnet), `configs/lead-chain-local` (local qwen → sonnet), `configs/lead-chain-aif` (local qwen → AI Factory → sonnet). Results: `packages/evals/results/<date>-<label>.json`; failed task workspaces are kept under `/tmp/stewart-eval-*`.
+`--config` defaults to `~/.config/stewart` (copied per task). Shipped eval configs: `configs/lead-glm` (native-loop, AI Factory glm-5-3-flash), `configs/lead-claude` (claude-code, sonnet), `configs/lead-chain-local` (local qwen → sonnet), `configs/lead-chain-aif` (local qwen → AI Factory glm-5-3-flash). Since the 2026-11-20 primary/secondary change a role binds at most two agents; `lead-chain-aif` previously escalated over 4, so its older recorded pass rates are not comparable. Results: `packages/evals/results/<date>-<label>.json`; failed task workspaces are kept under `/tmp/stewart-eval-*`.
 
 ## Results
 

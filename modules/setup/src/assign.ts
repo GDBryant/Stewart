@@ -17,8 +17,8 @@ export interface ScoredAssignment {
   role: string;
   channel: string;
   model: string;
-  /** Qualified candidates for this role's chain, cheapest first (max 3), always starting with the assignment. */
-  chain: { channel: string; model: string }[];
+  /** Cheapest other qualified candidate as the escalation fallback (absent when none). */
+  secondary?: { channel: string; model: string };
   reason: string;
   score: number;
   warnings: string[];
@@ -285,7 +285,7 @@ export function scoreAssignments(
     }
     const key = `${best.c.channel}:${best.c.model}`;
     uses.set(key, (uses.get(key) ?? 0) + 1);
-    assignments.push({ ...toAssignment(role, best), chain: proposeChain(p, candidates, best.c) });
+    assignments.push({ ...toAssignment(role, best), secondary: proposeSecondary(p, candidates, best.c) });
   }
   return { assignments, unfilled };
 }
@@ -301,21 +301,19 @@ function profileFor(role: string, meta?: RoleMeta): Profile {
   return p;
 }
 
-/** Cost bucket for chain ordering: free/local first, then priced by blended cost, claude-cli last. */
+/** Cost bucket for secondary ordering: free/local first, then priced by blended cost, claude-cli last. */
 function chainBucket(c: Candidate): number {
   if (c.channelType === "claude-cli") return 2;
   return c.costTier === "free" || c.channelType === "ollama" || c.price?.inPerMTok === 0 ? 0 : 1;
 }
 
-/** Qualified candidates for a role, cheapest first, capped at 3, always starting with the chosen candidate. */
-export function proposeChain(p: Profile, candidates: Candidate[], chosen: Candidate): { channel: string; model: string }[] {
+/** Cheapest other qualified candidate as the role's escalation fallback, or undefined when none. */
+export function proposeSecondary(p: Profile, candidates: Candidate[], chosen: Candidate): { channel: string; model: string } | undefined {
   const kind = p.kind ?? "agent";
-  const ok = candidates.filter((c) => qualPassed(c.caps.qualified?.[kind]) && contextRefusal(c, p) === undefined);
+  const ok = candidates.filter((c) => qualPassed(c.caps.qualified?.[kind]) && contextRefusal(c, p) === undefined && (c.channel !== chosen.channel || c.model !== chosen.model));
   ok.sort((a, b) => chainBucket(a) - chainBucket(b) || (a.costBlended ?? Number.MAX_SAFE_INTEGER) - (b.costBlended ?? Number.MAX_SAFE_INTEGER));
-  const refs = ok.slice(0, 3).map((c) => ({ channel: c.channel, model: c.model }));
-  const first = { channel: chosen.channel, model: chosen.model };
-  if (!refs.some((r) => r.channel === first.channel && r.model === first.model)) refs.unshift(first);
-  return refs.slice(0, 3);
+  const c = ok[0];
+  return c ? { channel: c.channel, model: c.model } : undefined;
 }
 
 type Best = { c: Candidate; eff: number; raw: ReturnType<typeof score> };
@@ -347,7 +345,6 @@ function toAssignment(role: string, best: Best): ScoredAssignment {
     role,
     channel: best.c.channel,
     model: best.c.model,
-    chain: [],
     reason: best.raw.why.join(", ") || "best available",
     score: Math.round(best.raw.score * 10) / 10,
     warnings: best.raw.warnings,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { migrateRoleChain } from "./roleMigrate.js";
 
 export const CONFIG_VERSION = 1;
 
@@ -60,13 +61,15 @@ export const agentSchema = z.object({
 });
 export type AgentDef = z.infer<typeof agentSchema>;
 
-export const roleSchema = z.object({
-  id: z.string().min(1),
-  enabled: z.boolean().default(false),
-  prompt: z.string().optional(),
-  kind: z.enum(["agent", "function"]).default("agent"),
-  agent: z.string().optional(),
-  chain: z.array(z.string()).optional(),
+export const roleSchema = z.preprocess(
+  migrateRoleChain,
+  z.object({
+    id: z.string().min(1),
+    enabled: z.boolean().default(false),
+    prompt: z.string().optional(),
+    kind: z.enum(["agent", "function"]).default("agent"),
+    agent: z.string().optional(),
+    secondary: z.string().optional(),
   needs: z.object({ vision: z.boolean().optional(), minContext: z.number().int().positive().optional() }).optional(),
   skills: z.array(z.string()).default([]),
   tools: z.array(z.string()).default([]),
@@ -74,7 +77,8 @@ export const roleSchema = z.object({
   turnBudget: z.union([z.number().int().positive(), z.literal("unlimited")]).default(25),
   /** false: ask the provider not to emit reasoning (Ollama `think`); report roles spend the output window on the reply. Unset: provider default. */
   think: z.boolean().optional(),
-});
+  }),
+);
 export type RoleDef = z.infer<typeof roleSchema>;
 
 export const settingsSchema = z.object({

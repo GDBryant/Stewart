@@ -27,6 +27,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Health-check reliability plan (implemented): `docs/HEALTH_CHECK_RELIABILITY_PLAN_2026-11-18.md` - remediation for the 2026-11-17 BulkOnline run: report contracts, check execution, coverage, framework reads, recovery and evidence.
 - Chat segments plan (implemented): `docs/CHAT_SEGMENTS_PLAN_2026-11-19.md` — webview run segmentation: assistant segments per run, Q&A items, paragraph break, `:final` output block.
 - Channel limit plan (implemented): `docs/CHANNEL_LIMIT_PLAN_2026-11-19.md` — per-channel delegate admission, limiter state kept across reloads, atomic slot handoff.
+- Role primary/secondary plan (implemented): `docs/ROLE_PRIMARY_SECONDARY_PLAN_2026-11-20.md` — role `agent`+`chain` replaced by primary `agent` + optional `secondary` (two drop-downs), legacy `chain` migrated on load via `migrateRoleChain`, wizard/assign/admission aligned.
 - Slash commands refactor plan (implemented S1–S4; S5 optional, not built): `docs/SLASH_COMMANDS_REFACTOR_PLAN_2026-11-19.md` — new `@stewart/slash` module, one file per command, `SlashSessionPort`, registry with duplicate/alias check, central error capture, `slash.list` + composer autocomplete; build order S1–S5.
 
 `docs/ai_docs/` — living as-built docs:

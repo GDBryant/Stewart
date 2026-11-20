@@ -8,7 +8,7 @@ export interface ChildDeps extends TaskDeps {
   stateDir: string;
   runId: string;
   sessionId: string;
-  /** The lead's first chain agent: fallback display/ledger agent for task.started. */
+  /** The lead's first eligible agent: fallback display/ledger agent for task.started. */
   agent: AgentDef | undefined;
   /** Shared counters with the parent turn: accrued cost, stream seq, cancel signal. */
   parent: RunState;

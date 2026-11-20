@@ -759,15 +759,69 @@ describe("webview settings", () => {
     expect(set && set.type === "config.set" && set.yaml).toContain("image-reader");
   });
 
-  it("filters the role agent dropdown by qualification and the role's vision need", () => {
+  it("filters the role agent dropdowns by qualification and the role's vision need", () => {
     const { bridge } = mk();
     openRoles(bridge);
     fireEvent.click(screen.getAllByText("Edit")[1]);
-    const selects = document.querySelectorAll("select");
-    const opts = [...selects[selects.length - 1].options].map((o) => o.value);
+    const primary = screen.getByLabelText("primary agent") as HTMLSelectElement;
+    const opts = [...primary.options].map((o) => o.value);
     expect(opts).toContain("va");
     expect(opts).not.toContain("a1");
+    expect((screen.getByLabelText("secondary agent") as HTMLSelectElement).disabled).toBe(true);
     expect(screen.queryByText(/No agent is qualified/)).toBeNull();
+  });
+
+  it("saves a secondary pick and drops the key when cleared to blank", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const sets = () => bridge.sent.filter((m) => m.type === "config.set" && m.file === "roles.yaml") as { yaml: string }[];
+    fireEvent.change(screen.getByLabelText("secondary agent"), { target: { value: "va" } });
+    expect(sets().at(-1)!.yaml).toContain("secondary: va");
+    expect(sets().at(-1)!.yaml).not.toContain("chain:");
+    fireEvent.change(screen.getByLabelText("secondary agent"), { target: { value: "" } });
+    expect(sets().at(-1)!.yaml).not.toContain("secondary:");
+  });
+
+  it("excludes the primary from the secondary options and clears a secondary that becomes the primary", () => {
+    const { bridge } = mk();
+    const role = { ...configReply.summary.roles[0], agent: "a1", secondary: "va" };
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary, roles: [role] } }));
+    fireEvent.click(screen.getByText("roles"));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const secondary = screen.getByLabelText("secondary agent") as HTMLSelectElement;
+    expect([...secondary.options].map((o) => o.value)).toEqual(["", "va"]);
+    fireEvent.change(screen.getByLabelText("primary agent"), { target: { value: "va" } });
+    const set = (bridge.sent.filter((m) => m.type === "config.set" && m.file === "roles.yaml") as { yaml: string }[]).at(-1)!;
+    expect(set.yaml).toContain("agent: va");
+    expect(set.yaml).not.toContain("secondary:");
+  });
+
+  it("clears and disables the secondary when the primary is cleared", () => {
+    const { bridge } = mk();
+    const role = { ...configReply.summary.roles[0], agent: "a1", secondary: "va" };
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary, roles: [role] } }));
+    fireEvent.click(screen.getByText("roles"));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    fireEvent.change(screen.getByLabelText("primary agent"), { target: { value: "" } });
+    const set = (bridge.sent.filter((m) => m.type === "config.set" && m.file === "roles.yaml") as { yaml: string }[]).at(-1)!;
+    expect(set.yaml).not.toContain("secondary:");
+    expect(set.yaml).not.toContain("agent: a1");
+  });
+
+  it("keeps a saved secondary visible even when it is no longer a candidate", () => {
+    const { bridge } = mk();
+    const role = { ...configReply.summary.roles[0], agent: "a1", secondary: "gone" };
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound({ ...configReply, summary: { ...configReply.summary, roles: [role] } }));
+    fireEvent.click(screen.getByText("roles"));
+    fireEvent.click(screen.getAllByText("Edit")[0]);
+    const secondary = screen.getByLabelText("secondary agent") as HTMLSelectElement;
+    const opt = [...secondary.options].find((o) => o.value === "gone");
+    expect(opt?.textContent).toBe("gone (not qualified)");
+    expect(screen.getByText("agent: a1 → gone")).toBeTruthy();
   });
 
   it("resets a role and all roles", () => {
@@ -1758,7 +1812,7 @@ describe("wizard apply agent building", () => {
   const applyWith = (
     bridge: MockBridge,
     rec: {
-      assignments: { role: string; channel: string; model: string; reason?: string; warnings?: string[] }[];
+      assignments: { role: string; channel: string; model: string; secondary?: { channel: string; model: string }; reason?: string; warnings?: string[] }[];
       unfilled?: { role: string; reason: string }[];
     },
   ) => {
@@ -1829,6 +1883,58 @@ describe("wizard apply agent building", () => {
     expect(agent(agents, "c1", "a-b").id).toBe("c1-a-b-2");
     expect(roles.find((r) => r.id === "r1")!.agent).toBe("c1-a-b");
     expect(roles.find((r) => r.id === "r2")!.agent).toBe("c1-a-b-2");
+  });
+
+  it("writes the recommended secondary and never emits a chain key", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m", "n"] },
+      green: [
+        { channel: "c1", model: "m" },
+        { channel: "c1", model: "n" },
+      ],
+    });
+    const { roles } = applyWith(bridge, {
+      assignments: [{ role: "r1", channel: "c1", model: "m", secondary: { channel: "c1", model: "n" } }],
+    });
+    const r1 = roles.find((r) => r.id === "r1")!;
+    expect(r1.agent).toBe("c1-m");
+    expect(r1.secondary).toBe("c1-n");
+    expect("chain" in r1).toBe(false);
+  });
+
+  it("lets the review row pick (none) or another secondary, excluding the primary", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "ollama", enabled: true }],
+        roles: [{ id: "r1", enabled: true }],
+      }),
+    );
+    driveToReview(bridge, {
+      testModels: { c1: ["m", "n"] },
+      green: [
+        { channel: "c1", model: "m" },
+        { channel: "c1", model: "n" },
+      ],
+    });
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "r1", channel: "c1", model: "m", secondary: { channel: "c1", model: "n" } }] }));
+    const sec = screen.getByLabelText("role r1 secondary") as HTMLSelectElement;
+    expect(sec.value).toBe("c1:n");
+    expect([...sec.options].map((o) => o.value)).toEqual(["", "c1:n"]);
+    fireEvent.change(sec, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Apply"));
+    const upd = bridge.sent.find((m) => m.type === "setup.session.update") as any;
+    const items = (parse(upd.patch.files["roles.yaml"]) as { items: Record<string, unknown>[] }).items;
+    expect("secondary" in items[0]!).toBe(false);
   });
 
   it("derives billing from catalog price, zero price, channel type and claude costs", () => {

@@ -23,17 +23,20 @@ function agentsForRole(role: RoleSummary, agents: AgentSummary[], channels: Chan
   });
 }
 
-function RoleAgentField({ label, value, candidates, onPick }: {
+function RoleAgentField({ label, value, candidates, disabled, onPick }: {
   label: string;
   value: string | undefined;
   candidates: AgentSummary[];
+  disabled?: boolean;
   onPick(next: string | undefined): void;
 }) {
+  const missing = value && !candidates.some((a) => a.id === value);
   return (
     <label class="field">
       <span>{label}</span>
-      <select value={value ?? ""} onChange={(e) => onPick((e.target as HTMLSelectElement).value || undefined)}>
+      <select value={value ?? ""} disabled={disabled} onChange={(e) => onPick((e.target as HTMLSelectElement).value || undefined)}>
         <option value="">—</option>
+        {missing ? <option value={value}>{value} (not qualified)</option> : null}
         {candidates.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
       </select>
     </label>
@@ -109,11 +112,11 @@ function RoleEditForm({ role, candidates, allSkills, needsWrite, save, toggleSki
           <input value={role.id} onInput={(e) => save({ id: (e.target as HTMLInputElement).value })} />
         </label>
       ) : null}
-      <RoleAgentField label="agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v })} />
+      <RoleAgentField label="primary agent" value={role.agent} candidates={candidates} onPick={(v) => save({ agent: v, secondary: !v || v === role.secondary ? undefined : role.secondary })} />
+      <RoleAgentField label="secondary agent" value={role.secondary} candidates={candidates.filter((a) => a.id !== role.agent)} disabled={!role.agent} onPick={(v) => save({ secondary: v })} />
       {!candidates.length ? <p class="hint">No agent is qualified as {roleNeedText(role)}: run Qualify in Setup.</p> : null}
       <TurnBudgetField value={role.turnBudget} onSave={(v) => save({ turnBudget: v })} />
       <ToolPicker tools={role.tools} onSave={(v) => save({ tools: v })} />
-      <CsvField label="chain (csv)" values={role.chain} onSave={(v) => save({ chain: v.length ? v : undefined })} />
       <CsvField label="writePaths (csv)" values={role.writePaths} onSave={(v) => save({ writePaths: v })} />
       <SkillTicks skills={role.skills} allSkills={allSkills} needsWrite={needsWrite} onToggle={toggleSkill} />
     </div>
@@ -137,6 +140,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
   const candidates = agentsForRole(role, agents, channels);
   const needsWrite = (role.tools ?? []).some((t) => SIDE_EFFECT_TOOLS.has(t));
   const agent = agents.find((a) => a.id === role.agent);
+  const secondary = agents.find((a) => a.id === role.secondary);
   return (
     <div class="card">
       <div class="card-title">
@@ -146,12 +150,12 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
         </label>
         {agent ? <ChannelDot channel={agent.channel} title={`agent ${agent.id} runs on channel ${agent.channel}`} /> : null}
         <span class="summary">{(role.skills ?? []).join(", ")}</span>
-        {agentCosts(agent, channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
+        {agentCosts(agent, channels) || agentCosts(secondary, channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
         <span class="spacer" />
         <button class="small" onClick={onReset}>Reset</button>
         <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
       </div>
-      <div class="role-agent">{role.agent ? `agent: ${role.agent}` : "no agent"}</div>
+      <div class="role-agent">{role.agent ? `agent: ${role.agent}${role.secondary ? ` → ${role.secondary}` : ""}` : "no agent"}</div>
       {open ? (
         <RoleEditForm role={role} candidates={candidates} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}

@@ -127,6 +127,8 @@ export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Pr
   for (const r of ctx.config.roles) {
     const item = byId.get(r.id) ?? { id: r.id };
     item.agent = p.agentId;
+    delete item.chain;
+    if (item.secondary === p.agentId) delete item.secondary;
     if (p.wizard) item.enabled = r.id === "lead";
     byId.set(r.id, item);
   }

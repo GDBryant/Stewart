@@ -61,14 +61,15 @@ interface AgentItem {
 interface RoleItem {
   enabled?: boolean;
   agent?: string;
-  chain?: string[];
+  secondary?: string;
+  chain?: string[]; // legacy: migrated to agent/secondary on load
 }
 
-/** Agents an enabled role binds (agent or chain); every agent when no role binds one. */
+/** Agents an enabled role binds (agent + secondary; legacy chain still read); every agent when no role binds one. */
 export async function agentsToQualify(configDir: string): Promise<AgentItem[]> {
   const agents = (await readItems<AgentItem>(join(configDir, "agents.yaml"))).items;
   const roles = (await readItems<RoleItem>(join(configDir, "roles.yaml"))).items;
-  const bound = new Set(roles.filter((r) => r.enabled !== false).flatMap((r) => [...(r.chain ?? []), ...(r.agent ? [r.agent] : [])]));
+  const bound = new Set(roles.filter((r) => r.enabled !== false).flatMap((r) => [r.agent, r.secondary, ...(r.chain ?? [])].filter((x): x is string => Boolean(x))));
   const picked = bound.size ? agents.filter((a) => bound.has(a.id)) : agents;
   const seen = new Set<string>();
   return picked.filter((a) => {

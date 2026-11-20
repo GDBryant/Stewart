@@ -3,18 +3,14 @@ items:
 - id: lead
   enabled: true
   agent: local-qwen4b
-  chain: &id001
-  - local-qwen4b
-  - AI Factory-qwen3-8-27b
-  - AI Factory-glm-5-3-flash
-  - Claude-sonnet
+  secondary: AI Factory-glm-5-3-flash
   skills:
   - project-health
   turnBudget: 40
 - id: explorer
   enabled: true
   agent: local-qwen4b
-  chain: *id001
+  secondary: AI Factory-glm-5-3-flash
   skills:
   - code-search
   tools:
@@ -29,7 +25,7 @@ items:
 - id: reviewer
   enabled: true
   agent: local-qwen4b
-  chain: *id001
+  secondary: AI Factory-glm-5-3-flash
   skills:
   - code-review
   - code-health

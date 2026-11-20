@@ -1,4 +1,5 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
+import { eligibleChain } from "@stewart/roles-skills";
 import type { ChatMessage, Json } from "@stewart/kernel";
 import type { ApproveFn } from "@stewart/permissions";
 import { roleIsReadOnly, ToolRegistry, type Tool } from "@stewart/tools";
@@ -208,7 +209,8 @@ export class ChildRunner {
   }
 
   private childAgent(role: RoleDef): AgentDef | undefined {
-    return this.d.config().agents.find((a) => a.id === role.agent) ?? this.d.agent;
+    const cfg = this.d.config();
+    return eligibleChain(role, cfg.roles, cfg.agents, cfg.channels)[0] ?? this.d.agent;
   }
 
   /** Holds one admission slot on the role's channel for the whole task, so a channel with maxParallel N never has more than N delegated tasks running (the rest wait as pending). */

@@ -1008,7 +1008,7 @@ describe("SessionService delegate", () => {
       { id: "a1", channel: "c", model: "m", effort: "medium" as const },
       { id: "a2", channel: "c", model: "m", effort: "medium" as const },
     ];
-    const child = { ...reviewer, chain: ["a1", "a2"] };
+    const child = { ...reviewer, agent: "a1", secondary: "a2" };
     const config = makeConfig({ agents, roles: [makeConfig().roles[0], child] });
     const report = { files: [{ path: "src/a.ts", loc: 1, score: 9, band: "Yellow" }], findings: [], notChecked: [] };
     const engine = scriptedEngine([
@@ -1126,7 +1126,7 @@ describe("lead escalation over the chain", () => {
     { id: "a1", channel: "c", model: "m", effort: "medium" as const },
     { id: "a2", channel: "c", model: "m", effort: "medium" as const },
   ];
-  const leadChain = { ...makeConfig().roles[0], chain: ["a1", "a2"] };
+  const leadChain = { ...makeConfig().roles[0], agent: "a1", secondary: "a2" };
   const cfg = () => makeConfig({ agents: twoAgents, roles: [leadChain] });
   const ok = async function* (turn: EngineTurn) {
     turn.transcript.push({ role: "assistant", content: `done by ${turn.agent.id}` });
@@ -1252,7 +1252,7 @@ describe("lead escalation over the chain", () => {
   });
 
   it("escalates a delegated child along its role chain without asking the user", async () => {
-    const explorer = { id: "explorer", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, chain: ["a1", "a2"] };
+    const explorer = { id: "explorer", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1", secondary: "a2" };
     const fail = async function* () { yield { kind: "finished" as const, reason: "turn_limit" as const }; };
     const engine = scriptedEngine([
       async function* (turn: EngineTurn) {
@@ -1332,7 +1332,7 @@ describe("project verify commands", () => {
       { id: "a2", channel: "c", model: "m", effort: "medium" as const },
     ];
     const cfg = verifyCfg(agents);
-    cfg.roles[0] = { ...cfg.roles[0], chain: ["a1", "a2"] };
+    cfg.roles[0] = { ...cfg.roles[0], agent: "a1", secondary: "a2" };
     const h = make(cfg, 2);
     let calls = 0;
     h.setProcHandler((argv) => ({ code: argv[0] === "pnpm" ? (calls++ === 0 ? 1 : 0) : 1 }));

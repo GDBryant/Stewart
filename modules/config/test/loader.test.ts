@@ -109,17 +109,50 @@ describe("store helpers", () => {
   });
 });
 
-describe("qualification + role chain schema", () => {
-  it("parses modelCaps.qualified and role kind/needs/chain with defaults", () => {
+describe("qualification + role agent/secondary schema", () => {
+  it("parses modelCaps.qualified and role kind/needs/agent/secondary with defaults", () => {
     const channels = `version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      m:\n        qualified:\n          agent: { passed: true, at: 1, version: 2, detail: ok }\n          function: { passed: false, at: 2, version: 2 }\n`;
-    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    kind: function\n    needs: { vision: true, minContext: 8000 }\n    chain: [a1, a2]\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n  - id: plain\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n`;
+    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    kind: function\n    needs: { vision: true, minContext: 8000 }\n    agent: a1\n    secondary: a2\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n  - id: plain\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: 5\n`;
     const c = loadConfig({ "channels.yaml": channels, "roles.yaml": roles }, undefined, {}, { trusted: true });
     expect(c.errors).toEqual([]);
     expect(c.channels[0].modelCaps.m.qualified).toMatchObject({ agent: { passed: true, detail: "ok" }, function: { passed: false } });
-    expect(c.roles[0]).toMatchObject({ kind: "function", needs: { vision: true, minContext: 8000 }, chain: ["a1", "a2"] });
+    expect(c.roles[0]).toMatchObject({ kind: "function", needs: { vision: true, minContext: 8000 }, agent: "a1", secondary: "a2" });
     expect(c.roles[1].kind).toBe("agent");
     expect(c.roles[1].needs).toBeUndefined();
-    expect(c.roles[1].chain).toBeUndefined();
+    expect(c.roles[1].secondary).toBeUndefined();
+  });
+
+  it("migrates a legacy chain consistent with agent to secondary", () => {
+    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    chain: [a1, a2, a3]\n`;
+    const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0].agent).toBe("a1");
+    expect(c.roles[0].secondary).toBe("a2");
+    expect("chain" in c.roles[0]).toBe(false);
+  });
+
+  it("drops a legacy chain whose first entry differs from agent (stale override)", () => {
+    const roles = `version: 1\nitems:\n  - id: reviewer\n    enabled: true\n    agent: aif\n    chain: [ollama]\n`;
+    const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0]).toMatchObject({ agent: "aif" });
+    expect(c.roles[0].secondary).toBeUndefined();
+    expect("chain" in c.roles[0]).toBe(false);
+  });
+
+  it("migrates an agent-less legacy chain to agent + secondary", () => {
+    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    chain: [a1, a2]\n`;
+    const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0]).toMatchObject({ agent: "a1", secondary: "a2" });
+  });
+
+  it("normalizes secondary: \"\" to absent and keeps an explicit secondary over the chain", () => {
+    const roles = `version: 1\nitems:\n  - id: blank\n    enabled: true\n    agent: a1\n    secondary: ""\n  - id: explicit\n    enabled: true\n    agent: a1\n    secondary: a3\n    chain: [a1, a2]\n`;
+    const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0].secondary).toBeUndefined();
+    expect(c.roles[1].secondary).toBe("a3");
   });
 
   it("loads the removed v2 tools mode 'shim' as 'unknown'", () => {
@@ -172,7 +205,7 @@ items:
     expect(isProjectFile("project.yaml")).toBe(true);
   });
 
-  it("an agent-only role keeps working with no kind/chain fields", () => {
+  it("an agent-only role keeps working with no kind/secondary fields", () => {
     const c = loadConfig({ "roles.yaml": role("lead") }, undefined, {}, { trusted: true });
     expect(c.errors).toEqual([]);
     expect(c.roles[0].kind).toBe("agent");

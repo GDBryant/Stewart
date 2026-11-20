@@ -1,5 +1,5 @@
 // Public surface of @stewart/setup. Only this file is importable from outside.
-export { meetsHardRequirements, modelSizeB, scoreAssignments, proposeChain, ROLE_PROFILES, SCORE_WEIGHTS } from "./assign.js";
+export { meetsHardRequirements, modelSizeB, scoreAssignments, proposeSecondary, ROLE_PROFILES, SCORE_WEIGHTS } from "./assign.js";
 export type { Candidate, ScoredAssignment, Unfilled } from "./assign.js";
 export { recommendAssignments } from "./recommend.js";
 export type { RecommendChannelInfo, Assignment, RecommendOptions, RecommendResult, RecommendChannel } from "./recommend.js";

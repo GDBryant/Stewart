@@ -175,7 +175,7 @@ describe("lead turn checks", () => {
       { id: "a2", channel: "c", model: "m", effort: "medium" as const },
     ];
     const base = harness().config;
-    const h = harness({ engine, config: { ...base, agents, roles: [{ ...base.roles[0], chain: ["a1", "a2"] }] } });
+    const h = harness({ engine, config: { ...base, agents, roles: [{ ...base.roles[0], agent: "a1", secondary: "a2" }] } });
     const { sessionId } = await h.svc.send({ text: "look at a and b" });
     await h.waitFor("run.finished");
     const transcript = await h.svc.fullHistory(sessionId);

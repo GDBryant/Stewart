@@ -9,10 +9,9 @@ export function roleNeeds(role: RoleDef): { vision: boolean; minContext: number 
   return { vision: role.needs?.vision ?? false, minContext: role.needs?.minContext ?? fallback };
 }
 
-/** Effective chain: explicit `chain`, else `[agent]`, else the lead's chain (for lead: the first agent). */
+/** Effective chain: `[agent, secondary]` deduped, else the lead's chain (for lead: the first agent). */
 export function roleChainIds(role: RoleDef, roles: RoleDef[], agents: AgentDef[]): string[] {
-  if (role.chain?.length) return role.chain;
-  if (role.agent) return [role.agent];
+  if (role.agent) return [...new Set([role.agent, role.secondary].filter((x): x is string => Boolean(x)))];
   if (role.id !== "lead") {
     const lead = roles.find((r) => r.id === "lead" && r.id !== role.id);
     if (lead) return roleChainIds(lead, roles, agents);
@@ -61,11 +60,11 @@ export function eligibleChain(role: RoleDef, roles: RoleDef[], agents: AgentDef[
 }
 
 /**
- * Config errors for an enabled role's saved chain (or bound agent): unknown ids, and agents the role refuses
+ * Config errors for an enabled role's bound agent + secondary: unknown ids, and agents the role refuses
  * (`agentRefusal`). Shown in Settings so a bad assignment is visible before a run.
  */
 export function chainErrors(role: RoleDef, agents: AgentDef[], channels: ChannelDef[]): string[] {
-  const ids = role.chain?.length ? role.chain : role.agent ? [role.agent] : [];
+  const ids = role.agent ? [...new Set([role.agent, role.secondary].filter((x): x is string => Boolean(x)))] : [];
   if (!role.enabled || !ids.length) return [];
   const byId = new Map(agents.map((a) => [a.id, a]));
   return ids.map((id) => chainEntryError(role, id, byId.get(id), channels)).filter((e): e is string => e !== null);
@@ -73,7 +72,7 @@ export function chainErrors(role: RoleDef, agents: AgentDef[], channels: Channel
 
 /** One chain entry's error; an unknown bound `agent` is reported by validateRoles instead. */
 function chainEntryError(role: RoleDef, id: string, agent: AgentDef | undefined, channels: ChannelDef[]): string | null {
-  if (!agent) return role.chain?.length ? `role ${role.id}: unknown chain agent '${id}'` : null;
+  if (!agent) return id === role.secondary ? `role ${role.id}: unknown secondary agent '${id}'` : null;
   const why = agentRefusal(role, agent, channels);
   return why ? `role ${role.id}: agent '${id}' ${why}` : null;
 }

@@ -54,6 +54,39 @@ describe("delegate admission per channel", () => {
   });
 });
 
+describe("child agent label", () => {
+  it("labels task.started with the first eligible agent, not role.agent", async () => {
+    const q = { agent: { passed: true, at: 1, version: 2, context: 32000 } };
+    const channels = [{ id: "c", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m1: {}, m2: { qualified: q } } }];
+    const agents = [
+      { id: "a1", channel: "c", model: "m1", effort: "medium" as const },
+      { id: "a2", channel: "c", model: "m2", effort: "medium" as const },
+    ];
+    const childRole = { ...reviewer, agent: "a1", secondary: "a2" };
+    const lead = { ...makeConfig().roles[0], agent: "a2" };
+    const config = makeConfig({ channels, agents, roles: [lead, childRole] });
+    let childAgentId = "";
+    const engine = scriptedEngine([
+      async function* (turn: EngineTurn) {
+        const tool = turn.tools.find("delegate")!;
+        await tool.execute({ role: "reviewer", task: "review x" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn: EngineTurn) {
+        childAgentId = turn.agent.id;
+        turn.transcript.push({ role: "assistant", content: "ok" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, files: { "src/a.ts": "x" } });
+    await h.svc.send({ text: "go" });
+    await h.waitFor("run.finished", 5000);
+    expect(childAgentId).toBe("a2");
+    expect(h.events.find((e) => e.kind === "task.started")).toMatchObject({ agentId: "a2" });
+  });
+});
+
 describe("role think setting", () => {
   async function seen(think: boolean | undefined): Promise<EngineTurn> {
     const lead = { ...makeConfig().roles[0], ...(think === undefined ? {} : { think }) };

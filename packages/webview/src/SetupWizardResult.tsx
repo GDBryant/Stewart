@@ -9,7 +9,7 @@ type Assignment = NonNullable<State["recommendation"]>["assignments"][number];
 type Recommendation = NonNullable<State["recommendation"]>;
 
 function ReviewRoleRow({
-  role, assignment, unfilled, chosen, edit, catalog, options, onChange, chain, onChainMove, onChainRemove,
+  role, assignment, unfilled, chosen, edit, catalog, options, onChange, secondary, onSecondaryChange,
 }: {
   role: RoleSummary;
   assignment?: Assignment;
@@ -19,9 +19,8 @@ function ReviewRoleRow({
   catalog?: CatalogInfo;
   options: { channel: string; model: string }[];
   onChange(ref: string): void;
-  chain: string[];
-  onChainMove(ref: string, dir: -1 | 1): void;
-  onChainRemove(ref: string): void;
+  secondary: string;
+  onSecondaryChange(ref: string): void;
 }) {
   const ci = chosen.indexOf(":");
   const chId = ci > 0 ? chosen.slice(0, ci) : "";
@@ -33,6 +32,11 @@ function ReviewRoleRow({
         <option value="">(disabled)</option>
         {options.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
       </select>
+      {" → "}
+      <select aria-label={`role ${role.id} secondary`} value={secondary} disabled={!chosen} onChange={(e) => onSecondaryChange((e.target as HTMLSelectElement).value)}>
+        <option value="">(none)</option>
+        {options.filter((p) => key(p.channel, p.model) !== chosen).map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
+      </select>
       {assignment?.reason ? <span class="hint"> — {assignment.reason}</span> : null}
       {catalog ? (
         <span class="hint">
@@ -41,23 +45,6 @@ function ReviewRoleRow({
       ) : null}
       {unfilled && !edit ? <span class="hint"> — disabled: {unfilled.reason}</span> : null}
       {assignment?.warnings?.map((w) => <div key={w} class="fail">⚠ {w}</div>)}
-      <ChainRow chain={chain} onMove={onChainMove} onRemove={onChainRemove} />
-    </div>
-  );
-}
-
-function ChainRow({ chain, onMove, onRemove }: { chain: string[]; onMove(ref: string, dir: -1 | 1): void; onRemove(ref: string): void }) {
-  if (chain.length < 2) return null;
-  return (
-    <div class="hint">
-      chain:{" "}
-      {chain.map((r, i) => (
-        <span key={r}>
-          {i > 0 ? " → " : ""}{r}
-          {i > 0 ? <button class="small" aria-label={`earlier ${r}`} onClick={() => onMove(r, -1)}>↑</button> : null}
-          {i > 0 ? <button class="small" aria-label={`remove ${r}`} onClick={() => onRemove(r)}>×</button> : null}
-        </span>
-      ))}
     </div>
   );
 }
@@ -72,9 +59,8 @@ type ReviewProps = {
   eligiblePairs: { channel: string; model: string }[];
   rowFor(roleId: string): string;
   edits: Record<string, string>;
-  chainFor(role: string): string[];
-  onChainMove(role: string, ref: string, dir: -1 | 1): void;
-  onChainRemove(role: string, ref: string): void;
+  secondaryFor(role: string): string;
+  onSecondaryChange(role: string, ref: string): void;
   probeResults: State["probeResults"];
   onEditRole(roleId: string, ref: string): void;
   onApply(): void;
@@ -87,9 +73,9 @@ function busyLabel(bench: boolean, evalMode: "rules" | "ai"): string {
   return evalMode === "ai" ? "AI evaluator is refining the proposal — this can take a few minutes…" : "Matching models to roles…";
 }
 
-type ReviewRowsProps = Pick<ReviewProps, "roles" | "rowFor" | "edits" | "probeResults" | "eligiblePairs" | "onEditRole" | "chainFor" | "onChainMove" | "onChainRemove"> & { rec: Recommendation };
+type ReviewRowsProps = Pick<ReviewProps, "roles" | "rowFor" | "edits" | "probeResults" | "eligiblePairs" | "onEditRole" | "secondaryFor" | "onSecondaryChange"> & { rec: Recommendation };
 
-function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, onEditRole, chainFor, onChainMove, onChainRemove }: ReviewRowsProps) {
+function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, onEditRole, secondaryFor, onSecondaryChange }: ReviewRowsProps) {
   return (
     <div>
       {rec.researcher ? <div class="hint">Refined by {rec.researcher.channel}:{rec.researcher.model}</div> : null}
@@ -109,9 +95,8 @@ function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, on
             catalog={catalog}
             options={eligiblePairs}
             onChange={(ref) => onEditRole(r.id, ref)}
-            chain={chainFor(r.id)}
-            onChainMove={(ref, dir) => onChainMove(r.id, ref, dir)}
-            onChainRemove={(ref) => onChainRemove(r.id, ref)}
+            secondary={secondaryFor(r.id)}
+            onSecondaryChange={(ref) => onSecondaryChange(r.id, ref)}
           />
         );
       })}
@@ -121,7 +106,7 @@ function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, on
 }
 
 export function ReviewStep({
-  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, chainFor, onChainMove, onChainRemove, onApply, onBack, onUseRules,
+  rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, secondaryFor, onSecondaryChange, onApply, onBack, onUseRules,
 }: ReviewProps) {
   return (
     <div class="form">
@@ -134,7 +119,7 @@ export function ReviewStep({
         </div>
       ) : null}
       {rec ? (
-        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} chainFor={chainFor} onChainMove={onChainMove} onChainRemove={onChainRemove} />
+        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} secondaryFor={secondaryFor} onSecondaryChange={onSecondaryChange} />
       ) : null}
       <div class="row">
         <button class="small" onClick={onBack}>Back</button>

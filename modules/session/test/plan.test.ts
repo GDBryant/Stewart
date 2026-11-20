@@ -112,7 +112,7 @@ describe("code-driven plan", () => {
       { id: "a2", channel: "c", model: "m", effort: "medium" as const },
     ];
     const cfg = makeConfig({ agents });
-    cfg.roles[0] = { ...cfg.roles[0], chain: ["a1", "a2"] };
+    cfg.roles[0] = { ...cfg.roles[0], agent: "a1", secondary: "a2" };
     let h!: Harness;
     const write = async function* (turn: EngineTurn) {
       h.files["a.ts"] = "x";

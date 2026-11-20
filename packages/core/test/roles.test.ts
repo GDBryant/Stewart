@@ -98,6 +98,22 @@ describe("Core roles + skills dispatch", () => {
     expect(r.summary.roles.every((x) => x.agent === "a1")).toBe(true);
   });
 
+  it("roles.assignAgent removes legacy chain and drops a secondary equal to the new agent", async () => {
+    const userLayer: ConfigLayer = {
+      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: old\n    chain: [old, a1]\n  - id: reviewer\n    enabled: true\n    agent: old\n    secondary: keep\n    chain: [old]\n",
+    };
+    const { core, layer } = mk(userLayer);
+    await core.attachProject("p", fakeHost().host);
+    await core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1" });
+    const doc = parseYaml(layer["roles.yaml"]!) as { items: Record<string, unknown>[] };
+    const lead = doc.items.find((i) => i.id === "lead")!;
+    const reviewer = doc.items.find((i) => i.id === "reviewer")!;
+    expect("chain" in lead).toBe(false);
+    expect(lead.secondary).toBeUndefined();
+    expect("chain" in reviewer).toBe(false);
+    expect(reviewer.secondary).toBe("keep");
+  });
+
   it("roles.assignAgent refuses an agent that is not qualified for the lead", async () => {
     const core = new Core({
       defaults: { ...defaults, "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n" },

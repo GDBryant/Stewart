@@ -96,9 +96,8 @@ function ReviewStepView({ m }: { m: SetupWizardModel }) {
       edits={m.edits}
       probeResults={m.store.state.probeResults}
       onEditRole={(roleId, ref) => m.setEdits({ ...m.edits, [roleId]: ref })}
-      chainFor={m.chainFor}
-      onChainMove={m.onChainMove}
-      onChainRemove={m.onChainRemove}
+      secondaryFor={m.secondaryFor}
+      onSecondaryChange={m.onSecondaryChange}
       onApply={m.apply}
       onBack={() => m.setStep(3)}
       onUseRules={() => {
