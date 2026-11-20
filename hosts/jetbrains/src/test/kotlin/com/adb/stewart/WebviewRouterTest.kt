@@ -612,6 +612,7 @@ class WebviewRouterTest {
         val rig = Rig { _, _ -> null }
         for ((t, want) in listOf(
             "setup.recommend" to "setup.recommend.result",
+            "models.refresh" to "models.refresh.result",
             "config.set" to "config",
             "setup.session.update" to "setup.session.update.result",
             "setup.probe.start" to "setup.probe.result",

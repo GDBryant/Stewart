@@ -98,6 +98,9 @@ export interface State {
   questions: PendingQuestion[];
   config?: ConfigReply;
   channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;
+  /** models.refresh in flight; summary line after it finishes. */
+  refreshBusy?: boolean;
+  refreshSummary?: string;
   probeResults: Record<string, { ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: import("./bridge.js").CatalogInfo; error?: string }>;
   wizardOpen?: boolean;
   view: "chat" | "settings";

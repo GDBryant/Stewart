@@ -165,6 +165,11 @@ export class Store {
   testChannel(channelId: string): void {
     this.bridge.post({ type: "channel.test", channelId });
   }
+  refreshModels(): void {
+    if (this.state.refreshBusy) return;
+    this.patch({ refreshBusy: true, refreshSummary: undefined });
+    this.bridge.post({ type: "models.refresh" });
+  }
   probeModel(channelId: string, model: string, force = false, bench = false): void {
     this.bridge.post({ type: "channel.probe", channelId, model, force, ...(bench ? { bench: true } : {}) });
   }

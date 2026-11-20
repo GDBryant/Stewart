@@ -13,6 +13,7 @@ import { AgentExtra } from "./agentExtra.js";
 import { RolesSection } from "./rolesSection.js";
 import { SkillsSection } from "./skillsSection.js";
 import { SettingsEditor } from "./settingsEditor.js";
+import { QuestionCard } from "./MessageItem.js";
 
 export { looksLikeKey };
 
@@ -96,12 +97,17 @@ export function SettingsView({ store }: { store: Store }) {
   return (
     <div class="settings">
       <SettingsErrors errors={store.state.config?.errors ?? []} lastError={store.state.lastError} />
+      {store.state.questions.map((q) => (
+        <QuestionCard key={q.questionId} q={q} onAnswer={(a) => store.answer(q.questionId, a)} />
+      ))}
+      {store.state.refreshSummary ? <p class="hint">{store.state.refreshSummary}</p> : null}
       {showWizard ? <SetupWizard store={store} channels={data.channels} agents={data.agents} roles={data.roles} /> : null}
       <nav class="tabs">
         {SETTINGS_TABS.map((t) => (
           <button key={t} class={active === t ? "tab active" : "tab"} onClick={() => setActive(t)}>{t}</button>
         ))}
         <span class="spacer" />
+        <button class="small" disabled={store.state.refreshBusy} aria-busy={store.state.refreshBusy} onClick={() => store.refreshModels()}>Refresh models</button>
         <button class="small" onClick={() => store.setWizardOpen(true)}>Run setup</button>
       </nav>
       <Fragment key={active}>{TAB_VIEWS[active]({ store, ...data })}</Fragment>

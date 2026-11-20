@@ -15,6 +15,7 @@ export type Outbound =
   | { type: "history.delete"; sessionId: string }
   | { type: "slash.list" }
   | { type: "channel.test"; channelId: string }
+  | { type: "models.refresh" }
   | { type: "channel.probe"; channelId: string; model: string; force?: boolean; bench?: boolean }
   | { type: "secret.set"; ref: string; value: string }
   | { type: "secret.delete"; ref: string }
@@ -137,6 +138,7 @@ export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
   | ({ type: "config" } & ConfigReply)
   | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
+  | { type: "models.refresh.result"; ok: boolean; added?: string[]; removed?: string[]; disabledChannels?: string[]; removedChannels?: string[]; unreachable?: string[]; error?: string }
   | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: CatalogInfo; error?: string }
   | { type: "history.sessions"; sessions: SessionSummary[] }
   | { type: "slash.commands"; commands: import("@stewart/protocol").SlashCommandInfo[] }

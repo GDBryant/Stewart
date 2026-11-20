@@ -17,6 +17,20 @@ export interface HandlerHost {
   nextInsertSeq(): number;
 }
 
+type RefreshReply = Extract<Inbound, { type: "models.refresh.result" }>;
+
+function refreshSummary(m: RefreshReply): string {
+  const fmt = (n: number | undefined, label: string) => (n ? `${n} ${label}${n === 1 ? "" : "s"}` : "");
+  const parts = [
+    m.added?.length ? `+${m.added.length} agent${m.added.length === 1 ? "" : "s"}` : "",
+    m.removed?.length ? `${m.removed.length} removed` : "",
+    fmt(m.disabledChannels?.length, "channel disabled"),
+    fmt(m.removedChannels?.length, "channel removed"),
+    fmt(m.unreachable?.length, "channel unreachable"),
+  ].filter(Boolean);
+  return `models refresh: ${parts.length ? parts.join(", ") : "agents up to date"}`;
+}
+
 type Reply = Exclude<Inbound, { type: "event" }>;
 type ReplyHandlers = { [K in Reply["type"]]: (m: Extract<Reply, { type: K }>) => void };
 type EventHandlers = { [K in RunEvent["kind"]]?: (ev: Extract<RunEvent, { kind: K }>) => void };
@@ -53,6 +67,7 @@ export class StoreHandlers {
     "setup.qualify.result": (m) =>
       this.patch({ qualResults: { ...this.state.qualResults, [`${m.channel}:${m.model}`]: { agent: m.agent, function: m.function, error: m.error } } }),
     "setup.recommend.result": (m) => this.onRecommendResult(m),
+    "models.refresh.result": (m) => this.onRefreshResult(m),
     error: (m) => this.onErrorReply(m),
   };
 
@@ -183,6 +198,15 @@ export class StoreHandlers {
         recommendError: undefined,
       });
     this.patch({ recommendBusy: false, recommendation: undefined, recommendError: m.error ?? "recommendation failed" });
+  }
+
+  private onRefreshResult(m: Extract<Reply, { type: "models.refresh.result" }>): void {
+    this.patch({
+      refreshBusy: false,
+      refreshSummary: m.ok ? refreshSummary(m) : undefined,
+      lastError: m.ok ? this.state.lastError : (m.error ?? "models refresh failed"),
+    });
+    this.host.post({ type: "config.get" });
   }
 
   private onErrorReply(m: Extract<Reply, { type: "error" }>): void {

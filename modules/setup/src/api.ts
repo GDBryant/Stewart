@@ -14,3 +14,5 @@ export type { SetupDraft, SetupEvent, SetupPhase, SetupSessionDeps, Evaluation }
 export type { DraftChannelInput, DraftChannelResult } from "./draftChannels.js";
 export { SMOKE_TIMEOUT_MS, RANK_TIMEOUT_MS, PROBE_DRAIN_MS, MAX_SMOKE_ATTEMPTS, SetupProbeRunner, smokeModel, normalizeReason, orderSmokeCandidates, fallbackOrder, rankCandidates } from "./probe.js";
 export type { ProbeCounts, ProbeItem, ProbeSnapshot, ProbeStatus, ProbeRunnerDeps, RankCandidate, SmokeCandidate, SmokeChannel, SmokeOptions, SmokeResult, SmokeState, SmokeVerdict } from "./probe.js";
+export { diffModels, applyDecisions, mintAgent, uniqueAgentId, agentIdBase, billingFor } from "./modelSync.js";
+export type { AgentBilling, AddedModel, GoneAgent, ListedChannel, ModelDiff, RawItems, SyncApplyResult, SyncDecisions, SyncDocs } from "./modelSync.js";

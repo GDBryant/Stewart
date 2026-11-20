@@ -36,6 +36,7 @@ const ROUTES: Record<string, Handler> = {
   },
   "channel.test": (ctx, m) =>
     dispatchAndReply(ctx, "channel.test", { projectId: PROJECT_ID, channelId: m.channelId }, { type: "channel.test.result", channelId: m.channelId }),
+  "models.refresh": setupStaged,
   "channel.probe": (ctx, m) =>
     dispatchAndReply(
       ctx,

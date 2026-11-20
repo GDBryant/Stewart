@@ -21,6 +21,7 @@ import * as cfg from "./handlers/config.js";
 import * as setup from "./handlers/setup.js";
 import * as setupProbe from "./handlers/setupProbe.js";
 import * as qualify from "./handlers/qualify.js";
+import * as models from "./handlers/models.js";
 import * as slash from "./handlers/slash.js";
 import { createProbeLoop } from "./probeLoop.js";
 import { applyProbes } from "./handlers/util.js";
@@ -42,6 +43,7 @@ export class Core implements CoreCtx {
   readonly qualRecords = new Map<string, Map<string, { agent?: Qual; function?: Qual }>>();
   readonly probeLoop: ProbeLoop<ManagedChannel>;
   userGuard = new SelfWriteGuard();
+  readonly refreshInFlight = new Set<string>();
   private chDeps: ChannelDeps;
   clock: Clock;
   private ids: IdGen;
@@ -181,6 +183,7 @@ export class Core implements CoreCtx {
     "config.set": (p) => cfg.handleConfigSet(this, p),
     "channel.test": (p) => setup.handleChannelTest(this, p),
     "channel.probe": (p) => setup.handleChannelProbe(this, p),
+    "models.refresh": (p) => models.handleModelsRefresh(this, p),
     "setup.recommend": (p) => setup.handleSetupRecommend(this, p),
     "setup.probe.start": (p) => setupProbe.handleSetupProbeStart(this, p),
     "setup.qualify": (p) => qualify.handleSetupQualify(this, p),

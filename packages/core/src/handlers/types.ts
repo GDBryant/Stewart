@@ -55,6 +55,8 @@ export interface CoreCtx {
   readonly qualRecords: Map<string, Map<string, { agent?: import("@stewart/config").Qual; function?: import("@stewart/config").Qual }>>;
   readonly probeLoop: ProbeLoop<ManagedChannel>;
   readonly userGuard: SelfWriteGuard;
+  /** Project ids with a models.refresh run in progress (one at a time per project). */
+  readonly refreshInFlight: Set<string>;
   readonly secretValues: Map<string, string>;
   readonly defaults: Record<string, string | undefined>;
   ctx(projectId: string): ProjectCtx;

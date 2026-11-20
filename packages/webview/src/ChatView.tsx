@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Store } from "./state.js";
 import { Composer } from "./Composer.js";
-import { MessageItem, ApprovalCard } from "./MessageItem.js";
-import { renderMarkdown } from "./markdown.js";
+import { MessageItem, ApprovalCard, QuestionCard } from "./MessageItem.js";
 
 export function ChatView({ store }: { store: Store }) {
   const s = store.state;
@@ -164,26 +163,3 @@ function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; oversh
   );
 }
 
-function QuestionCard({ q, onAnswer }: { q: { questionId: string; question: string; options?: string[] }; onAnswer(a: string): void }) {
-  const [free, setFree] = useState("");
-  return (
-    <div class="card question">
-      <div class="card-body question-body">{renderMarkdown(q.question)}</div>
-      {q.options?.length ? (
-        <div class="row">
-          {q.options.map((o) => (
-            <button key={o} onClick={() => onAnswer(o)}>
-              {o}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div class="row">
-        <input placeholder="Or type a reply…" value={free} onInput={(e) => setFree((e.target as HTMLInputElement).value)} />
-        <button disabled={!free.trim()} onClick={() => onAnswer(free)}>
-          Reply
-        </button>
-      </div>
-    </div>
-  );
-}
