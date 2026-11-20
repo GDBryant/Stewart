@@ -47,20 +47,21 @@ Rules are pure `(text) => hit[]`; `checkOutbound` walks text parts only (images 
 
 `checkOutbound` result maps onto the existing evidence path: a violation throws `BusinessPolicyError` at the seam; the task runner records evidence `business_policy: blocked outgoing message to <channel>: <rule> in <where> #<n> (<hint>)` and the run/attempt **fails without escalating to another agent on the same channel** (escalating to a channel with the rule off is allowed — the rule is per channel). Same surfacing as `policy_violation` in `taskRun.ts` verify; `run.finished` failure text carries it. No raw match in logs, events or debug sink (reuse `diagnostics` redaction).
 
-### Config (settings.yaml, not channels.yaml)
+### Config (global default in settings.yaml, override on the channel)
 
-The rule matrix is one business decision, edited in one place, so it lives in settings:
+Global defaults are one business decision (settings.yaml). Per-channel overrides live on the channel entry in `channels.yaml`, so the channel editor writes only its own file, deleting a channel removes its override, and no pruning is needed.
 
 ```yaml
-businessPolicy:
-  rules:                # which rules exist/are enabled globally
-    passwords: true
-    privacy: true
-  channels:             # per-channel override; absent channel = rules.* defaults
-    ollama-local: { passwords: false, privacy: false }   # local model: nothing leaves the machine
+# settings.yaml
+security:                 # home for current and future security toggles
+  passwords: true
+  privacy: true
+# channels.yaml, per channel (absent key = inherit)
+- id: ollama-local
+  security: { passwords: false, privacy: false }
 ```
 
-Zod in `modules/config/src/schema.ts` (`businessPolicy` with defaults `{rules:{passwords:true,privacy:true},channels:{}}`). Default **on** for all channels (fail safe); local `ollama` channels are *suggested* off in the UI but not defaulted off. Unknown channel ids in `channels` are ignored on load (stale after delete) and pruned on save.
+Zod in `modules/config/src/schema.ts`: `security` defaults `{passwords:true,privacy:true}`; channel `security` is `{passwords?: boolean, privacy?: boolean}` (tri-state: inherit / on / off). Effective rule = channel value, else global. Default **on** (fail safe); local `ollama` channels are *suggested* off in the UI, not defaulted off. Existing settings/channels files load unchanged. Only the two business-policy rules live under `security` for now; existing permission/bypass settings stay where they are.
 
 ### Wiring
 
@@ -70,12 +71,17 @@ Zod in `modules/config/src/schema.ts` (`businessPolicy` with defaults `{rules:{p
 
 ## 3. Settings UI
 
-`Settings → settings` tab (`packages/webview/src/settingsEditor.tsx`, currently a flat field list) gains a **Business policy** section below the existing fields:
+Two surfaces, same rows (`Passwords`, `Privacy`), same hint text.
 
-- Table: rows = enabled channels (colour dot via `channelColors`), columns = `Passwords`, `Privacy` checkboxes; header row = global default toggles.
-- Hint text: what each rule blocks; the claude-cli limitation; "blocked messages fail the run, nothing is sent".
-- Saves through the same `settingsYaml()` path. `settingsYaml` currently keeps unshown top-level keys by name — `businessPolicy` must be added to the shown set (and `unflatten` must support the nested map), or the section gets its own component writing only that key. Prefer the separate component `businessPolicySection.tsx` (settingsEditor is small; keep files <300 lines).
-- Setup wizard: out of scope for v1; wizard-created channels inherit defaults (on).
+**Settings → settings → Security section** (`securitySection.tsx`, below the existing fields; keep files <300 lines):
+- One checkbox per rule = the global default; saved through the `settingsYaml()` path (add `security` to the shown keys / nested-map support, or write only that key).
+- **Apply to all channels** button: clears every channel's `security` override so all channels inherit the global values (does not copy values). Confirm first: "N channels have custom settings; they will be reset." Writes `channels.yaml` once.
+- Hint: what each rule blocks; "blocked messages fail the run, nothing is sent"; Claude CLI limit.
+
+**Settings → channels → channel editor** (`channelSecurity.tsx`, used by `ChannelExtra`):
+- Per rule a tri-state: Inherit / On / Off, showing the effective value and an `inherited` or `custom` marker; **Reset to default** clears the override. Saved with the channel via `channels.yaml`.
+- On `claude-cli` channels, show the limit: "reads files itself; asks before each session".
+- Setup wizard: out of scope; wizard-created channels carry no override (inherit).
 
 ## 4. Build order (each step ships tests, positive + negative; docs in the same commit)
 
@@ -83,10 +89,10 @@ Zod in `modules/config/src/schema.ts` (`businessPolicy` with defaults `{rules:{p
 |---|---|---|
 | B1 | `@stewart/business-policy` module (`new-module.mjs`, add to `layers.json`), `passwords` rule + registry + redacted `Violation` | unit fixtures: real shapes hit, placeholders/prose don't; match never in output |
 | B2 | `privacy` rule (Luhn, email, phone, IBAN, ID) | fixtures incl. false-positive negatives (version strings, UUIDs, line numbers) |
-| B3 | Config schema `businessPolicy` + defaults + prune + migration-free load | loader tests: absent block = defaults, unknown channel dropped, bad type rejected |
-| B4 | `ManagedChannel` guard + `ChannelService` wiring; blocked request holds no slot, no breaker failure | channels tests: blocked/allowed, per-channel off, reload re-applies |
+| B3 | Config schema: `security` in settings + optional channel `security` (tri-state), defaults, migration-free load | loader tests: absent = inherit/defaults, override wins, bad type rejected, delete channel drops override |
+| B4 | `ManagedChannel` guard + `ChannelService` wiring (effective rules = channel override else global); blocked request holds no slot, no breaker failure | channels tests: blocked/allowed, per-channel off, reload re-applies |
 | B5 | claude-code + `claudeComplete` guard; `business_policy` evidence in `taskRun`/`turnState`, no same-channel escalation | engines/session tests: run fails with evidence, escalation to rule-off channel proceeds |
-| B6 | Webview section + save path | `app.test.tsx`: toggles persist, unknown keys preserved, claude-cli hint shown |
+| B6 | Settings Security section + channel editor tri-state + save paths | `app.test.tsx`: global toggles persist, unknown keys preserved, apply-all clears overrides (confirm shown, count right), override/inherit marker, reset works, claude-cli hint shown |
 | B7 | Docs: `ARCHITECTURE_NOW.md` (module table, egress, config), `PERMISSIONS.md` section, `AGENTS.md` reference, delete `business_layer_2026-11-16.md` | `check:docs`, `check:layers`, `check:functions`, coverage ≥90/80 |
 
 Keep each function within the limits (≤40 lines, complexity ≤10): one file per rule keeps this natural.
@@ -106,5 +112,9 @@ New protocol event `policy.notice {runId, channel, rule, action: "blocked"|"with
 
 - B4 adds the tool-result withhold (pure `applyOutbound(messages, rules) -> {messages, blocked, withheld}`; the guard throws only when `blocked` is non-empty) and emits `policy.notice`.
 - B5 adds the claude-cli ask (existing interaction question prompt, same pattern as the turn-limit Continue/Stop card) and the session+channel memory of `Continue`.
-- B6 webview renders `policy.notice`; the claude-cli hint says "asks before each session".
+- B6 webview renders `policy.notice`; the claude-cli hint says "asks before each session" (channel editor).
 - New tests: tool result withheld and run continues; user text blocks; notice carries no matched text; Continue remembered, Stop fails, child inherits the answer.
+
+## 7. Decision: global + per-channel settings (user, 2026-11-20)
+
+Security options may apply to all channels or only some. Global defaults sit in Settings → settings → Security with an **Apply to all channels** button; each channel has the same options, changeable per channel. Resolved in §2/§3: global in `settings.yaml`, override on the channel entry (tri-state, inherit by default), Apply-to-all clears overrides after confirmation. This replaces the earlier per-channel matrix in settings and the `businessPolicy` key.
