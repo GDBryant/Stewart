@@ -1,6 +1,7 @@
 import type { ModelCaps } from "@stewart/models";
 import type { ChannelConfig } from "./types.js";
 import { ChannelRegistry, ManagedChannel } from "./registry.js";
+import { RULE_IDS, type RuleId } from "@stewart/business-policy";
 
 export type ChannelHealth = "healthy" | "unhealthy" | "backoff" | "missing";
 
@@ -19,8 +20,19 @@ export type ChannelSpec = {
   extraModels?: string[];
   maxParallel?: number;
   modelCaps?: Record<string, Partial<ModelCaps>>;
+  /** Per-rule override of the global business-policy switch; absent rule = inherit. */
+  security?: Partial<Record<RuleId, boolean>>;
   [k: string]: unknown;
 };
+
+/** Global business-policy switches; every rule is on unless the config says otherwise. */
+export type SecurityFlags = Record<RuleId, boolean>;
+const ALL_ON = Object.fromEntries(RULE_IDS.map((id) => [id, true])) as SecurityFlags;
+
+/** Effective rules of a channel: its own override, else the global switch. */
+export function rulesFor(c: ChannelSpec, global: SecurityFlags = ALL_ON): RuleId[] {
+  return RULE_IDS.filter((id) => c.security?.[id] ?? global[id]);
+}
 
 async function loadChannelSecret(
   c: ChannelSpec,
@@ -41,7 +53,7 @@ export class ChannelService {
   constructor(private readonly deps: ChannelServiceDeps) {}
 
   /** Rebuild from config: disabled rows skipped, unknown types logged and skipped (never throws). Returns the secrets it read, by ref. */
-  async rebuild(channels: ChannelSpec[], host: { secrets: { get(ref: string): Promise<string | undefined> }; log(msg: string): void }): Promise<Map<string, string>> {
+  async rebuild(channels: ChannelSpec[], host: { secrets: { get(ref: string): Promise<string | undefined> }; log(msg: string): void }, security: SecurityFlags = ALL_ON): Promise<Map<string, string>> {
     const previous = new Map(this.managed);
     this.managed.clear();
     const secrets = new Map<string, string>();
@@ -50,6 +62,7 @@ export class ChannelService {
       try {
         const maxParallel = c.maxParallel ?? (c.type === "ollama" ? 1 : 4);
         const mc = this.reuseOrCreate(previous.get(c.id), c, maxParallel);
+        mc.setRules(rulesFor(c, security));
         const s = await loadChannelSecret(c, host, mc);
         if (s) secrets.set(s.ref, s.secret);
         this.managed.set(c.id, mc);

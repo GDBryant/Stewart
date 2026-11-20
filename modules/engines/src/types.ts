@@ -19,6 +19,7 @@ export type EngineEvent =
   | { kind: "write"; record: WriteRecord }
   | { kind: "usage"; inTokens: number; outTokens: number; costUsd?: number }
   | { kind: "engine.context"; engineSessionId?: string; inputTokens?: number; windowTokens?: number; compacted: boolean; turnCount?: number }
+  | { kind: "policy.notice"; channel: string; rule: string; action: "blocked" | "withheld"; where: "system" | "user" | "tool" | "assistant"; msgIndex: number }
   | { kind: "finished"; reason: "stop" | "turn_limit" | "cancelled" | "loop_guard" | "error"; error?: string };
 
 export interface EngineTurn {

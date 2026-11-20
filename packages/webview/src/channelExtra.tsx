@@ -2,6 +2,7 @@ import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import type { ChannelSummary } from "./bridge.js";
 import { looksLikeKey } from "./fields.js";
+import { ChannelSecurity } from "./channelSecurity.js";
 
 function ChannelTestBadge({ test }: { test?: { ok: boolean; models?: string[]; error?: string } }) {
   if (!test) return null;
@@ -43,6 +44,7 @@ export function ChannelExtra({ item, store }: { item: ChannelSummary; store: Sto
       ) : (
         <ChannelSecretBlock secretRef={ref} stored={!!stored} onClear={() => ref && store.deleteSecret(ref)} />
       )}
+      <ChannelSecurity item={item} store={store} />
     </span>
   );
 }

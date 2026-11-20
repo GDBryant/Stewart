@@ -1,5 +1,5 @@
 import { normalizeModel } from "@stewart/catalog";
-import { claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnedResult, type SpawnOpts } from "@stewart/channels";
+import { BusinessPolicyError, claudeChildEnv, nodeSpawn, type SpawnedProc, type SpawnedResult, type SpawnOpts } from "@stewart/channels";
 import { validateArgs } from "@stewart/tools";
 import { exitCause, isStartFailure, type Json } from "@stewart/kernel";
 import type { ClaudeCodeDeps, CompleteRequest, CompleteResult } from "./types.js";
@@ -76,7 +76,20 @@ function spawnErr(argv: string[], e: unknown): CompleteResult {
   return { ok: false, error: `cannot start Claude CLI at ${argv[0]}: ${e instanceof Error ? e.message : String(e)}` };
 }
 
+/** Business policy over the system prompt and input; a hit refuses before anything is spawned. */
+function refusal(req: CompleteRequest): CompleteResult | undefined {
+  try {
+    req.channel.screen([{ role: "system", content: req.system }, { role: "user", content: req.input }]);
+    return undefined;
+  } catch (e) {
+    if (e instanceof BusinessPolicyError) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
 export async function claudeComplete(req: CompleteRequest, deps: ClaudeCodeDeps = {}): Promise<CompleteResult> {
+  const refused = refusal(req);
+  if (refused) return refused;
   const spawn = deps.spawn ?? nodeSpawn;
   const argv = completeArgv(req);
   const opts: SpawnOpts = { cwd: "/", env: claudeChildEnv(req.channel.cfg, deps.env ?? (process.env as Record<string, string | undefined>)), stdin: "devnull" };
@@ -95,6 +108,10 @@ export async function claudeComplete(req: CompleteRequest, deps: ClaudeCodeDeps 
     }
     d = await drain(proc, req.signal);
   }
+  return outcome(argv, d, req);
+}
+
+function outcome(argv: string[], d: { line: string; result: SpawnedResult }, req: CompleteRequest): CompleteResult {
   if (d.result.spawnError) return { ok: false, error: `cannot start Claude CLI at ${argv[0]}: ${d.result.spawnError}` };
   if (isStartFailure(d.result.code)) return { ok: false, error: `Claude CLI ${exitCause(d.result.code)}` };
   return req.signal.aborted ? { ok: false, error: "cancelled" } : parseResult(d.line, req.schema);

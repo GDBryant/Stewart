@@ -13,6 +13,7 @@ import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewar
 import { abortRace, AbortedRun, err, lastReply, newTaskState, type Contract, type ContractCommand, type FinishReason, type RunState, type TaskState } from "./turnState.js";
 import { evBase, onEvent } from "./taskEvents.js";
 import { handoverText } from "./handover.js";
+import { cliPolicyGate, policyFailed } from "./policyGate.js";
 
 export type { Contract, ContractCommand } from "./turnState.js";
 
@@ -173,6 +174,12 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
     ...(spec.role.think !== undefined ? { think: spec.role.think } : {}),
     ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
   };
+  const refused = await cliPolicyGate(c, channel);
+  if (refused) {
+    ts.reason = "error";
+    ts.error = refused;
+    return;
+  }
   try {
     for await (const ev of engine.run(turn)) await onEvent(ev, c, agent);
   } catch (e) {
@@ -289,6 +296,17 @@ async function tryAgent(c: Ctx, baseline: Baseline, agent: AgentDef): Promise<Ta
   return undefined;
 }
 
+/** Try each agent in turn; a business-policy failure skips the rest of the same channel (it would block the same content). */
+async function runChain(c: Ctx, baseline: Baseline, chain: AgentDef[]): Promise<TaskResult | undefined> {
+  for (const agent of chain) {
+    if (policyFailed(c.ts.error) && c.st.prev?.channel === agent.channel) continue;
+    const r = await tryAgent(c, baseline, agent);
+    if (r) return r;
+    c.st.prev = agent;
+  }
+  return undefined;
+}
+
 /**
  * The one task runner: eligible chain → engine attempt → verify → escalate (handover) → optional
  * interactive retry — shared by the lead turn (taskId undefined) and delegated children.
@@ -311,12 +329,7 @@ export async function runTask(spec: TaskSpec, deps: TaskDeps): Promise<TaskResul
     return result(c, baseline, "failed");
   }
   try {
-    for (const agent of chain) {
-      const r = await tryAgent(c, baseline, agent);
-      if (r) return r;
-      c.st.prev = agent;
-    }
-    return await finish(c, baseline);
+    return (await runChain(c, baseline, chain)) ?? (await finish(c, baseline));
   } catch (e) {
     if (!(e instanceof AbortedRun)) throw e;
     c.ts.reason = "cancelled";

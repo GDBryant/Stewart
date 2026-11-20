@@ -46,6 +46,8 @@ export type Outbound =
 export interface ChannelSummary {
   id: string; type: string; name?: string; enabled: boolean; baseUrl?: string; secretRef?: string;
   extraModels?: string[]; maxParallel?: number; modelCaps?: Record<string, unknown>;
+  /** Business-policy override per rule; absent rule = inherit settings.security. */
+  security?: { passwords?: boolean; privacy?: boolean };
 }
 export interface AgentSummary {
   id: string; channel: string; model: string; effort?: string; temperature?: number; billing?: string; costs?: boolean;
@@ -68,6 +70,7 @@ export interface SettingsSummary {
   setupPriorities?: { speed?: number; cost?: number; quality?: number };
   setupTypicalWork?: string;
   log?: { level?: string; retainDays?: number };
+  security?: { passwords?: boolean; privacy?: boolean };
 }
 export interface ConfigSummary {
   channels: ChannelSummary[];

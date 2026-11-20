@@ -13,6 +13,9 @@
       "path": "../../packages/protocol"
     },
     {
+      "path": "../business-policy"
+    },
+    {
       "path": "../channels"
     },
     {

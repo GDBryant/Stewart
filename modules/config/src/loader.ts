@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { agentsFile, channelsFile, projectFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
+import { securitySchema, agentsFile, channelsFile, projectFile, rolesFile, settingsFile, type AgentDef, type ChannelDef, type RoleDef, type Settings, CONFIG_VERSION } from "./schema.js";
 
 
 /** Raw YAML text per file name, per layer. Host supplies reads + writes. */
@@ -67,6 +67,7 @@ function mergeSettingsLayers(docs: (z.infer<typeof settingsFile> | undefined)[])
     ...(d1 ?? {}),
     ...(d2 ?? {}),
     costLimit: { ...base.costLimit, ...(d1?.costLimit ?? {}), ...(d2?.costLimit ?? {}) },
+    security: securitySchema.parse({ ...base.security, ...(d1?.security ?? {}), ...(d2?.security ?? {}) }),
   };
 }
 

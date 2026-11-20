@@ -12,6 +12,7 @@ import { ChannelDot, channelColor } from "./channelColors.js";
 import { AgentExtra } from "./agentExtra.js";
 import { RolesSection } from "./rolesSection.js";
 import { SkillsSection } from "./skillsSection.js";
+import { SecuritySection } from "./securitySection.js";
 import { SettingsEditor } from "./settingsEditor.js";
 import { QuestionCard } from "./MessageItem.js";
 
@@ -149,7 +150,12 @@ const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
     <RolesSection store={store} roles={roles} agents={agents} channels={channels} skills={skills} />
   ),
   skills: ({ store, skills }) => <SkillsSection store={store} skills={skills} />,
-  settings: ({ store, settings }) => <SettingsEditor store={store} settings={settings} />,
+  settings: ({ store, settings, channels }) => (
+    <>
+      <SettingsEditor store={store} settings={settings} />
+      <SecuritySection store={store} settings={settings} channels={channels} />
+    </>
+  ),
   integrations: () => (
     <section>
       <h3>Integrations</h3>

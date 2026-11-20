@@ -63,7 +63,7 @@ export interface Harness {
   diffShows: ReturnType<typeof fakeHost>["diffShows"];
 }
 
-export function harness(over: { config?: EffectiveConfig; channel?: ManagedChannel; engine?: Engine; files?: Record<string, string> } = {}): Harness {
+export function harness(over: { config?: EffectiveConfig; channel?: ManagedChannel; channelFor?: (id: string) => ManagedChannel; engine?: Engine; files?: Record<string, string> } = {}): Harness {
   const { host, files, setProcHandler, procs, diffShows } = fakeHost(over.files ?? {});
   const events: RunEvent[] = [];
   const waiters: { kind: string; res: (e: RunEvent) => void }[] = [];
@@ -85,7 +85,7 @@ export function harness(over: { config?: EffectiveConfig; channel?: ManagedChann
     clock: systemClock,
     interaction,
     permissions: new Permissions(interaction),
-    channelFor: () => channel,
+    channelFor: over.channelFor ?? (() => channel),
     config: () => config,
     engineFor: over.engine ? () => over.engine! : undefined,
   };

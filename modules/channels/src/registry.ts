@@ -1,6 +1,8 @@
 import type { ChannelAdapter, ChannelConfig, ChatEvent, ChatRequest } from "./types.js";
 import { capsFor } from "@stewart/models";
-import { ChannelError } from "./types.js";
+import { ChannelError, BusinessPolicyError } from "./types.js";
+import { applyOutbound, type RuleId, type Violation } from "@stewart/business-policy";
+import type { ChatMessage } from "@stewart/kernel";
 import { stripImages } from "@stewart/kernel";
 import { Semaphore } from "./semaphore.js";
 
@@ -16,6 +18,7 @@ export class ManagedChannel {
   /** Request slots (one per in-flight chat) and admission slots (one per delegated task, held for its whole run); separate so a task never starves its own requests. */
   private readonly requests: Semaphore;
   private readonly admissions: Semaphore;
+  private rules: RuleId[] = [];
   private failures = 0;
   private backoffUntil = 0;
   unhealthy = false;
@@ -37,6 +40,26 @@ export class ManagedChannel {
     this.config = cfg;
     this.requests.setLimit(cfg.maxParallel);
     this.admissions.setLimit(cfg.maxParallel);
+  }
+
+  /** Business-policy rules ticked for this channel (effective: channel override else global). */
+  setRules(rules: RuleId[]): void {
+    this.rules = rules;
+  }
+
+  get policyRules(): readonly RuleId[] {
+    return this.rules;
+  }
+
+  /**
+   * Applies the business-policy rules to outgoing messages: tool results with a hit are replaced in the returned copy
+   * (reported to `onWithheld`); a hit in any other message throws BusinessPolicyError and nothing is sent.
+   */
+  screen(messages: ChatMessage[], onWithheld?: (w: Violation[]) => void): ChatMessage[] {
+    const out = applyOutbound(messages, this.rules);
+    if (out.blocked.length) throw new BusinessPolicyError(this.cfg.id, out.blocked);
+    if (out.withheld.length) onWithheld?.(out.withheld);
+    return out.messages;
   }
 
   /** Waits for a task slot on this channel (limit = maxParallel); the returned function releases it. */
@@ -90,6 +113,7 @@ export class ManagedChannel {
   }
 
   async *chat(req: ChatRequest): AsyncIterable<ChatEvent> {
+    req = { ...req, messages: this.screen(req.messages, req.onWithheld) }; // before acquire: a blocked request holds no slot and is not a channel failure
     await this.acquire();
     const vision = capsFor(this.cfg, req.model).vision;
     if (!vision) req = { ...req, messages: stripImages(req.messages) };

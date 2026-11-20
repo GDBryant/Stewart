@@ -143,3 +143,6 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .slash-item.selected { background: var(--st-accent); color: var(--st-accent-fg); }
 .slash-usage { font-family: ui-monospace, monospace; flex: none; }
 .slash-desc { opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-security { display: block; margin: 6px 0 0; font-size: 11px; }
+.channel-security .field { display: flex; gap: 6px; align-items: center; }
+.security .confirm { display: inline-flex; gap: 6px; align-items: center; }

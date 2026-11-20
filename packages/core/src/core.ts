@@ -131,7 +131,7 @@ export class Core implements CoreCtx {
   }
 
   private async rebuildChannels(config: EffectiveConfig, host: HostPort): Promise<void> {
-    const secrets = await this.channelService.rebuild(config.channels, host);
+    const secrets = await this.channelService.rebuild(config.channels, host, config.settings.security);
     for (const [k, v] of secrets) this.secretValues.set(k, v);
   }
 

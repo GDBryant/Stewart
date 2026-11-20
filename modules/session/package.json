@@ -22,7 +22,9 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
+    "@stewart/business-policy": "workspace:*",
     "@stewart/channels": "workspace:*",
+    "@stewart/code-health": "workspace:*",
     "@stewart/config": "workspace:*",
     "@stewart/context": "workspace:*",
     "@stewart/engines": "workspace:*",
@@ -33,7 +35,6 @@
     "@stewart/protocol": "workspace:*",
     "@stewart/roles-skills": "workspace:*",
     "@stewart/tasks": "workspace:*",
-    "@stewart/tools": "workspace:*",
-    "@stewart/code-health": "workspace:*"
+    "@stewart/tools": "workspace:*"
   }
 }

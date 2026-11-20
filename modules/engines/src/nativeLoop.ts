@@ -1,6 +1,9 @@
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { categoryOf, type ToolPreview } from "@stewart/permissions";
 import { outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stewart/tools";
+import type { Violation } from "@stewart/business-policy";
+import { BusinessPolicyError, type ChatEvent } from "@stewart/channels";
+import { freshWithheld, noticesOf, redactBlocked, withholdTools } from "./policyNotice.js";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { LoopGuard } from "./loopGuard.js";
 import { forNative } from "./nativeMessages.js";
@@ -55,27 +58,45 @@ function retryOpts(turn: EngineTurn, retry?: { minNumCtx: number }): { think?: b
 }
 
 async function* streamModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, void> {
+  const withheld: Violation[] = [];
+  const pre = withholdTools(turn.channel, turn.system, turn.transcript);
+  yield* pre.notices;
   const req = {
     model: turn.agent.model,
     temperature: turn.agent.temperature,
     ...retryOpts(turn, retry),
-    messages: [{ role: "system" as const, content: turn.system }, ...forNative(turn.transcript, new Set(turn.tools.specs.map((s) => s.name)))],
+    messages: [{ role: "system" as const, content: turn.system }, ...forNative(pre.transcript, new Set(turn.tools.specs.map((s) => s.name)))],
     tools: turn.tools.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })),
+    onWithheld: (w: Violation[]) => withheld.push(...w),
     signal: turn.signal,
   };
-  for await (const ev of turn.channel.chat(req)) {
-    if (ev.kind === "text") {
-      out.content += ev.text;
-      yield { kind: "text", text: ev.text };
-    } else if (ev.kind === "reasoning") {
-      yield { kind: "reasoning", text: ev.text };
-    } else if (ev.kind === "tool_calls") {
-      out.calls.push(...ev.calls);
-    } else if (ev.kind === "done") {
-      out.truncated = ev.truncated === true;
-      out.tokens = ev.usage ? ev.usage.in + ev.usage.out : 0;
-      if (ev.usage) yield { kind: "usage", inTokens: ev.usage.in, outTokens: ev.usage.out, costUsd: ev.costUsd };
+  try {
+    for await (const ev of turn.channel.chat(req)) {
+      yield* freshWithheld(turn.channel.cfg.id, req.messages, withheld.splice(0));
+      yield* modelEvent(ev, out);
     }
+    yield* freshWithheld(turn.channel.cfg.id, req.messages, withheld.splice(0));
+  } catch (e) {
+    if (e instanceof BusinessPolicyError) {
+      redactBlocked(turn.transcript, e.violations);
+      yield* noticesOf(e.channel, "blocked", e.violations);
+    }
+    throw e;
+  }
+}
+
+function* modelEvent(ev: ChatEvent, out: ModelOut): Generator<EngineEvent, void> {
+  if (ev.kind === "text") {
+    out.content += ev.text;
+    yield { kind: "text", text: ev.text };
+  } else if (ev.kind === "reasoning") {
+    yield { kind: "reasoning", text: ev.text };
+  } else if (ev.kind === "tool_calls") {
+    out.calls.push(...ev.calls);
+  } else if (ev.kind === "done") {
+    out.truncated = ev.truncated === true;
+    out.tokens = ev.usage ? ev.usage.in + ev.usage.out : 0;
+    if (ev.usage) yield { kind: "usage", inTokens: ev.usage.in, outTokens: ev.usage.out, costUsd: ev.costUsd };
   }
 }
 

@@ -34,6 +34,17 @@ const modelCaps = z.object({
 });
 export type Qual = z.infer<typeof qual>;
 
+/** Business-policy rule switches (outbound content rules). Global defaults live in settings; a channel may override. */
+export const securitySchema = z.object({ passwords: z.boolean().default(true), privacy: z.boolean().default(true) });
+export const channelSecuritySchema = z.object({ passwords: z.boolean().optional(), privacy: z.boolean().optional() });
+export type Security = z.infer<typeof securitySchema>;
+
+/** Effective rules for a channel: its own override when set, else the global value. */
+export function effectiveSecurity(global: Security, channel?: { security?: z.infer<typeof channelSecuritySchema> }): Security {
+  const o = channel?.security;
+  return { passwords: o?.passwords ?? global.passwords, privacy: o?.privacy ?? global.privacy };
+}
+
 export const channelSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1), // openai-compatible | ollama | claude-cli | acp — open set via ChannelRegistry
@@ -46,6 +57,7 @@ export const channelSchema = z.object({
   maxParallel: z.number().int().min(1).optional(), // default: ollama 1, others 4
   settingSources: z.string().optional(), // claude-cli: --setting-sources; default "" loads no user/project/local settings
   modelCaps: z.record(z.string(), modelCaps).default({}),
+  security: channelSecuritySchema.optional(), // absent key = inherit settings.security
 });
 export type ChannelDef = z.infer<typeof channelSchema>;
 
@@ -101,6 +113,7 @@ export const settingsSchema = z.object({
     .default({ speed: 2, cost: 2, quality: 2 }),
   setupTypicalWork: z.enum(["scripts", "features", "refactors", "mixed"]).optional(),
   log: z.object({ level: z.enum(["off", "calls", "full"]).default("off"), retainDays: z.number().int().min(0).default(7) }).default({}),
+  security: securitySchema.default({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -112,7 +125,8 @@ export function versioned<T extends z.ZodTypeAny>(inner: T) {
 export const channelsFile = versioned(channelSchema);
 export const agentsFile = versioned(agentSchema);
 export const rolesFile = versioned(roleSchema);
-export const settingsFile = z.object({ version: z.number().int().default(CONFIG_VERSION) }).merge(settingsSchema);
+// `security` stays partial per layer so a layer that omits a rule does not reset a lower layer's value to the default.
+export const settingsFile = z.object({ version: z.number().int().default(CONFIG_VERSION) }).merge(settingsSchema).extend({ security: channelSecuritySchema.optional() });
 
 /** `.stewart/project.yaml` (project layer, trusted workspaces only): how code verifies every writing task here. */
 export const projectFile = z.object({

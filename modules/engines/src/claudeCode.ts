@@ -1,6 +1,8 @@
-import type { ToolCall } from "@stewart/kernel";
+import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import { categoryOf } from "@stewart/permissions";
-import { claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
+import { BusinessPolicyError, claudeChildEnv, nodeSpawn, type SpawnedProc } from "@stewart/channels";
+import { screenTurn } from "./claudePolicy.js";
+import { noticesOf } from "./policyNotice.js";
 import type { ClaudeCodeDeps, Engine, EngineEvent, EngineTurn } from "./types.js";
 import { mcpConfigArg, startMcp, type McpHandle } from "./mcp.js";
 import { LoopGuard } from "./loopGuard.js";
@@ -169,7 +171,7 @@ function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
   return () => turn.signal.removeEventListener("abort", onAbort);
 }
 
-async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: string, obs: ClaudeObs): AsyncGenerator<EngineEvent, Attempt | null> {
+async function* runAttempt(turn: EngineTurn, input: { sent: ChatMessage[]; prefix: string }, deps: ClaudeCodeDeps, obs: ClaudeObs): AsyncGenerator<EngineEvent, Attempt | null> {
   const spawn = deps.spawn ?? nodeSpawn;
   const argv = claudeArgv(turn, str(turn.state.cliSessionId));
   let mcp: McpHandle | undefined;
@@ -188,7 +190,7 @@ async function* runAttempt(turn: EngineTurn, deps: ClaudeCodeDeps, prefix: strin
   const a: Attempt = { turn, proc, obs, deltaIds: new Set(), pending: new Map(), usedResume: str(turn.state.cliSessionId) !== undefined, lines: 0, cli: argv[0], guard: new LoopGuard() };
   const unwatch = cancelWatch(turn, proc);
   try {
-    proc.write?.(userLine(turn.transcript, prefix) + "\n");
+    proc.write?.(userLine(input.sent, input.prefix) + "\n");
     yield* pumpLines(a);
   } finally {
     unwatch();
@@ -206,18 +208,37 @@ async function* driveAttempt(gen: AsyncGenerator<EngineEvent, Attempt | null>): 
   }
 }
 
+type Screening = { ok: true; view: EngineTurn; events: EngineEvent[] } | { ok: false; events: EngineEvent[] };
+
+/** Business policy over what goes to the CLI; a block becomes notices plus a failed finish. Withheld notices only on the first attempt. */
+function screening(turn: EngineTurn, first: boolean): Screening {
+  try {
+    const s = screenTurn(turn);
+    return { ok: true, view: s.turn, events: first ? s.events : [] };
+  } catch (e) {
+    if (!(e instanceof BusinessPolicyError)) throw e;
+    return { ok: false, events: [...noticesOf(e.channel, "blocked", e.violations), { kind: "finished", reason: "error", error: e.message }] };
+  }
+}
+
+function* closing(obs: ClaudeObs, last: EngineEvent): Generator<EngineEvent, void> {
+  yield contextEvent(obs);
+  yield last;
+}
+
 async function* runClaude(turn: EngineTurn, deps: ClaudeCodeDeps): AsyncGenerator<EngineEvent, void> {
   if (turn.signal.aborted) {
     yield { kind: "finished", reason: "cancelled" };
     return;
   }
   const obs: ClaudeObs = { cliSessionId: str(turn.state.cliSessionId), compacted: false };
-  let prefix = unseenPrefix(turn);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const a = yield* driveAttempt(runAttempt(turn, deps, prefix, obs));
+    const sc = screening(turn, attempt === 0);
+    yield* sc.events;
+    if (!sc.ok) return;
+    const a = yield* driveAttempt(runAttempt(turn, { sent: sc.view.transcript, prefix: unseenPrefix(sc.view) }, deps, obs));
     if (!a) {
-      yield contextEvent(obs);
-      yield { kind: "finished", reason: "error", error: obs.spawnError ?? "cannot start Claude CLI" };
+      yield* closing(obs, { kind: "finished", reason: "error", error: obs.spawnError ?? "cannot start Claude CLI" });
       break;
     }
     const post = await postAttempt(a);
@@ -227,7 +248,6 @@ async function* runClaude(turn: EngineTurn, deps: ClaudeCodeDeps): AsyncGenerato
       break;
     }
     if (post.dropSession) delete turn.state.cliSessionId;
-    prefix = unseenPrefix(turn);
   }
   turn.state.cliSeen = turn.transcript.length;
 }

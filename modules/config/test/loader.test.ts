@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SelfWriteGuard, hashContent, isProjectFile, loadConfig } from "../src/api.js";
+import { SelfWriteGuard, effectiveSecurity, hashContent, isProjectFile, loadConfig } from "../src/api.js";
 
 const role = (id: string, turns = 10) => `version: 1\nitems:\n  - id: ${id}\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: ${turns}\n`;
 
@@ -209,5 +209,34 @@ items:
     const c = loadConfig({ "roles.yaml": role("lead") }, undefined, {}, { trusted: true });
     expect(c.errors).toEqual([]);
     expect(c.roles[0].kind).toBe("agent");
+  });
+});
+
+describe("security (business policy) config", () => {
+  const ch = (extra: string) => `version: 1\nitems:\n  - id: c\n    type: openai-compatible\n${extra}`;
+  it("defaults on when absent; channels inherit", () => {
+    const c = loadConfig({}, undefined, {}, { trusted: true });
+    expect(c.settings.security).toEqual({ passwords: true, privacy: true });
+    const l = loadConfig({ "channels.yaml": ch("") }, undefined, {}, { trusted: true });
+    expect(l.errors).toEqual([]);
+    expect(l.channels[0].security).toBeUndefined();
+    expect(effectiveSecurity(l.settings.security, l.channels[0])).toEqual({ passwords: true, privacy: true });
+  });
+  it("global setting loads and a channel override wins per rule", () => {
+    const c = loadConfig({ "settings.yaml": "version: 1\nsecurity:\n  privacy: false\n", "channels.yaml": ch("    security:\n      passwords: false\n") }, undefined, {}, { trusted: true });
+    expect(c.settings.security).toEqual({ passwords: true, privacy: false });
+    expect(effectiveSecurity(c.settings.security, c.channels[0])).toEqual({ passwords: false, privacy: false });
+  });
+  it("a later layer overrides one rule and keeps the other", () => {
+    const c = loadConfig({ "settings.yaml": "version: 1\nsecurity:\n  privacy: false\n" }, { "settings.yaml": "version: 1\nsecurity:\n  passwords: false\n" }, {}, { trusted: true });
+    expect(c.settings.security).toEqual({ passwords: false, privacy: false });
+  });
+  it("rejects a non-boolean value", () => {
+    const c = loadConfig({ "settings.yaml": "version: 1\nsecurity:\n  privacy: maybe\n" }, undefined, {}, { trusted: true });
+    expect(c.errors.join()).toMatch(/settings.yaml/);
+  });
+  it("rejects a bad channel override", () => {
+    const c = loadConfig({ "channels.yaml": ch("    security:\n      passwords: 3\n") }, undefined, {}, { trusted: true });
+    expect(c.errors.join()).toMatch(/channels.yaml/);
   });
 });

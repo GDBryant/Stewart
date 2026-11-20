@@ -109,6 +109,7 @@ export class StoreHandlers {
       });
     },
     "check.result": (ev) => this.onCheckResult(ev),
+    "policy.notice": (ev) => this.addActivity(ev.runId, "policy", policyText(ev)),
     "run.escalated": (ev) => this.addActivity(ev.runId, "escalated", `${ev.from} → ${ev.to}: ${ev.reason}`),
     ask_user: (ev) =>
       this.patch({
@@ -331,4 +332,12 @@ export class StoreHandlers {
     );
     this.patch({ items, tasks, busyRunId: undefined, lastRunId: ev.runId });
   }
+}
+
+const POLICY_VERB = { blocked: "blocked outgoing message", withheld: "withheld a tool result", refused: "refused to start" } as const;
+
+/** One line for a business-policy notice: rule, channel and position, never message text. */
+function policyText(ev: Extract<RunEvent, { kind: "policy.notice" }>): string {
+  const at = ev.action === "refused" ? "" : ` (${ev.where} #${ev.msgIndex})`;
+  return `business policy ${POLICY_VERB[ev.action]} on ${ev.channel}: ${ev.rule}${at}`;
 }

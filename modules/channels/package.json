@@ -25,6 +25,7 @@
     "@stewart/kernel": "workspace:*",
     "@stewart/diagnostics": "workspace:*",
     "@stewart/models": "workspace:*",
-    "@stewart/catalog": "workspace:*"
+    "@stewart/catalog": "workspace:*",
+    "@stewart/business-policy": "workspace:*"
   }
 }

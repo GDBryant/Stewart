@@ -1,6 +1,7 @@
 import type { ChatMessage, Fetcher, ToolCall } from "@stewart/kernel";
 import type { DebugSink } from "@stewart/diagnostics";
 import type { ModelCaps } from "@stewart/models";
+import { describeViolation, type Violation } from "@stewart/business-policy";
 
 export type ChatEvent =
   | { kind: "text"; text: string }
@@ -20,8 +21,18 @@ export type ChatRequest = {
   minNumCtx?: number;
   /** JSON Schema the provider must constrain the reply to (provider support varies; callers may retry without). */
   responseSchema?: unknown;
+  /** Called with the tool results the channel's business policy withheld from this request's copy. */
+  onWithheld?: (withheld: Violation[]) => void;
   signal: AbortSignal;
 };
+
+/** A request blocked by the channel's business policy: nothing was sent. Not a channel failure. */
+export class BusinessPolicyError extends Error {
+  constructor(readonly channel: string, readonly violations: Violation[]) {
+    super(`business_policy: blocked outgoing message to ${channel}: ${violations.map(describeViolation).join("; ")}`);
+    this.name = "BusinessPolicyError";
+  }
+}
 
 export interface ChannelConfig {
   id: string;

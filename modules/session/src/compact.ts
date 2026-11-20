@@ -1,6 +1,7 @@
 import type { AgentDef } from "@stewart/config";
 import type { ChatMessage, HostPort } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
+import { applyOutbound } from "@stewart/business-policy";
 
 /** Context window assumed when the model's is unknown. */
 const DEFAULT_WINDOW = 32_768;
@@ -48,10 +49,18 @@ function render(older: ChatMessage[]): string {
   return lines.join("\n").slice(-SOURCE_CAP);
 }
 
+/** Business policy for the summary request: tool results with a match are withheld, other matching messages are blanked (the archive keeps the originals). */
+function safeOlder(channel: ManagedChannel, older: ChatMessage[]): ChatMessage[] {
+  const out = applyOutbound(older, [...channel.policyRules]);
+  const bad = new Set(out.blocked.map((v) => v.msgIndex));
+  const blank = (m: ChatMessage): ChatMessage => ({ role: m.role === "assistant" ? "assistant" : "user", content: "[message withheld by business policy]" });
+  return out.messages.map((m, i) => (bad.has(i) ? blank(m) : m));
+}
+
 async function summarise(channel: ManagedChannel, agent: AgentDef, older: ChatMessage[], signal: AbortSignal): Promise<string> {
   const messages = [
     { role: "system" as const, content: SUMMARY_SYSTEM },
-    { role: "user" as const, content: render(older) },
+    { role: "user" as const, content: render(safeOlder(channel, older)) },
   ];
   let text = "";
   for await (const ev of channel.chat({ model: agent.model, messages, signal })) if (ev.kind === "text") text += ev.text;

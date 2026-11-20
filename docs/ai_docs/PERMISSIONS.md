@@ -77,3 +77,7 @@ Legacy: on first load an old AIJB `aijb-permissions.xml` is migrated once into `
 - `WriteFile` and `EditFile` strictly inside the current run's registered scratch task dir (`.stewart/scratch/<runId>/task-<m>-<t>/`) are auto-approved. Registration lasts from split start until the task finishes.
 - Everything else, including `final_file`, uses normal approval. Bypass and grants apply as usual.
 - Code: `ScratchApprovalGate` in `agents/Scratch.kt`. See `docs/archived_v2/FAULT_RECOVERY.md`.
+
+## Business policy (outbound content)
+
+Separate from the action rules above: it decides whether *text* may be sent to a channel, not whether a tool may run. Rules `passwords` and `privacy` are set globally in Settings → settings → Security and may be overridden per channel (Inherit / On / Off); "Apply to all channels" clears the overrides. Blocked user/system/assistant content fails the run with `business_policy:` evidence and nothing is sent; a tool result with a match is withheld from the request and the run continues; Claude CLI channels ask Continue/Stop first because the CLI reads files itself. Details: `docs/ai_docs/ARCHITECTURE_NOW.md` §3h, `docs/BUSINESS_POLICY_PLAN_2026-11-20.md`.

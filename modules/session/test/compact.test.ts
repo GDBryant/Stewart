@@ -138,3 +138,29 @@ describe("compaction inside one long turn", () => {
     expect(await expandArchived(host, t, "a.jsonl")).toEqual([{ role: "user", content: "old" }, { role: "user", content: "now" }]);
   });
 });
+
+describe("compaction under business policy", () => {
+  it("summarises with tool results withheld and matching messages blanked, never sending the secret", async () => {
+    const seen: { system?: string; user?: string } = {};
+    const ch = channel([{ kind: "text", text: "summary" }, { kind: "done" }], seen);
+    ch.setRules(["passwords"]);
+    const t = long();
+    t[2] = { role: "tool", toolCallId: "1", content: `password=hunter2 ${big}` };
+    t[0] = { role: "user", content: "token=abcdef123456 please" };
+    const { a } = args(t, ch);
+    expect(await compactTranscript(a)).toBe(true);
+    expect(seen.user).not.toMatch(/hunter2|abcdef123456/);
+    expect(seen.user).toContain("[output withheld by business policy: passwords]");
+    expect(seen.user).toContain("user: [message withheld by business policy]");
+    expect(JSON.stringify(a.transcript)).not.toContain("hunter2");
+  });
+
+  it("with no rules ticked the text goes through unchanged", async () => {
+    const seen: { system?: string; user?: string } = {};
+    const t = long();
+    t[2] = { role: "tool", toolCallId: "1", content: `password=hunter2 ${big}` };
+    const { a } = args(t, channel([{ kind: "text", text: "summary" }, { kind: "done" }], seen));
+    await compactTranscript(a);
+    expect(seen.user).toContain("hunter2");
+  });
+});

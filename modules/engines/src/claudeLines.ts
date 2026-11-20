@@ -96,16 +96,22 @@ function unseenLine(m: ChatMessage): string {
   return `${m.role}: ${[m.content, calls].filter(Boolean).join(" ")}`;
 }
 
+/** Transcript range the CLI has not seen: `from` .. `lastUser` (exclusive); the last user message itself goes in the user line. */
+export function unseenRange(turn: EngineTurn): { from: number; end: number } {
+  // Pre-cliSeen sessions have a live CLI session that saw everything up to its last reply: treat as seen.
+  const seen = typeof turn.state.cliSeen === "number" ? turn.state.cliSeen : turn.state.cliSessionId !== undefined ? turn.transcript.length : 0;
+  const lastUser = turn.transcript.map((m, i) => (m.role === "user" ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+  const end = lastUser >= 0 ? lastUser : turn.transcript.length;
+  return { from: seen > turn.transcript.length ? 0 : Math.min(seen, end), end };
+}
+
 /**
  * Recap of transcript messages the CLI session has not seen (state.cliSeen is their count) — messages made
  * by the other engine, handovers, or everything when compaction rewrote history. Tail-biased 12k cap.
  */
 export function unseenPrefix(turn: EngineTurn): string {
-  // Pre-cliSeen sessions have a live CLI session that saw everything up to its last reply: treat as seen.
-  const seen = typeof turn.state.cliSeen === "number" ? turn.state.cliSeen : turn.state.cliSessionId !== undefined ? turn.transcript.length : 0;
-  const lastUser = turn.transcript.map((m, i) => (m.role === "user" ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
-  const end = lastUser >= 0 ? lastUser : turn.transcript.length;
-  const unseen = seen > turn.transcript.length ? turn.transcript.slice(0, end) : turn.transcript.slice(Math.min(seen, end), end);
+  const { from, end } = unseenRange(turn);
+  const unseen = turn.transcript.slice(from, end);
   if (!unseen.length) return "";
   const lines = unseen.map(unseenLine);
   let text = "";

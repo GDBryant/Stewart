@@ -78,6 +78,7 @@ export async function onEvent(ev: EngineEvent, c: EventCtx, agent: AgentDef): Pr
     ts.writes.push(ev.record);
     return void spec.onWrite?.(ev.record);
   }
+  if (ev.kind === "policy.notice") return deps.bus.emit({ ...ev, ...evBase(spec) });
   if (ev.kind === "usage") return await onUsage(ev, c, agent);
   if (ev.kind === "engine.context") return onEngineContext(ev, c, agent);
   ts.reason = ev.reason;

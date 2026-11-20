@@ -103,6 +103,16 @@ export const runEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("milestone.done"), ...base, milestoneId: z.string() }),
   z.object({ kind: z.literal("milestone.failed"), ...base, milestoneId: z.string(), error: z.string() }),
   z.object({ kind: z.literal("run.escalated"), ...base, from: z.string(), to: z.string(), reason: z.string() }),
+  /** Business policy acted on outgoing content. Never carries the matched text. */
+  z.object({
+    kind: z.literal("policy.notice"),
+    ...base,
+    channel: z.string(),
+    rule: z.string(),
+    action: z.enum(["blocked", "withheld", "refused"]),
+    where: z.enum(["system", "user", "tool", "assistant"]),
+    msgIndex: z.number(),
+  }),
   z.object({ kind: z.literal("run.reverted"), ...base, filesRestored: z.array(z.string()) }),
   z.object({
     kind: z.literal("cost.summary"),

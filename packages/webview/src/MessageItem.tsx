@@ -23,6 +23,7 @@ export function activityIcon(a: ActivityEntry): string {
   if (a.kind === "tool-ok" && !a.tool) return "✅";
   if (a.kind === "tool-fail") return "❌";
   if (a.kind === "escalated") return "⤴";
+  if (a.kind === "policy") return "🛡";
   const t = (a.tool ?? a.text ?? "").toLowerCase();
   const hit = ICONS.find(([k]) => t.includes(k));
   return hit ? hit[1] : "⚙";
