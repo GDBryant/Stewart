@@ -34,6 +34,7 @@ export interface ChatItem {
   filesBaseline?: string;
   /** Show a "Revert this turn" action (failed run with a turn baseline). */
   revertTurn?: boolean;
+  plan?: PlanState;
 }
 
 export const MAX_PENDING_IMAGES = 5;

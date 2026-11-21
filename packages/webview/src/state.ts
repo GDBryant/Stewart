@@ -127,7 +127,7 @@ export class Store {
   }
   newSession(): void {
     if (this.state.busyRunId) return;
-    this.patch({ sessionId: undefined, items: [], historyOpen: false });
+    this.patch({ sessionId: undefined, items: [], historyOpen: false, plan: undefined, tasks: [], cost: undefined, questions: [], approvals: [] });
   }
   cancel(): void {
     if (this.state.busyRunId) this.bridge.post({ type: "chat.cancel", runId: this.state.busyRunId });

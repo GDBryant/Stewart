@@ -13,9 +13,13 @@ export function ChatView({ store }: { store: Store }) {
       <ChatBar store={store} />
       {s.historyOpen ? <HistoryPanel store={store} /> : null}
       <div class="items">
-        {s.items.map((it) => (
-          <MessageItem key={it.id} item={it} onRevertTurn={() => store.revert("turn")} onOpenFile={(p) => store.openFileDiff(p, it.filesBaseline)} />
-        ))}
+        {s.items.map((it) =>
+          it.plan ? (
+            <PlanCard key={it.id} plan={it.plan} store={store} />
+          ) : (
+            <MessageItem key={it.id} item={it} onRevertTurn={() => store.revert("turn")} onOpenFile={(p) => store.openFileDiff(p, it.filesBaseline)} />
+          ),
+        )}
         {s.plan ? <PlanCard plan={s.plan} store={store} /> : null}
         {s.tasks.some((t) => t.status === "running") ? <ActiveTasks tasks={s.tasks} /> : null}
         {s.tasks.length ? <TaskCard tasks={s.tasks} /> : null}

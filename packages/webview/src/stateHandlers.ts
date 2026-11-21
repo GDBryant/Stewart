@@ -1,6 +1,6 @@
 import type { RunEvent } from "@stewart/protocol";
 import type { Inbound, Outbound, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
-import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
+import type { ActivityEntry, ChatItem, PlanState, State, TaskRow } from "./stateTypes.js";
 import { finishedItems } from "./runFinished.js";
 import { appendDelta, closeSegment } from "./segments.js";
 
@@ -29,6 +29,10 @@ function refreshSummary(m: RefreshReply): string {
     fmt(m.unreachable?.length, "channel unreachable"),
   ].filter(Boolean);
   return `models refresh: ${parts.length ? parts.join(", ") : "agents up to date"}`;
+}
+
+function planCardItem(plan: PlanState, seq: number): ChatItem {
+  return { id: `plan${seq}`, role: "system", text: "", activity: [], plan };
 }
 
 type Reply = Exclude<Inbound, { type: "event" }>;
@@ -225,21 +229,22 @@ export class StoreHandlers {
       images: msg.images,
       activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
     }));
+    const plan: PlanState | undefined = m.plan
+      ? {
+          goal: m.plan.goal,
+          active: m.plan.active ?? (m.plan.status === "active" || m.plan.status === "paused"),
+          milestones: (m.plan.milestones ?? []).map((x) => ({ id: x.id, title: x.title, status: x.status === "done" ? "done" : x.status === "failed" ? "failed" : "pending", checkpoint: x.checkpoint })),
+        }
+      : undefined;
     this.patch({
-      items,
+      items: plan && !plan.active ? [...items, planCardItem(plan, this.host.nextItemSeq())] : items,
       sessionId: m.sessionId,
       historyOpen: false,
       view: "chat",
       tasks: [],
       cost: undefined,
       busyRunId: undefined,
-      plan: m.plan
-        ? {
-            goal: m.plan.goal,
-            active: m.plan.active ?? (m.plan.status === "active" || m.plan.status === "paused"),
-            milestones: (m.plan.milestones ?? []).map((x) => ({ id: x.id, title: x.title, status: x.status === "done" ? "done" : x.status === "failed" ? "failed" : "pending", checkpoint: x.checkpoint })),
-          }
-        : undefined,
+      plan: plan?.active ? plan : undefined,
     });
   }
 
@@ -275,7 +280,9 @@ export class StoreHandlers {
     const plan = this.state.plan;
     if (!plan) return;
     const milestones = plan.milestones.map((m) => (m.id === id ? { ...m, status } : m));
-    this.patch({ plan: { ...plan, milestones, active: status === "failed" ? plan.active : milestones.some((m) => m.status !== "done") } });
+    const next: PlanState = { ...plan, milestones, active: status === "failed" ? plan.active : milestones.some((m) => m.status !== "done") };
+    if (next.active) return this.patch({ plan: next });
+    this.patch({ plan: undefined, items: [...this.state.items, planCardItem(next, this.host.nextItemSeq())] });
   }
 
   private onTaskEvent(ev: Extract<RunEvent, { kind: `task.${string}` }>): void {
