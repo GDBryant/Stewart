@@ -25,7 +25,8 @@
     "commands": [
       {
         "command": "stewart.openChat",
-        "title": "Stewart: Open Chat"
+        "title": "Stewart: Open Chat",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "stewart.openSettings",
@@ -37,6 +38,12 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "stewart.openChat",
+          "group": "navigation@1"
+        }
+      ],
       "editor/context": [
         {
           "command": "stewart.addSelectionToChat",

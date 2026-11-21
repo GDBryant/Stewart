@@ -3,10 +3,10 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import type { Core } from "@stewart/core";
 import type { VsCodeHost } from "./host.js";
+import type { RouteMessage } from "./messageDispatcher.js";
+import { errorMessage } from "./errorMessage.js";
 
 export const PROJECT_ID = "workspace";
-
-type RouteMessage = { type: string; [k: string]: unknown };
 type Api = Pick<typeof import("vscode"), "window" | "workspace" | "Uri">;
 type Panel = Pick<vscode.WebviewPanel, "webview">;
 type CoreLike = Pick<Core, "dispatch">;
@@ -96,6 +96,11 @@ const ROUTES: Record<string, Handler> = {
   },
 };
 
+/** Per-route error replies; routes absent here get the generic `{ type: "error" }`. */
+const ERROR_REPLY: Record<string, (message: string) => Record<string, unknown>> = {
+  "models.refresh": (error) => ({ type: "models.refresh.result", ok: false, error }),
+};
+
 const fallback: Handler = async (ctx, m) => {
   await ctx.core.dispatch(m.type, { ...m, projectId: PROJECT_ID });
 };
@@ -105,6 +110,7 @@ export async function route(ctx: RouteCtx, m: RouteMessage): Promise<void> {
     const handler = Object.hasOwn(ROUTES, m.type) ? ROUTES[m.type] : fallback;
     await handler(ctx, m);
   } catch (e) {
-    await ctx.panel.webview.postMessage({ type: "error", message: e instanceof Error ? e.message : String(e) });
+    const message = errorMessage(e);
+    await ctx.panel.webview.postMessage(Object.hasOwn(ERROR_REPLY, m.type) ? ERROR_REPLY[m.type](message) : { type: "error", message });
   }
 }

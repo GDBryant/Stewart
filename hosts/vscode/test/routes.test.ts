@@ -233,4 +233,11 @@ describe("routes", () => {
     await s2.run({ type: "config.get" });
     expect(s2.posted).toEqual([{ type: "error", message: "plain failure" }]);
   });
+
+  it.each([new Error("write failed"), "write failed"])("models.refresh failure posts a typed result for %s", async (failure) => {
+    const s = setup();
+    s.core.dispatch.mockRejectedValueOnce(failure);
+    await s.run({ type: "models.refresh" });
+    expect(s.posted).toEqual([{ type: "models.refresh.result", ok: false, error: "write failed" }]);
+  });
 });

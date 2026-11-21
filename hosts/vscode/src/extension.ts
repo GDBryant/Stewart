@@ -5,6 +5,8 @@ import { Core, type ConfigLayer, type ConfigStore } from "@stewart/core";
 import type { RunEvent } from "@stewart/protocol";
 import { VsCodeHost } from "./host.js";
 import { DiffContent } from "./diffContent.js";
+import { errorMessage } from "./errorMessage.js";
+import { createMessageDispatcher } from "./messageDispatcher.js";
 import { PROJECT_ID, route } from "./routes.js";
 
 const CONFIG_FILES = ["channels.yaml", "agents.yaml", "roles.yaml", "settings.yaml"];
@@ -58,7 +60,7 @@ async function watchConfig(context: vscode.ExtensionContext, core: Core, host: V
         const r = await core.dispatch("config.get", { projectId: PROJECT_ID });
         await ref.current?.webview.postMessage({ type: "config", ...(r as object) });
       } catch (e) {
-        host.log(`config reload: ${e instanceof Error ? e.message : String(e)}`);
+        host.log(`config reload: ${errorMessage(e)}`);
       }
     })();
   };
@@ -78,7 +80,11 @@ function panelHtml(context: vscode.ExtensionContext, webview: vscode.Webview): s
 <body><div id="app"></div><script nonce="${nonce}" src="${js}"></script></body></html>`;
 }
 
-/** Creates the chat webview, wires its messages through `route` in arrival order, and clears `ref` on dispose. */
+/**
+ * Create the Stewart webview panel. Incoming messages go through a message dispatcher: ordinary requests run
+ * one at a time in arrival order (a failed one does not block the queue); control messages
+ * (chat.answer/approve/cancel) bypass the queue so they can unblock a pending run.
+ */
 function createPanel(context: vscode.ExtensionContext, core: Core, host: VsCodeHost, ref: PanelRef): vscode.WebviewPanel {
   const panel = vscode.window.createWebviewPanel("stewart", "Stewart", vscode.ViewColumn.Beside, {
     enableScripts: true,
@@ -86,9 +92,9 @@ function createPanel(context: vscode.ExtensionContext, core: Core, host: VsCodeH
     retainContextWhenHidden: true,
   });
   panel.webview.html = panelHtml(context, panel.webview);
-  let routeChain: Promise<void> = Promise.resolve();
+  const dispatch = createMessageDispatcher((m) => route({ core, host, panel, api: vscode }, m));
   panel.webview.onDidReceiveMessage((m: { type: string; [k: string]: unknown }) => {
-    routeChain = routeChain.then(() => route({ core, host, panel, api: vscode }, m)).catch(() => {});
+    void dispatch(m).catch((e) => host.log(`webview dispatch: ${errorMessage(e)}`));
   }, undefined, context.subscriptions);
   panel.onDidDispose(() => (ref.current = undefined));
   return panel;
@@ -126,7 +132,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ref.current = createPanel(context, core, host, ref);
   };
 
+  const chatButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  chatButton.text = "$(comment-discussion) Stewart";
+  chatButton.tooltip = "Open Stewart chat";
+  chatButton.command = "stewart.openChat";
+  chatButton.show();
+
   context.subscriptions.push(
+    chatButton,
     vscode.workspace.registerTextDocumentContentProvider("stewart-diff", {
       provideTextDocumentContent: (uri) => diffDocs.get(uri.toString()) ?? "",
     }),
