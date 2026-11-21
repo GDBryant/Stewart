@@ -18,3 +18,4 @@ export type { EventSink, EventSubscriber } from "./events.js";
 export type { FaultKind } from "./faults.js";
 export { StewartError, ok, err, isErr, fromThrowable } from "./result.js";
 export type { Result } from "./result.js";
+export { errorMessage } from "./errorMessage.js";

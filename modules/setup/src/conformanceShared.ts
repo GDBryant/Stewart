@@ -1,4 +1,4 @@
-import type { ChatMessage, HostPort } from "@stewart/kernel";
+import { errorMessage, type ChatMessage, type HostPort } from "@stewart/kernel";
 import type { ChannelDef, Qual } from "@stewart/config";
 import { resolveModelProfile } from "@stewart/models";
 import type { ManagedChannel } from "@stewart/channels";
@@ -18,11 +18,17 @@ export interface QualifyDeps {
   scratch?: { host: HostPort; dir: string };
 }
 
+/** Channel types whose transport is an engine (the adapter has no chat pipe); the single place for this check. */
+export function usesEngineTransport(channelType: string): boolean {
+  return channelType === "claude-cli";
+}
+
 export function qual(passed: boolean, now: number, detail?: string): Qual {
   return { passed, at: now, version: CONFORMANCE_VERSION, detail };
 }
 
-function lastText(transcript: ChatMessage[]): string {
+/** Text of the last non-empty assistant message, or "". */
+export function lastText(transcript: ChatMessage[]): string {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const m = transcript[i];
     if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;
@@ -83,7 +89,7 @@ async function windowProbe(transport: ProbeTransport): Promise<string | undefine
   try {
     reply = await transport(probeMessage());
   } catch (e) {
-    return e instanceof Error ? e.message : String(e);
+    return errorMessage(e);
   }
   if (reply.truncated) return "reply truncated";
   if (reply.usageIn !== undefined && reply.usageIn < USAGE_MIN_TOKENS)

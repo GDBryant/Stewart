@@ -356,6 +356,73 @@ describe("Core config", () => {
     expect(secrets.has("sk")).toBe(false);
   });
 
+  it("secret.set trims the key and rejects empty values", async () => {
+    const secrets = new Map<string, string>();
+    const host = fakeHost();
+    host.secrets = {
+      get: async (k) => secrets.get(k),
+      set: async (k, v) => void secrets.set(k, v),
+      delete: async (k) => void secrets.delete(k),
+    };
+    const core = new Core({
+      defaults: {},
+      userConfig: memStore(),
+      projectConfig: async () => memStore(),
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", host);
+    await core.dispatch("secret.set", { projectId: "p", ref: "sk", value: "  sekret\n" });
+    expect(secrets.get("sk")).toBe("sekret");
+    await expect(core.dispatch("secret.set", { projectId: "p", ref: "sk", value: "   " })).rejects.toThrow(/empty/);
+    expect(secrets.get("sk")).toBe("sekret");
+  });
+
+  it("secret.set keeps the key live in-session and reports when the host store rejects", async () => {
+    const host = fakeHost();
+    host.secrets = {
+      get: async () => undefined,
+      set: async () => {
+        throw new Error("keyring unavailable");
+      },
+      delete: async () => {},
+    };
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m"}]}'] }]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: ollama\n    baseUrl: http://x\n    secretRef: sk\n" });
+    const core = new Core({
+      defaults: {},
+      userConfig: user,
+      projectConfig: async () => memStore(),
+      fetcher,
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", host);
+    await expect(core.dispatch("secret.set", { projectId: "p", ref: "sk", value: "sekret" })).rejects.toThrow(/could not be saved to the IDE secret store/);
+    expect(core.secretValues.get("sk")).toBe("sekret");
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "oc" })) as { ok: boolean };
+    expect(res.ok).toBe(true);
+  });
+
+  it("secret.delete clears live state even when the host store rejects", async () => {
+    const host = fakeHost();
+    host.secrets = {
+      get: async () => "old",
+      set: async () => {},
+      delete: async () => {
+        throw new Error("keyring unavailable");
+      },
+    };
+    const core = new Core({
+      defaults: {},
+      userConfig: memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: ollama\n    baseUrl: http://x\n    secretRef: sk\n" }),
+      projectConfig: async () => memStore(),
+      emitEvent: () => {},
+    });
+    await core.attachProject("p", host);
+    expect(core.secretValues.get("sk")).toBe("old");
+    await expect(core.dispatch("secret.delete", { projectId: "p", ref: "sk" })).rejects.toThrow(/could not be deleted/);
+    expect(core.secretValues.has("sk")).toBe(false);
+  });
+
   it("config.get reports which secretRefs are stored, never their values", async () => {
     const secrets = new Map<string, string>([["has", "topsecret"]]);
     const host = fakeHost();

@@ -348,6 +348,88 @@ describe("SetupProbeRunner", () => {
     expect(runner.snapshot().items[0].attempts).toBe(2);
     expect(calls).toBe(2);
   });
+
+  it("uses deps.smoke for engine-transport candidates and falls back to channel.chat on undefined", async () => {
+    const channels = new Map<string, SmokeChannel>();
+    let engChat = 0;
+    channels.set("eng", {
+      chat: async function* () {
+        engChat++;
+        throw new Error("claude-cli chats run via the claude-code engine, not the channel text pipe");
+      },
+    });
+    const txt = chan([text("OK"), done]);
+    const txtCalls = calls(txt);
+    channels.set("txt", txt);
+    const runner = new SetupProbeRunner({
+      channelFor: (id) => channels.get(id),
+      timeoutMs: 50,
+      smoke: async (_ch, c) => (c.channel === "eng" ? { state: "green" } : undefined),
+    });
+    runner.start({
+      signature: "s",
+      priority: [
+        { channel: "eng", model: "m" },
+        { channel: "txt", model: "m" },
+      ],
+      rest: Promise.resolve([]),
+    });
+    await vi.waitFor(() => expect(runner.snapshot().status).toBe("done"));
+    expect(runner.snapshot().items.map((i) => i.state)).toEqual(["green", "green"]);
+    expect(engChat).toBe(0);
+    expect(txtCalls()).toBe(1);
+  });
+});
+
+describe("deps.smoke settle tracking", () => {
+  it("passes onSettle to deps.smoke so a never-settling custom smoke wedges the channel", async () => {
+    const eng: SmokeChannel = { chat: async function* () {} };
+    let sawOnSettle = false;
+    const runner = new SetupProbeRunner({
+      channelFor: () => eng,
+      timeoutMs: 30,
+      drainMs: 20,
+      smoke: async (_ch, _c, opts) => {
+        sawOnSettle = typeof opts.onSettle === "function";
+        opts.onSettle?.(new Promise<void>(() => {}));
+        return { state: "orange", reason: "slow" };
+      },
+    });
+    runner.start({
+      signature: "s",
+      priority: [
+        { channel: "eng", model: "a" },
+        { channel: "eng", model: "b" },
+      ],
+      rest: Promise.resolve([]),
+    });
+    await vi.waitFor(() => expect(runner.snapshot().status).toBe("done"));
+    expect(sawOnSettle).toBe(true);
+    expect(runner.snapshot().items.map((i) => i.state)).toEqual(["orange", "skipped"]);
+  });
+
+  it("does not block the channel when the custom smoke settles promptly or never reports", async () => {
+    const eng: SmokeChannel = { chat: async function* () {} };
+    const runner = new SetupProbeRunner({
+      channelFor: () => eng,
+      timeoutMs: 30,
+      drainMs: 20,
+      smoke: async (_ch, c, opts) => {
+        if (c.model === "a") opts.onSettle?.(Promise.resolve());
+        return { state: "green" };
+      },
+    });
+    runner.start({
+      signature: "s",
+      priority: [
+        { channel: "eng", model: "a" },
+        { channel: "eng", model: "b" },
+      ],
+      rest: Promise.resolve([]),
+    });
+    await vi.waitFor(() => expect(runner.snapshot().status).toBe("done"));
+    expect(runner.snapshot().items.map((i) => i.state)).toEqual(["green", "green"]);
+  });
 });
 
 describe("normalizeReason", () => {

@@ -1,4 +1,4 @@
-import { fakeHost, type ChatMessage, type HostPort } from "@stewart/kernel";
+import { errorMessage, fakeHost, type ChatMessage, type HostPort } from "@stewart/kernel";
 import type { AgentDef, ChannelDef, Qual } from "@stewart/config";
 import { resolveModelProfile } from "@stewart/models";
 import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
@@ -6,10 +6,11 @@ import { engineFor, nativeLoop, type Engine, type EngineEvent } from "@stewart/e
 import type { ManagedChannel } from "@stewart/channels";
 import { qualifyClaudeAgent } from "./conformanceClaude.js";
 import {
-  AGENT_MIN_CONTEXT, AGENT_PROMPT, AGENT_TIMEOUT_MS, agentCriteria, contextQual, qual, type QualifyDeps,
+  AGENT_MIN_CONTEXT, AGENT_PROMPT, AGENT_TIMEOUT_MS, agentCriteria, contextQual, qual, usesEngineTransport, type QualifyDeps,
 } from "./conformanceShared.js";
 
 export { CONFORMANCE_VERSION } from "./conformanceShared.js";
+export { usesEngineTransport } from "./conformanceShared.js";
 export type { QualifyDeps } from "./conformanceShared.js";
 
 const AGENT_MAX_TURNS = 8;
@@ -46,7 +47,7 @@ function sandbox(): { host: HostPort; files: Record<string, string>; wcOk: () =>
 export async function qualifyAgent(ch: ChannelDef, agent: AgentDef, channel: ManagedChannel, deps: QualifyDeps): Promise<Qual> {
   const blocked = agentBlockReason(ch, agent.model);
   if (blocked) return qual(false, deps.clock.now(), blocked);
-  if (channel.cfg.type === "claude-cli") return await qualifyClaudeAgent(ch, agent, channel, deps);
+  if (usesEngineTransport(channel.cfg.type)) return await qualifyClaudeAgent(ch, agent, channel, deps);
   const transcript: ChatMessage[] = [{ role: "user", content: AGENT_PROMPT }];
   const { host, files, wcOk } = sandbox();
   const paths = await ProjectPaths.forProject(host);
@@ -81,7 +82,7 @@ async function drainEngine(engine: Engine, turn: Parameters<Engine["run"]>[0]): 
     }
     return undefined;
   } catch (e) {
-    return e instanceof Error ? e.message : String(e);
+    return errorMessage(e);
   }
 }
 
@@ -94,7 +95,7 @@ const FUNCTION_SCHEMA = {
 
 /** Function suite: one schema-constrained request through the channel's engine; the reply must hold the exact values. */
 export async function qualifyFunction(agent: AgentDef, channel: ManagedChannel, deps: QualifyDeps): Promise<Qual> {
-  const res = await engineFor(channel.cfg.type).complete({ channel, agent, system: "", input: FUNCTION_PROMPT, schema: FUNCTION_SCHEMA, signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) });
+  const res = await (deps.engine ?? engineFor(channel.cfg.type)).complete({ channel, agent, system: "", input: FUNCTION_PROMPT, schema: FUNCTION_SCHEMA, signal: AbortSignal.timeout(AGENT_TIMEOUT_MS) });
   const now = deps.clock.now();
   if (!res.ok) return qual(false, now, res.error);
   const r = res.value as { sum?: unknown; word?: unknown };

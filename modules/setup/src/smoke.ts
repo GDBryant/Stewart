@@ -1,8 +1,8 @@
+import { errorMessage } from "@stewart/kernel";
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
-import { SMOKE_TIMEOUT_MS, type SmokeChannel, type SmokeOptions, type SmokeResult } from "./probeTypes.js";
+import { SMOKE_MESSAGES, SMOKE_TIMEOUT_MS, type SmokeChannel, type SmokeOptions, type SmokeResult } from "./probeTypes.js";
 
 const SMOKE_MAX_TOKENS = 32;
-const SMOKE_MESSAGES: ChatRequest["messages"] = [{ role: "user", content: "Reply with exactly: OK" }];
 
 type Stop = "timeout" | "aborted";
 
@@ -56,21 +56,12 @@ export function abortWait(signal: AbortSignal): Promise<"aborted"> {
 type ProbeAccum = { text: string; sawDone: boolean; sawTool: boolean };
 type ProbeFinish = (r: SmokeResult) => SmokeResult;
 
-/** Per-probe state shared by the step loop: accumulator, finisher, caller options, deadline signal, timeout. */
+/** Per-probe state shared by the step loop: finisher, caller options, deadline signal, timeout. */
 interface ProbeCtx {
-  acc: ProbeAccum;
   finish: ProbeFinish;
   opts: SmokeOptions;
   b: { signal: AbortSignal };
   timeoutMs: number;
-}
-
-function probeStepOutcome(s: Step<ChatEvent>, ctx: ProbeCtx): SmokeResult | "cont" | "done" {
-  if (s.kind === "stop") return ctx.finish(stopResult(s.why, ctx.timeoutMs));
-  if (s.kind === "error") return ctx.finish(errorResult(s.error, ctx));
-  if (s.kind === "done") return "done";
-  accumulate(s.value, ctx.acc);
-  return "cont";
 }
 
 function stopResult(why: Stop, timeoutMs: number): SmokeResult {
@@ -80,26 +71,22 @@ function stopResult(why: Stop, timeoutMs: number): SmokeResult {
 function errorResult(error: unknown, ctx: ProbeCtx): SmokeResult {
   if (ctx.opts.signal.aborted) return { state: "aborted" };
   if (ctx.b.signal.aborted) return { state: "orange", reason: `no response within ${ctx.timeoutMs}ms` };
-  return { state: "red", reason: error instanceof Error ? error.message : String(error) };
+  return { state: "red", reason: errorMessage(error) };
 }
 
-function accumulate(ev: ChatEvent, acc: ProbeAccum): void {
-  if (ev.kind === "text") acc.text += ev.text;
-  else if (ev.kind === "tool_calls") acc.sawTool = true;
-  else if (ev.kind === "done") acc.sawDone = true;
-}
-
-function probeVerdict(acc: ProbeAccum, finish: ProbeFinish): SmokeResult {
-  if (!acc.sawDone) return finish({ state: "red", reason: "stream ended without completion" });
-  if (!acc.text.trim()) return finish({ state: "red", reason: acc.sawTool ? "tool calls but no text" : "empty response" });
-  return finish({ state: "green" });
+function stepOutcome<E>(s: Step<E>, ctx: ProbeCtx, accept: (ev: E) => void): SmokeResult | "cont" | "done" {
+  if (s.kind === "stop") return ctx.finish(stopResult(s.why, ctx.timeoutMs));
+  if (s.kind === "error") return ctx.finish(errorResult(s.error, ctx));
+  if (s.kind === "done") return "done";
+  accept(s.value);
+  return "cont";
 }
 
 /** Wraps `it.next()` so the in-flight request is known to `makeFinish` (a throwing `next` rejects instead). */
-function trackNext(it: AsyncIterator<ChatEvent>): { next: () => Promise<IteratorResult<ChatEvent>>; pending: () => Promise<unknown> | undefined } {
+function trackNext<T>(it: AsyncIterator<T>): { next: () => Promise<IteratorResult<T>>; pending: () => Promise<unknown> | undefined } {
   let pendingNext: Promise<unknown> | undefined;
-  const next = (): Promise<IteratorResult<ChatEvent>> => {
-    let p: Promise<IteratorResult<ChatEvent>>;
+  const next = (): Promise<IteratorResult<T>> => {
+    let p: Promise<IteratorResult<T>>;
     try {
       p = it.next();
     } catch (error) {
@@ -116,7 +103,7 @@ function trackNext(it: AsyncIterator<ChatEvent>): { next: () => Promise<Iterator
 }
 
 /** Result passthrough that closes the iterator and fires `settle` once the close and any in-flight `next` have settled. */
-function makeFinish(it: AsyncIterator<ChatEvent>, pending: () => Promise<unknown> | undefined, settle: () => void): ProbeFinish {
+function makeFinish<T>(it: AsyncIterator<T>, pending: () => Promise<unknown> | undefined, settle: () => void): ProbeFinish {
   return (r) => {
     let ret: Promise<unknown> | undefined;
     try {
@@ -129,21 +116,28 @@ function makeFinish(it: AsyncIterator<ChatEvent>, pending: () => Promise<unknown
   };
 }
 
+/** What one bounded probe runs: how to start the event stream, fold each event, and judge the finished stream. */
+export interface ProbeSpec<E> {
+  /** Starts the stream; may throw synchronously (reported as red). */
+  start(signal: AbortSignal): AsyncIterable<E>;
+  accept(ev: E): void;
+  verdict(): SmokeResult;
+}
+
 /**
- * One bounded liveness probe: a tiny prompt, no tools, hard `timeoutMs` deadline
- * covering queue admission, the request and stream completion. Timeout → orange,
- * external cancel → aborted, every other unusable outcome → red.
+ * Generic bounded probe runner: hard `timeoutMs` deadline over the whole stream, settle
+ * tracking via `opts.onSettle`. Timeout -> orange, external cancel -> aborted, errors -> red.
  */
-export async function smokeModel(channel: SmokeChannel, model: string, opts: SmokeOptions): Promise<SmokeResult> {
+export async function runBounded<E>(opts: SmokeOptions, spec: ProbeSpec<E>): Promise<SmokeResult> {
   const timeoutMs = opts.timeoutMs ?? SMOKE_TIMEOUT_MS;
   const b = bounded(opts.signal, timeoutMs);
-  const req: ChatRequest = { model, messages: SMOKE_MESSAGES, maxTokens: SMOKE_MAX_TOKENS, signal: b.signal };
-  let it: AsyncIterator<ChatEvent>;
+  let it: AsyncIterator<E>;
   try {
-    it = channel.chat(req)[Symbol.asyncIterator]();
+    it = spec.start(b.signal)[Symbol.asyncIterator]();
   } catch (error) {
     opts.onSettle?.(Promise.resolve());
-    return { state: "red", reason: error instanceof Error ? error.message : String(error) };
+    b.cleanup();
+    return { state: "red", reason: errorMessage(error) };
   }
   const tracked = trackNext(it);
   let settle!: () => void;
@@ -152,16 +146,41 @@ export async function smokeModel(channel: SmokeChannel, model: string, opts: Smo
   });
   opts.onSettle?.(settled);
   const finish = makeFinish(it, tracked.pending, () => settle());
-  const acc = { text: "", sawDone: false, sawTool: false };
   try {
     for (;;) {
       const s = await step(tracked.next, b.stop);
-      const r = probeStepOutcome(s, { acc, finish, opts, b, timeoutMs });
+      const r = stepOutcome(s, { finish, opts, b, timeoutMs }, (ev) => spec.accept(ev));
       if (typeof r !== "string") return r;
       if (r === "done") break;
     }
-    return probeVerdict(acc, finish);
+    return finish(spec.verdict());
   } finally {
     b.cleanup();
   }
+}
+
+function accumulate(ev: ChatEvent, acc: ProbeAccum): void {
+  if (ev.kind === "text") acc.text += ev.text;
+  else if (ev.kind === "tool_calls") acc.sawTool = true;
+  else if (ev.kind === "done") acc.sawDone = true;
+}
+
+function probeVerdict(acc: ProbeAccum): SmokeResult {
+  if (!acc.sawDone) return { state: "red", reason: "stream ended without completion" };
+  if (!acc.text.trim()) return { state: "red", reason: acc.sawTool ? "tool calls but no text" : "empty response" };
+  return { state: "green" };
+}
+
+/**
+ * One bounded liveness probe: a tiny prompt, no tools, hard `timeoutMs` deadline
+ * covering queue admission, the request and stream completion. Timeout -> orange,
+ * external cancel -> aborted, every other unusable outcome -> red.
+ */
+export function smokeModel(channel: SmokeChannel, model: string, opts: SmokeOptions): Promise<SmokeResult> {
+  const acc: ProbeAccum = { text: "", sawDone: false, sawTool: false };
+  return runBounded<ChatEvent>(opts, {
+    start: (signal) => channel.chat({ model, messages: SMOKE_MESSAGES, maxTokens: SMOKE_MAX_TOKENS, signal }),
+    accept: (ev) => accumulate(ev, acc),
+    verdict: () => probeVerdict(acc),
+  });
 }

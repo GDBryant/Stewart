@@ -1,7 +1,7 @@
 import type { ManagedChannel } from "@stewart/channels";
 import type { AgentDef } from "@stewart/config";
 import type { EngineEvent } from "@stewart/engines";
-import type { Clock } from "@stewart/kernel";
+import { errorMessage, type Clock } from "@stewart/kernel";
 import { nativeLoop } from "@stewart/engines";
 import type { ProbeLoop, ProbeRequest, ProbeResult } from "@stewart/models";
 import { ToolRegistry, type Tool } from "@stewart/tools";
@@ -55,7 +55,7 @@ async function probeTurn(channel: ManagedChannel, req: ProbeRequest): Promise<Pr
     }
     return { kind: "failed", message: "bench call failed: stream ended without a finish" };
   } catch (e) {
-    return { kind: "failed", message: `bench call failed: ${e instanceof Error ? e.message : String(e)}` };
+    return { kind: "failed", message: `bench call failed: ${errorMessage(e)}` };
   } finally {
     clearTimeout(timeout);
   }

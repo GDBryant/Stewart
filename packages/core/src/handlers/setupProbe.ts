@@ -1,8 +1,8 @@
-import { fallbackOrder, modelSizeB, normalizeReason, orderSmokeCandidates, rankCandidates, SetupProbeRunner, type RankCandidate, type SmokeCandidate } from "@stewart/setup";
+import { fallbackOrder, modelSizeB, normalizeReason, orderSmokeCandidates, rankCandidates, SetupProbeRunner, smokeClaude, usesEngineTransport, type RankCandidate, type SmokeCandidate, type SmokeOptions, type SmokeResult } from "@stewart/setup";
 import { resolveModelProfile } from "@stewart/models";
 import { redact } from "@stewart/diagnostics";
 import type { CoreCtx, ProjectCtx } from "./types.js";
-import { qualifyForProbe } from "./qualify.js";
+import { agentFor, engineOf, qualifyForProbe } from "./qualify.js";
 
 interface RichCandidate extends SmokeCandidate {
   channelType: string;
@@ -21,12 +21,42 @@ function probeRunnerFor(core: CoreCtx, projectId: string): SetupProbeRunner {
       },
       now: () => core.clock.now(),
       qualify: (c) => qualifyForProbe(core, core.ctx(projectId), c.channel, c.model),
+      smoke: (_ch, c, opts) => smokeEngineCandidate(core, projectId, c, opts),
       sanitizeReason: (reason) => redact(normalizeReason(reason), [...core.secretValues.values()]),
     });
     r = self;
     core.probeRunners.set(projectId, r);
   }
   return r;
+}
+
+/**
+ * Engine-transport candidates (claude-cli) have no chat pipe: smoke them via one engine turn in a scratch dir.
+ * The dir is removed only after the engine run settles (the CLI subprocess may outlive a timeout/abort), or at once
+ * when the probe never reports a settle promise.
+ */
+async function smokeEngineCandidate(core: CoreCtx, projectId: string, c: SmokeCandidate, opts: SmokeOptions): Promise<SmokeResult | undefined> {
+  const mc = core.channelService.get(c.channel);
+  if (!mc || !usesEngineTransport(mc.cfg.type)) return undefined;
+  const ctx = core.ctx(projectId);
+  const dir = `${await ctx.host.workspace.stateDir()}/smoke/${crypto.randomUUID()}`;
+  const cleanup = async () => {
+    await ctx.host.files.delete(`${dir}/.keep`).catch(() => {});
+    await ctx.host.files.delete(dir).catch(() => {});
+  };
+  let settled: Promise<void> | undefined;
+  const onSettle = (p: Promise<void>) => {
+    settled = p;
+    opts.onSettle?.(p);
+  };
+  try {
+    await ctx.host.files.writeAtomic(`${dir}/.keep`, "");
+    const req = { engine: engineOf(core, mc.cfg.type), agent: agentFor(c.channel, c.model, "smoke"), channel: mc, dir };
+    return await smokeClaude(req, { ...opts, onSettle });
+  } finally {
+    if (settled) void settled.then(cleanup, cleanup);
+    else await cleanup();
+  }
 }
 
 /** All enabled channel models (webview-provided list validated, or live discovery), deduped, with agent/size metadata. */

@@ -202,3 +202,11 @@ describe("qualifyFunction", () => {
     expect(wrong).toMatchObject({ passed: false, detail: expect.stringContaining("wrong values") });
   });
 });
+
+import { usesEngineTransport } from "../src/conformance.js";
+describe("usesEngineTransport", () => {
+  it("is true only for engine-transport channel types", () => {
+    expect(usesEngineTransport("claude-cli")).toBe(true);
+    expect(usesEngineTransport("openai")).toBe(false);
+  });
+});

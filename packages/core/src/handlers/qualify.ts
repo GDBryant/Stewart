@@ -2,7 +2,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AgentDef, Qual } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
 import { normalizeReason, qualifyAgent, qualifyFunction, type QualifyDeps } from "@stewart/setup";
-import { engineFor } from "@stewart/engines";
+import { engineFor, type Engine } from "@stewart/engines";
 import { redact } from "@stewart/diagnostics";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { mergeQualified } from "./util.js";
@@ -12,8 +12,14 @@ interface QualifiedMap {
   function?: Qual;
 }
 
-function agentFor(channel: string, model: string): AgentDef {
-  return { id: `qualify:${channel}:${model}`, channel, model, effort: "medium" };
+/** Synthetic agent for a probe run; `kind` prefixes the id (`qualify:` suites, `smoke:` liveness probe). */
+export function agentFor(channel: string, model: string, kind: "qualify" | "smoke" = "qualify"): AgentDef {
+  return { id: `${kind}:${channel}:${model}`, channel, model, effort: "medium" };
+}
+
+/** The engine serving a channel type: the host-injected one, else the built-in. Single injection point for probe and qualify runs. */
+export function engineOf(core: CoreCtx, channelType: string): Engine {
+  return core.deps.engineFor?.(channelType) ?? engineFor(channelType);
 }
 
 async function runSuites(core: CoreCtx, ctx: ProjectCtx, channelId: string, model: string): Promise<QualifiedMap> {
@@ -23,7 +29,7 @@ async function runSuites(core: CoreCtx, ctx: ProjectCtx, channelId: string, mode
   const agent = agentFor(channelId, model);
   const deps: QualifyDeps = {
     clock: core.clock,
-    engine: core.deps.engineFor?.(mc.cfg.type) ?? engineFor(mc.cfg.type),
+    engine: engineOf(core, mc.cfg.type),
     scratch: { host: ctx.host, dir: `${await ctx.host.workspace.stateDir()}/qualify/${crypto.randomUUID()}` },
   };
   const [aq, fq] = await Promise.all([qualifyAgent(ch, agent, mc, deps), qualifyFunction(agent, mc, deps)]);

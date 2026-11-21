@@ -3,6 +3,7 @@ import { Core } from "../src/core.js";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 import type { ChannelAdapter, ChatEvent } from "@stewart/channels";
 import type { ConfigLayer, ConfigStore } from "@stewart/config";
+import type { Engine, EngineEvent, EngineTurn } from "@stewart/engines";
 import type { Fetcher } from "@stewart/kernel";
 
 function memStore(layer: ConfigLayer = {}): ConfigStore {
@@ -69,11 +70,12 @@ function probeAdapter(opts: { rankReply?: string; redModels?: Set<string> } = {}
   return { adapter, rankPrompts };
 }
 
-function mkCore(adapter: ChannelAdapter, opts: { fetcher?: Fetcher; channelsYaml?: string; agentsYaml?: string } = {}) {
+function mkCore(adapter: ChannelAdapter, opts: { fetcher?: Fetcher; channelsYaml?: string; agentsYaml?: string; engineFor?: (channelType: string) => Engine } = {}) {
   const core = new Core({
     fetcher: opts.fetcher ?? (async () => {
       throw new Error("no fetch");
     }),
+    engineFor: opts.engineFor,
     defaults: {
       "channels.yaml": opts.channelsYaml ?? CHANNELS_YAML,
       "agents.yaml": opts.agentsYaml ?? AGENTS_YAML,
@@ -89,7 +91,7 @@ function mkCore(adapter: ChannelAdapter, opts: { fetcher?: Fetcher; channelsYaml
 type Snap = {
   status: string;
   ranking: boolean;
-  items: { channel: string; model: string; state: string; reason?: string; attempts?: number }[];
+  items: { channel: string; model: string; state: string; reason?: string; attempts?: number; qualified?: { agent?: boolean; function?: boolean } }[];
 };
 
 const waitDone = async (core: Core, pid: string) => {
@@ -175,6 +177,127 @@ items:
     expect(snap.items.map((i) => `${i.channel}:${i.model}`)).toEqual(["oll:m"]);
     expect(snap.items[0]?.state).toBe("green");
     expect(rankPrompts).toHaveLength(0);
+  });
+
+  it("smokes claude-cli candidates through the engine, not the chat pipe", async () => {
+    let chatCalls = 0;
+    const claudeAdapter: ChannelAdapter = {
+      type: "claude-cli",
+      listModels: async () => ["sonnet"],
+      probeCaps: async () => ({}),
+      chat: async function* () {
+        chatCalls++;
+        throw new Error("claude-cli chats run via the claude-code engine, not the channel text pipe");
+      },
+    };
+    const { host, files } = fakeHost();
+    const fakeEngine: Engine = {
+      id: "claude-code",
+      caps: { ownTools: true, ownContext: true },
+      async *run(turn: EngineTurn): AsyncGenerator<EngineEvent> {
+        if (turn.sessionId === "smoke") {
+          yield { kind: "text", text: "OK" };
+          yield { kind: "finished", reason: "stop" };
+          return;
+        }
+        files[`${turn.cwd}/notes/todo.txt`] = "alpha\nbeta\ngamma\n";
+        yield { kind: "tool.request", callId: "w1", tool: "Bash", args: { command: "wc -l notes/todo.txt" }, category: "COMMANDS" };
+        yield { kind: "tool.outcome", callId: "w1", ok: true, summary: "3 notes/todo.txt" };
+        turn.transcript.push({ role: "assistant", content: "It printed 3" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      complete: async () => ({ ok: true, value: { sum: 42, word: "trawets" } }),
+    };
+    const channelsYaml = `version: 1
+items:
+  - id: claude
+    type: claude-cli
+    enabled: true
+    modelCaps:
+      sonnet:
+        tools: native
+        contextTokens: 200000
+`;
+    const { core } = mkCore(probeAdapter().adapter, { channelsYaml, agentsYaml: "version: 1\nitems: []\n", engineFor: () => fakeEngine });
+    core.channels.register("claude-cli", () => claudeAdapter);
+    const pid = "pd6";
+    await core.attachProject(pid, host);
+    await core.dispatch("setup.probe.start", { projectId: pid });
+    const snap = await waitDone(core, pid);
+    const item = snap.items.find((i) => i.channel === "claude" && i.model === "sonnet");
+    expect(item).toMatchObject({ state: "green" });
+    expect(item?.qualified).toMatchObject({ agent: true, function: true });
+    expect(chatCalls).toBe(0);
+  });
+});
+
+describe("claude-cli smoke scratch dir", () => {
+  const channelsYaml = `version: 1
+items:
+  - id: claude
+    type: claude-cli
+    enabled: true
+`;
+  const claudeAdapter: ChannelAdapter = {
+    type: "claude-cli",
+    listModels: async () => ["sonnet"],
+    probeCaps: async () => ({}),
+    chat: async function* () {},
+  };
+
+  async function setup(engine: Engine) {
+    const { host, files } = fakeHost();
+    const { core } = mkCore(probeAdapter().adapter, { channelsYaml, agentsYaml: "version: 1\nitems: []\n", engineFor: () => engine });
+    core.channels.register("claude-cli", () => claudeAdapter);
+    await core.attachProject("sd1", host);
+    return { core, files, scratch: () => Object.keys(files).filter((k) => k.includes("/smoke/")) };
+  }
+
+  it("keeps the scratch dir until the cancelled engine run settles, then removes it; agent id is smoke:*", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let started!: () => void;
+    const up = new Promise<void>((r) => (started = r));
+    let agentId = "";
+    const engine: Engine = {
+      id: "claude-code",
+      caps: { ownTools: true, ownContext: true },
+      async *run(turn: EngineTurn): AsyncGenerator<EngineEvent> {
+        if (turn.sessionId !== "smoke") return;
+        agentId = turn.agent.id;
+        yield { kind: "text", text: "OK" };
+        started();
+        await gate;
+      },
+      complete: async () => ({ ok: true, value: {} }),
+    };
+    const { core, scratch } = await setup(engine);
+    await core.dispatch("setup.probe.start", { projectId: "sd1" });
+    await up;
+    await vi.waitFor(() => expect(scratch().length).toBeGreaterThan(0));
+    await core.dispatch("setup.probe.cancel", { projectId: "sd1" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(scratch().length).toBeGreaterThan(0); // subprocess still live: dir must survive
+    release();
+    await vi.waitFor(() => expect(scratch()).toEqual([]));
+    expect(agentId).toBe("smoke:claude:sonnet");
+  });
+
+  it("removes the scratch dir right away when the engine run completes", async () => {
+    const engine: Engine = {
+      id: "claude-code",
+      caps: { ownTools: true, ownContext: true },
+      async *run(): AsyncGenerator<EngineEvent> {
+        yield { kind: "text", text: "OK" };
+        yield { kind: "finished", reason: "stop" };
+      },
+      complete: async () => ({ ok: true, value: {} }),
+    };
+    const { core, scratch } = await setup(engine);
+    await core.dispatch("setup.probe.start", { projectId: "sd1" });
+    const snap = await waitDone(core, "sd1");
+    expect(snap.items[0]?.state).toBe("green");
+    await vi.waitFor(() => expect(scratch()).toEqual([]));
   });
 });
 

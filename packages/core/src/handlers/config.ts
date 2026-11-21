@@ -1,7 +1,9 @@
+import { errorMessage } from "@stewart/kernel";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { agentRefusal, baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
 import type { CoreCtx, ProjectCtx } from "./types.js";
+import { applyChannelSecret, dropChannelSecret } from "./util.js";
 
 async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {
   core.userGuard.recordWrite(file, yaml);
@@ -48,7 +50,7 @@ function parseConfigYaml(yaml: string): unknown {
   try {
     return parseYaml(yaml);
   } catch (e) {
-    throw new Error(`invalid YAML: ${e instanceof Error ? e.message : e}`);
+    throw new Error(`invalid YAML: ${errorMessage(e)}`);
   }
 }
 
@@ -139,18 +141,12 @@ export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Pr
 
 export async function handleSecretSet(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; ref: string; value: string };
-  const ctx = core.ctx(p.projectId);
-  await ctx.host.secrets.set(p.ref, p.value);
-  core.secretValues.set(p.ref, p.value);
-  core.channelService.setSecret(p.ref, p.value);
+  await applyChannelSecret(core, core.ctx(p.projectId), p.ref, p.value);
   return { ok: true };
 }
 
 export async function handleSecretDelete(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; ref: string };
-  const ctx = core.ctx(p.projectId);
-  await ctx.host.secrets.delete(p.ref);
-  core.secretValues.delete(p.ref);
-  core.channelService.setSecret(p.ref, undefined);
+  await dropChannelSecret(core, core.ctx(p.projectId), p.ref);
   return { ok: true };
 }

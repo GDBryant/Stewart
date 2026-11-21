@@ -1,5 +1,7 @@
 import type { ChatEvent, ChatRequest } from "@stewart/channels";
 
+/** The tiny prompt every smoke probe sends. */
+export const SMOKE_MESSAGES: ChatRequest["messages"] = [{ role: "user", content: "Reply with exactly: OK" }];
 /** Hard per-candidate deadline for the setup quick probe. */
 export const SMOKE_TIMEOUT_MS = 30_000;
 /** Deadline for the evaluator's usefulness ranking of non-local candidates. */
@@ -75,6 +77,11 @@ export interface ProbeRunnerDeps {
   channelFor(id: string): SmokeChannel | undefined;
   /** Runs the conformance suites for a green candidate; results land on the item. */
   qualify?(c: SmokeCandidate): Promise<QualifyResult | undefined>;
+  /**
+   * Custom smoke attempt for candidates whose channel has no chat pipe (engine-transport
+   * channels like claude-cli). Return undefined to fall back to the `channel.chat` smoke.
+   */
+  smoke?(ch: SmokeChannel, c: SmokeCandidate, opts: { signal: AbortSignal; timeoutMs: number; onSettle?(settled: Promise<void>): void }): Promise<SmokeResult | undefined>;
   onEvent?(ev: { kind: "probe.state"; snapshot: ProbeSnapshot }): void;
   now?(): number;
   timeoutMs?: number;

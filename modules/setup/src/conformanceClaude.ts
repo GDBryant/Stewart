@@ -1,11 +1,11 @@
 import * as path from "node:path";
-import type { ChatMessage } from "@stewart/kernel";
+import { errorMessage, type ChatMessage } from "@stewart/kernel";
 import type { AgentDef, ChannelDef, Qual } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
 import { claudeCodeEngine, type Engine, type EngineEvent, type EngineTurn } from "@stewart/engines";
 import { ToolRegistry } from "@stewart/tools";
 import {
-  AGENT_PROMPT, agentCriteria, contextQual, probeMessage, qual, type ProbeTransport, type QualifyDeps,
+  AGENT_PROMPT, agentCriteria, contextQual, lastText, probeMessage, qual, type ProbeTransport, type QualifyDeps,
 } from "./conformanceShared.js";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
@@ -57,7 +57,7 @@ async function drainClaude(engine: Engine, turn: EngineTurn): Promise<{ err?: st
     }
     return { wcOk };
   } catch (e) {
-    return { wcOk, err: e instanceof Error ? e.message : String(e) };
+    return { wcOk, err: errorMessage(e) };
   }
 }
 
@@ -78,14 +78,6 @@ function claudeTurn(req: { agent: AgentDef; channel: ManagedChannel; transcript:
   };
 }
 
-function lastText(transcript: ChatMessage[]): string {
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    const m = transcript[i];
-    if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;
-  }
-  return "";
-}
-
 /** Probe transport over one claude-code turn in the scratch dir: no tools, everything denied. */
 function engineProbe(engine: Engine, agent: AgentDef, channel: ManagedChannel, dir: string): ProbeTransport {
   return async (message) => {
@@ -102,7 +94,7 @@ async function readResult(host: { files: { read(p: string): Promise<{ content: s
   try {
     return { content: (await host.files.read(file)).content };
   } catch (e) {
-    return { err: e instanceof Error ? e.message : String(e) };
+    return { err: errorMessage(e) };
   }
 }
 

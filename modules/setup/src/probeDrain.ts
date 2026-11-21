@@ -1,5 +1,6 @@
+import { errorMessage } from "@stewart/kernel";
 import { smokeModel } from "./smoke.js";
-import { PROBE_DRAIN_MS, type ProbeRunnerDeps, type SmokeCandidate, type SmokeChannel, type SmokeResult } from "./probeTypes.js";
+import { PROBE_DRAIN_MS, SMOKE_TIMEOUT_MS, type ProbeRunnerDeps, type SmokeCandidate, type SmokeChannel, type SmokeResult } from "./probeTypes.js";
 
 /**
  * Per-channel in-flight tracking for the probe queue. Each probe registers its channel
@@ -61,17 +62,16 @@ export class ChannelDrain {
     });
     this.track(c.channel, settledP);
     let settleSeen = false;
+    const onSettle = (p: Promise<void>) => {
+      settleSeen = true;
+      void p.then(settle, settle);
+    };
     try {
-      return await smokeModel(ch, c.model, {
-        signal: ctrl.signal,
-        timeoutMs: this.deps.timeoutMs,
-        onSettle: (p) => {
-          settleSeen = true;
-          void p.then(settle, settle);
-        },
-      });
+      const custom = await this.deps.smoke?.(ch, c, { signal: ctrl.signal, timeoutMs: this.deps.timeoutMs ?? SMOKE_TIMEOUT_MS, onSettle });
+      if (custom) return custom;
+      return await smokeModel(ch, c.model, { signal: ctrl.signal, timeoutMs: this.deps.timeoutMs, onSettle });
     } catch (error) {
-      return { state: "red", reason: error instanceof Error ? error.message : String(error) };
+      return { state: "red", reason: errorMessage(error) };
     } finally {
       if (!settleSeen) settle();
     }

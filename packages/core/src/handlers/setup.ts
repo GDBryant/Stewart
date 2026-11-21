@@ -2,9 +2,10 @@ import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@s
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { userCaps, type ModelCaps } from "@stewart/models";
 import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
+import { errorMessage } from "@stewart/kernel";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
-import { applyProbes, catalogFor, workspaceInfoFor } from "./util.js";
+import { applyChannelSecret, applyProbes, catalogFor, dropChannelSecret, workspaceInfoFor } from "./util.js";
 import { persistAllQualified } from "./qualify.js";
 
 function ctxFor(core: CoreCtx, projectId: string): ProjectCtx {
@@ -22,12 +23,26 @@ function validateConfigFiles(files: Record<string, string>): string | undefined 
     try {
       doc = parseYaml(yaml);
     } catch (e) {
-      return `${name}: invalid YAML: ${e instanceof Error ? e.message : e}`;
+      return `${name}: invalid YAML: ${errorMessage(e)}`;
     }
     const parsed = schema.safeParse(doc ?? {});
     if (!parsed.success) return `${name}: ${parsed.error.issues[0]?.message ?? "schema error"}`;
   }
   return undefined;
+}
+
+/**
+ * Setup-session secret store: all-or-nothing. The wizard treats a setSecret throw as failure and rolls back, so a
+ * persist failure must not leave a memory-only key behind; drop the in-memory copy and surface the error.
+ */
+export async function setSessionSecret(core: CoreCtx, ctx: ProjectCtx, ref: string, value: string): Promise<void> {
+  try {
+    await applyChannelSecret(core, ctx, ref, value);
+  } catch (e) {
+    core.secretValues.delete(ref);
+    core.channelService.setSecret(ref, undefined);
+    throw e;
+  }
 }
 
 async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): Promise<SetupSessionDeps> {
@@ -42,20 +57,12 @@ async function sessionDeps(core: CoreCtx, ctx: ProjectCtx, projectId: string): P
     },
     validateFiles: validateConfigFiles,
     existingChannelIds: () => ctx.config.channels.map((c) => c.id),
-    setSecret: async (ref, value) => {
-      await ctx.host.secrets.set(ref, value);
-      core.secretValues.set(ref, value);
-      core.channelService.setSecret(ref, value);
-    },
+    setSecret: (ref, value) => setSessionSecret(core, ctx, ref, value),
     deleteUserFile: async (name) => {
       core.userGuard.recordDelete(name);
       await core.deps.userConfig.delete?.(name);
     },
-    deleteSecret: async (ref) => {
-      await ctx.host.secrets.delete(ref);
-      core.secretValues.delete(ref);
-      core.channelService.setSecret(ref, undefined);
-    },
+    deleteSecret: (ref) => dropChannelSecret(core, ctx, ref),
     onEvent: (ev) => core.deps.emitEvent({ kind: "setup.event", projectId, event: ev }),
   };
 }
@@ -149,7 +156,7 @@ export async function handleChannelTest(core: CoreCtx, params: unknown): Promise
     const models = await ch.listModels();
     return { ok: true, models };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errorMessage(e) };
   }
 }
 
@@ -171,7 +178,7 @@ export async function handleChannelProbe(core: CoreCtx, params: unknown): Promis
     applyProbes(core, ctx.config);
     return { ok: true, caps: merged, probedAt, cached: false, catalog: await catalogFor(core, ch, p.model) };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errorMessage(e) };
   }
 }
 

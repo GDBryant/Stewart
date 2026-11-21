@@ -1,5 +1,5 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { counterIds } from "@stewart/kernel";
+import { counterIds, errorMessage } from "@stewart/kernel";
 import { questionPrompt } from "@stewart/interaction";
 import type { AgentDef, ChannelDef } from "@stewart/config";
 import { applyDecisions, diffModels, mintAgent, type AddedModel, type GoneAgent, type ListedChannel, type SyncDocs } from "@stewart/setup";
@@ -61,7 +61,7 @@ async function discover(core: CoreCtx, ctx: ProjectCtx): Promise<ChannelProbe[]>
       try {
         return { def, models: [...new Set([...(await mc.listModels()), ...(def.extraModels ?? [])])] };
       } catch (e) {
-        return { def, error: e instanceof Error ? e.message : String(e) };
+        return { def, error: errorMessage(e) };
       }
     }),
   );
