@@ -63,7 +63,9 @@ export class ReadFile extends ProjectTool {
     const rel = await this.paths.resolveRead(arg(args, "path"));
     if (!(await this.paths.exists(rel))) throw new Error(`file not found: ${rel}`);
     const st = await this.paths.stat(rel);
-    if (st.size > MAX_FILE_BYTES) throw new Error(`file too large: ${rel}`);
+    if (st.size > MAX_FILE_BYTES) {
+      throw new Error(`file too large: ${rel} (${st.size} bytes, limit ${MAX_FILE_BYTES}); use Search with path, or RunTerminal with sed -n 'START,ENDp' to read part of it`);
+    }
     const { content } = await this.paths.read(rel);
     if (isBinary(content)) throw new Error(`binary file: ${rel}`);
     if (content === "") return "(empty file)";
@@ -215,7 +217,9 @@ async function searchTree(
 ): Promise<{ results: string[]; overflow: number }> {
   const results: string[] = [];
   let overflow = 0;
-  for (const rel of await paths.list(o.dir)) {
+  const listed = await paths.list(o.dir).catch(() => [] as string[]);
+  const files = listed.length === 0 && o.dir !== "." ? [o.dir] : listed;
+  for (const rel of files) {
     if (results.length >= o.max) {
       overflow++;
       continue;

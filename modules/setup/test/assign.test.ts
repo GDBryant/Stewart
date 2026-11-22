@@ -68,7 +68,7 @@ describe("scoreAssignments", () => {
   });
 
   it("treats hosted models with no size as large and penalises small context", () => {
-    const hosted = pick("lead", [c("gpt-x", { tools: "native" }, "openai-compatible")]);
+    const hosted = pick("lead", [c("gpt-x", { tools: "native", contextTokens: 200_000 }, "openai-compatible")]);
     expect(hosted.warnings.filter((w) => w.includes("context") || w.includes("recommended"))).toEqual([]);
     expect(scoreAssignments(["lead"], [c("m:16b", { contextTokens: 2048 })]).unfilled[0].reason).toContain("context 2048 < 32000");
   });
@@ -118,6 +118,48 @@ describe("perf and cost scoring", () => {
     const huge = c("huge:110b", { tools: "native" });
     const r = scoreAssignments(["tester"], [huge], { hardware: { os: "linux", ramGb: 16 } });
     expect(r.assignments[0].warnings.join(" ")).toContain("GB available");
+  });
+});
+
+describe("secondary proposals", () => {
+  it("proposes the strongest other qualified candidate for escalation, not the cheapest", () => {
+    const primary = c("big:70b", { tools: "native", reasoning: true, contextTokens: 131_072 });
+    const mid = c("qwen3:32b", { tools: "native", reasoning: true });
+    const small = c("gemma4:e4b", { tools: "native" });
+    const a = pick("lead", [primary, small, mid]);
+    expect(a.model).toBe("big:70b");
+    expect(a.secondary).toEqual({ channel: "c1", model: "qwen3:32b" });
+  });
+
+  it("keeps the cheapest qualified candidate for non-lead roles, even when a stronger one exists", () => {
+    const primary = c("a:8b", { tools: "native" });
+    const strongPricey = { ...c("b:70b", { tools: "native", reasoning: true }, "openai-compatible", "c2"), costTier: "high" as const, costBlended: 30 };
+    const free = { ...c("d:4b", { tools: "native" }), costTier: "free" as const, costBlended: 0 };
+    for (const role of ["reviewer", "auditor"]) {
+      const a = pick(role, [primary, strongPricey, free]);
+      expect(a.secondary).toEqual({ channel: "c1", model: "d:4b" });
+    }
+  });
+
+  it("proposes no secondary when no other candidate qualifies", () => {
+    const failed = { agent: { passed: false, at: 1, version: 2, context: 32000 }, function: { passed: false, at: 1, version: 2, context: 32000 } };
+    const a = pick("lead", [c("only:32b", { tools: "native" }), c("bad:32b", { tools: "none", qualified: failed })]);
+    expect(a.secondary).toBeUndefined();
+  });
+});
+
+describe("lead long-context scoring", () => {
+  it("rewards a wide window and warns below 64k", () => {
+    const a = pick("lead", [c("m:32b", { tools: "native", reasoning: true })]);
+    expect(a.warnings.join(" ")).toContain("long sessions will compact often");
+    const wide = pick("lead", [c("m:32b", { tools: "native", reasoning: true, contextTokens: 200_000 })]);
+    expect(wide.warnings.join(" ")).not.toContain("compact often");
+  });
+
+  it("reads the window from the qualification record when caps lack one", () => {
+    const small = c("m:16b", { tools: "native", reasoning: true, qualified: { agent: { passed: true, at: 1, version: 2, context: 2048 }, function: { passed: true, at: 1, version: 2, context: 2048 } } });
+    const r = scoreAssignments(["lead"], [small]);
+    expect(r.unfilled[0].reason).toContain("context 2048 < 32000");
   });
 });
 

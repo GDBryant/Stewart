@@ -17,20 +17,53 @@ export abstract class EditTool extends ProjectTool {
     return content;
   }
 
-  protected async applyChange(rel: string, preview: ToolPreview | null): Promise<void> {
+  /** Injectable for tests; the real host's disk write can lag (IntelliJ saves documents async). */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** Applies the previewed change; returns an optional note appended to the tool result. */
+  protected async applyChange(rel: string, preview: ToolPreview | null): Promise<string | undefined> {
     const change = preview?.kind === "file" ? preview : null;
     if (!change) throw new Error("missing preview");
     const current = await this.currentText(rel);
     if ((current ?? null) !== change.before) {
       throw new Error(`file changed since preview: ${rel}`);
     }
-    await this.host.files.edit({ path: rel, content: change.after });
-    const disk = await this.host.files.readBack(rel).catch(() => null);
-    if (disk === null) throw new Error(`file missing after write: ${rel}; side effects uncertain`);
-    if (disk.replace(/\r\n/g, "\n") !== change.after.replace(/\r\n/g, "\n")) {
-      throw new Error(`file content differs from approved change; side effects uncertain: ${rel}`);
-    }
+    if (change.before === null) await this.host.files.writeAtomic(rel, change.after);
+    else await this.host.files.edit({ path: rel, content: change.after });
+    return this.verifyWrite(rel, change);
   }
+
+  private async verifyWrite(rel: string, change: { before: string | null; after: string }): Promise<string | undefined> {
+    const want = change.after.replace(/\r\n/g, "\n");
+    let disk: string | undefined;
+    let missing = true;
+    for (const d of READBACK_DELAYS_MS) {
+      if (d > 0) await this.sleep(d);
+      const got = await this.host.files.readBack(rel).catch(() => undefined);
+      if (got === undefined) continue;
+      missing = false;
+      disk = got.replace(/\r\n/g, "\n");
+      if (disk === want) return undefined;
+    }
+    if (missing) throw new Error(`file missing after write: ${rel}; side effects uncertain`);
+    if (loose(disk!) === loose(want)) return WHITESPACE_NOTE;
+    if (change.before !== null && disk === change.before.replace(/\r\n/g, "\n")) {
+      throw new Error(`write did not reach disk: ${rel}`);
+    }
+    throw new Error(`file content differs from approved change; side effects uncertain: ${rel}`);
+  }
+}
+
+/** Read-back delays (ms) before each post-write verification attempt. */
+const READBACK_DELAYS_MS = [0, 50, 100, 200, 400, 800];
+
+const WHITESPACE_NOTE = " (saved with whitespace changes by the editor; re-read before editing it again)";
+
+/** Line-end whitespace and a trailing newline at EOF are editor-applied, not a mismatch. */
+function loose(s: string): string {
+  return s.replace(/[ \t]+$/gm, "").replace(/\n+$/, "");
 }
 
 export class WriteFile extends EditTool {
@@ -47,9 +80,9 @@ export class WriteFile extends EditTool {
 
   async execute(args: Json, preview: ToolPreview | null): Promise<string> {
     const rel = this.paths.resolve(arg(args, "path"));
-    await this.applyChange(rel, preview);
+    const note = await this.applyChange(rel, preview);
     const lines = arg(args, "content").split("\n").length;
-    return `wrote ${rel} (${lines} lines)`;
+    return `wrote ${rel} (${lines} lines)${note ?? ""}`;
   }
 }
 
@@ -79,8 +112,8 @@ export class EditFile extends EditTool {
 
   async execute(args: Json, preview: ToolPreview | null): Promise<string> {
     const rel = this.paths.resolve(arg(args, "path"));
-    await this.applyChange(rel, preview);
-    return `edited ${rel}`;
+    const note = await this.applyChange(rel, preview);
+    return `edited ${rel}${note ?? ""}`;
   }
 }
 
@@ -157,7 +190,7 @@ export class ApplyPatch extends EditTool {
 
   async execute(args: Json, preview: ToolPreview | null): Promise<string> {
     const rel = this.paths.resolve(arg(args, "path"));
-    await this.applyChange(rel, preview);
-    return `patched ${rel}`;
+    const note = await this.applyChange(rel, preview);
+    return `patched ${rel}${note ?? ""}`;
   }
 }

@@ -57,7 +57,7 @@ export class GenerateImage extends ProjectTool {
     const raw = typeof args["content"] === "string" && args["content"]
       ? String(args["content"])
       : `<svg xmlns="http://www.w3.org/2000/svg"><desc>${prompt.replace(/[<>&]/g, "")}</desc></svg>`;
-    await this.host.files.edit({ path: rel, content: raw });
+    await this.host.files.writeAtomic(rel, raw);
     return `generated ${rel}`;
   }
 }

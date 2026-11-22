@@ -41,6 +41,14 @@ describe("ReadFile", () => {
     await expect(t.execute({ path: "b.bin" }, null, sig)).rejects.toThrow(/binary/);
     await expect(t.execute({ path: "a.ts", start_line: 5 }, null, sig)).rejects.toThrow(/line range/);
   });
+
+  it("names the size, the limit and a partial-read path for huge files", async () => {
+    const { reg } = await setup({ "huge.ts": "x".repeat(1_000_001) });
+    const t = reg.find("ReadFile")!;
+    await expect(t.execute({ path: "huge.ts" }, null, sig)).rejects.toThrow(
+      "file too large: huge.ts (1000001 bytes, limit 1000000); use Search with path, or RunTerminal with sed -n 'START,ENDp' to read part of it",
+    );
+  });
 });
 
 describe("FindFiles", () => {
@@ -84,6 +92,29 @@ describe("Search", () => {
   it("skips binary files", async () => {
     const { reg } = await setup({ "b.bin": "x\0foo" });
     expect(await reg.find("Search")!.execute({ query: "foo" }, null, sig)).toBe("no matches");
+  });
+
+  it("searches a single file when path names one", async () => {
+    const { reg } = await setup({ "src/a.ts": "foo\nbar", "src/b.ts": "foo" });
+    const t = reg.find("Search")!;
+    expect(await t.execute({ query: "foo", path: "src/a.ts" }, null, sig)).toBe("src/a.ts:1: foo");
+  });
+
+  it("searches a file even when list throws for it", async () => {
+    const h = fakeHost({ "f.ts": "foo" });
+    const host = {
+      ...h.host,
+      files: {
+        ...h.host.files,
+        list: async (dir: string) => {
+          if (dir === ".") return [] as string[];
+          throw new Error("ENOTDIR");
+        },
+      },
+    };
+    const paths = await ProjectPaths.forProject(host);
+    const t = projectTools(host, paths).find("Search")!;
+    expect(await t.execute({ query: "foo", path: "f.ts" }, null, sig)).toBe("f.ts:1: foo");
   });
 });
 

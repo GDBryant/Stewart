@@ -14,6 +14,7 @@ import { abortRace, AbortedRun, err, lastReply, newTaskState, type Contract, typ
 import { evBase, onEvent } from "./taskEvents.js";
 import { handoverText } from "./handover.js";
 import { cliPolicyGate, policyFailed } from "./policyGate.js";
+import { mergeWrites } from "./changedMerge.js";
 
 export type { Contract, ContractCommand } from "./turnState.js";
 
@@ -125,7 +126,7 @@ async function verify(c: Ctx, baseline: Baseline): Promise<Verify> {
   const { spec, deps, ts } = c;
   if (spec.run.controller.signal.aborted) throw new AbortedRun();
   const contract = spec.contract();
-  const changed = await abortRace(deps.tracker.diff(baseline), spec.run);
+  const changed = mergeWrites(await abortRace(deps.tracker.diff(baseline), spec.run), ts.writes, deps.paths);
   const input = inputFor(spec, ts, changed);
   const cmds = contract.commands.filter((x) => !x.whenChanged || changed === undefined || changed.length > 0);
   const denied: Evidence[] = [];

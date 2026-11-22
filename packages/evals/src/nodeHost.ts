@@ -47,7 +47,9 @@ function files(abs: (p: string) => string): HostPort["files"] {
   return {
     read: async (p) => ({ content: await readText(p) }),
     edit: async (e) => {
-      const current = e.content !== undefined ? "" : await readText(e.path);
+      const current = await readText(e.path).catch(() => {
+        throw new Error(`file not found: ${e.path}`);
+      });
       await atomicWrite(abs(e.path), applyEdits(current, e));
       return { applied: true as const };
     },

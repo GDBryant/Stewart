@@ -147,6 +147,17 @@ describe("benchModel", () => {
     expect(perf.jsonOk).toBe(false);
   });
 
+  it("rates a one-burst buffered reply over the whole request, not the burst", async () => {
+    let t = 0;
+    const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };
+    const { channel } = fakeChannel(
+      [[text("a".repeat(800)), done(260)], [text("{}"), done()]],
+      { onEvent: (ev) => { if (ev.kind === "text") t += 12_000; if (ev.kind === "done") t += 1; } },
+    );
+    const perf = await benchModel(channel, "m", clock, fakeProbe([{ kind: "ok", toolOk: true }]).fn);
+    expect(perf.tokPerSec).toBeCloseTo(21.7, 1);
+  });
+
   it("estimates tokens from characters when done carries no usage", async () => {
     let t = 0;
     const clock: Clock = { now: () => t, setTimeout: systemClock.setTimeout };

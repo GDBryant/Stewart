@@ -452,13 +452,13 @@ describe("claude-code engine", () => {
     expect(turn.transcript.find((m) => m.role === "tool")?.content).toBe("Applied 2 edits");
   });
 
-  it("trips the loop guard when the same Bash call fails twice: interrupts and finishes loop_guard", async () => {
+  it("trips the loop guard when the same Bash call fails three times: interrupts and finishes loop_guard", async () => {
     const bash = (id: string, mid: string) => ({ type: "assistant", message: { id: mid, role: "assistant", content: [{ type: "tool_use", id, name: "Bash", input: { command: "npm test" } }] } });
     const fail = (id: string) => ({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, is_error: true, content: "exit 1" }] } });
-    const lines = [bash("t1", "m1"), fail("t1"), bash("t2", "m2"), fail("t2"), { type: "result", subtype: "error_during_execution", is_error: true, result: "interrupted" }];
+    const lines = [bash("t1", "m1"), fail("t1"), bash("t2", "m2"), fail("t2"), bash("t3", "m3"), fail("t3"), { type: "result", subtype: "error_during_execution", is_error: true, result: "interrupted" }];
     const { spawn, calls } = fakeSpawn([{ lines }]);
     const evs = await run(makeTurn(), spawn);
-    expect(evs[evs.length - 1]).toMatchObject({ kind: "finished", reason: "loop_guard", error: expect.stringContaining("same call failed twice") });
+    expect(evs[evs.length - 1]).toMatchObject({ kind: "finished", reason: "loop_guard", error: expect.stringContaining("same call failed 3 times") });
     expect(calls[0].written.some((w) => w.includes("interrupt"))).toBe(true);
     expect(calls[0].killed).toBe(true);
   });

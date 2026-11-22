@@ -94,6 +94,16 @@ describe("checkReadOnlyCommand", () => {
     "rg foo src",
     "git --version",
     "foo --version",
+    "cd modules/setup && cat package.json | head -40",
+    "true",
+    "false",
+    "sed -n '10,20p' src/a.ts",
+    "sed -n 10,20p src/a.ts",
+    "grep -n foo a.ts | sed -n '1,5p'",
+    "git -C /repo status --short | head -40",
+    "git --no-pager log --oneline",
+    "git -C /repo --no-pager show",
+    "cd a && wc -l src/*.ts | sort -n",
   ];
   it.each(allowed)("allows %s", (command) => {
     expect(() => checkReadOnlyCommand(command, "investigator")).not.toThrow();
@@ -129,12 +139,27 @@ describe("checkReadOnlyCommand", () => {
     "rm -v",
     "fc-cache -v",
     "pkill -v",
+    "cd a && rm -rf b",
+    "cd",
+    "cd 'a' && ls",
+    "cd a\\ b && ls",
+    "echo ' ; cd ' ; rm -rf y ; echo ' ; cd '",
+    'echo " ; cd " ; rm -rf y ; echo " ; cd "',
+    "echo ' | sed -n 1p a' ; rm -rf y ; echo ' | sed -n 1p b'",
+    "sed -i 's/a/b/' f",
+    "sed -n '1,5p;w out' f",
+    "sed -n '1p' -i f",
+    "sed -n '1,5p' f && sed -i 's/a/b/' g",
+    "git -C /repo commit -m x",
+    "cd $(pwd) && ls",
+    "cd `pwd` && ls",
+    "cd a && touch b",
   ];
   it.each(refused)("refuses %s", (command) => {
     expect(() => checkReadOnlyCommand(command, "investigator")).toThrow(/not allowed for read-only role investigator/);
   });
 
-  it.each(["pnpm test", "vitest run", "npx vitest"])("refuses %s with a tester hint", (command) => {
+  it.each(["pnpm test", "vitest run", "npx vitest", "cd a && ./node_modules/.bin/vitest run"])("refuses %s with a tester hint", (command) => {
     expect(() => checkReadOnlyCommand(command, "investigator")).toThrow(/delegate to tester/);
   });
   it("does not add the hint to a non-runner refusal", () => {

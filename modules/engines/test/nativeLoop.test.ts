@@ -357,18 +357,35 @@ describe("native-loop loop guard", () => {
     },
   };
 
-  it("trips when the same call fails twice in one run", async () => {
+  it("warns on the second identical failure, then trips on the third", async () => {
     const ch = fakeChannel([
       [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c1")] }],
       [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c2")] }],
+      [{ kind: "tool_calls", calls: [call("Fail", { x: "a" }, "c3")] }],
       [{ kind: "done" }],
     ]);
     const t = turn({ channel: ch, tools: new ToolRegistry([failTool]), maxTurns: 8 });
     const evs = await collect(nativeLoop.run(t));
     const fin = last(evs);
     expect(fin).toMatchObject({ kind: "finished", reason: "loop_guard" });
-    expect((fin as { error?: string }).error).toContain("same call failed twice");
+    expect((fin as { error?: string }).error).toContain("same call failed 3 times");
     expect((fin as { error?: string }).error).toContain("Fail");
+    const warnings = t.transcript.filter((m) => m.role === "user" && m.content.includes("[Stewart]"));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("adds the [Stewart] warning on the second identical call and keeps running", async () => {
+    const ch = fakeChannel([
+      [{ kind: "tool_calls", calls: [call("Echo", { text: "same" }, "c1")] }],
+      [{ kind: "tool_calls", calls: [call("Echo", { text: "same" }, "c2")] }],
+      [{ kind: "text", text: "done" }, { kind: "done" }],
+    ]);
+    const t = turn({ channel: ch, tools: new ToolRegistry([echoTool]), maxTurns: 8 });
+    const evs = await collect(nativeLoop.run(t));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    const warnings = t.transcript.filter((m) => m.role === "user" && m.content.includes("was already called"));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].content).toContain("One more identical call ends this run");
   });
 
   it("does not trip on the same tool with different args, then stops normally", async () => {

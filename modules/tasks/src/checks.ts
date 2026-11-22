@@ -22,13 +22,21 @@ export function declaredCheck(declared?: { command?: string[]; files?: string[] 
 
 /**
  * WriteRecord paths whose last record failed and that the tracker does not report as changed — a failure that
- * was then fixed by another write or a shell edit is not a failure (when the diff is unknown, it is).
+ * was then fixed by another write or a shell edit is not a failure (when the diff is unknown, it is), and
+ * neither is a mistyped path that does not exist once a later write record succeeded.
  */
-function failedWrites(input: CheckInput): WriteRecord[] {
+async function failedWrites(input: CheckInput, host: Pick<HostPort, "files">): Promise<WriteRecord[]> {
   const last = new Map<string, WriteRecord>();
   for (const w of input.writes) last.set(w.path, w);
   const changed = new Set(input.changed ?? []);
-  return [...last.values()].filter((w) => !w.ok && (input.changed === undefined || !changed.has(w.path)));
+  const out: WriteRecord[] = [];
+  for (const w of last.values()) {
+    if (w.ok || changed.has(w.path)) continue;
+    const laterOk = input.writes.slice(input.writes.lastIndexOf(w) + 1).some((x) => x.ok);
+    const mistyped = laterOk && !(await host.files.exists(w.path).catch(() => false));
+    if (!mistyped) out.push(w);
+  }
+  return out;
 }
 
 async function checkFiles(files: string[], host: Pick<HostPort, "files">, out: Evidence[]): Promise<void> {
@@ -242,7 +250,7 @@ function checkReply(input: CheckInput, out: Evidence[]): void {
 /** Run one turn check: failed writes, required files, optional command, non-empty reply. */
 export async function runCheck(args: RunCheckArgs): Promise<CheckResult> {
   const evidence: Evidence[] = [];
-  for (const w of failedWrites(args.input)) {
+  for (const w of await failedWrites(args.input, args.host)) {
     evidence.push({ code: "write_failed", ok: false, detail: `write to ${w.path} failed: ${w.message ?? "unknown"}` });
   }
   await checkFiles(args.check.files ?? [], args.host, evidence);

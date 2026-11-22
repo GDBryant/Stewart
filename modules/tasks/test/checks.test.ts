@@ -45,6 +45,47 @@ describe("runCheck writes rule", () => {
     expect(r.passed).toBe(false);
     expect(code(r, "write_failed")?.ok).toBe(false);
   });
+  it("clears a failed write to a mistyped path corrected by a later successful write", async () => {
+    const { host } = fakeHost({ "right.ts": "x" });
+    const input = baseInput({
+      writes: [
+        { path: "code/sql_updates/2026--name)", ok: false, message: "file not found" },
+        { path: "right.ts", ok: true },
+      ],
+    });
+    const r = await runCheck({ check: {}, input, host, cwd: "/p" });
+    expect(code(r, "write_failed")).toBeUndefined();
+    expect(r.passed).toBe(true);
+  });
+  it("still fails a mistyped path when no later write succeeded", async () => {
+    const { host } = fakeHost();
+    const input = baseInput({ writes: [{ path: "nope/typo.ts", ok: false, message: "file not found" }] });
+    const r = await runCheck({ check: {}, input, host, cwd: "/p" });
+    expect(code(r, "write_failed")?.detail).toContain("nope/typo.ts");
+  });
+  it("still fails a failed write to a path that exists, even with a later success elsewhere", async () => {
+    const { host } = fakeHost({ "a.ts": "x", "b.ts": "y" });
+    const input = baseInput({
+      writes: [
+        { path: "a.ts", ok: false, message: "no match" },
+        { path: "b.ts", ok: true },
+      ],
+    });
+    const r = await runCheck({ check: {}, input, host, cwd: "/p" });
+    expect(code(r, "write_failed")?.detail).toBe("write to a.ts failed: no match");
+  });
+  it("clears a mistyped path even when tracking is unavailable", async () => {
+    const { host } = fakeHost({ "right.ts": "x" });
+    const input = baseInput({
+      writes: [
+        { path: "gone/typo.ts", ok: false, message: "file not found" },
+        { path: "right.ts", ok: true },
+      ],
+      changed: undefined,
+    });
+    const r = await runCheck({ check: {}, input, host, cwd: "/p" });
+    expect(code(r, "write_failed")).toBeUndefined();
+  });
 });
 
 describe("runCheck files rule", () => {

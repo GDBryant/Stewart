@@ -4,7 +4,7 @@ import { capsFor, type ModelPerf, type ProbeLoop } from "@stewart/models";
 import type { Clock, ToolSpec } from "@stewart/kernel";
 
 /** Bump when the suite changes meaning; cached perf older than this is re-measured. */
-export const BENCH_VERSION = 1;
+export const BENCH_VERSION = 2;
 const PROBE_CAP_MS = 30_000;
 const TOOL_TRIALS = 3;
 
@@ -40,8 +40,11 @@ function summarizePerf(s: SpeedSample): Pick<ModelPerf, "ttftMs" | "tokPerSec"> 
   const perf: Pick<ModelPerf, "ttftMs" | "tokPerSec"> = {};
   if (s.first >= 0) perf.ttftMs = s.first - s.t0;
   const tokens = s.out > 0 ? s.out : Math.round(s.chars / 4);
-  const genMs = (s.done >= 0 ? s.done : s.now) - (s.first >= 0 ? s.first : s.t0);
-  if (tokens > 0 && genMs > 0) perf.tokPerSec = Math.round((tokens / genMs) * 100_000) / 100;
+  const end = s.done >= 0 ? s.done : s.now;
+  const genMs = end - (s.first >= 0 ? s.first : s.t0);
+  const totalMs = end - s.t0;
+  const rateMs = genMs < 0.1 * totalMs ? totalMs : genMs;
+  if (tokens > 0 && rateMs > 0) perf.tokPerSec = Math.round((tokens / rateMs) * 100_000) / 100;
   return perf;
 }
 

@@ -380,4 +380,59 @@ class WorkspaceFilesTest : BasePlatformTestCase() {
         }
         assertEquals("b", files().readBack("edt.txt").jsonPrimitive.content)
     }
+
+    fun testEditNormalisesCrLfContent() {
+        val f = write("crlf-a.txt", "a\r\nb\r\n")
+        files().edit(buildJsonObject {
+            put("path", JsonPrimitive("crlf-a.txt"))
+            put("content", JsonPrimitive("x\r\ny\r\n"))
+        })
+        val disk = f.readText()
+        assertFalse(disk.contains("\r\r"))
+        assertEquals("x\ny\n", disk.replace("\r\n", "\n"))
+        assertEquals("x\ny\n", files().readBack("crlf-a.txt").jsonPrimitive.content.replace("\r\n", "\n"))
+    }
+
+    fun testEditNormalisesCrLfAnchors() {
+        val f = write("crlf-b.txt", "a\r\nb\r\nc")
+        files().edit(buildJsonObject {
+            put("path", JsonPrimitive("crlf-b.txt"))
+            put("edits", Json.parseToJsonElement("""[{"oldText":"a\r\nb","newText":"A\r\nB"}]"""))
+        })
+        assertEquals("A\nB\nc", f.readText().replace("\r\n", "\n"))
+    }
+
+    fun testEditReachesDiskBeforeReturning() {
+        val f = write("disk-a.txt", "old")
+        files().edit(buildJsonObject {
+            put("path", JsonPrimitive("disk-a.txt"))
+            put("content", JsonPrimitive("new"))
+        })
+        assertEquals("new", f.readText())
+    }
+
+    fun testWriteAtomicConcurrent() {
+        val files = files()
+        val errors = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        val threads = (1..16).map { i ->
+            Thread {
+                try {
+                    files.writeAtomic("state/conc.txt", "v$i")
+                } catch (t: Throwable) {
+                    errors.add(t)
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(10_000) }
+        assertTrue(errors.isEmpty())
+        assertTrue(File(project.basePath, "state/conc.txt").readText().startsWith("v"))
+    }
+
+    fun testWriteAtomicLeavesNoTempFiles() {
+        val files = files()
+        files.writeAtomic("state/tidy.txt", "x")
+        val leftovers = File(project.basePath, "state").listFiles()?.filter { it.name.contains(".tmp-") } ?: emptyList()
+        assertTrue(leftovers.isEmpty())
+    }
 }

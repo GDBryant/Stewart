@@ -36,6 +36,7 @@ function fakeReadFiles(files: Record<string, string>): Pick<HostPort["files"], "
 function fakeWriteFiles(files: Record<string, string>, edits: { path: string; content?: string; edits?: { oldText: string; newText: string }[] }[]): Pick<HostPort["files"], "edit" | "writeAtomic" | "appendLine" | "delete"> {
   return {
     edit: async (e) => {
+      if (!(e.path in files)) throw new Error(`file not found: ${e.path}`);
       edits.push(e);
       if (e.content !== undefined) files[e.path] = e.content;
       else for (const ed of e.edits ?? []) files[e.path] = files[e.path].replace(ed.oldText, ed.newText);

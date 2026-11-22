@@ -17,7 +17,7 @@ export interface ScoredAssignment {
   role: string;
   channel: string;
   model: string;
-  /** Cheapest other qualified candidate as the escalation fallback (absent when none). */
+  /** Escalation fallback: the lead gets the strongest other qualified candidate, other roles the cheapest. */
   secondary?: { channel: string; model: string };
   reason: string;
   score: number;
@@ -44,6 +44,10 @@ interface Profile {
   wantsCoder?: boolean;
   /** Prefer smaller/faster models. */
   cheap?: boolean;
+  /** Long sessions compact often on small windows: score wide context and warn below 64k. */
+  longContext?: boolean;
+  /** Escalation fallback is the strongest other candidate, not the cheapest (lead only). */
+  strongFallback?: boolean;
   /** Does a human wait on this role? Interactive weights speed harder. Default: batch. */
   latency?: "interactive" | "batch";
   /** Expected tool turns, shown to the AI evaluator. */
@@ -61,7 +65,7 @@ interface Profile {
 const LEAD_LIKE: Profile = { needs: { tools: true }, minCtx: 16384, minSizeB: 7, wantsCoder: true, wantsReasoning: true, latency: "interactive", typicalTurns: [5, 40], needsEdit: true, minToolReliability: 0.67, costSensitivity: "medium" };
 
 export const ROLE_PROFILES: Record<string, Profile> = {
-  lead: LEAD_LIKE,
+  lead: { ...LEAD_LIKE, longContext: true, strongFallback: true },
   explorer: LEAD_LIKE,
   reviewer: LEAD_LIKE,
   /** Scripted health batches run many at once: small, fast, cheap; tools still required for CodeMetrics/ReadFile. */
@@ -110,7 +114,7 @@ function qualRefusal(c: Candidate, p: Profile): string | undefined {
 }
 
 function contextRefusal(c: Candidate, p: Profile): string | undefined {
-  const ctx = c.caps.numCtx ?? c.caps.contextTokens;
+  const ctx = c.caps.numCtx ?? c.caps.contextTokens ?? c.caps.qualified?.agent?.context;
   if (p.hardMinCtx && ctx !== undefined && ctx < p.hardMinCtx) return `context ${ctx} < ${p.hardMinCtx}`;
   return undefined;
 }
@@ -182,10 +186,13 @@ function capabilityScore(c: Candidate, p: Profile, q: number): Term {
 }
 
 function contextScore(c: Candidate, p: Profile): Term {
-  const numCtx = c.caps.numCtx ?? c.caps.contextTokens;
-  if (!p.minCtx || numCtx === undefined) return term();
-  if (numCtx >= p.minCtx) return term(1);
-  return term(-3, [], [`context ${numCtx} < ${p.minCtx}`]);
+  const numCtx = c.caps.numCtx ?? c.caps.contextTokens ?? c.caps.qualified?.agent?.context;
+  if (numCtx === undefined) return term();
+  const t = p.minCtx ? (numCtx >= p.minCtx ? term(1) : term(-3, [], [`context ${numCtx} < ${p.minCtx}`])) : term();
+  if (!p.longContext) return t;
+  t.delta += Math.min(Math.max(Math.log2(numCtx / 32_000), 0), 3);
+  if (numCtx < 64_000) t.warnings.push(`context ${numCtx}: long sessions will compact often`);
+  return t;
 }
 
 function localityScore(c: Candidate): Term {
@@ -309,11 +316,17 @@ function chainBucket(c: Candidate): number {
   return c.costTier === "free" || c.channelType === "ollama" || c.price?.inPerMTok === 0 ? 0 : 1;
 }
 
-/** Cheapest other qualified candidate as the role's escalation fallback, or undefined when none. */
+/**
+ * The role's escalation fallback, or undefined when none qualifies: `strongFallback` profiles (the
+ * lead — escalation must reach a more capable model) rank by size + capability + context at
+ * quality 1, ties by the cost order; every other role gets the cheapest qualified candidate.
+ */
 export function proposeSecondary(p: Profile, candidates: Candidate[], chosen: Candidate): { channel: string; model: string } | undefined {
   const kind = p.kind ?? "agent";
   const ok = candidates.filter((c) => qualPassed(c.caps.qualified?.[kind]) && contextRefusal(c, p) === undefined && (c.channel !== chosen.channel || c.model !== chosen.model));
-  ok.sort((a, b) => chainBucket(a) - chainBucket(b) || (a.costBlended ?? Number.MAX_SAFE_INTEGER) - (b.costBlended ?? Number.MAX_SAFE_INTEGER));
+  const cheapFirst = (a: Candidate, b: Candidate) => chainBucket(a) - chainBucket(b) || (a.costBlended ?? Number.MAX_SAFE_INTEGER) - (b.costBlended ?? Number.MAX_SAFE_INTEGER);
+  const strength = (c: Candidate) => sizeScore(p, effectiveSize(c), 1).delta + capabilityScore(c, p, 1).delta + contextScore(c, p).delta;
+  ok.sort((a, b) => (p.strongFallback ? strength(b) - strength(a) : 0) || cheapFirst(a, b));
   const c = ok[0];
   return c ? { channel: c.channel, model: c.model } : undefined;
 }

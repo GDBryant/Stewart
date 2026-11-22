@@ -28,6 +28,17 @@ export class VsCodeHost implements HostPort {
     return vscode.workspace.openTextDocument(this.fileUri(path));
   }
 
+  private writeSeq = 0;
+
+  private async diskText(p: string): Promise<string> {
+    try {
+      return await fs.readFile(this.absPath(p), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`file not found: ${p}`);
+      throw e;
+    }
+  }
+
   readonly secrets: HostPort["secrets"] = {
     get: async (ref) => this.context.secrets.get(ref),
     set: async (ref, v) => this.context.secrets.store(ref, v),
@@ -35,9 +46,12 @@ export class VsCodeHost implements HostPort {
   };
 
   readonly files: HostPort["files"] = {
+    /** Disk text; an open dirty editor buffer wins (its content is newer than disk). */
     read: async (p) => {
-      const doc = await this.docFor(p);
-      return { content: doc.getText(), version: doc.version };
+      const abs = this.absPath(p);
+      const dirty = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === abs && d.isDirty);
+      if (dirty) return { content: dirty.getText(), version: dirty.version };
+      return { content: await this.diskText(p) };
     },
     edit: async (e: VersionedEdit) => {
       const doc = await this.docFor(e.path);
@@ -57,9 +71,10 @@ export class VsCodeHost implements HostPort {
       }
       const ok = await vscode.workspace.applyEdit(edit); // one native undo step
       if (!ok) throw new Error(`edit rejected for ${e.path}`);
+      if (!(await doc.save())) throw new Error(`could not save ${e.path}`);
       return { applied: true as const, version: doc.version };
     },
-    readBack: async (p) => (await this.docFor(p)).getText(),
+    readBack: async (p) => this.diskText(p),
     exists: async (p) => {
       try {
         await vscode.workspace.fs.stat(this.fileUri(p));
@@ -96,11 +111,15 @@ export class VsCodeHost implements HostPort {
     },
     writeAtomic: async (p, content) => {
       const abs = this.absPath(p);
-      const uri = vscode.Uri.file(abs);
       await fs.mkdir(path.dirname(abs), { recursive: true });
-      const tmp = uri.with({ path: `${uri.path}.tmp-${Date.now()}` });
-      await vscode.workspace.fs.writeFile(tmp, Buffer.from(content, "utf8"));
-      await vscode.workspace.fs.rename(tmp, uri, { overwrite: true });
+      const tmp = `${abs}.tmp-${process.pid}-${this.writeSeq++}`;
+      try {
+        await fs.writeFile(tmp, content, "utf8");
+        await fs.rename(tmp, abs);
+      } catch (e) {
+        await fs.rm(tmp, { force: true }).catch(() => {});
+        throw e;
+      }
     },
     appendLine: async (p, line) => {
       const abs = this.absPath(p);

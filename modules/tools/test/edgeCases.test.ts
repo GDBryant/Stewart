@@ -49,6 +49,17 @@ describe("ToolRegistry + validateArgs + outcomeMessage", () => {
     expect(validateArgs({ u: "v" }, { type: "object", properties: { u: {} } }, "T")).toBeNull();
   });
 
+  it("coerces numeric and boolean strings before validating", () => {
+    const reg = new ToolRegistry([tool]);
+    const args: Json = { s: "v", n: "30", b: "true" };
+    expect(reg.validate({ id: "1", name: "T", arguments: args })).toBeNull();
+    expect(args).toMatchObject({ n: 30, b: true });
+    expect(reg.validate({ id: "1", name: "T", arguments: { s: "v", n: "abc" } })).toContain("expected type integer");
+    expect(reg.validate({ id: "1", name: "T", arguments: { s: "v", b: "yes" } })).toContain("expected type boolean");
+    expect(reg.resolve({ id: "1", name: "T", arguments: { s: "v", n: "-4" } })).toEqual({ call: expect.objectContaining({ arguments: { s: "v", n: -4 } }) });
+    expect(reg.resolve({ id: "1", name: "T", arguments: { s: "v", n: "4x" } })).toMatchObject({ error: expect.stringContaining("expected type integer") });
+  });
+
   it("validates nested array items: type, required, enum and additionalProperties", () => {
     const schema: Json = {
       type: "object",

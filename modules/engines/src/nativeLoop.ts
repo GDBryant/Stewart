@@ -339,8 +339,13 @@ async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard
       yield* executeBatch(turn, batch, seen);
     }
   }
-  for (const { call, ok, result } of seen.values()) guard.record({ name: call.name, args: call.arguments, ok, result });
+  const warnings: string[] = [];
+  for (const { call, ok, result } of seen.values()) {
+    const w = guard.record({ name: call.name, args: call.arguments, ok, result });
+    if (w) warnings.push(w);
+  }
   guard.endTurn();
+  if (warnings.length && !guard.trip) turn.transcript.push({ role: "user", content: warnings.join("\n") });
 }
 
 /** Stewart's own tool loop over a channel's native tool calling. */

@@ -50,14 +50,30 @@ export function outcomeMessage(o: ToolOutcome): string {
   }
 }
 
+/** `"30"` for integer, `"3.5"` for number, `"true"`/`"false"` for boolean; anything else is left for validation. */
+function coerceScalar(value: string, type: unknown): unknown {
+  if (type === "integer" && /^-?\d+$/.test(value)) return Number(value);
+  if (type === "number" && /^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+  if (type === "boolean" && (value === "true" || value === "false")) return value === "true";
+  return undefined;
+}
+
 /**
- * Weaker models often send an array argument as a JSON string (`"[\"a\",\"b\"]"`). Replace such a value, in place,
- * with the parsed array when the schema declares an array; anything else is left for validation to reject.
+ * Weaker models send scalars and arrays as JSON strings (`"[\"a\",\"b\"]"`, `"30"`, `"true"`). Replace such a
+ * value, in place, with the parsed/coerced value when the schema declares the matching type; anything else is
+ * left for validation to reject.
  */
-export function coerceArrayArgs(args: Json, schema: Json): void {
+export function coerceArgs(args: Json, schema: Json): void {
   const props = (schema.properties ?? {}) as Record<string, Json>;
   for (const [key, value] of Object.entries(args)) {
-    if (props[key]?.type !== "array" || typeof value !== "string" || !value.trimStart().startsWith("[")) continue;
+    if (typeof value !== "string") continue;
+    const type = props[key]?.type;
+    const coerced = coerceScalar(value, type);
+    if (coerced !== undefined) {
+      args[key] = coerced;
+      continue;
+    }
+    if (type !== "array" || !value.trimStart().startsWith("[")) continue;
     try {
       const parsed: unknown = JSON.parse(value);
       if (Array.isArray(parsed)) args[key] = parsed as Json[];
@@ -231,7 +247,7 @@ export class ToolRegistry {
     const c = this.candidate(call, notes);
     if ("error" in c) return c;
     this.dropUnknownArgs(c.rc.arguments as Record<string, Json>, c.tool.spec.parameters, notes);
-    coerceArrayArgs(c.rc.arguments as Json, c.tool.spec.parameters);
+    coerceArgs(c.rc.arguments as Json, c.tool.spec.parameters);
     const invalid = validateArgs(c.rc.arguments as Json, c.tool.spec.parameters, c.rc.name);
     if (invalid) return { error: this.invalidText(call, c.rc, invalid) };
     return notes.length ? { call: c.rc, note: notes.join("; ") } : { call: c.rc };
@@ -240,7 +256,7 @@ export class ToolRegistry {
     const tool = this.byName.get(call.name);
     if (!tool) return `unknown tool '${call.name}'; available: ${this.available}`;
     if (call.argsError) return call.argsError;
-    coerceArrayArgs(call.arguments as Json, tool.spec.parameters);
+    coerceArgs(call.arguments as Json, tool.spec.parameters);
     return validateArgs(call.arguments as Json, tool.spec.parameters, call.name);
   }
   get specs(): ToolSpec[] {

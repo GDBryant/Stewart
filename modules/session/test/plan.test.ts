@@ -86,6 +86,38 @@ describe("code-driven plan", () => {
     expect(transcript.some((m) => m.content.includes("Milestone M2 of 3: two") && m.content.includes("Done when: check two"))).toBe(true);
   });
 
+  it("passes mustChange on a tool write inside a nested repo the tracker cannot see", async () => {
+    let h!: Harness;
+    const step = async function* (turn: EngineTurn) {
+      turn.transcript.push({ role: "assistant", content: "edited nested repo file" });
+      yield { kind: "write", record: { path: "code/nested.ts", ok: true } } as EngineEvent;
+      yield { kind: "finished", reason: "stop" } as EngineEvent;
+    };
+    const ms: Ms[] = [{ title: "one", check: { files: ["code/nested.ts"] } }];
+    h = harness({ files: { "code/nested.ts": "x" }, engine: scriptedEngine([planStep({ goal: "g", milestones: ms }), step]) });
+    autoAnswer(h);
+    await h.svc.send({ text: "build" });
+    const fin = (await h.waitFor("run.finished")) as { status: string };
+    expect(fin.status).toBe("done");
+    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(1);
+  });
+
+  it("does not count a failed tool write the tracker cannot see", async () => {
+    let h!: Harness;
+    const step = async function* (turn: EngineTurn) {
+      turn.transcript.push({ role: "assistant", content: "tried" });
+      yield { kind: "write", record: { path: "code/nested.ts", ok: false, message: "rejected" } } as EngineEvent;
+      yield { kind: "finished", reason: "stop" } as EngineEvent;
+    };
+    const ms: Ms[] = [{ title: "one", check: { files: ["code/nested.ts"] } }];
+    h = harness({ files: { "code/nested.ts": "x" }, engine: scriptedEngine([planStep({ goal: "g", milestones: ms }), step]) });
+    autoAnswer(h);
+    await h.svc.send({ text: "build" });
+    const fin = (await h.waitFor("run.finished")) as { status: string };
+    expect(fin.status).toBe("failed");
+    expect(h.events.filter((e) => e.kind === "milestone.done").length).toBe(0);
+  });
+
   it("does not drive when the plan is declined", async () => {
     const h = harness({ engine: scriptedEngine([planStep({ goal: "g", milestones: TWO_MS })]) });
     void (async () => {

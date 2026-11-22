@@ -21,6 +21,9 @@ import kotlinx.serialization.json.longOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * HostPort file surface: paths that are absolute (config/state files) are used
@@ -29,6 +32,10 @@ import java.io.IOException
  * stamps play the role of VS Code's document.version.
  */
 class WorkspaceFiles(private val project: Project) {
+
+    companion object {
+        private val atomicCounter = java.util.concurrent.atomic.AtomicLong()
+    }
 
     fun resolve(path: String): File {
         val f = File(path)
@@ -80,7 +87,7 @@ class WorkspaceFiles(private val project: Project) {
     fun edit(edit: JsonObject): JsonObject {
         val path = edit["path"]?.jsonPrimitive?.content ?: throw IOException("files.edit: missing path")
         val vf = virtualFile(path)
-        return onEdt {
+        val result = onEdt {
             val doc = documentFor(path, vf)
             val base = edit["baseVersion"]?.jsonPrimitive?.longOrNull
             if (base != null && doc.modificationStamp != base) {
@@ -89,12 +96,12 @@ class WorkspaceFiles(private val project: Project) {
             WriteCommandAction.runWriteCommandAction(project) {
                 val content = edit["content"]?.jsonPrimitive?.content
                 if (content != null) {
-                    doc.setText(content)
+                    doc.setText(content.replace("\r\n", "\n"))
                 } else {
                     for (e in edit["edits"]?.jsonArray ?: emptyList()) {
                         val o = e.jsonObject
-                        val oldText = o["oldText"]?.jsonPrimitive?.content ?: throw IOException("files.edit: missing oldText")
-                        val newText = o["newText"]?.jsonPrimitive?.content ?: ""
+                        val oldText = (o["oldText"]?.jsonPrimitive?.content ?: throw IOException("files.edit: missing oldText")).replace("\r\n", "\n")
+                        val newText = (o["newText"]?.jsonPrimitive?.content ?: "").replace("\r\n", "\n")
                         val idx = doc.text.indexOf(oldText)
                         if (idx < 0) throw IOException("anchor not found in $path")
                         doc.replaceString(idx, idx + oldText.length, newText)
@@ -105,7 +112,25 @@ class WorkspaceFiles(private val project: Project) {
             buildJsonObject {
                 put("applied", JsonPrimitive(true))
                 put("version", JsonPrimitive(doc.modificationStamp))
-            }
+            } to doc.text
+        }
+        awaitDiskWrite(vf, result.second)
+        return result.first
+    }
+
+    /**
+     * IntelliJ 263+ writes saved documents asynchronously: give the disk write a moment so the
+     * read-back check and shell commands see the edit. Returns normally on timeout either way —
+     * the TS side reports a real mismatch.
+     */
+    private fun awaitDiskWrite(vf: VirtualFile, expected: String) {
+        if (ApplicationManager.getApplication().isDispatchThread) return
+        val f = File(vf.path)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline) {
+            val disk = if (f.isFile) f.readText(vf.charset).replace("\r\n", "\n") else null
+            if (disk == expected) return
+            Thread.sleep(25)
         }
     }
 
@@ -160,15 +185,17 @@ class WorkspaceFiles(private val project: Project) {
     fun writeAtomic(path: String, content: String): JsonElement {
         val target = resolve(path)
         target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, "${target.name}.tmp-${System.currentTimeMillis()}")
-        tmp.writeText(content, Charsets.UTF_8)
-        if (target.exists() && !target.delete()) {
+        val tmp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}-${atomicCounter.incrementAndGet()}")
+        try {
+            tmp.writeText(content, Charsets.UTF_8)
+            try {
+                Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (e: AtomicMoveNotSupportedException) {
+                Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } catch (e: Exception) {
             tmp.delete()
-            throw IOException("cannot replace $path")
-        }
-        if (!tmp.renameTo(target)) {
-            tmp.delete()
-            throw IOException("cannot move temp file to $path")
+            throw e
         }
         LocalFileSystem.getInstance().refreshIoFiles(listOf(target), true, false, null)
         return JsonObject(emptyMap())

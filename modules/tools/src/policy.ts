@@ -11,6 +11,7 @@ const READONLY_PROGRAMS = new Set([
   "ls", "cat", "head", "tail", "wc", "stat", "file", "find", "grep", "rg", "git",
   "pwd", "which", "echo", "uname", "printenv", "diff", "du", "df",
   "sort", "uniq", "cut", "tr", "basename", "dirname", "date", "tree",
+  "true", "false",
 ]);
 const GIT_READONLY_SUBCOMMANDS = new Set([
   "status", "log", "diff", "show", "branch", "rev-parse", "ls-files", "blame", "describe",
@@ -34,20 +35,41 @@ function isVersionProbe(seg: string): boolean {
   return m !== null && (m[2] === "--version" || SHORT_VERSION_PROGRAMS.has(m[1]));
 }
 
-function dropProbes(command: string): string | null {
+/** `cd <one arg>` changes nothing the following read-only programs cannot also reach. */
+const CD_SEGMENT = /^\s*cd\s+[^\s;&|<>`$()'"\\]+\s*$/;
+/** `sed -n 'START[,END]p' [files]` only prints; any other sed form can write. */
+const SED_PRINT = /^\s*sed\s+-n\s+(['"]?)\d+(,\d+)?p\1(\s+[^\s\-'"\\;&|<>`$()][^\s'"\\;&|<>`$()]*)*\s*$/;
+
+function isSafeSegment(seg: string): boolean {
+  return isVersionProbe(seg) || CD_SEGMENT.test(seg) || SED_PRINT.test(seg);
+}
+
+function dropSafeSegments(command: string): string | null {
   const parts = command.split(/(\|\||&&|[|;&\n])/);
   const keep: string[] = [];
   for (let i = 0; i < parts.length; i += 2) {
     const seg = parts[i];
     if (!seg.trim()) continue;
-    if (isVersionProbe(seg) && parts[i - 1] !== "|") continue;
+    if (isVersionProbe(seg) && parts[i - 1] === "|") {
+      keep.push(seg);
+      continue;
+    }
+    if (isSafeSegment(seg)) continue;
     keep.push(seg);
   }
   return keep.length ? keep.join(";") : null;
 }
 
+function gitSubcommandIndex(words: string[]): number {
+  for (let i = 1; i < words.length; i++) {
+    if (words[i] === "-C") i++;
+    else if (words[i] !== "--no-pager" && !words[i].startsWith("-")) return i;
+  }
+  return -1;
+}
+
 function checkGitSegment(words: string[], command: string, fail: (what: string) => never): void {
-  const at = words.findIndex((w, i) => i > 0 && !w.startsWith("-"));
+  const at = gitSubcommandIndex(words);
   const sub = at < 0 ? undefined : words[at];
   if (!sub || !GIT_READONLY_SUBCOMMANDS.has(sub)) fail(`git subcommand '${sub ?? ""}'`);
   if (sub === "branch" && !words.slice(at + 1).every((w) => GIT_BRANCH_READONLY.has(w))) fail(`command '${command}'`);
@@ -69,7 +91,7 @@ export function checkReadOnlyCommand(command: string, roleId: string): void {
   };
   const stripped = command.replace(HARMLESS_REDIRECTS, "");
   if (/[><]/.test(stripped)) fail(`command '${command}'`);
-  const rest = dropProbes(stripped);
+  const rest = dropSafeSegments(stripped);
   if (rest === null) return;
   const progs = splitShellPrograms(rest);
   if (!progs || !progs.every((p) => READONLY_PROGRAMS.has(p))) fail(`command '${command}'`);
