@@ -26,6 +26,22 @@ export class ProjectPaths {
     return new ProjectPaths(host, roots[0] ?? ".", opts.readRoots ?? []);
   }
 
+  /**
+   * Closest existing file for a missing path: same directory, where one filename contains the
+   * other (model glued a stray token onto the name, e.g. `PHP_EOLMeeting_attendance.php`).
+   * Returns null unless exactly one candidate matches.
+   */
+  async suggest(rel: string): Promise<string | null> {
+    const dir = path.posix.dirname(rel);
+    const name = path.posix.basename(rel);
+    const files = await this.host.files.list(dir).catch(() => [] as string[]);
+    const hits = files.filter((f) => {
+      const b = path.posix.basename(f);
+      return path.posix.dirname(f) === dir && b !== name && b.length >= 4 && (name.endsWith(b) || name.startsWith(b));
+    });
+    return hits.length === 1 ? hits[0] : null;
+  }
+
   /** Resolve a model path to a workspace-relative path. */
   resolve(raw: string): string {
     const clean = raw.replace(/\\/g, "/");

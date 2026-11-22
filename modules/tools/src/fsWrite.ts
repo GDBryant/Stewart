@@ -5,6 +5,12 @@ import { arg, optBool, schema, str, bool, ProjectTool } from "./toolBase.js";
 export abstract class EditTool extends ProjectTool {
   requiresApproval = true;
 
+  /** "file not found" plus the closest existing path (same basename after stripping a junk prefix/suffix). */
+  protected async notFound(rel: string): Promise<Error> {
+    const hint = await this.paths.suggest(rel);
+    return new Error(`file not found: ${rel}${hint ? ` (did you mean ${hint}?)` : ""}`);
+  }
+
   protected async currentText(rel: string): Promise<string | null> {
     if (!(await this.paths.exists(rel))) return null;
     const { content } = await this.paths.read(rel);
@@ -59,7 +65,7 @@ export class EditFile extends EditTool {
     const old = arg(args, "old_string");
     if (old === "") throw new Error("old_string must not be empty");
     const before = await this.currentText(rel);
-    if (before === null) throw new Error(`file not found: ${rel}`);
+    if (before === null) throw await this.notFound(rel);
     const occurrences = before.split(old).length - 1;
     if (occurrences === 0) throw new Error(`old_string not found in ${rel}`);
     const all = optBool(args, "replace_all");
@@ -144,7 +150,7 @@ export class ApplyPatch extends EditTool {
   async preview(args: Json): Promise<ToolPreview> {
     const rel = this.paths.resolve(arg(args, "path"));
     const before = await this.currentText(rel);
-    if (before === null) throw new Error(`file not found: ${rel}`);
+    if (before === null) throw await this.notFound(rel);
     const after = applyUnifiedPatch(before, arg(args, "patch"), rel);
     return { kind: "file", path: rel, before, after };
   }

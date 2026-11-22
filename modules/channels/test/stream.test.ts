@@ -27,12 +27,20 @@ describe("StreamAccumulator", () => {
     expect(fin.at(-1)?.kind).toBe("done");
   });
 
-  it("drops unparseable tool args (fail closed)", () => {
+  it("flags unparseable tool args with argsError and empty args (fail closed)", () => {
     const acc = new StreamAccumulator();
     applyAll(acc, [{ t: "tool_fragment", index: 0, name: "Bad", args: "{not json" }]);
     const fin = acc.finish();
-    const tc = fin.find((e) => e.kind === "tool_calls") as { calls: { arguments: Record<string, unknown> }[] } | undefined;
+    const tc = fin.find((e) => e.kind === "tool_calls") as { calls: { arguments: Record<string, unknown>; argsError?: string }[] } | undefined;
     expect(tc?.calls[0].arguments).toEqual({});
+    expect(tc?.calls[0].argsError).toMatch(/truncated or not valid JSON/);
+  });
+
+  it("leaves argsError unset for valid args", () => {
+    const acc = new StreamAccumulator();
+    applyAll(acc, [{ t: "tool_fragment", index: 0, name: "Ok", args: "{\"a\":1}" }]);
+    const tc = acc.finish().find((e) => e.kind === "tool_calls") as { calls: { argsError?: string }[] };
+    expect(tc.calls[0].argsError).toBeUndefined();
   });
 
   it("tracks usage, cost and truncation into the done event", () => {

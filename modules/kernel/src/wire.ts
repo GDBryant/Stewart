@@ -1,7 +1,8 @@
 /** Wire types shared by every layer: tool calls, chat messages, tool specs. */
 export type Json = Record<string, unknown>;
 
-export type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
+/** `argsError` is set when the provider's argument JSON was truncated or unparseable (`arguments` is then `{}`). */
+export type ToolCall = { id: string; name: string; arguments: Record<string, unknown>; argsError?: string };
 
 export type ChatMessage =
   | { role: "system" | "user"; content: string; images?: string[] }

@@ -227,6 +227,7 @@ export class ToolRegistry {
   }
   resolve(call: ToolCall): { call: ToolCall; note?: string } | { error: string } {
     const notes: string[] = [];
+    if (call.argsError) return { error: call.argsError };
     const c = this.candidate(call, notes);
     if ("error" in c) return c;
     this.dropUnknownArgs(c.rc.arguments as Record<string, Json>, c.tool.spec.parameters, notes);
@@ -238,6 +239,7 @@ export class ToolRegistry {
   validate(call: ToolCall): string | null {
     const tool = this.byName.get(call.name);
     if (!tool) return `unknown tool '${call.name}'; available: ${this.available}`;
+    if (call.argsError) return call.argsError;
     coerceArrayArgs(call.arguments as Json, tool.spec.parameters);
     return validateArgs(call.arguments as Json, tool.spec.parameters, call.name);
   }

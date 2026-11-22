@@ -122,13 +122,12 @@ export class StreamAccumulator {
     const calls = this.complete.length
       ? this.complete
       : this.partial.filter((p) => p.name).map((p) => {
-          let args: Record<string, unknown> = {};
           try {
-            args = JSON.parse(p.args || "{}");
+            return { id: p.id, name: p.name, arguments: JSON.parse(p.args || "{}") };
           } catch {
-            /* fail closed: drop unparseable args */
+            // fail closed: never run with guessed args; tell the model to resend
+            return { id: p.id, name: p.name, arguments: {}, argsError: "arguments were truncated or not valid JSON; resend the call with complete arguments" };
           }
-          return { id: p.id, name: p.name, arguments: args };
         });
     const out: ChatEvent[] = [];
     if (calls.length) out.push({ kind: "tool_calls", calls });
