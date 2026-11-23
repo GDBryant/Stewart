@@ -6,7 +6,7 @@ import { errorMessage } from "@stewart/kernel";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { applyChannelSecret, applyProbes, catalogFor, dropChannelSecret, workspaceInfoFor } from "./util.js";
-import { persistAllQualified } from "./qualify.js";
+import { persistAllQualified, withSessionQualified } from "./qualify.js";
 
 function ctxFor(core: CoreCtx, projectId: string): ProjectCtx {
   return core.ctx(projectId);
@@ -221,7 +221,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
   if (p.evaluator && exclude.has(p.evaluator.channel)) {
     return { ok: false as const, error: `evaluator channel is excluded from this setup run: ${p.evaluator.channel}` };
   }
-  return recommendAssignments(ctx.config, core.channelService, {
+  return recommendAssignments(withSessionQualified(core, ctx.config), core.channelService, {
     mode: p.mode,
     evaluator,
     eligible,

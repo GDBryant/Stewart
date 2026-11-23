@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveEvalChannel, resolveEvaluator, smokeState } from "../src/wizardDerived.js";
+import { passedPairs, resolveEvalChannel, resolveEvaluator, smokeState } from "../src/wizardDerived.js";
+import { buildAgentsForRoles } from "../src/wizardApply.js";
 import { isUnmeteredAgent } from "../src/agentExtra.js";
-import type { AgentSummary, ChannelSummary } from "../src/bridge.js";
+import type { AgentSummary, ChannelSummary, RoleSummary } from "../src/bridge.js";
 
 const ch = (id: string) => ({ id } as ChannelSummary);
 const pair = (channel: string, model: string) => ({ channel, model });
@@ -64,5 +65,59 @@ describe("isUnmeteredAgent", () => {
     expect(isUnmeteredAgent(agent({}), { id: "aif", type: "openai-compatible" } as ChannelSummary)).toBe(false);
     expect(isUnmeteredAgent(agent({ billing: "metered" }), { id: "lm", type: "openai-compatible" } as ChannelSummary)).toBe(false);
     expect(isUnmeteredAgent(agent({}), undefined)).toBe(false);
+  });
+});
+
+describe("passedPairs", () => {
+  const eligible = [pair("a", "m1"), pair("a", "m2"), pair("a", "m3"), pair("a", "m4"), pair("a", "m5")];
+  it("keeps only green pairs that passed agent or function qualification", () => {
+    const smoke = {
+      status: "done",
+      items: [
+        { channel: "a", model: "m1", state: "green", qualified: { agent: true } },
+        { channel: "a", model: "m2", state: "green", qualified: { function: true, agent: false } },
+        { channel: "a", model: "m3", state: "green", qualified: { agent: false, function: false } },
+        { channel: "a", model: "m4", state: "green" },
+        { channel: "a", model: "m5", state: "red", qualified: { agent: true } },
+      ],
+    } as never;
+    expect(passedPairs(smoke, eligible)).toEqual([pair("a", "m1"), pair("a", "m2")]);
+  });
+  it("returns [] when smoke is undefined", () => {
+    expect(passedPairs(undefined, [pair("a", "m1")])).toEqual([]);
+  });
+});
+
+describe("buildAgentsForRoles", () => {
+  const roles = [{ id: "lead", enabled: true }, { id: "tester", enabled: true }] as RoleSummary[];
+  const channels = [{ id: "c1", type: "ollama", enabled: true }] as ChannelSummary[];
+  const none = roles.map((r) => ({ role: r.id, ref: "" }));
+
+  it("creates an agent for every passed pair when no role is chosen", () => {
+    const r = buildAgentsForRoles({ agents: [], channels, roles, chosen: none, probeResults: {}, passed: [pair("c1", "m1"), pair("c1", "m2")] });
+    expect(r.agents.map((a) => a.id)).toEqual(["c1-m1", "c1-m2"]);
+    expect(r.agents.every((a) => a.channel === "c1")).toBe(true);
+    expect(r.roles.every((x) => x.enabled === false)).toBe(true);
+  });
+
+  it("reuses an existing agent for a passed pair instead of duplicating it", () => {
+    const agents = [{ id: "a1", channel: "c1", model: "m1" } as AgentSummary];
+    const r = buildAgentsForRoles({ agents, channels, roles, chosen: none, probeResults: {}, passed: [pair("c1", "m1"), pair("c1", "m2")] });
+    expect(r.agents.map((a) => a.id)).toEqual(["a1", "c1-m2"]);
+  });
+
+  it("binds a role to the same agent its passed pair creates", () => {
+    const chosen = [{ role: "lead", ref: "c1:m1" }, { role: "tester", ref: "" }];
+    const r = buildAgentsForRoles({ agents: [], channels, roles, chosen, probeResults: {}, passed: [pair("c1", "m1"), pair("c1", "m2")] });
+    expect(r.agents.map((a) => a.id)).toEqual(["c1-m1", "c1-m2"]);
+    const lead = r.roles.find((x) => x.id === "lead")!;
+    expect(lead.enabled).toBe(true);
+    expect(lead.agent).toBe("c1-m1");
+  });
+
+  it("without passed, only role-bound pairs get agents", () => {
+    const chosen = [{ role: "lead", ref: "c1:m1" }, { role: "tester", ref: "" }];
+    const r = buildAgentsForRoles({ agents: [], channels, roles, chosen, probeResults: {} });
+    expect(r.agents.map((a) => a.id)).toEqual(["c1-m1"]);
   });
 });

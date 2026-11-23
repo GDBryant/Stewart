@@ -4,6 +4,7 @@ import type { ManagedChannel } from "@stewart/channels";
 import { normalizeReason, qualifyAgent, qualifyFunction, type QualifyDeps } from "@stewart/setup";
 import { engineFor, type Engine } from "@stewart/engines";
 import { redact } from "@stewart/diagnostics";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { mergeQualified } from "./util.js";
 
@@ -79,6 +80,26 @@ export async function persistAllQualified(core: CoreCtx, ctx: ProjectCtx): Promi
     for (const [model, q] of models) await persistQualified(core, ctx, { channel, model }, q);
   }
   core.qualRecords.clear();
+}
+
+/** Read-only config view for setup.recommend: unapproved session qualification records overlaid on channel modelCaps. */
+export function withSessionQualified(core: CoreCtx, config: EffectiveConfig): EffectiveConfig {
+  if (core.qualRecords.size === 0) return config;
+  const channels = config.channels.map((ch) => {
+    const records = core.qualRecords.get(ch.id);
+    if (!records) return ch;
+    const caps: typeof ch.modelCaps = {};
+    for (const [m, c] of Object.entries(ch.modelCaps)) caps[m] = { ...c };
+    const next = { ...ch, modelCaps: caps };
+    for (const [model, q] of records) {
+      const rec: Record<string, unknown> = {};
+      if (q.agent !== undefined) rec.agent = q.agent;
+      if (q.function !== undefined) rec.function = q.function;
+      mergeQualified(next, model, rec);
+    }
+    return next;
+  });
+  return { ...config, channels };
 }
 
 export async function handleSetupQualify(core: CoreCtx, params: unknown): Promise<unknown> {

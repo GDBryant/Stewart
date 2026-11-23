@@ -38,6 +38,13 @@ export function resolveEvaluator(options: { v: string }[], evaluator: string): s
   return options.some((o) => o.v === evaluator) ? evaluator : (options[0]?.v ?? "");
 }
 
+/** Eligible pairs whose probe passed agent or function qualification (green smoke item + at least one qualified flag). */
+export function passedPairs(smoke: State["smoke"], eligiblePairs: { channel: string; model: string }[]): { channel: string; model: string }[] {
+  if (!smoke) return [];
+  const ok = new Set(smoke.items.filter((i) => i.state === "green" && (i.qualified?.agent === true || i.qualified?.function === true)).map((i) => key(i.channel, i.model)));
+  return eligiblePairs.filter((p) => ok.has(key(p.channel, p.model)));
+}
+
 /** Smoke-probe view of the candidate pairs: only green pairs are eligible once a run has happened. */
 export function smokeState(smoke: State["smoke"], pairs: { channel: string; model: string }[]) {
   const smokeRan = !!smoke && smoke.status !== "idle";

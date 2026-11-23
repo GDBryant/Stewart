@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Core } from "../src/core.js";
+import { withSessionQualified } from "../src/handlers/qualify.js";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 import type { ConfigLayer } from "@stewart/config";
 import type { ConfigStore } from "@stewart/config";
@@ -151,5 +152,65 @@ describe("setup.recommend", () => {
     await core.attachProject("p", fakeHost().host);
     await core.dispatch("setup.recommend", { projectId: "p" });
     expect(Object.keys(userLayer)).toHaveLength(0);
+  });
+});
+
+describe("setup.recommend session qualification overlay", () => {
+  const wizStore = () =>
+    memStore({ "channels.yaml": "version: 1\nitems:\n  - id: w1\n    type: ollama\n    baseUrl: http://woll\n" });
+
+  it("recommends from unapproved session records and leaves config untouched", async () => {
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m1"}]}'] }]);
+    const core = new Core({ fetcher, defaults: {}, userConfig: wizStore(), projectConfig: async () => memStore(), emitEvent: () => {} });
+    await core.attachProject("p", fakeHost().host);
+    core.qualRecords.set("w1", new Map([["m1", { agent: { passed: true, at: 1, version: 2, context: 32000 } }]]));
+    const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as {
+      ok: boolean;
+      assignments: { channel: string; model: string }[];
+    };
+    expect(r.ok).toBe(true);
+    expect(r.assignments.length).toBeGreaterThan(0);
+    expect(r.assignments.every((a) => a.channel === "w1" && a.model === "m1")).toBe(true);
+    const ch = core.ctx("p").config.channels.find((c) => c.id === "w1")!;
+    expect(ch.modelCaps.m1?.qualified).toBeUndefined();
+  });
+
+  it("a failed session record refuses the roles", async () => {
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m1"}]}'] }]);
+    const core = new Core({ fetcher, defaults: {}, userConfig: wizStore(), projectConfig: async () => memStore(), emitEvent: () => {} });
+    await core.attachProject("p", fakeHost().host);
+    core.qualRecords.set("w1", new Map([["m1", { agent: { passed: false, at: 1, version: 2 } }]]));
+    const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as {
+      ok: boolean;
+      unfilled: { role: string; reason: string }[];
+    };
+    expect(r.ok).toBe(true);
+    expect(r.unfilled.length).toBeGreaterThan(0);
+    expect(r.unfilled.map((u) => u.reason).join(" ")).toContain("failed agent qualification");
+  });
+
+  it("no session and no config records leaves every agent role unfilled", async () => {
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m1"}]}'] }]);
+    const core = new Core({ fetcher, defaults: {}, userConfig: wizStore(), projectConfig: async () => memStore(), emitEvent: () => {} });
+    await core.attachProject("p", fakeHost().host);
+    const r = (await core.dispatch("setup.recommend", { projectId: "p", mode: "rules" })) as {
+      ok: boolean;
+      unfilled: { role: string; reason: string }[];
+    };
+    expect(r.ok).toBe(true);
+    expect(r.unfilled.length).toBeGreaterThan(0);
+    expect(r.unfilled.map((u) => u.reason).join(" ")).toContain("not qualified as agent");
+  });
+
+  it("withSessionQualified keeps a config record the session left undefined", async () => {
+    const { core } = mk([]);
+    await core.attachProject("p", fakeHost().host);
+    core.qualRecords.set("c1", new Map([["m1", { agent: undefined, function: { passed: true, at: 2, version: 2 } }]]));
+    const cfg = core.ctx("p").config;
+    const out = withSessionQualified(core, cfg);
+    const q = out.channels.find((c) => c.id === "c1")!.modelCaps.m1!.qualified!;
+    expect(q.agent?.passed).toBe(true);
+    expect(q.function?.passed).toBe(true);
+    expect(cfg.channels.find((c) => c.id === "c1")!.modelCaps.m1!.qualified!.function).toBeUndefined();
   });
 });

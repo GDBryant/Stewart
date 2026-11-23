@@ -37,6 +37,24 @@ function agentForPair({ id, channel, model, channelType, catalog }: PairAgentInp
   };
 }
 
+type AgentPool = {
+  agents: AgentSummary[];
+  channels: ChannelSummary[];
+  probeResults: State["probeResults"];
+  nextAgents: Map<string, AgentSummary>;
+};
+
+/** Existing agent id for the pair, else the id of a newly created agent. */
+function ensureAgent(pool: AgentPool, channel: string, model: string): string {
+  const existing = pool.agents.find((a) => a.channel === channel && a.model === model);
+  if (existing) return existing.id;
+  const base = `${channel}-${model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const id = uniqueAgentId(base, (x) => pool.nextAgents.has(x));
+  const channelType = pool.channels.find((c) => c.id === channel)?.type;
+  pool.nextAgents.set(id, agentForPair({ id, channel, model, channelType, catalog: pool.probeResults[`${channel}:${model}`]?.catalog }));
+  return id;
+}
+
 export function buildAgentsForRoles(input: {
   agents: AgentSummary[];
   channels: ChannelSummary[];
@@ -44,26 +62,18 @@ export function buildAgentsForRoles(input: {
   chosen: { role: string; ref: string }[];
   probeResults: State["probeResults"];
   secondaries?: { role: string; ref: string }[];
+  /** Probe pairs that passed qualification: each gets an agent even without a role binding. */
+  passed?: { channel: string; model: string }[];
 }): { agents: AgentSummary[]; roles: RoleSummary[] } {
   const { agents, channels, roles, chosen, probeResults, secondaries } = input;
   const pairToAgent = new Map<string, string>();
   const nextAgents = new Map(agents.map((a) => [a.id, { ...a }] as const));
-  const allRefs = [...chosen.map((c) => c.ref), ...(secondaries ?? []).map((c) => c.ref)];
+  const pool = { agents, channels, probeResults, nextAgents };
+  const allRefs = [...chosen.map((c) => c.ref), ...(secondaries ?? []).map((c) => c.ref), ...(input.passed ?? []).map((p) => `${p.channel}:${p.model}`)];
   for (const ref of allRefs) {
     if (!ref || pairToAgent.has(ref)) continue;
     const i = ref.indexOf(":");
-    const ch = ref.slice(0, i);
-    const model = ref.slice(i + 1);
-    const existing = agents.find((a) => a.channel === ch && a.model === model);
-    if (existing) {
-      pairToAgent.set(ref, existing.id);
-      continue;
-    }
-    const base = `${ch}-${model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    const id = uniqueAgentId(base, (x) => nextAgents.has(x));
-    const channelType = channels.find((c) => c.id === ch)?.type;
-    nextAgents.set(id, agentForPair({ id, channel: ch, model, channelType, catalog: probeResults[ref]?.catalog }));
-    pairToAgent.set(ref, id);
+    pairToAgent.set(ref, ensureAgent(pool, ref.slice(0, i), ref.slice(i + 1)));
   }
   const nextRoles = roles.map((r) => {
     const ref = chosen.find((c) => c.role === r.id)?.ref;

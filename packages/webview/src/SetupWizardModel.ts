@@ -3,7 +3,7 @@ import { stringify } from "yaml";
 import type { Store } from "./state.js";
 import type { AgentSummary, ChannelSummary, RoleSummary } from "./bridge.js";
 import { recommendArgs, rowRef } from "./wizardShared.js";
-import { useWizardChannelForm, useWizardDerived, useWizardPreferences, useWizardProbes } from "./wizardDerived.js";
+import { passedPairs, useWizardChannelForm, useWizardDerived, useWizardPreferences, useWizardProbes } from "./wizardDerived.js";
 import { buildAgentsForRoles } from "./wizardApply.js";
 
 export interface SetupWizardProps {
@@ -64,7 +64,7 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
     if (!rec) return;
     const chosen = roles.map((r) => ({ role: r.id, ref: row(r.id) }));
     const secondaries = roles.map((r) => ({ role: r.id, ref: secondaryFor(r.id) })).filter((c) => c.ref);
-    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults, secondaries });
+    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults, secondaries, passed: passedPairs(m.smoke, m.eligiblePairs) });
     store.setupApply({
       "agents.yaml": stringify({ version: 1, items: nextAgents }, null, 2),
       "roles.yaml": stringify({ version: 1, items: nextRoles }, null, 2),
