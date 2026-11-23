@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Core } from "../src/core.js";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 import type { ConfigLayer, ConfigStore } from "@stewart/config";
@@ -22,6 +22,8 @@ const toolCall = (name: string, args: Record<string, unknown>) =>
 const textMsg = (t: string) => JSON.stringify({ message: { content: t }, done: true });
 
 describe("setup.qualify", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("runs both suites and persists qualified records into channels.yaml modelCaps", async () => {
     const { fetcher } = fakeFetcher([
       { body: [textMsg('{"sum":42,"word":"trawets"}')] },
@@ -46,6 +48,27 @@ describe("setup.qualify", () => {
     const ctx = core.ctx("p");
     expect(ctx.config.channels[0].modelCaps.m1?.qualified?.agent?.passed).toBe(true);
     expect(ctx.config.channels[0].modelCaps.m1?.qualified?.function?.passed).toBe(true);
+  });
+
+  it("runs both suites without the global crypto (Node 18 sidecar)", async () => {
+    vi.stubGlobal("crypto", undefined);
+    const { fetcher } = fakeFetcher([
+      { body: [textMsg('{"sum":42,"word":"trawets"}')] },
+      { body: [toolCall("ReadFile", { path: "notes/todo.txt" })] },
+      { body: [toolCall("EditFile", { path: "notes/todo.txt", old_string: "beta\n", new_string: "beta\ngamma\n" })] },
+      { body: [toolCall("RunTerminal", { command: "wc -l notes/todo.txt" })] },
+      { body: [textMsg("It printed 3")] },
+    ]);
+    const layer: ConfigLayer = { "channels.yaml": defaults["channels.yaml"] };
+    const core = new Core({ fetcher, defaults, userConfig: memStore(layer), projectConfig: async () => memStore(), emitEvent: () => {} });
+    await core.attachProject("p", fakeHost().host);
+    const res = (await core.dispatch("setup.qualify", { projectId: "p", channel: "c1", model: "m1" })) as {
+      agent?: { passed: boolean };
+      function?: { passed: boolean };
+    };
+    expect(res.agent?.passed).toBe(true);
+    expect(res.function?.passed).toBe(true);
+    expect(layer["channels.yaml"]).toContain("qualified:");
   });
 
   it("sanitizes suite details: secrets and provider bodies never reach the response or persisted yaml", async () => {

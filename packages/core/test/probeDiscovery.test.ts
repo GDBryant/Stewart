@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Core } from "../src/core.js";
 import { fakeFetcher, fakeHost } from "@stewart/kernel";
 import type { ChannelAdapter, ChatEvent } from "@stewart/channels";
@@ -298,6 +298,78 @@ items:
     const snap = await waitDone(core, "sd1");
     expect(snap.items[0]?.state).toBe("green");
     await vi.waitFor(() => expect(scratch()).toEqual([]));
+  });
+});
+
+describe("claude-cli smoke without the global crypto (Node 18 sidecar)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const channelsYaml = `version: 1
+items:
+  - id: claude
+    type: claude-cli
+    enabled: true
+    modelCaps:
+      sonnet:
+        tools: native
+        contextTokens: 200000
+`;
+  const claudeAdapter: ChannelAdapter = {
+    type: "claude-cli",
+    listModels: async () => ["sonnet"],
+    probeCaps: async () => ({}),
+    chat: async function* () {},
+  };
+
+  async function setup(engine: Engine, pid: string, host: ReturnType<typeof fakeHost>["host"]) {
+    const { core } = mkCore(probeAdapter().adapter, { channelsYaml, agentsYaml: "version: 1\nitems: []\n", engineFor: () => engine });
+    core.channels.register("claude-cli", () => claudeAdapter);
+    await core.attachProject(pid, host);
+    return { core };
+  }
+
+  it("goes green and qualifies with crypto stubbed out", async () => {
+    vi.stubGlobal("crypto", undefined);
+    const { host, files } = fakeHost();
+    const engine: Engine = {
+      id: "claude-code",
+      caps: { ownTools: true, ownContext: true },
+      async *run(turn: EngineTurn): AsyncGenerator<EngineEvent> {
+        if (turn.sessionId === "smoke") {
+          yield { kind: "text", text: "OK" };
+          yield { kind: "finished", reason: "stop" };
+          return;
+        }
+        files[`${turn.cwd}/notes/todo.txt`] = "alpha\nbeta\ngamma\n";
+        yield { kind: "tool.request", callId: "w1", tool: "Bash", args: { command: "wc -l notes/todo.txt" }, category: "COMMANDS" };
+        yield { kind: "tool.outcome", callId: "w1", ok: true, summary: "3 notes/todo.txt" };
+        turn.transcript.push({ role: "assistant", content: "It printed 3" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      complete: async () => ({ ok: true, value: { sum: 42, word: "trawets" } }),
+    };
+    const { core } = await setup(engine, "nc1", host);
+    await core.dispatch("setup.probe.start", { projectId: "nc1" });
+    const snap = await waitDone(core, "nc1");
+    const item = snap.items.find((i) => i.channel === "claude" && i.model === "sonnet");
+    expect(item).toMatchObject({ state: "green" });
+    expect(item?.qualified).toMatchObject({ agent: true, function: true });
+  });
+
+  it("an engine that yields no text still goes red", async () => {
+    vi.stubGlobal("crypto", undefined);
+    const engine: Engine = {
+      id: "claude-code",
+      caps: { ownTools: true, ownContext: true },
+      async *run(): AsyncGenerator<EngineEvent> {
+        yield { kind: "finished", reason: "stop" };
+      },
+      complete: async () => ({ ok: true, value: {} }),
+    };
+    const { core } = await setup(engine, "nc2", fakeHost().host);
+    await core.dispatch("setup.probe.start", { projectId: "nc2" });
+    const snap = await waitDone(core, "nc2");
+    expect(snap.items.find((i) => i.channel === "claude" && i.model === "sonnet")?.state).toBe("red");
   });
 });
 

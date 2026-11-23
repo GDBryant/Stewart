@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { AgentDef, Qual } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
@@ -31,7 +32,7 @@ async function runSuites(core: CoreCtx, ctx: ProjectCtx, channelId: string, mode
   const deps: QualifyDeps = {
     clock: core.clock,
     engine: engineOf(core, mc.cfg.type),
-    scratch: { host: ctx.host, dir: `${await ctx.host.workspace.stateDir()}/qualify/${crypto.randomUUID()}` },
+    scratch: { host: ctx.host, dir: `${await ctx.host.workspace.stateDir()}/qualify/${randomUUID()}` },
   };
   const [aq, fq] = await Promise.all([qualifyAgent(ch, agent, mc, deps), qualifyFunction(agent, mc, deps)]);
   const secrets = [...core.secretValues.values()];

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { fallbackOrder, modelSizeB, normalizeReason, orderSmokeCandidates, rankCandidates, SetupProbeRunner, smokeClaude, usesEngineTransport, type RankCandidate, type SmokeCandidate, type SmokeOptions, type SmokeResult } from "@stewart/setup";
 import { resolveModelProfile } from "@stewart/models";
 import { redact } from "@stewart/diagnostics";
@@ -39,7 +40,7 @@ async function smokeEngineCandidate(core: CoreCtx, projectId: string, c: SmokeCa
   const mc = core.channelService.get(c.channel);
   if (!mc || !usesEngineTransport(mc.cfg.type)) return undefined;
   const ctx = core.ctx(projectId);
-  const dir = `${await ctx.host.workspace.stateDir()}/smoke/${crypto.randomUUID()}`;
+  const dir = `${await ctx.host.workspace.stateDir()}/smoke/${randomUUID()}`;
   const cleanup = async () => {
     await ctx.host.files.delete(`${dir}/.keep`).catch(() => {});
     await ctx.host.files.delete(dir).catch(() => {});
