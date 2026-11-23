@@ -1,10 +1,9 @@
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { counterIds, errorMessage } from "@stewart/kernel";
 import { questionPrompt } from "@stewart/interaction";
 import type { AgentDef, ChannelDef } from "@stewart/config";
 import { applyDecisions, diffModels, mintAgent, type AddedModel, type GoneAgent, type ListedChannel, type SyncDocs } from "@stewart/setup";
 import type { CoreCtx, ProjectCtx } from "./types.js";
-import { catalogFor } from "./util.js";
+import { catalogFor, docItems, writeItems } from "./util.js";
 
 /** One enabled channel's refresh discovery result; `error` set = unreachable. */
 interface ChannelProbe {
@@ -161,12 +160,7 @@ function unreachableIds(probes: ChannelProbe[]): string[] {
   return probes.filter((p) => p.error).map((p) => p.def.id);
 }
 
-/** User-file item rows preserving unknown fields, else the effective rows materialized (defaults layer). */
-function docItems(ctx: ProjectCtx, file: string, fallback: Record<string, unknown>[]): Record<string, unknown>[] {
-  const doc = parseYaml(ctx.userLayer[file] ?? "") as { items?: unknown } | null;
-  return Array.isArray(doc?.items) ? (doc.items as Record<string, unknown>[]) : fallback;
-}
-
+/** Apply accepted refresh decisions to the user files (only the ones that changed). */
 async function applyToConfig(core: CoreCtx, ctx: ProjectCtx, d: RefreshDecisions): Promise<void> {
   const docs: SyncDocs = {
     agents: docItems(ctx, "agents.yaml", ctx.config.agents.map((a) => ({ ...a }))),
@@ -182,11 +176,4 @@ async function applyToConfig(core: CoreCtx, ctx: ProjectCtx, d: RefreshDecisions
   await writeItems(core, "agents.yaml", res.agents, res.agents.length !== docs.agents.length);
   await writeItems(core, "roles.yaml", res.roles, res.roles.some((r, i) => r !== docs.roles[i]));
   await writeItems(core, "channels.yaml", res.channels, res.channels.length !== docs.channels.length || res.channels.some((c, i) => c !== docs.channels[i]));
-}
-
-async function writeItems(core: CoreCtx, file: string, items: Record<string, unknown>[], changed: boolean): Promise<void> {
-  if (!changed) return;
-  const yaml = stringifyYaml({ version: 1, items });
-  core.userGuard.recordWrite(file, yaml);
-  await core.deps.userConfig.write(file, yaml);
 }

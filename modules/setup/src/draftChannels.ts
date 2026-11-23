@@ -1,4 +1,5 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { cascadeRemoval } from "./cascade.js";
 import type { SetupDraft, SetupSessionDeps } from "./sessionTypes.js";
 
 /** A channel the wizard adds during setup (the subset of a channel definition the wizard knows about). */
@@ -86,12 +87,26 @@ export async function removeDraftChannel(deps: Deps, draft: SetupDraft, id: stri
   await deps.writeUserFile(FILE, render(items.filter((i) => i.id !== id)));
   draft.addedChannels = draft.addedChannels.filter((c) => c !== id);
   draft.channels = draft.channels.filter((c) => c.id !== id);
+  cascadeStagedFiles(draft, id);
   const ref = typeof gone?.secretRef === "string" ? gone.secretRef : undefined;
   if (ref && draft.secretsCreated.includes(ref)) {
     draft.secretsCreated = draft.secretsCreated.filter((r) => r !== ref);
     await deps.deleteSecret?.(ref);
   }
   return { ok: true };
+}
+
+/** Staged agents.yaml/roles.yaml lose the removed channel's agents and any role binding to them. */
+function cascadeStagedFiles(draft: SetupDraft, id: string): void {
+  const staged = draft.files;
+  if (!staged || (staged["agents.yaml"] === undefined && staged["roles.yaml"] === undefined)) return;
+  const res = cascadeRemoval(
+    { agents: parseItems(staged["agents.yaml"]) ?? [], roles: parseItems(staged["roles.yaml"]) ?? [] },
+    { channels: new Set([id]) },
+  );
+  if (!res.changed) return;
+  if (staged["agents.yaml"] !== undefined) staged["agents.yaml"] = render(res.agents);
+  if (staged["roles.yaml"] !== undefined) staged["roles.yaml"] = render(res.roles);
 }
 
 /** Undo every channel write: restore channels.yaml to its pre-session content (delete it if it did not exist). */

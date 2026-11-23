@@ -997,6 +997,7 @@ describe("webview settings", () => {
     fireEvent.click(screen.getAllByText("Settings")[0]);
     act(() => bridge.inbound(configReply));
     fireEvent.click(screen.getAllByText("Remove")[0]);
+    fireEvent.click(screen.getByText("Confirm remove"));
     const set = bridge.sent.find((m) => m.type === "config.set" && m.file === "channels.yaml") as any;
     expect(set.yaml).not.toContain("id: c1");
     expect(set.yaml).toContain("id: c2");

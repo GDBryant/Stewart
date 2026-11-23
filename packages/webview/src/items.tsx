@@ -18,32 +18,67 @@ function itemSummary(fields: Field[], form: Record<string, string>, skip: string
     .join(" · ");
 }
 
-function ItemCardTitle<T extends object>({
-  item, form, lead, extra, onRemove, editing, idMissing, onToggle, onSave,
-}: {
+function ConfirmRow({ message, onConfirm, onCancel }: { message: string; onConfirm(): void; onCancel(): void }) {
+  return (
+    <>
+      <span class="hint">{message}</span>
+      <button class="deny" onClick={onConfirm}>
+        Confirm remove
+      </button>
+      <button onClick={onCancel}>Cancel</button>
+    </>
+  );
+}
+
+interface TitleProps<T extends object> {
   item: T;
   form: Record<string, string>;
   lead?: (item: T) => unknown;
   extra?: (item: T) => unknown;
   onRemove?(): void;
+  /** Set for a destructive remove: first click shows this message + Confirm remove / Cancel. */
+  confirmMessage?: string;
   editing: boolean;
   idMissing: boolean;
   onToggle(): void;
   onSave(): void;
-}) {
+}
+
+function ItemCardTitle<T extends object>({ item, form, lead, extra, onRemove, confirmMessage, editing, idMissing, onToggle, onSave }: TitleProps<T>) {
+  const [confirming, setConfirming] = useState(false);
+  const ask = confirmMessage ? () => setConfirming(true) : undefined;
   return (
     <div class="card-title">
       {lead ? lead(item) : null}
       <b>{form.id ?? (item as { id?: string }).id}</b> {extra ? extra(item) : null}
       <span class="spacer" />
-      {onRemove ? <button class="deny" onClick={onRemove}>Remove</button> : null}
+      {confirming && confirmMessage ? (
+        <ConfirmRow
+          message={confirmMessage}
+          onConfirm={() => {
+            setConfirming(false);
+            onRemove!();
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      ) : (
+        <TitleButtons onRemove={onRemove} ask={ask} editing={editing} idMissing={idMissing} onToggle={onToggle} onSave={onSave} />
+      )}
+    </div>
+  );
+}
+
+function TitleButtons({ onRemove, ask, editing, idMissing, onToggle, onSave }: Pick<TitleProps<object>, "onRemove" | "editing" | "idMissing" | "onToggle" | "onSave"> & { ask?: () => void }) {
+  return (
+    <>
+      {onRemove ? <button class="deny" onClick={ask ?? onRemove}>Remove</button> : null}
       <button onClick={onToggle}>{editing ? "Cancel" : "Edit"}</button>
       {editing ? (
         <button class="send" disabled={idMissing} onClick={onSave}>
           Save
         </button>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -66,12 +101,13 @@ function ItemCardBody({ editing, fields, form, set, modelsFor, summarySkip }: {
 }
 
 function ItemCard<T extends object>({
-  item, fields, onSave, onRemove, extra, lead, details, startEditing, modelsFor, summarySkip,
+  item, fields, onSave, onRemove, confirmMessage, extra, lead, details, startEditing, modelsFor, summarySkip,
 }: {
   item: T;
   fields: Field[];
   onSave(next: T, secrets: Record<string, string>): void;
   onRemove?(): void;
+  confirmMessage?: string;
   extra?: (item: T) => unknown;
   lead?: (item: T) => unknown;
   details?: (item: T) => unknown;
@@ -95,7 +131,7 @@ function ItemCard<T extends object>({
   return (
     <div class="card">
       <ItemCardTitle
-        item={item} form={form} lead={lead} extra={extra} onRemove={onRemove}
+        item={item} form={form} lead={lead} extra={extra} onRemove={onRemove} confirmMessage={confirmMessage}
         editing={editing} idMissing={idMissing} onToggle={toggle} onSave={save}
       />
       <ItemCardBody editing={editing} fields={fields} form={form} set={set} modelsFor={modelsFor} summarySkip={summarySkip} />
@@ -113,6 +149,8 @@ export interface ItemsSectionProps<T extends { id: string }> {
   empty: T;
   renderExtra?: (item: T, store: Store) => unknown;
   renderDetails?: (item: T, store: Store) => unknown;
+  /** When it returns a message, Remove shows an inline Confirm/Cancel step naming the impact. */
+  confirmRemove?: (item: T) => string | undefined;
   lead?: (item: T) => unknown;
   modelsFor?: (channelId: string) => string[];
   summarySkip?: string[];
@@ -133,7 +171,7 @@ function attachSecret<T extends { id: string }>(store: Store, next: T, secrets: 
 }
 
 export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<T>) {
-  const { title, file, items, fields, store, empty, renderExtra, renderDetails, lead, modelsFor, summarySkip } = props;
+  const { title, file, items, fields, store, empty, renderExtra, renderDetails, lead, modelsFor, summarySkip, confirmRemove } = props;
   const [draft, setDraft] = useState<T | undefined>(undefined);
   const shared = {
     fields, modelsFor, lead, summarySkip,
@@ -152,6 +190,7 @@ export function ItemsSection<T extends { id: string }>(props: ItemsSectionProps<
           details={renderDetails ? (i: T) => renderDetails(i, store) : undefined}
           onSave={(next, sec) => saveItems(store, file, items.map((x) => (x.id === it.id ? attachSecret(store, next, sec) : x)))}
           onRemove={() => saveItems(store, file, items.filter((x) => x.id !== it.id))}
+          confirmMessage={confirmRemove?.(it)}
         />
       ))}
       {draft ? (

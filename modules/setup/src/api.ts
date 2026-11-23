@@ -18,3 +18,5 @@ export type { ClaudeSmoke } from "./smokeClaude.js";
 export type { ProbeCounts, ProbeItem, ProbeSnapshot, ProbeStatus, ProbeRunnerDeps, RankCandidate, SmokeCandidate, SmokeChannel, SmokeOptions, SmokeResult, SmokeState, SmokeVerdict } from "./probe.js";
 export { diffModels, applyDecisions, mintAgent, uniqueAgentId, agentIdBase, billingFor } from "./modelSync.js";
 export type { AgentBilling, AddedModel, GoneAgent, ListedChannel, ModelDiff, RawItems, SyncApplyResult, SyncDecisions, SyncDocs } from "./modelSync.js";
+export { cascadeRemoval, detectIdChange, repointRename } from "./cascade.js";
+export type { CascadeResult, IdChange } from "./cascade.js";

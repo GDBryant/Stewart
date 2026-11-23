@@ -3,6 +3,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
 import { agentRefusal, baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
 import type { CoreCtx, ProjectCtx } from "./types.js";
+import { cascadeConfigSet } from "./configCascade.js";
 import { applyChannelSecret, dropChannelSecret } from "./util.js";
 
 async function writeUser(core: CoreCtx, file: string, yaml: string): Promise<void> {
@@ -40,9 +41,14 @@ export async function handleConfigSet(core: CoreCtx, params: unknown): Promise<u
   const ctx = core.ctx(p.projectId);
   const schema = CONFIG_FILE_SCHEMAS[p.file];
   if (!schema) throw new Error(`unknown config file: ${p.file}`);
-  checkConfigSchema(schema, p.file, parseConfigYaml(p.yaml));
-  await writeConfigLayer(core, ctx, { file: p.file, yaml: p.yaml, layer: p.layer ?? "user" });
-  await core.reload(p.projectId);
+  const doc = parseConfigYaml(p.yaml);
+  checkConfigSchema(schema, p.file, doc);
+  try {
+    await writeConfigLayer(core, ctx, { file: p.file, yaml: p.yaml, layer: p.layer ?? "user" });
+    if (p.layer !== "project") await cascadeConfigSet(core, ctx, p.file, doc);
+  } finally {
+    await core.reload(p.projectId);
+  }
   return { ok: true };
 }
 

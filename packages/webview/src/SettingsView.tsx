@@ -7,6 +7,7 @@ import type { ChannelSummary, AgentSummary, RoleSummary, SkillSummary, SettingsS
 import type { Field } from "./fields.js";
 import { looksLikeKey } from "./fields.js";
 import { ItemsSection } from "./items.js";
+import { removalImpact } from "./removalImpact.js";
 import { ChannelExtra } from "./channelExtra.js";
 import { ChannelDot, channelColor } from "./channelColors.js";
 import { AgentExtra } from "./agentExtra.js";
@@ -51,6 +52,14 @@ function useAgentChannelTests(store: Store, active: SettingsTab, channels: Chann
     if (active !== "agents") return;
     for (const c of channels ?? []) if (c.enabled && !store.state.channelTest[c.id]) store.testChannel(c.id);
   }, [active, channels]);
+}
+
+/** Channel Remove always confirms, naming the agents it drops and the roles it resets. */
+function channelRemoveMessage(id: string, agents: AgentSummary[], roles: RoleSummary[]): string {
+  const hit = removalImpact("channel", id, agents, roles);
+  const agentPart = hit.agents.length ? `removes ${hit.agents.length} agent${hit.agents.length === 1 ? "" : "s"} (${hit.agents.join(", ")})` : "removes no agents";
+  const rolePart = hit.roles.length ? `; resets roles: ${hit.roles.join(", ")}` : "";
+  return `Remove channel '${id}'? ${agentPart}${rolePart}.`;
 }
 
 function settingsData(cfg: NonNullable<ConfigReply["summary"]>): Pick<TabData, "channels" | "agents" | "roles" | "skills" | "settings"> {
@@ -129,10 +138,11 @@ interface TabData {
 }
 
 const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
-  channels: ({ store, channels }) => (
+  channels: ({ store, channels, agents, roles }) => (
     <ItemsSection<ChannelSummary>
       title="Channels" file="channels.yaml" items={channels} fields={CHANNEL_FIELDS} store={store}
       empty={{ id: "channel", type: "openai-compatible", enabled: true } as ChannelSummary}
+      confirmRemove={(i) => channelRemoveMessage(i.id, agents, roles)}
       renderExtra={(i) => (
         <>
           {i.name && i.name !== i.id ? <span class="hint">{i.name}</span> : null}
@@ -144,12 +154,16 @@ const TAB_VIEWS: Record<SettingsTab, (d: TabData) => ComponentChildren> = {
       lead={(i) => <ChannelDot channel={i.id} title={`Channel colour ${channelColor(i.id)}`} />}
     />
   ),
-  agents: ({ store, channels, agents }) => (
+  agents: ({ store, channels, agents, roles }) => (
     <ItemsSection<AgentSummary>
       title="Agents" file="agents.yaml" items={agents} store={store}
       fields={AGENT_FIELDS.map((f) => (f.key === "channel" ? { ...f, options: channels.map((c) => c.id) } : f))}
       modelsFor={(chId) => modelsForChannel(channels, store.state.channelTest, chId)}
       empty={{ id: "agent", channel: channels[0]?.id ?? "", model: "", effort: "medium" } as AgentSummary}
+      confirmRemove={(i) => {
+        const hit = removalImpact("agent", i.id, agents, roles);
+        return hit.roles.length ? `Remove agent '${i.id}'? Resets roles: ${hit.roles.join(", ")}.` : undefined;
+      }}
       renderExtra={(i, st) => <AgentExtra item={i} channels={channels} store={st} />}
     />
   ),

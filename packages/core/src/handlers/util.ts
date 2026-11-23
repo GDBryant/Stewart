@@ -5,6 +5,7 @@ import { mergeProbeCaps } from "@stewart/models";
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import { scanWorkspace, type WorkspaceInfo } from "@stewart/setup";
 import { errorMessage } from "@stewart/kernel";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 
 const WS_SCAN_TTL_MS = 24 * 3_600_000;
@@ -43,6 +44,20 @@ export async function dropChannelSecret(core: CoreCtx, ctx: ProjectCtx, ref: str
   } catch (e) {
     throw new Error(`key removed for this session but could not be deleted from the IDE secret store: ${errorMessage(e)}`);
   }
+}
+
+/** User-file item rows preserving unknown fields, else the effective rows materialized (defaults layer). */
+export function docItems(ctx: ProjectCtx, file: string, fallback: Record<string, unknown>[]): Record<string, unknown>[] {
+  const doc = parseYaml(ctx.userLayer[file] ?? "") as { items?: unknown } | null;
+  return Array.isArray(doc?.items) ? (doc.items as Record<string, unknown>[]) : fallback;
+}
+
+/** Write `items` to a user file (SelfWriteGuard recorded) only when `changed`. */
+export async function writeItems(core: CoreCtx, file: string, items: Record<string, unknown>[], changed: boolean): Promise<void> {
+  if (!changed) return;
+  const yaml = stringifyYaml({ version: 1, items });
+  core.userGuard.recordWrite(file, yaml);
+  await core.deps.userConfig.write(file, yaml);
 }
 
 export function applyProbes(core: CoreCtx, config: EffectiveConfig): EffectiveConfig {

@@ -132,12 +132,70 @@ export function applyDecisions(docs: SyncDocs, d: SyncDecisions): SyncApplyResul
   return { agents, roles, channels, changed };
 }
 
+/** String ids of a legacy role `chain` (pre-`agent`/`secondary`; migrated at load). */
+function legacyChain(chain: unknown): string[] {
+  return Array.isArray(chain) ? chain.filter((x): x is string => typeof x === "string") : [];
+}
+
+/** The agent a role item resolves to at load: `agent`, else the head of a legacy `chain`. */
+export function effectiveAgent(role: Record<string, unknown>): string | undefined {
+  return typeof role.agent === "string" && role.agent ? role.agent : legacyChain(role.chain)[0];
+}
+
+/** The secondary a legacy `chain` contributes (mirrors `migrateRoleChain`): first tail entry, only when the head is the agent. */
+function chainSecondary(agent: string | undefined, chain: string[]): string | undefined {
+  return agent !== undefined && chain.length && chain[0] === agent ? chain.find((id) => id !== agent) : undefined;
+}
+
+/**
+ * Reset rule for removed agents: a removed `secondary` (field or live `chain` tail) is dropped; a
+ * removed effective `agent` promotes the surviving secondary, else the role is unbound (inherits
+ * the lead's chain). The legacy `chain` is kept consistent with `migrateRoleChain`: a dropped
+ * secondary or agent removes the whole chain (a tail would migrate back in), a stale chain (head
+ * is not the effective agent) is dropped rather than filtered, a dead tail entry is filtered out.
+ * Untouched roles are returned by identity.
+ */
 function unbindRole(role: Record<string, unknown>, removed: ReadonlySet<string>): Record<string, unknown> {
-  const dropAgent = typeof role.agent === "string" && removed.has(role.agent);
-  const dropSecondary = typeof role.secondary === "string" && removed.has(role.secondary);
-  if (!dropAgent && !dropSecondary) return role;
+  const chain = legacyChain(role.chain);
+  const agent = effectiveAgent(role);
+  const secondary = (typeof role.secondary === "string" && role.secondary) || chainSecondary(agent, chain) || undefined;
+  if (agent !== undefined && removed.has(agent)) return unboundPrimary(role, secondary, removed);
+  if (secondary !== undefined && removed.has(secondary)) return unboundSecondary(role, agent, chain);
+  if (chain.some((id) => removed.has(id))) {
+    if (chain[0] !== agent) {
+      const next = { ...role };
+      delete next.chain;
+      return next;
+    }
+    return filterChain(role, chain, removed);
+  }
+  return role;
+}
+
+/** The agent is gone: unbind, or promote a surviving secondary (field or chain tail). */
+function unboundPrimary(role: Record<string, unknown>, secondary: string | undefined, removed: ReadonlySet<string>): Record<string, unknown> {
   const next = { ...role };
-  if (dropAgent) delete next.agent;
-  if (dropSecondary) delete next.secondary;
+  delete next.agent;
+  delete next.secondary;
+  delete next.chain;
+  if (secondary !== undefined && !removed.has(secondary)) next.agent = secondary;
+  return next;
+}
+
+/** The secondary is gone: drop it, and the whole chain (a tail would migrate back in as secondary). */
+function unboundSecondary(role: Record<string, unknown>, agent: string | undefined, chain: string[]): Record<string, unknown> {
+  const next = { ...role };
+  delete next.secondary;
+  if (agent !== undefined && chain[0] === agent) next.agent = agent; // keep a chain-sourced agent when the chain goes
+  delete next.chain;
+  return next;
+}
+
+/** A dead, non-binding chain tail: filter it (binding stays intact). */
+function filterChain(role: Record<string, unknown>, chain: string[], removed: ReadonlySet<string>): Record<string, unknown> {
+  const kept = chain.filter((id) => !removed.has(id));
+  const next = { ...role };
+  if (kept.length) next.chain = kept;
+  else delete next.chain;
   return next;
 }

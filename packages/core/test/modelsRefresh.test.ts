@@ -40,6 +40,7 @@ items:
   - id: lead
     enabled: true
     agent: a1
+    secondary: a2
   - id: helper
     enabled: true
     agent: a2
@@ -161,7 +162,8 @@ describe("models.refresh", () => {
     expect(res).toMatchObject({ ok: true, removed: ["a1"] });
     expect(itemsOf(r.layer, "agents.yaml").map((a) => a.id)).toEqual(["a2"]);
     const lead = itemsOf(r.layer, "roles.yaml").find((x) => x.id === "lead")!;
-    expect(lead.agent).toBeUndefined();
+    expect(lead.agent).toBe("a2"); // surviving secondary promoted to agent
+    expect(lead.secondary).toBeUndefined();
     expect(r.questions.some((q) => q.includes("lead"))).toBe(true);
   });
 

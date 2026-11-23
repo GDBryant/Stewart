@@ -66,8 +66,8 @@ describe("applyDecisions", () => {
     expect(r.changed).toBe(true);
     expect(r.agents.map((a) => a.id)).toEqual(["a1", "a9"]);
     const lead = r.roles.find((x) => x.id === "lead")!;
-    expect(lead.agent).toBeUndefined();
-    expect(lead.secondary).toBe("a1");
+    expect(lead.agent).toBe("a1"); // surviving secondary promoted
+    expect(lead.secondary).toBeUndefined();
     expect(r.roles.find((x) => x.id === "helper")!.agent).toBe("a3");
     expect(docs.agents).toHaveLength(2);
   });
@@ -75,6 +75,42 @@ describe("applyDecisions", () => {
   it("disables and removes channels", () => {
     const r = applyDecisions(docs, { disableChannels: new Set(["c1"]), removeChannels: new Set(["c2"]) });
     expect(r.channels).toEqual([{ id: "c1", enabled: false, baseUrl: "http://x" }]);
+  });
+
+  it("resets roles by the promote rule: secondary survives → promoted, else unbound", () => {
+    const roles = [
+      { id: "promoted", agent: "a2", secondary: "a1", extra: "keep" }, // → agent: a1, other fields kept
+      { id: "dropped", agent: "a1", secondary: "a2" }, // secondary removed → dropped
+      { id: "unbound", agent: "a2" }, // nothing to promote → unbound
+      { id: "both", agent: "a2", secondary: "a3" }, // both gone → unbound
+    ];
+    const r = applyDecisions({ agents: [{ id: "a1" }], roles, channels: [] }, { removeAgents: new Set(["a2", "a3"]) });
+    expect(r.roles.find((x) => x.id === "promoted")).toEqual({ id: "promoted", agent: "a1", extra: "keep" });
+    expect(r.roles.find((x) => x.id === "dropped")).toEqual({ id: "dropped", agent: "a1" });
+    expect(r.roles.find((x) => x.id === "unbound")).toEqual({ id: "unbound" });
+    expect(r.roles.find((x) => x.id === "both")).toEqual({ id: "both" });
+  });
+
+  it("keeps a legacy chain consistent so migration cannot resurrect a removed agent", () => {
+    const roles = [
+      { id: "lead", agent: "a2", chain: ["a2", "a1"] }, // head removed → tail promotes to agent
+      { id: "helper", chain: ["a2", "a1"] }, // same, agent sourced from chain head
+      { id: "solo", chain: ["a2"] }, // head removed, no tail → unbound
+      { id: "tail", agent: "a1", chain: ["a1", "a2"] }, // tail is the chain-sourced secondary → whole chain dropped
+      { id: "sec", chain: ["a1", "a2", "a3"] }, // same; agent materialized so it survives the chain drop
+      { id: "filt", agent: "a1", chain: ["a1", "a9", "a2"] }, // live first tail stays secondary; dead inert tail filtered
+      { id: "keep", agent: "a1", chain: ["stale"] }, // untouched → identity
+      { id: "stale", agent: "a1", chain: ["a2", "a1", "a9"] }, // stale head → chain dropped, not filtered
+    ];
+    const r = applyDecisions({ agents: [{ id: "a1" }], roles, channels: [] }, { removeAgents: new Set(["a2"]) });
+    expect(r.roles.find((x) => x.id === "lead")).toEqual({ id: "lead", agent: "a1" });
+    expect(r.roles.find((x) => x.id === "helper")).toEqual({ id: "helper", agent: "a1" });
+    expect(r.roles.find((x) => x.id === "solo")).toEqual({ id: "solo" });
+    expect(r.roles.find((x) => x.id === "tail")).toEqual({ id: "tail", agent: "a1" });
+    expect(r.roles.find((x) => x.id === "sec")).toEqual({ id: "sec", agent: "a1" });
+    expect(r.roles.find((x) => x.id === "filt")).toEqual({ id: "filt", agent: "a1", chain: ["a1", "a9"] });
+    expect(r.roles.find((x) => x.id === "keep")).toBe(roles[6]);
+    expect(r.roles.find((x) => x.id === "stale")).toEqual({ id: "stale", agent: "a1" });
   });
 
   it("reports unchanged when decisions touch nothing", () => {

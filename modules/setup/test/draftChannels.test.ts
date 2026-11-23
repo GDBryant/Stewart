@@ -117,6 +117,35 @@ describe("SetupSession.removeChannel", () => {
     expect(await s.removeChannel("ollama")).toEqual({ ok: false, error: "channel 'ollama' was not added by this setup session" });
     expect(t.user["channels.yaml"]).toBe(ORIGINAL);
   });
+
+  it("drops staged agents on the removed channel and unbinds staged roles", async () => {
+    const t = setup();
+    const s = await SetupSession.open(t.deps);
+    await s.addChannel({ id: "aif", type: "openai-compatible" });
+    await s.update({
+      files: {
+        "agents.yaml":
+          "version: 1\nitems:\n  - id: a1\n    channel: ollama\n    model: m\n  - id: aif-m\n    channel: aif\n    model: m\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    agent: aif-m\n    secondary: a1\n  - id: helper\n    agent: a1\n",
+      },
+    });
+    expect(await s.removeChannel("aif")).toEqual({ ok: true });
+    const agents = parseYaml(s.state.files!["agents.yaml"]!) as { items: { id: string }[] };
+    const roles = parseYaml(s.state.files!["roles.yaml"]!) as { items: Record<string, unknown>[] };
+    expect(agents.items.map((i) => i.id)).toEqual(["a1"]);
+    expect(roles.items[0]).toEqual({ id: "lead", agent: "a1" }); // secondary promoted
+    expect(roles.items[1]).toEqual({ id: "helper", agent: "a1" });
+  });
+
+  it("leaves staged files untouched when nothing references the removed channel", async () => {
+    const t = setup();
+    const s = await SetupSession.open(t.deps);
+    await s.addChannel({ id: "aif", type: "openai-compatible" });
+    await s.update({ files: { "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: ollama\n    model: m\n" } });
+    const stagedBefore = s.state.files!["agents.yaml"];
+    expect(await s.removeChannel("aif")).toEqual({ ok: true });
+    expect(s.state.files!["agents.yaml"]).toBe(stagedBefore);
+  });
 });
 
 describe("cancel rolls channels back", () => {
