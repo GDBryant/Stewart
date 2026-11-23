@@ -1732,13 +1732,25 @@ describe("webview store replies", () => {
     bridge.inbound({ type: "setup.review.result", error: "no token" });
     expect(store.state.setupError).toBe("no token");
     expect(bridge.sent.filter((m) => m.type === "setup.approve")).toHaveLength(1);
+    const configGets = () => bridge.sent.filter((m) => m.type === "config.get").length;
+    const before = configGets();
     bridge.inbound({ type: "setup.approve.result", ok: true });
     expect(store.state.setupSaved).toBe(true);
+    expect(configGets()).toBe(before + 1);
     store.setupUndo();
     expect(bridge.sent).toContainEqual({ type: "setup.undo" });
     bridge.inbound({ type: "setup.undo.result", ok: false, error: "nope" });
     expect(store.state.setupSaved).toBe(false);
     expect(store.state.setupError).toBe("nope");
+    expect(configGets()).toBe(before + 2);
+  });
+
+  it("a failed approve still refetches config", () => {
+    const { bridge, store } = mkStore();
+    const before = bridge.sent.filter((m) => m.type === "config.get").length;
+    bridge.inbound({ type: "setup.approve.result", ok: false, error: "boom" });
+    expect(store.state.setupSaved).toBe(false);
+    expect(bridge.sent.filter((m) => m.type === "config.get")).toHaveLength(before + 1);
   });
 
   it("a failed recommend clears a previous recommendation", () => {

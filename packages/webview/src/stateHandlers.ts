@@ -66,8 +66,14 @@ export class StoreHandlers {
     "setup.session.addChannel.result": (m) => this.onChannelResult(m),
     "setup.session.removeChannel.result": (m) => this.onChannelResult(m),
     "setup.review.result": (m) => this.onReviewResult(m),
-    "setup.approve.result": (m) => this.patch({ setupSaved: m.ok, setupError: m.error }),
-    "setup.undo.result": (m) => this.patch({ setupSaved: false, setupError: m.error }),
+    "setup.approve.result": (m) => {
+      this.patch({ setupSaved: m.ok, setupError: m.error });
+      this.host.post({ type: "config.get" });
+    },
+    "setup.undo.result": (m) => {
+      this.patch({ setupSaved: false, setupError: m.error });
+      this.host.post({ type: "config.get" });
+    },
     "setup.qualify.result": (m) =>
       this.patch({ qualResults: { ...this.state.qualResults, [`${m.channel}:${m.model}`]: { agent: m.agent, function: m.function, error: m.error } } }),
     "setup.recommend.result": (m) => this.onRecommendResult(m),
