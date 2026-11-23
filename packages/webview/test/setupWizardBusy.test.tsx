@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { cleanup, render, screen, fireEvent, act } from "@testing-library/preact";
 import { BusyNote } from "../src/Busy.js";
 import { DoneStep, ReviewStep } from "../src/SetupWizardResult.js";
@@ -117,6 +118,51 @@ describe("ReviewStep busy", () => {
     render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} />);
     expect(document.querySelector(".busy")).toBeNull();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("ReviewStep layout", () => {
+  it("keeps Back/Apply in .review-actions and every select in .review-main", () => {
+    const { container } = render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} />);
+    const root = container.querySelector(".form.review") as HTMLElement;
+    const main = root.querySelector(".review-main") as HTMLElement;
+    const actions = root.querySelector(".review-actions") as HTMLElement;
+    expect(actions.contains(screen.getByText("Back"))).toBe(true);
+    expect(actions.contains(screen.getByText("Apply"))).toBe(true);
+    expect(main.querySelector("select")).toBeTruthy();
+    for (const s of root.querySelectorAll("select")) expect(main.contains(s)).toBe(true);
+    expect(actions.querySelector("select")).toBeNull();
+    const kids = [...root.children];
+    expect(kids[kids.length - 1]).toBe(actions);
+    expect(kids.indexOf(main)).toBeLessThan(kids.indexOf(actions));
+  });
+
+  it("renders each role as .review-row with the role name inside .review-role", () => {
+    render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} />);
+    const rows = document.querySelectorAll(".summary.review-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector(".review-role")?.textContent).toContain("general-worker");
+    expect(rows[1].querySelector(".review-role")?.textContent).toContain("image-reader");
+  });
+
+  it("keeps the busy note and the error inside .review-main and out of .review-actions", () => {
+    const { container } = render(<ReviewStep {...reviewProps} recommendBusy={true} />);
+    const main = container.querySelector(".review-main") as HTMLElement;
+    const actions = container.querySelector(".review-actions") as HTMLElement;
+    const busy = screen.getByRole("status");
+    expect(main.contains(busy)).toBe(true);
+    expect(actions.contains(busy)).toBe(false);
+    cleanup();
+    const c2 = render(<ReviewStep {...reviewProps} recommendBusy={false} recommendError="researcher failed" />);
+    const err = c2.container.querySelector(".fail") as HTMLElement;
+    expect(err.textContent).toContain("researcher failed");
+    expect((c2.container.querySelector(".review-main") as HTMLElement).contains(err)).toBe(true);
+  });
+
+  it("the stylesheet wraps the review form and caps row selects", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+    expect(css).toMatch(/\.form\.review\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(css).toMatch(/\.review-row select\s*\{[^}]*max-width:\s*100%/);
   });
 });
 

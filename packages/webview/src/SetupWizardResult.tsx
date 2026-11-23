@@ -25,18 +25,17 @@ function ReviewRoleRow({
   const ci = chosen.indexOf(":");
   const chId = ci > 0 ? chosen.slice(0, ci) : "";
   return (
-    <div class="summary" title={assignment?.reason}>
-      {chId ? <ChannelDot channel={chId} title={`channel ${chId}`} /> : null}
-      <b>{role.id}</b>{" "}
+    <div class="summary review-row" title={assignment?.reason}>
+      <span class="review-role">
+        {chId ? <ChannelDot channel={chId} title={`channel ${chId}`} /> : null}
+        <b>{role.id}</b>
+      </span>
       <select aria-label={`role ${role.id}`} value={chosen} onChange={(e) => onChange((e.target as HTMLSelectElement).value)}>
         <option value="">(disabled)</option>
         {options.map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
       </select>
-      {" → "}
-      <select aria-label={`role ${role.id} secondary`} value={secondary} disabled={!chosen} onChange={(e) => onSecondaryChange((e.target as HTMLSelectElement).value)}>
-        <option value="">(none)</option>
-        {options.filter((p) => key(p.channel, p.model) !== chosen).map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
-      </select>
+      <span class="review-arrow">→</span>
+      <SecondarySelect role={role} secondary={secondary} chosen={chosen} options={options} onSecondaryChange={onSecondaryChange} />
       {assignment?.reason ? <span class="hint"> — {assignment.reason}</span> : null}
       {catalog ? (
         <span class="hint">
@@ -46,6 +45,21 @@ function ReviewRoleRow({
       {unfilled && !edit ? <span class="hint"> — disabled: {unfilled.reason}</span> : null}
       {assignment?.warnings?.map((w) => <div key={w} class="fail">⚠ {w}</div>)}
     </div>
+  );
+}
+
+function SecondarySelect({ role, secondary, chosen, options, onSecondaryChange }: {
+  role: RoleSummary;
+  secondary: string;
+  chosen: string;
+  options: { channel: string; model: string }[];
+  onSecondaryChange(ref: string): void;
+}) {
+  return (
+    <select aria-label={`role ${role.id} secondary`} value={secondary} disabled={!chosen} onChange={(e) => onSecondaryChange((e.target as HTMLSelectElement).value)}>
+      <option value="">(none)</option>
+      {options.filter((p) => key(p.channel, p.model) !== chosen).map((p) => <option key={key(p.channel, p.model)} value={key(p.channel, p.model)}>{p.channel}:{p.model}</option>)}
+    </select>
   );
 }
 
@@ -109,19 +123,21 @@ export function ReviewStep({
   rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, secondaryFor, onSecondaryChange, onApply, onBack, onUseRules,
 }: ReviewProps) {
   return (
-    <div class="form">
+    <div class="form review">
       <p><b>What to do:</b> check who does what. Change any row, or leave a role off. Warnings mean the model is weak for that role.</p>
-      {recommendBusy ? <BusyNote label={busyLabel(bench, evalMode)} /> : null}
-      {recommendError ? (
-        <div class="fail">
-          {recommendError}
-          {evalMode === "ai" ? <button class="small" onClick={onUseRules}>Use rules instead</button> : null}
-        </div>
-      ) : null}
-      {rec ? (
-        <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} secondaryFor={secondaryFor} onSecondaryChange={onSecondaryChange} />
-      ) : null}
-      <div class="row">
+      <div class="review-main">
+        {recommendBusy ? <BusyNote label={busyLabel(bench, evalMode)} /> : null}
+        {recommendError ? (
+          <div class="fail">
+            {recommendError}
+            {evalMode === "ai" ? <button class="small" onClick={onUseRules}>Use rules instead</button> : null}
+          </div>
+        ) : null}
+        {rec ? (
+          <ReviewRows rec={rec} roles={roles} rowFor={rowFor} edits={edits} probeResults={probeResults} eligiblePairs={eligiblePairs} onEditRole={onEditRole} secondaryFor={secondaryFor} onSecondaryChange={onSecondaryChange} />
+        ) : null}
+      </div>
+      <div class="row review-actions">
         <button class="small" onClick={onBack}>Back</button>
         <button class="send" disabled={!rec || recommendBusy} aria-busy={recommendBusy ? "true" : undefined} onClick={onApply}>
           {recommendBusy ? <><Spinner /> Apply</> : "Apply"}
