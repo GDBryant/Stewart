@@ -1,6 +1,6 @@
 # Stewart — Architecture Diagrams
 
-Rendered view of the code as built (v3.0.12). Prose source of truth: [`docs/ai_docs/ARCHITECTURE_NOW.md`](ai_docs/ARCHITECTURE_NOW.md). Update both in the same commit when modules, run paths, protocol, config or host wiring change.
+Rendered view of the code as built (v3.0.13). Prose source of truth: [`docs/ai_docs/ARCHITECTURE_NOW.md`](ai_docs/ARCHITECTURE_NOW.md). Update both in the same commit when modules, run paths, protocol, config or host wiring change.
 
 ## 1. Repo layout & runtime topology
 
