@@ -214,7 +214,7 @@ export class Store {
   }
   /** Stage the rendered file set, then review → auto-approve (result arrives as setup.approve.result).
    * `escalation` (loop-guard hand-over) is merged into settings.yaml by the core handler. */
-  setupApply(files: Record<string, string>, escalation?: { onLoopGuard: { agent?: string; effort?: Effort } }): void {
+  setupApply(files: Record<string, string>, escalation?: { onLoopGuard: { enabled?: boolean; agent?: string; effort?: Effort } }): void {
     this.patch({ setupSaved: undefined, setupError: undefined });
     this.bridge.post({ type: "setup.session.update", patch: { files, ...(escalation ? { escalation } : {}) } });
     this.bridge.post({ type: "setup.review" });

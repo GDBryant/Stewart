@@ -114,6 +114,8 @@ export const settingsSchema = z.object({
     .object({
       onLoopGuard: z
         .object({
+          /** false turns the loop-guard divert off (the static chain proceeds); absent/true = auto-ranking. */
+          enabled: z.boolean().optional(),
           /** Explicit divert target agent id; wins over the auto-ranking when eligible. */
           agent: z.string().optional(),
           /** Effort override for the diverted run (wins over the target's effective effort). */

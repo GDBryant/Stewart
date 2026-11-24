@@ -117,8 +117,15 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     return [...new Set(models)];
   }
 
-  async probeCaps(cfg?: ChannelConfig): Promise<Partial<ModelCaps>> {
-    const effortSupport = await probeHelpEffort(
+  /** Definite `claude --help` results by CLI path: the help text does not depend on the model, so one spawn serves the whole channel. Unknown results are retried. */
+  private readonly effortFlag = new Map<string, boolean>();
+
+  /** Whether this CLI advertises `--effort` (probed once per CLI path); undefined when it could not be determined. */
+  async effortSupport(cfg?: ChannelConfig): Promise<boolean | undefined> {
+    const cli = this.cliPath(cfg);
+    const known = this.effortFlag.get(cli);
+    if (known !== undefined) return known;
+    const found = await probeHelpEffort(
       {
         spawn: this.spawn,
         env: this.childEnv(cfg),
@@ -126,8 +133,14 @@ export class ClaudeCliAdapter implements ChannelAdapter {
         rmDir: this.deps.rmDir ?? rmDir,
         helpTimeoutMs: this.deps.effortProbeMs,
       },
-      this.cliPath(cfg),
+      cli,
     );
+    if (found !== undefined) this.effortFlag.set(cli, found);
+    return found;
+  }
+
+  async probeCaps(cfg?: ChannelConfig): Promise<Partial<ModelCaps>> {
+    const effortSupport = await this.effortSupport(cfg);
     const caps: Partial<ModelCaps> = { tools: "native", vision: true, reasoning: true, contextTokens: 200_000 };
     if (effortSupport !== undefined) caps.effortSupport = effortSupport;
     return caps;

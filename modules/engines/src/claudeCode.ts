@@ -173,6 +173,7 @@ function cancelWatch(turn: EngineTurn, proc: SpawnedProc): () => void {
 
 async function* runAttempt(turn: EngineTurn, input: { sent: ChatMessage[]; prefix: string }, deps: ClaudeCodeDeps, obs: ClaudeObs): AsyncGenerator<EngineEvent, Attempt | null> {
   const spawn = deps.spawn ?? nodeSpawn;
+  if (turn.effort && turn.effort !== "medium") await turn.channel.resolveEffortSupport(turn.agent.model);
   const argv = claudeArgv(turn, str(turn.state.cliSessionId));
   let mcp: McpHandle | undefined;
   if (turn.hostTools) {

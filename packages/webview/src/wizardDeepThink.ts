@@ -1,7 +1,7 @@
 import type { AgentSummary, ChannelSummary, Effort } from "./bridge.js";
 import type { State } from "./state.js";
 
-/** Fallback choice for the loop-guard hand-over. `auto`/`off` omit `escalation` from settings so the engine's ranking is the sole behavior. */
+/** Fallback choice for the loop-guard hand-over. `auto` clears the saved block (engine ranking), `off` writes `enabled:false`, `explicit` pins an agent. */
 export type FallbackMode = "off" | "auto" | "explicit";
 export type FallbackPreference = { mode: FallbackMode; agentId?: string; effort?: Effort };
 
@@ -42,15 +42,19 @@ export function divertCandidates(
   return out.sort((x, y) => y.score - x.score || (x.agentId < y.agentId ? -1 : 1));
 }
 
-/** The `escalation` block the wizard writes to settings.yaml, or undefined for Off/Auto (engine ranking is the sole behavior). */
-export function fallbackToEscalation(p: FallbackPreference): { onLoopGuard: { agent?: string; effort?: Effort } } | undefined {
-  if (p.mode !== "explicit" || !p.agentId || p.agentId === "auto") return undefined;
+export type EscalationBlock = { onLoopGuard: { enabled?: boolean; agent?: string; effort?: Effort } };
+
+/** The `escalation` block the wizard writes to settings.yaml: Off = `enabled:false`, Auto = `{}` (clears any saved pin), explicit = pinned agent + effort. */
+export function fallbackToEscalation(p: FallbackPreference): EscalationBlock {
+  if (p.mode === "off") return { onLoopGuard: { enabled: false } };
+  if (p.mode !== "explicit" || !p.agentId || p.agentId === "auto") return { onLoopGuard: {} };
   return { onLoopGuard: { agent: p.agentId, ...(p.effort ? { effort: p.effort } : {}) } };
 }
 
-/** Seed the step from current settings: an explicit `escalation.onLoopGuard.agent` restores the last choice. */
-export function initialFallback(settings?: { escalation?: { onLoopGuard?: { agent?: string; effort?: Effort } } }): FallbackPreference {
+/** Seed the step from current settings: an explicit `escalation.onLoopGuard.agent` (or `enabled:false`) restores the last choice. */
+export function initialFallback(settings?: { escalation?: { onLoopGuard?: { enabled?: boolean; agent?: string; effort?: Effort } } }): FallbackPreference {
   const onLoopGuard = settings?.escalation?.onLoopGuard;
+  if (onLoopGuard?.enabled === false) return { mode: "off" };
   const agentId = onLoopGuard?.agent;
   return {
     mode: agentId ? "explicit" : "auto",

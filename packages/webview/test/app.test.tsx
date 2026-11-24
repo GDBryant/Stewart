@@ -2038,7 +2038,7 @@ describe("wizard apply agent building", () => {
     expect(upd.patch.files["settings.yaml"]).toBeUndefined();
   });
 
-  it("deep-thinking step leaves escalation out of the update when Auto or Off is kept", () => {
+  it("deep-thinking step writes a clearing block for Auto and enabled:false for Off", () => {
     for (const mode of ["auto", "off"] as const) {
       cleanup(); // each iteration re-renders a fresh App
       const { bridge } = mk();
@@ -2059,7 +2059,7 @@ describe("wizard apply agent building", () => {
       act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "r1", channel: "c1", model: "sonnet" }] }));
       fireEvent.click(screen.getByText("Apply"));
       const upd = bridge.sent.find((m) => m.type === "setup.session.update") as any;
-      expect(upd.patch.escalation).toBeUndefined();
+      expect(upd.patch.escalation).toEqual({ onLoopGuard: mode === "off" ? { enabled: false } : {} });
       expect(upd.patch.files["settings.yaml"]).toBeUndefined();
     }
   });

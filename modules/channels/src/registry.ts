@@ -22,6 +22,8 @@ export class ManagedChannel {
   private failures = 0;
   private backoffUntil = 0;
   unhealthy = false;
+  /** Adapter-probed effort support (cleared on config reload); consulted when the caps carry no explicit value. */
+  private effortProbed: boolean | undefined;
 
   constructor(adapter: ChannelAdapter, cfg: ChannelConfig, secret?: string) {
     this.adapter = adapter;
@@ -38,6 +40,7 @@ export class ManagedChannel {
   /** Applies a reloaded config in place, keeping in-flight and queued work counted against the (possibly new) limit. */
   update(cfg: ChannelConfig): void {
     this.config = cfg;
+    this.effortProbed = undefined;
     this.requests.setLimit(cfg.maxParallel);
     this.admissions.setLimit(cfg.maxParallel);
   }
@@ -160,9 +163,21 @@ export class ManagedChannel {
     }
   }
 
-  /** Whether the channel's engine can set reasoning effort on this model (probed or user-set caps); false when unproven. */
+  /** Whether the channel's engine can set reasoning effort on this model: explicit caps win, else the run-time adapter probe; false when unproven. */
   effortSupport(model: string): boolean {
-    return capsFor(this.cfg, model).effortSupport === true;
+    return capsFor(this.cfg, model).effortSupport ?? this.effortProbed ?? false;
+  }
+
+  /** Resolves the adapter's effort probe (memoized by the adapter) so a later `effortSupport` is accurate without a prior wizard probe. Never throws. */
+  async resolveEffortSupport(model: string): Promise<boolean> {
+    if (capsFor(this.cfg, model).effortSupport === undefined && this.effortProbed === undefined && this.adapter.effortSupport) {
+      try {
+        this.effortProbed = await this.adapter.effortSupport(this.cfg);
+      } catch {
+        this.effortProbed = undefined;
+      }
+    }
+    return this.effortSupport(model);
   }
 
   /** Live pricing when the adapter supports it; undefined when it doesn't or reports none. */

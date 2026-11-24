@@ -74,7 +74,7 @@ export interface SettingsSummary {
   setupTypicalWork?: string;
   log?: { level?: string; retainDays?: number };
   security?: { passwords?: boolean; privacy?: boolean };
-  escalation?: { onLoopGuard?: { agent?: string; effort?: Effort } };
+  escalation?: { onLoopGuard?: { enabled?: boolean; agent?: string; effort?: Effort } };
 }
 export interface ConfigSummary {
   channels: ChannelSummary[];

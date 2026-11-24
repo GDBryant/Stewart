@@ -527,6 +527,24 @@ describe("claude-code line helpers", () => {
     expect(argv(mk("high", { haiku: { effortSupport: false } }))).not.toContain("--effort");
   });
 
+  it("resolves effort support from the adapter probe when caps carry none (cold start)", async () => {
+    const calls: number[] = [];
+    const adapter = { ...makeTurn().channel.adapter, effortSupport: async () => (calls.push(1), true) } as unknown as ChannelAdapter;
+    const mkCh = (a: ChannelAdapter, modelCaps?: Record<string, { effortSupport?: boolean }>) =>
+      new ManagedChannel(a, { id: "c", type: "claude-cli", enabled: true, maxParallel: 1, cliPath: "claude", modelCaps });
+    const ch = mkCh(adapter);
+    expect(ch.effortSupport("haiku")).toBe(false);
+    expect(await ch.resolveEffortSupport("haiku")).toBe(true);
+    expect(ch.effortSupport("haiku")).toBe(true);
+    await ch.resolveEffortSupport("haiku");
+    expect(calls).toHaveLength(1);
+    expect(claudeArgv(makeTurn({ effort: "high", channel: ch }), undefined)).toContain("--effort");
+    // explicit caps win without probing; a throwing probe is unsupported
+    expect(await mkCh(adapter, { haiku: { effortSupport: false } }).resolveEffortSupport("haiku")).toBe(false);
+    const boom = { ...adapter, effortSupport: async () => { throw new Error("x"); } } as unknown as ChannelAdapter;
+    expect(await mkCh(boom).resolveEffortSupport("haiku")).toBe(false);
+  });
+
   it("encodes images as base64 content blocks", () => {
     const transcript: ChatMessage[] = [{ role: "user", content: "look", images: ["data:image/png;base64,AAAA"] } as ChatMessage];
     const line = JSON.parse(userLine(transcript));

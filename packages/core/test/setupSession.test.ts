@@ -199,6 +199,19 @@ describe("setup.session via dispatch", () => {
     expect(loaded.summary.settings.runTurnLimit).toBe(99);
   });
 
+  it("session.update escalation {} clears a saved pin; enabled:false writes Off", async () => {
+    const { core, fh } = mk({ "settings.yaml": "version: 1\nescalation:\n  onLoopGuard:\n    agent: a9\n    effort: max\n" });
+    const pid = "w10";
+    await core.attachProject(pid, fh.host);
+    await core.dispatch("setup.session.start", { projectId: pid });
+    const staged = async (escalation: unknown) => {
+      await core.dispatch("setup.session.update", { projectId: pid, patch: { files: { "agents.yaml": AGENTS_A9 }, escalation } });
+      return ((await core.dispatch("setup.review", { projectId: pid })) as { files: Record<string, string> }).files["settings.yaml"];
+    };
+    expect(await staged({ onLoopGuard: {} })).not.toContain("agent: a9");
+    expect(await staged({ onLoopGuard: { enabled: false } })).toContain("enabled: false");
+  });
+
   it("session.update without escalation leaves settings.yaml out of the staged files", async () => {
     const { core, fh } = mk();
     const pid = "w9";

@@ -88,10 +88,10 @@ export async function handleSetupSessionGet(core: CoreCtx, params: unknown): Pro
   return publicState(session);
 }
 export async function handleSetupSessionUpdate(core: CoreCtx, params: unknown): Promise<unknown> {
-  const p = params as { projectId: string; patch: Record<string, unknown> & { escalation?: { onLoopGuard: { agent?: string; effort?: string } } } };
+  const p = params as { projectId: string; patch: Record<string, unknown> & { escalation?: { onLoopGuard: { enabled?: boolean; agent?: string; effort?: string } } } };
   const { session } = await sessionFor(core, p);
   // Wizard deep-thinking fallback: fold the explicit hand-over into settings.yaml so the save path
-  // backs it up, validates it and rolls it back like the other setup files. Absent = no-op (Auto/Off).
+  // backs it up, validates it and rolls it back like the other setup files. Auto clears the saved block, Off writes enabled:false; absent = no-op.
   let files = p.patch.files as Record<string, string> | undefined;
   if (p.patch.escalation) {
     const baseSettings = (await core.deps.userConfig.read())["settings.yaml"];

@@ -149,6 +149,20 @@ describe("probeCaps --help effort probe", () => {
     expect(await adapter.probeCaps()).toMatchObject({ effortSupport: false });
   });
 
+  it("spawns `claude --help` once per CLI across probes, retrying only unknown results", async () => {
+    const { spawn, captured } = fakeSpawn(["--effort <level>"]);
+    const adapter = new ClaudeCliAdapter(deps(spawn));
+    await adapter.probeCaps();
+    await adapter.probeCaps();
+    expect(await adapter.effortSupport()).toBe(true);
+    expect(captured).toHaveLength(1);
+    const noent = fakeSpawn([], { spawnError: "spawn claude ENOENT", code: -1 });
+    const bad = new ClaudeCliAdapter(deps(noent.spawn));
+    expect(await bad.effortSupport()).toBeUndefined();
+    await bad.effortSupport();
+    expect(noent.captured).toHaveLength(2);
+  });
+
   it("omits effortSupport when the CLI cannot be started or the probe hangs", async () => {
     const noent = fakeSpawn([], { spawnError: "spawn claude ENOENT", code: -1 });
     expect(await new ClaudeCliAdapter(deps(noent.spawn)).probeCaps()).not.toHaveProperty("effortSupport");

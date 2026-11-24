@@ -1320,6 +1320,17 @@ describe("loop-guard divert", () => {
     expect(fin).toMatchObject({ status: "done" });
   });
 
+  it("does not divert when escalation.onLoopGuard.enabled is false (static chain proceeds)", async () => {
+    const engine = scriptedEngine([
+      trip,
+      async function* (t: EngineTurn) { return yield* ok(t); },
+    ]);
+    const h = harness({ config: cfg({ enabled: false }), engine });
+    await h.svc.send({ text: "go" });
+    const escEv = await h.waitFor("run.escalated");
+    expect(escEv).toMatchObject({ from: "a1", to: "a2", reason: "loop_guard" });
+  });
+
   it("applies the escalation effort to the diverted attempt only", async () => {
     // engine.run order: lead a1 (trips; keeps its own effective effort) → divert a2 (gets the escalation effort)
     const efforts: (string | undefined)[] = [];

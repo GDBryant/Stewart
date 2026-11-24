@@ -54,6 +54,8 @@ export interface ChannelAdapter {
   listModels(cfg: ChannelConfig, secret: string | undefined): Promise<string[]>;
   /** Channel caps; claude-cli probes its CLI (args optional there), the rest report per-model. */
   probeCaps(cfg?: ChannelConfig, secret?: string | undefined, model?: string): Promise<Partial<ModelCaps>>;
+  /** Optional: whether the engine behind this channel can set reasoning effort (claude-cli: `--effort` in `claude --help`); undefined = unknown. */
+  effortSupport?(cfg?: ChannelConfig): Promise<boolean | undefined>;
   /** Stream a chat request; yields ChatEvents until done. */
   chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent>;
   /** Optional: live per-model pricing in USD per million tokens (e.g. OpenRouter /models). Undefined when the channel reports none. */
