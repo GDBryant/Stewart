@@ -5,6 +5,7 @@ import type { AgentSummary, ChannelSummary, RoleSummary } from "./bridge.js";
 import { recommendArgs, rowRef } from "./wizardShared.js";
 import { passedPairs, useWizardChannelForm, useWizardDerived, useWizardPreferences, useWizardProbes } from "./wizardDerived.js";
 import { buildAgentsForRoles } from "./wizardApply.js";
+import { divertCandidates as divertCandidatesFor, fallbackToEscalation, initialFallback, type FallbackPreference } from "./wizardDeepThink.js";
 
 export interface SetupWizardProps {
   store: Store;
@@ -22,6 +23,7 @@ function useWizardInputs({ store, channels, agents }: SetupWizardProps) {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [secondaryEdits, setSecondaryEdits] = useState<Record<string, string>>({});
   const [source, setSource] = useState<"existing" | "new">(channels.length > 0 ? "existing" : "new");
+  const [fallback, setFallback] = useState<FallbackPreference>(() => initialFallback(store.state.config?.summary.settings));
   const [evalChannel, setEvalChannel] = useState("");
   // Unticked existing channels; empty by default = every channel included.
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -38,7 +40,7 @@ function useWizardInputs({ store, channels, agents }: SetupWizardProps) {
   useWizardProbes({ store, step, enabled: derived.enabled, tests: derived.tests, probeSig: derived.probeSig, pairs: derived.pairs, evalSel: derived.evalSel, excluded });
   return {
     step, setStep, evalMode, setEvalMode, evaluator, setEvaluator, bench, setBench,
-    edits, setEdits, secondaryEdits, setSecondaryEdits, source, setSource, evalChannel, setEvalChannel, excluded, toggleChannel, ...channelForm, ...prefs, ...derived,
+    edits, setEdits, secondaryEdits, setSecondaryEdits, source, setSource, fallback, setFallback, evalChannel, setEvalChannel, excluded, toggleChannel, ...channelForm, ...prefs, ...derived,
   };
 }
 
@@ -65,15 +67,19 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
     const chosen = roles.map((r) => ({ role: r.id, ref: row(r.id) }));
     const secondaries = roles.map((r) => ({ role: r.id, ref: secondaryFor(r.id) })).filter((c) => c.ref);
     const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults, secondaries, passed: passedPairs(m.smoke, m.eligiblePairs) });
-    store.setupApply({
-      "agents.yaml": stringify({ version: 1, items: nextAgents }, null, 2),
-      "roles.yaml": stringify({ version: 1, items: nextRoles }, null, 2),
-    });
+    store.setupApply(
+      {
+        "agents.yaml": stringify({ version: 1, items: nextAgents }, null, 2),
+        "roles.yaml": stringify({ version: 1, items: nextRoles }, null, 2),
+      },
+      fallbackToEscalation(m.fallback),
+    );
     store.dismissRecommendation();
-    m.setStep(5);
+    m.setStep(6);
   };
   const statusChannels = m.source === "existing" ? m.enabled : m.enabled.filter((c) => m.added.has(c.id));
-  return { rec, row, buildProposal, apply, statusChannels, secondaryFor,
+  const divertCandidates = divertCandidatesFor(agents, channels, store.state.probeResults);
+  return { rec, row, buildProposal, apply, statusChannels, divertCandidates, secondaryFor,
     onSecondaryChange: (role: string, ref: string) => m.setSecondaryEdits({ ...m.secondaryEdits, [role]: ref }) };
 }
 

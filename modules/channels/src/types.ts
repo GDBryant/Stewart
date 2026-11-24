@@ -17,6 +17,8 @@ export type ChatRequest = {
   maxTokens?: number;
   /** false disables model reasoning where the provider supports it (Ollama `think`). */
   think?: boolean;
+  /** Provider reasoning hint; a depth scale that rides on `think`. `think === false` stays the hard off-switch. */
+  effort?: "low" | "medium" | "high" | "max";
   /** Floor for the Ollama context window (tokens); a retry after a `length` stop raises it. Capped by the model maximum. */
   minNumCtx?: number;
   /** JSON Schema the provider must constrain the reply to (provider support varies; callers may retry without). */
@@ -50,7 +52,8 @@ export interface ChannelAdapter {
   readonly type: string;
   /** Probe: list models + detect caps for one model. Throws on unreachable. */
   listModels(cfg: ChannelConfig, secret: string | undefined): Promise<string[]>;
-  probeCaps(cfg: ChannelConfig, secret: string | undefined, model: string): Promise<Partial<ModelCaps>>;
+  /** Channel caps; claude-cli probes its CLI (args optional there), the rest report per-model. */
+  probeCaps(cfg?: ChannelConfig, secret?: string | undefined, model?: string): Promise<Partial<ModelCaps>>;
   /** Stream a chat request; yields ChatEvents until done. */
   chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent>;
   /** Optional: live per-model pricing in USD per million tokens (e.g. OpenRouter /models). Undefined when the channel reports none. */

@@ -4,6 +4,7 @@ import { outcomeMessage, ToolRegistry, type Tool, type ToolOutcome } from "@stew
 import type { Violation } from "@stewart/business-policy";
 import { BusinessPolicyError, type ChatEvent } from "@stewart/channels";
 import { freshWithheld, noticesOf, redactBlocked, withholdTools } from "./policyNotice.js";
+import type { Effort } from "@stewart/config";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { LoopGuard } from "./loopGuard.js";
 import { forNative } from "./nativeMessages.js";
@@ -51,10 +52,10 @@ function summaryOf(outcome: ToolOutcome): string {
   return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP)}…` : first;
 }
 
-/** Request options for the role's `think` setting; a retry turns reasoning off and raises the window floor. */
-function retryOpts(turn: EngineTurn, retry?: { minNumCtx: number }): { think?: boolean; minNumCtx?: number } {
+/** Request options for the role's `think` setting; a retry turns reasoning off (dropping effort) and raises the window floor. */
+function retryOpts(turn: EngineTurn, retry?: { minNumCtx: number }): { think?: boolean; minNumCtx?: number; effort?: Effort } {
   if (retry) return { think: false, minNumCtx: retry.minNumCtx };
-  return turn.think === undefined ? {} : { think: turn.think };
+  return { ...(turn.think !== undefined ? { think: turn.think } : {}), ...(turn.effort ? { effort: turn.effort } : {}) };
 }
 
 async function* streamModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, void> {

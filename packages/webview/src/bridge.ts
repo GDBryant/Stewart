@@ -62,6 +62,9 @@ export interface SkillSummary {
   id: string; description: string; body: string; version: number;
   source: "shipped" | "user" | "project"; edited: boolean; updateAvailable: boolean;
 }
+/** Reasoning depth for a hand-over run; a local union (webview does not import @stewart/config). */
+export type Effort = "low" | "medium" | "high" | "max";
+
 export interface SettingsSummary {
   costLimit?: { perRunUsd?: number; onLimit?: string };
   runTurnLimit?: number;
@@ -71,6 +74,7 @@ export interface SettingsSummary {
   setupTypicalWork?: string;
   log?: { level?: string; retainDays?: number };
   security?: { passwords?: boolean; privacy?: boolean };
+  escalation?: { onLoopGuard?: { agent?: string; effort?: Effort } };
 }
 export interface ConfigSummary {
   channels: ChannelSummary[];

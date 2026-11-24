@@ -67,6 +67,16 @@ function mergeSettingsLayers(docs: (z.infer<typeof settingsFile> | undefined)[])
     ...(d1 ?? {}),
     ...(d2 ?? {}),
     costLimit: { ...base.costLimit, ...(d1?.costLimit ?? {}), ...(d2?.costLimit ?? {}) },
+    // optional + nested: merged key-by-key so a layer that sets only `agent` keeps a lower layer's `effort`.
+    escalation:
+      d1?.escalation || d2?.escalation
+        ? {
+            ...base.escalation,
+            ...d1?.escalation,
+            ...d2?.escalation,
+            onLoopGuard: { ...base.escalation?.onLoopGuard, ...d1?.escalation?.onLoopGuard, ...d2?.escalation?.onLoopGuard },
+          }
+        : base.escalation,
     security: securitySchema.parse({ ...base.security, ...(d1?.security ?? {}), ...(d2?.security ?? {}) }),
   };
 }

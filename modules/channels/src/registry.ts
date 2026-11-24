@@ -160,6 +160,11 @@ export class ManagedChannel {
     }
   }
 
+  /** Whether the channel's engine can set reasoning effort on this model (probed or user-set caps); false when unproven. */
+  effortSupport(model: string): boolean {
+    return capsFor(this.cfg, model).effortSupport === true;
+  }
+
   /** Live pricing when the adapter supports it; undefined when it doesn't or reports none. */
   async priceList(): Promise<Record<string, { inPerMTok: number; outPerMTok: number }> | undefined> {
     if (!this.adapter.priceList) return undefined;

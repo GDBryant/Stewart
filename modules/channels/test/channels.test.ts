@@ -40,6 +40,23 @@ describe("OllamaAdapter", () => {
     expect(models).toEqual(["a", "b", "c"]);
   });
 
+  it("derives think from effort high/max only when unset; think false stays the hard off", async () => {
+    const done = { body: ['{"done":true}'] };
+    const { fetcher, calls } = fakeFetcher([done, done, done, done, done]);
+    const a = new OllamaAdapter({ fetcher });
+    const cfg = { id: "o", type: "ollama", enabled: true, baseUrl: "http://x", maxParallel: 1 };
+    await collect(a.chat(cfg, undefined, { ...req(), effort: "high" }));
+    expect(JSON.parse(calls[0].body!).think).toBe(true);
+    await collect(a.chat(cfg, undefined, { ...req(), effort: "max" }));
+    expect(JSON.parse(calls[1].body!).think).toBe(true);
+    await collect(a.chat(cfg, undefined, { ...req(), effort: "medium" }));
+    expect("think" in JSON.parse(calls[2].body!)).toBe(false);
+    await collect(a.chat(cfg, undefined, { ...req(), think: false, effort: "high" }));
+    expect(JSON.parse(calls[3].body!).think).toBe(false);
+    await collect(a.chat(cfg, undefined, { ...req(), think: true, effort: "low" }));
+    expect(JSON.parse(calls[4].body!).think).toBe(true);
+  });
+
   it("sends format only when responseSchema is set", async () => {
     const { fetcher, calls } = fakeFetcher([{ body: ['{"done":true}'] }, { body: ['{"done":true}'] }]);
     const a = new OllamaAdapter({ fetcher });

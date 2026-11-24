@@ -28,6 +28,8 @@ export function claudeArgv(turn: EngineTurn, resume: string | undefined): string
   a.push("--setting-sources", (turn.channel.cfg.settingSources as string | undefined) ?? "");
   if (turn.system.trim()) a.push("--append-system-prompt", turn.system);
   if (turn.maxTurns > 0 && turn.maxTurns < 1_000_000) a.push("--max-turns", String(turn.maxTurns));
+  // medium/undefined is the CLI default: only send a non-default depth, and only when the probe confirmed the flag.
+  if (turn.effort && turn.effort !== "medium" && turn.channel.effortSupport(turn.agent.model)) a.push("--effort", turn.effort);
   return a;
 }
 

@@ -5,6 +5,7 @@ import type { DebugSink } from "@stewart/diagnostics";
 import { normalizeModel } from "@stewart/catalog";
 import { nodeSpawn, makeTempDir, rmDir, type SpawnFn, type SpawnedProc } from "./nodeSpawn.js";
 import { exitCause, isStartFailure } from "@stewart/kernel";
+import { probeHelpEffort } from "./claudeProbe.js";
 
 export interface ClaudeDeps {
   spawn?: SpawnFn;
@@ -13,6 +14,8 @@ export interface ClaudeDeps {
   writeTempFile?: (content: string) => Promise<string>;
   rmDir?: (dir: string) => Promise<void>;
   authTimeoutMs?: number;
+  /** Timeout for the `claude --help` effort probe (default 10 s). */
+  effortProbeMs?: number;
   debug?: DebugSink;
 }
 
@@ -26,7 +29,8 @@ export interface ClaudeLoginState {
 /** Claude CLI wait for one Stewart MCP tool call (6 h). */
 const MCP_TOOL_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
-export function claudeChildEnv(cfg: ChannelConfig, src: Record<string, string | undefined>): Record<string, string> {
+/** Only `extraEnv` is used, so a partial config (or none) is accepted. */
+export function claudeChildEnv(cfg: Partial<ChannelConfig>, src: Record<string, string | undefined>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(src)) if (v !== undefined) env[k] = v;
   delete env.ANTHROPIC_API_KEY;
@@ -48,12 +52,12 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     this.authTimeoutMs = deps.authTimeoutMs ?? 20_000;
   }
 
-  private cliPath(cfg: ChannelConfig): string {
-    return (cfg.cliPath as string | undefined) ?? "claude";
+  private cliPath(cfg?: ChannelConfig): string {
+    return (cfg?.cliPath as string | undefined) ?? "claude";
   }
 
-  private childEnv(cfg: ChannelConfig): Record<string, string> {
-    return claudeChildEnv(cfg, this.deps.env ?? (process.env as Record<string, string | undefined>));
+  private childEnv(cfg?: ChannelConfig): Record<string, string> {
+    return claudeChildEnv(cfg ?? {}, this.deps.env ?? (process.env as Record<string, string | undefined>));
   }
 
   private async authProbe(cfg: ChannelConfig, cwd: string): Promise<{ out: string[] } | { detail: string; retriable?: boolean }> {
@@ -113,8 +117,20 @@ export class ClaudeCliAdapter implements ChannelAdapter {
     return [...new Set(models)];
   }
 
-  async probeCaps(): Promise<Partial<ModelCaps>> {
-    return { tools: "native", vision: true, reasoning: true, contextTokens: 200_000 };
+  async probeCaps(cfg?: ChannelConfig): Promise<Partial<ModelCaps>> {
+    const effortSupport = await probeHelpEffort(
+      {
+        spawn: this.spawn,
+        env: this.childEnv(cfg),
+        makeTempDir: this.deps.makeTempDir ?? makeTempDir,
+        rmDir: this.deps.rmDir ?? rmDir,
+        helpTimeoutMs: this.deps.effortProbeMs,
+      },
+      this.cliPath(cfg),
+    );
+    const caps: Partial<ModelCaps> = { tools: "native", vision: true, reasoning: true, contextTokens: 200_000 };
+    if (effortSupport !== undefined) caps.effortSupport = effortSupport;
+    return caps;
   }
 
   async *chat(): AsyncIterable<ChatEvent> {

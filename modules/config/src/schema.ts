@@ -3,6 +3,9 @@ import { migrateRoleChain } from "./roleMigrate.js";
 
 export const CONFIG_VERSION = 1;
 
+export const effortSchema = z.enum(["low", "medium", "high", "max"]);
+export type Effort = z.infer<typeof effortSchema>;
+
 const modelPerf = z.object({
   ttftMs: z.number().optional(),
   tokPerSec: z.number().optional(),
@@ -25,6 +28,8 @@ const modelCaps = z.object({
   // "shim" (v2: text tool-call shim, removed) loads as "unknown".
   tools: z.preprocess((v) => (v === "shim" ? "unknown" : v), z.enum(["native", "unknown", "none"]).optional()),
   vision: z.boolean().optional(),
+  /** The channel's engine can set reasoning effort on this model (claude-cli `--effort`, probed from `claude --help`). */
+  effortSupport: z.boolean().optional(),
   reasoning: z.boolean().optional(),
   imageGen: z.boolean().optional(),
   contextTokens: z.number().int().positive().optional(),
@@ -65,7 +70,7 @@ export const agentSchema = z.object({
   id: z.string().min(1),
   channel: z.string().min(1),
   model: z.string().min(1),
-  effort: z.enum(["low", "medium", "high", "max"]).default("medium"),
+  effort: effortSchema.default("medium"),
   temperature: z.number().optional(),
   billing: z.enum(["free", "reported", "priced", "unmetered"]).optional(),
   price: z.object({ inPerMTok: z.number(), outPerMTok: z.number() }).optional(),
@@ -89,6 +94,8 @@ export const roleSchema = z.preprocess(
   turnBudget: z.union([z.number().int().positive(), z.literal("unlimited")]).default(25),
   /** false: ask the provider not to emit reasoning (Ollama `think`); report roles spend the output window on the reply. Unset: provider default. */
   think: z.boolean().optional(),
+  /** Per-role reasoning depth; overrides the agent's `effort`. Unset: inherit from the agent (defaults to medium). */
+  effort: effortSchema.optional(),
   }),
 );
 export type RoleDef = z.infer<typeof roleSchema>;
@@ -102,6 +109,19 @@ export const settingsSchema = z.object({
     .default({}),
   /** Turn budget of the lead run (overrides the lead role's turnBudget); >= 1000 runs until the model finishes. */
   runTurnLimit: z.number().int().positive().default(60),
+  /** Loop-guard divert (Part 2): when a run trips `loop_guard`, switch to the strongest reasoning-capable agent (or `agent`) once. */
+  escalation: z
+    .object({
+      onLoopGuard: z
+        .object({
+          /** Explicit divert target agent id; wins over the auto-ranking when eligible. */
+          agent: z.string().optional(),
+          /** Effort override for the diverted run (wins over the target's effective effort). */
+          effort: effortSchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   skillBudgetTokens: z.number().int().positive().default(8000),
   historyRetentionDays: z.number().int().min(0).default(30),
   setupPriorities: z

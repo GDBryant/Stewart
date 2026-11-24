@@ -1,7 +1,12 @@
-import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
+import type { AgentDef, ChannelDef, Effort, RoleDef } from "@stewart/config";
 import { resolveModelProfile, QUAL_MIN_VERSION } from "@stewart/models";
 
 export const DEFAULT_MIN_CONTEXT = 32_000;
+
+/** Effective reasoning depth: the role override wins, then the agent's value, then medium. */
+export function effectiveEffort(role: RoleDef, agent: AgentDef): Effort {
+  return role.effort ?? agent.effort ?? "medium";
+}
 
 /** What a role needs from its model. The 32k default window applies to agents only: functions need none unless set. */
 export function roleNeeds(role: RoleDef): { vision: boolean; minContext: number } {
@@ -57,6 +62,46 @@ export function eligibleChain(role: RoleDef, roles: RoleDef[], agents: AgentDef[
     .map((id) => byId.get(id))
     .filter((a): a is AgentDef => a !== undefined)
     .filter((a) => agentRefusal(role, a, channels) === null);
+}
+
+/** Effort ordering for the divert tie-break: a deeper depth ranks higher. */
+const EFFORT_RANK: Record<Effort, number> = { low: 0, medium: 1, high: 2, max: 3 };
+
+/**
+ * Capability-aware divert target after a loop-guard trip: the strongest reasoning-capable agent that may
+ * serve the role. Eligibility is `agentRefusal === null` + the agent's channel enabled + not the tripping
+ * agent and not already tried (cross-role agents are eligible). Ranking (stable): `explicit` first if
+ * eligible, then reasoning-capable over unknown, then wider context window, then deeper effective effort.
+ * Caps come from `resolveModelProfile` (probe results are merged into `channels[].modelCaps` before run),
+ * so no raw caps read happens here. Returns undefined when nothing is eligible → the caller keeps the
+ * static chain (no regression).
+ */
+export function divertTarget(opts: {
+  candidates: AgentDef[]; // all agents; the tripping one is excluded via `current`/`tried`
+  current: AgentDef; // the agent that just tripped the loop guard
+  channels: ChannelDef[]; // for agentRefusal + channel-enabled checks
+  role: RoleDef; // for agentRefusal + the effort tie-break
+  explicit?: string; // settings escalation.onLoopGuard.agent (wins when eligible)
+  tried?: string[]; // agent ids already attempted this run
+}): AgentDef | undefined {
+  const { candidates, current, channels, role, explicit, tried = [] } = opts;
+  const triedSet = new Set(tried);
+  const eligible = candidates.filter((a) => {
+    if (a.id === current.id || triedSet.has(a.id)) return false;
+    const ch = channels.find((c) => c.id === a.channel);
+    return ch?.enabled !== false && agentRefusal(role, a, channels) === null;
+  });
+  const explicitHit = explicit ? eligible.find((a) => a.id === explicit) : undefined;
+  if (explicitHit) return explicitHit;
+  const ranked = eligible
+    .map((a) => ({ a, p: capsOf(a, channels) }))
+    .sort(
+      (x, y) =>
+        Number(y.p.caps.reasoning === true) - Number(x.p.caps.reasoning === true) ||
+        (y.p.contextTokens ?? 0) - (x.p.contextTokens ?? 0) ||
+        EFFORT_RANK[effectiveEffort(role, y.a)] - EFFORT_RANK[effectiveEffort(role, x.a)],
+    );
+  return ranked[0]?.a;
 }
 
 /**

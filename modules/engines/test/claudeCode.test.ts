@@ -511,6 +511,22 @@ describe("claude-code line helpers", () => {
     expect(claudeArgv(makeTurn({ maxTurns: Number.POSITIVE_INFINITY }), undefined)).not.toContain("--max-turns");
   });
 
+  it("adds --effort only for a non-default depth when the probe confirmed support", () => {
+    const mk = (effort?: "low" | "medium" | "high" | "max", modelCaps?: Record<string, { effortSupport?: boolean }>) =>
+      makeTurn({
+        ...(effort ? { effort } : {}),
+        channel: new ManagedChannel(makeTurn().channel.adapter, { id: "c", type: "claude-cli", enabled: true, maxParallel: 1, cliPath: "claude", extraEnv: { FOO: "bar" }, modelCaps }),
+      });
+    const hi = claudeArgv(mk("high", { haiku: { effortSupport: true } }), undefined);
+    expect(hi[hi.indexOf("--effort") + 1]).toBe("high");
+    expect(claudeArgv(mk("low", { haiku: { effortSupport: true } }), undefined)).toContain("low");
+    const argv = (t: EngineTurn) => claudeArgv(t, undefined);
+    expect(argv(mk("medium", { haiku: { effortSupport: true } }))).not.toContain("--effort");
+    expect(argv(mk(undefined, { haiku: { effortSupport: true } }))).not.toContain("--effort");
+    expect(argv(mk("high"))).not.toContain("--effort"); // support not probed
+    expect(argv(mk("high", { haiku: { effortSupport: false } }))).not.toContain("--effort");
+  });
+
   it("encodes images as base64 content blocks", () => {
     const transcript: ChatMessage[] = [{ role: "user", content: "look", images: ["data:image/png;base64,AAAA"] } as ChatMessage];
     const line = JSON.parse(userLine(transcript));

@@ -10,6 +10,7 @@ export type { QualifyResult } from "./probeTypes.js";
 export { scanWorkspace, gatherHardware, SCAN_FILE_CAP, SCAN_DEADLINE_MS } from "./setupContext.js";
 export type { WorkspaceInfo, HardwareInfo, SetupContext } from "./setupContext.js";
 export { SetupSession, SETUP_FILES } from "./session.js";
+export { mergeEscalationIntoSettings } from "./settingsEscalation.js";
 export type { SetupDraft, SetupEvent, SetupPhase, SetupSessionDeps, Evaluation } from "./session.js";
 export type { DraftChannelInput, DraftChannelResult } from "./draftChannels.js";
 export { SMOKE_TIMEOUT_MS, RANK_TIMEOUT_MS, PROBE_DRAIN_MS, MAX_SMOKE_ATTEMPTS, SetupProbeRunner, smokeModel, normalizeReason, orderSmokeCandidates, fallbackOrder, rankCandidates } from "./probe.js";

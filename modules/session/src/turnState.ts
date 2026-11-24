@@ -26,6 +26,8 @@ export interface RunState {
   accrued: number;
   costCapped: boolean;
   engineContext?: { inputTokens?: number; windowTokens?: number };
+  /** Set once the loop-guard divert fires; the divert is allowed at most once per run. */
+  divertUsed?: boolean;
 }
 
 /** Per-task facts one runTask accumulates (the lead turn is one task; each delegated child is another). */

@@ -1,5 +1,5 @@
 import type { SetupWizardModel } from "./SetupWizardModel.js";
-import { WelcomeStep, ChannelsStep, DiscoverStep, EvaluatorStep } from "./SetupWizardSteps.js";
+import { WelcomeStep, ChannelsStep, DiscoverStep, EvaluatorStep, DeepThinkStep } from "./SetupWizardSteps.js";
 import { ReviewStep, DoneStep } from "./SetupWizardResult.js";
 
 function ChannelsStepView({ m }: { m: SetupWizardModel }) {
@@ -82,6 +82,18 @@ function EvaluatorStepView({ m }: { m: SetupWizardModel }) {
   );
 }
 
+function DeepThinkStepView({ m }: { m: SetupWizardModel }) {
+  return (
+    <DeepThinkStep
+      candidates={m.divertCandidates}
+      preference={m.fallback}
+      onPreference={m.setFallback}
+      onBack={() => m.setStep(3)}
+      onNext={() => m.setStep(5)}
+    />
+  );
+}
+
 function ReviewStepView({ m }: { m: SetupWizardModel }) {
   return (
     <ReviewStep
@@ -99,7 +111,7 @@ function ReviewStepView({ m }: { m: SetupWizardModel }) {
       secondaryFor={m.secondaryFor}
       onSecondaryChange={m.onSecondaryChange}
       onApply={m.apply}
-      onBack={() => m.setStep(3)}
+      onBack={() => m.setStep(4)}
       onUseRules={() => {
         m.setEvalMode("rules");
         m.store.recommend({ mode: "rules" });
@@ -113,7 +125,10 @@ function DoneStepView({ m }: { m: SetupWizardModel }) {
     <DoneStep
       setupSaved={m.store.state.setupSaved}
       setupError={m.store.state.setupError}
-      onUndo={() => m.store.setupUndo()}
+      onUndo={() => {
+        m.store.setupUndo();
+        m.setStep(5);
+      }}
       onFinish={() => m.store.setWizardOpen(false)}
     />
   );
@@ -127,8 +142,9 @@ export function StepSwitch({ m }: { m: SetupWizardModel }) {
       {m.step === 1 ? <ChannelsStepView m={m} /> : null}
       {m.step === 2 ? <DiscoverStepView m={m} /> : null}
       {m.step === 3 ? <EvaluatorStepView m={m} /> : null}
-      {m.step === 4 ? <ReviewStepView m={m} /> : null}
-      {m.step === 5 ? <DoneStepView m={m} /> : null}
+      {m.step === 4 ? <DeepThinkStepView m={m} /> : null}
+      {m.step === 5 ? <ReviewStepView m={m} /> : null}
+      {m.step === 6 ? <DoneStepView m={m} /> : null}
     </>
   );
 }

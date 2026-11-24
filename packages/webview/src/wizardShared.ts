@@ -12,7 +12,7 @@ export const PRESETS: Preset[] = [
   { label: "Claude CLI", id: "claude", type: "claude-cli", baseUrl: "", needsKey: false, help: "Uses the `claude` command already logged in on this machine. No key needed." },
 ];
 
-export const STEPS = ["Welcome", "Channels", "Discover", "Evaluator", "Review", "Done"] as const;
+export const STEPS = ["Welcome", "Channels", "Discover", "Evaluator", "Deep thinking", "Review", "Done"] as const;
 
 export type WizardPriorities = { speed: number; cost: number; quality: number };
 

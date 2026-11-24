@@ -178,6 +178,36 @@ describe("setup.session via dispatch", () => {
     ).toBe(true);
   });
 
+  it("session.update with escalation merges it into settings.yaml and the save round-trips + reloads it", async () => {
+    const { core, uLayer, fh } = mk({ "settings.yaml": "version: 1\nrunTurnLimit: 99\n" });
+    const pid = "w8";
+    await core.attachProject(pid, fh.host);
+    await core.dispatch("setup.session.start", { projectId: pid });
+    await core.dispatch("setup.session.update", {
+      projectId: pid,
+      patch: { files: { "agents.yaml": AGENTS_A9 }, escalation: { onLoopGuard: { agent: "a9", effort: "max" } } },
+    });
+    const rev = (await core.dispatch("setup.review", { projectId: pid })) as { token: string; files: Record<string, string> };
+    // settings.yaml is staged (backup/rollback/validate cover it) and keeps pre-existing keys.
+    expect(rev.files["settings.yaml"]).toContain("runTurnLimit: 99");
+    expect(rev.files["settings.yaml"]).toContain("agent: a9");
+    expect(rev.files["settings.yaml"]).toContain("effort: max");
+    const app = (await core.dispatch("setup.approve", { projectId: pid, token: rev.token })) as { ok: boolean };
+    expect(app.ok).toBe(true);
+    const loaded = (await core.dispatch("config.get", { projectId: pid })) as { summary: { settings: { runTurnLimit?: number; escalation?: { onLoopGuard?: { agent?: string; effort?: string } } } } };
+    expect(loaded.summary.settings.escalation?.onLoopGuard).toEqual({ agent: "a9", effort: "max" });
+    expect(loaded.summary.settings.runTurnLimit).toBe(99);
+  });
+
+  it("session.update without escalation leaves settings.yaml out of the staged files", async () => {
+    const { core, fh } = mk();
+    const pid = "w9";
+    await core.attachProject(pid, fh.host);
+    await core.dispatch("setup.session.start", { projectId: pid });
+    const u = sess(await core.dispatch("setup.session.update", { projectId: pid, patch: { files: { "agents.yaml": AGENTS_A9 } } }));
+    expect(Object.keys(u.draft.files ?? {})).toEqual(["agents.yaml"]);
+  });
+
   it("surfaces validateFiles errors through approve", async () => {
     const { core, uLayer, fh } = mk();
     const pid = "w4";

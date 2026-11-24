@@ -1152,13 +1152,14 @@ describe("lead escalation over the chain", () => {
     void handover;
   });
 
-  it("escalates on loop_guard and on engine error, not on cancel", async () => {
+  it("escalates on engine error and diverts on loop_guard", async () => {
     for (const reason of ["loop_guard", "error"] as const) {
       const engine = scriptedEngine([async function* () { yield { kind: "finished" as const, reason, error: "boom" }; }, ok]);
       const h = harness({ config: cfg(), engine });
       await h.svc.send({ text: "go" });
       const esc = await h.waitFor("run.escalated");
-      expect(esc).toMatchObject({ from: "a1", to: "a2", reason });
+      // the loop-guard trip diverts to a2 (the only eligible agent); an engine error stays a plain escalation
+      expect(esc).toMatchObject({ from: "a1", to: "a2", reason: reason === "loop_guard" ? "loop_guard_divert" : "error" });
       await h.waitFor("run.finished");
     }
   });
@@ -1274,6 +1275,152 @@ describe("lead escalation over the chain", () => {
     const fin = await h.waitFor("run.finished");
     expect(fin).toMatchObject({ status: "done" });
     expect(h.events.filter((e) => e.kind === "ask_user")).toEqual([]);
+  });
+});
+
+describe("loop-guard divert", () => {
+  // Two reasoning-capable models of different windows (the harness default "m" qualifies agents only).
+  const caps = {
+    a32: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }, reasoning: true, contextTokens: 32000 },
+    a64: { qualified: { agent: { passed: true, at: 1, version: 2, context: 64000 } }, reasoning: true, contextTokens: 64000 },
+  } as const;
+  const leadRole = { id: "lead", enabled: true, prompt: "You are lead.", skills: ["sk1"], tools: [], writePaths: [], turnBudget: 5 };
+  const trip = async function* (t: EngineTurn) {
+    if (t.agent.id !== "a1") return yield* ok(t);
+    yield { kind: "finished" as const, reason: "loop_guard" as const, error: "same call failed twice" };
+  };
+  const ok = async function* (t: EngineTurn) {
+    t.transcript.push({ role: "assistant", content: `done by ${t.agent.id}` });
+    yield { kind: "finished" as const, reason: "stop" as const };
+  };
+  // `e === undefined` → default settings (no escalation); otherwise wrap e as escalation.onLoopGuard.
+  const cfg = (e?: unknown, over: Partial<EffectiveConfig> = {}) =>
+    makeConfig({
+      channels: [{ ...makeConfig().channels[0], modelCaps: { ...caps } }],
+      agents: [
+        { id: "a1", channel: "c", model: "a32", effort: "medium" as const },
+        { id: "a2", channel: "c", model: "a64", effort: "medium" as const },
+      ],
+      roles: [{ ...leadRole, agent: "a1", secondary: "a2" }],
+      settings: e === undefined ? makeConfig().settings : settingsFile.parse({ escalation: { onLoopGuard: e } }),
+      ...over,
+    });
+
+  it("diverts a loop-guard trip to the reasoning-capable agent with a run.escalated loop_guard_divert", async () => {
+    // engine.run order: lead a1 (trips) → divert a2 (ok)
+    const engine = scriptedEngine([
+      trip,
+      async function* (t: EngineTurn) { return yield* ok(t); },
+    ]);
+    const h = harness({ config: cfg(), engine });
+    await h.svc.send({ text: "go" });
+    const escEv = await h.waitFor("run.escalated");
+    expect(escEv).toMatchObject({ from: "a1", to: "a2", reason: "loop_guard_divert" });
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "done" });
+  });
+
+  it("applies the escalation effort to the diverted attempt only", async () => {
+    // engine.run order: lead a1 (trips; keeps its own effective effort) → divert a2 (gets the escalation effort)
+    const efforts: (string | undefined)[] = [];
+    const engine = scriptedEngine([
+      async function* (t: EngineTurn) { efforts.push(t.effort); yield { kind: "finished" as const, reason: "loop_guard" as const, error: "same call failed twice" }; },
+      async function* (t: EngineTurn) { efforts.push(t.effort); return yield* ok(t); },
+    ]);
+    const h = harness({ config: cfg({ agent: "a2", effort: "max" }), engine });
+    await h.svc.send({ text: "go" });
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "done" });
+    expect(efforts).toEqual(["medium", "max"]);
+  });
+
+  it("honors an explicit escalation agent over the auto-ranking", async () => {
+    // Auto-ranking would pick a2 (wider window, 64k vs 32k); the explicit escalation.agent=a3 must win
+    // even though a3 ranks below a2. The tripping agent (a1) is always excluded from divert targets.
+    const engine = scriptedEngine([
+      trip,
+      async function* (t: EngineTurn) { return yield* ok(t); },
+    ]);
+    const h = harness({
+      config: cfg({ agent: "a3", effort: "high" }, {
+        agents: [
+          { id: "a1", channel: "c", model: "a32", effort: "medium" as const },
+          { id: "a2", channel: "c", model: "a64", effort: "medium" as const },
+          { id: "a3", channel: "c", model: "a32", effort: "low" as const },
+        ],
+      }),
+      engine,
+    });
+    await h.svc.send({ text: "go" });
+    const escEv = await h.waitFor("run.escalated");
+    expect(escEv).toMatchObject({ from: "a1", to: "a3", reason: "loop_guard_divert" });
+    const fin = await h.waitFor("run.finished");
+    expect(fin).toMatchObject({ status: "done" });
+  });
+
+  it("diverts at most once per run: a second loop-guard trip exhausts the chain to the user", async () => {
+    // engine.run order: lead a1 (trips) → divert a2 (trips again; the divert is spent, no further divert)
+    const engine = scriptedEngine([
+      async function* (t: EngineTurn) { yield { kind: "finished" as const, reason: "loop_guard" as const, error: "loop" }; },
+      async function* (t: EngineTurn) { yield { kind: "finished" as const, reason: "loop_guard" as const, error: "loop again" }; },
+    ]);
+    const h = harness({ config: cfg(), engine });
+    const ask = h.waitFor("ask_user");
+    await h.svc.send({ text: "go" });
+    const q = await ask;
+    expect((q as { question: string }).question).toContain("All agents for this task failed.");
+    const fin = h.waitFor("run.finished");
+    h.interaction.resolveAnswer((q as { questionId: string }).questionId, "Stop");
+    const done = await fin;
+    // exactly one loop_guard_divert — the second trip is not diverted (run.divertUsed is run-scoped)
+    const escs = h.events.filter((e) => e.kind === "run.escalated");
+    expect(escs.map((e) => (e as { reason: string }).reason)).toEqual(["loop_guard_divert"]);
+    expect(done).toMatchObject({ status: "failed" });
+  });
+
+  it("shares the divert guard with delegated children: the child spends it, the lead's later trip is not diverted", async () => {
+    const explorer = { id: "explorer", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1", secondary: "a2" };
+    // engine.run order (the child run executes INSIDE the lead's first step generator):
+    //   [0] lead a1 → delegate to explorer (blocks on the child); afterwards the lead itself trips loop_guard
+    //   [1] child a1 → reads a file (satisfies the read-only child's check), trips → consumes the run's one-shot divert
+    //   [2] child a2 → cites the read file → child done
+    //   [3] lead a2 → the lead's trip escalated as plain loop_guard (the divert is spent), trips too → user fallback
+    const tripEv = { kind: "finished" as const, reason: "loop_guard" as const };
+    const engine = scriptedEngine([
+      async function* (turn: EngineTurn) {
+        const text = await turn.tools.find("delegate")!.execute({ role: "explorer", task: "find x" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: `child said: ${text.split("\n")[0]}` });
+        yield tripEv;
+      },
+      async function* (t: EngineTurn) {
+        yield* readOnce("child");
+        yield { ...tripEv, error: "same call failed twice" };
+      },
+      async function* (t: EngineTurn) {
+        t.transcript.push({ role: "assistant", content: "notes.txt says x" });
+        yield { kind: "finished" as const, reason: "stop" as const };
+      },
+      async function* () {
+        yield { ...tripEv, error: "loop again" };
+      },
+    ]);
+    const h = harness({ config: cfg(undefined, { roles: [{ ...leadRole, agent: "a1", secondary: "a2" }, explorer] }), engine, files: { "notes.txt": "x" } });
+    const askP = h.waitFor("ask_user");
+    await h.svc.send({ text: "delegate" });
+    const ask = await askP;
+    expect((ask as { question: string }).question).toContain("All agents for this task failed.");
+    const finP = h.waitFor("run.finished");
+    h.interaction.resolveAnswer((ask as { questionId: string }).questionId, "Stop");
+    const fin = await finP;
+    // exactly two escalations: the child's one-shot loop_guard_divert, then the lead's plain loop_guard (the divert is spent)
+    const escs = h.events.filter((e) => e.kind === "run.escalated") as { from: string; to: string; reason: string; roleId: string }[];
+    expect(escs.map((e) => ({ from: e.from, to: e.to, reason: e.reason, roleId: e.roleId }))).toEqual([
+      { from: "a1", to: "a2", reason: "loop_guard_divert", roleId: "explorer" },
+      { from: "a1", to: "a2", reason: "loop_guard", roleId: "lead" },
+    ]);
+    // the child satisfied its read-only check (it read a file) and finished done
+    expect(h.events.find((e) => e.kind === "task.done")).toMatchObject({ roleId: "explorer" });
+    expect(fin).toMatchObject({ status: "failed" });
   });
 });
 

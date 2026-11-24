@@ -1,7 +1,7 @@
 import { helloSchema, negotiate, PROTOCOL_VERSION, KNOWN_CAPABILITIES } from "@stewart/protocol";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { userCaps, type ModelCaps } from "@stewart/models";
-import { BENCH_VERSION, benchModel, gatherHardware, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
+import { BENCH_VERSION, benchModel, gatherHardware, mergeEscalationIntoSettings, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
 import { errorMessage } from "@stewart/kernel";
 import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
@@ -88,9 +88,17 @@ export async function handleSetupSessionGet(core: CoreCtx, params: unknown): Pro
   return publicState(session);
 }
 export async function handleSetupSessionUpdate(core: CoreCtx, params: unknown): Promise<unknown> {
-  const p = params as { projectId: string; patch: Record<string, unknown> };
+  const p = params as { projectId: string; patch: Record<string, unknown> & { escalation?: { onLoopGuard: { agent?: string; effort?: string } } } };
   const { session } = await sessionFor(core, p);
-  return { phase: session.phase, draft: await session.update(p.patch) };
+  // Wizard deep-thinking fallback: fold the explicit hand-over into settings.yaml so the save path
+  // backs it up, validates it and rolls it back like the other setup files. Absent = no-op (Auto/Off).
+  let files = p.patch.files as Record<string, string> | undefined;
+  if (p.patch.escalation) {
+    const baseSettings = (await core.deps.userConfig.read())["settings.yaml"];
+    files = mergeEscalationIntoSettings(baseSettings, p.patch.escalation, files ?? {});
+  }
+  const { escalation: _drop, ...rest } = p.patch;
+  return { phase: session.phase, draft: await session.update(files ? { ...rest, files } : rest) };
 }
 export async function handleSetupSessionAdvance(core: CoreCtx, params: unknown): Promise<unknown> {
   const { session } = await sessionFor(core, params as { projectId: string });

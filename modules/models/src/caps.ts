@@ -34,6 +34,8 @@ export function qualPassed(q: Qual | undefined): boolean {
 export type ModelCaps = {
   tools: ToolsMode;
   vision: boolean;
+  /** The channel's engine can set reasoning effort on this model (e.g. claude-cli `--effort`, probed from `claude --help`). */
+  effortSupport?: boolean;
   reasoning: boolean;
   imageGen: boolean;
   contextTokens: number;

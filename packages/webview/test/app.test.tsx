@@ -1434,6 +1434,7 @@ describe("webview settings", () => {
         unfilled: [{ role: "image-reader", reason: "no model with: vision" }],
       }),
     );
+    fireEvent.click(screen.getByText("Next: review"));
     expect(screen.getByText(/⚠ model is ~4B/)).toBeTruthy();
     expect(screen.getByText(/disabled: no model with: vision/)).toBeTruthy();
     fireEvent.click(screen.getByText("Apply"));
@@ -1465,6 +1466,7 @@ describe("webview settings", () => {
     );
     fireEvent.click(screen.getByText("Build proposal"));
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "general-worker", channel: "c1", model: "big:32b" }] }));
+    fireEvent.click(screen.getByText("Next: review"));
     fireEvent.click(screen.getByText("Apply"));
     const agents = (bridge.sent.find((m: any) => m.type === "setup.session.update") as any).patch.files["agents.yaml"];
     expect(agents).toContain("billing: priced");
@@ -1478,6 +1480,7 @@ describe("webview settings", () => {
     toStep(bridge, 3);
     fireEvent.click(screen.getByText("Build proposal"));
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "general-worker", channel: "c1", model: "big:32b" }] }));
+    fireEvent.click(screen.getByText("Next: review"));
     fireEvent.change(screen.getByLabelText("role general-worker"), { target: { value: "c1:m" } });
     fireEvent.change(screen.getByLabelText("role image-reader"), { target: { value: "" } });
     fireEvent.click(screen.getByText("Apply"));
@@ -1495,6 +1498,7 @@ describe("webview settings", () => {
     expect(bridge.sent).toContainEqual(
       expect.objectContaining({ type: "setup.recommend", mode: "ai", evaluator: { channel: "c1", model: "big:32b" } }),
     );
+    fireEvent.click(screen.getByText("Next: review"));
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "could not parse recommendation" }));
     expect(screen.getByText(/could not parse/)).toBeTruthy();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
@@ -1831,6 +1835,8 @@ describe("wizard apply agent building", () => {
       );
     }
     fireEvent.click(screen.getByText("Build proposal"));
+    // The deep-thinking fallback step (4) sits between Evaluator and Review.
+    fireEvent.click(screen.getByText("Next: review"));
   };
 
   const applyWith = (
@@ -1961,6 +1967,103 @@ describe("wizard apply agent building", () => {
     expect("secondary" in items[0]!).toBe(false);
   });
 
+  /** Channels step → Evaluator (3); returns the probe-result injector so divert candidates exist before Build proposal. */
+  const driveToEvaluator = (bridge: MockBridge, opts: { testModels: Record<string, string[]>; green: { channel: string; model: string }[] }) => {
+    for (const [channelId, models] of Object.entries(opts.testModels)) {
+      act(() => bridge.inbound({ type: "channel.test.result", channelId, ok: true, models }));
+    }
+    fireEvent.click(screen.getByText("Next: discover models"));
+    act(() =>
+      bridge.inbound({
+        type: "setup.probe.result",
+        status: "done",
+        runId: 1,
+        ranking: false,
+        items: opts.green.map((g) => ({ channel: g.channel, model: g.model, state: "green" as const })),
+        counts: { queued: 0, running: 0, green: opts.green.length, orange: 0, red: 0, skipped: 0 },
+        green: opts.green,
+      }),
+    );
+    fireEvent.click(screen.getByText("Next: choose evaluator"));
+  };
+  const probeCaps = (bridge: MockBridge, ref: string, caps: Record<string, unknown>) => {
+    const i = ref.indexOf(":");
+    act(() =>
+      bridge.inbound({
+        type: "channel.probe.result",
+        channelId: ref.slice(0, i),
+        model: ref.slice(i + 1),
+        ok: true,
+        caps,
+        catalog: { source: "catalog 2026-11" },
+      }),
+    );
+  };
+
+  it("deep-thinking step renders probe-ranked candidates, defaults to Auto, and an explicit pick writes escalation", () => {
+    const { bridge } = mk();
+    openWizard(
+      bridge,
+      reply({
+        channels: [{ id: "c1", type: "openai-compatible", enabled: true }, { id: "c2", type: "claude-cli", enabled: true }],
+        agents: [{ id: "c1-m", channel: "c1", model: "m" }, { id: "c2-sonnet", channel: "c2", model: "sonnet" }],
+        roles: [{ id: "r1", enabled: true }],
+      }),
+    );
+    driveToEvaluator(bridge, {
+      testModels: { c1: ["m"], c2: ["sonnet"] },
+      green: [{ channel: "c1", model: "m" }, { channel: "c2", model: "sonnet" }],
+    });
+    // Probes feed the divert-candidate list: reasoning-capable first, unknown-caps marked.
+    probeCaps(bridge, "c1:m", { reasoning: false, contextTokens: 32000 });
+    probeCaps(bridge, "c2:sonnet", { reasoning: true, contextTokens: 200000 });
+    fireEvent.click(screen.getByText("Build proposal"));
+    act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "r1", channel: "c1", model: "m" }] }));
+
+    // Step 4: the fallback defaults to Auto (best available); the reasoning agent ranks first.
+    expect(screen.getByText(/When the primary model gets stuck/)).toBeTruthy();
+    const select = screen.getByLabelText("hand-over agent") as HTMLSelectElement;
+    expect(select.value).toBe("auto");
+    const optValues = [...select.options].map((o) => o.value);
+    expect(optValues).toEqual(["auto", "c2-sonnet", "c1-m"]);
+    expect(screen.getByText("c1-m (c1:m · 32k ctx · capability unknown)")).toBeTruthy();
+
+    // Explicit pick + effort → the setup update carries escalation (the core handler merges it into settings.yaml).
+    fireEvent.change(select, { target: { value: "c2-sonnet" } });
+    fireEvent.change(screen.getByLabelText("hand-over effort") as HTMLSelectElement, { target: { value: "max" } });
+    fireEvent.click(screen.getByText("Next: review"));
+    fireEvent.click(screen.getByText("Apply"));
+    const upd = bridge.sent.find((m) => m.type === "setup.session.update") as any;
+    expect(upd.patch.escalation).toEqual({ onLoopGuard: { agent: "c2-sonnet", effort: "max" } });
+    expect(upd.patch.files["settings.yaml"]).toBeUndefined();
+  });
+
+  it("deep-thinking step leaves escalation out of the update when Auto or Off is kept", () => {
+    for (const mode of ["auto", "off"] as const) {
+      cleanup(); // each iteration re-renders a fresh App
+      const { bridge } = mk();
+      openWizard(
+        bridge,
+        reply({
+          channels: [{ id: "c1", type: "claude-cli", enabled: true }],
+          agents: [{ id: "c1-sonnet", channel: "c1", model: "sonnet" }],
+          roles: [{ id: "r1", enabled: true }],
+        }),
+      );
+      driveToEvaluator(bridge, { testModels: { c1: ["sonnet"] }, green: [{ channel: "c1", model: "sonnet" }] });
+      // Probes before Build proposal: the divert-candidate list is computed when the step renders.
+      probeCaps(bridge, "c1:sonnet", { reasoning: true });
+      fireEvent.click(screen.getByText("Build proposal"));
+      if (mode === "off") fireEvent.click(screen.getByLabelText("Off"));
+      fireEvent.click(screen.getByText("Next: review"));
+      act(() => bridge.inbound({ type: "setup.recommend.result", ok: true, assignments: [{ role: "r1", channel: "c1", model: "sonnet" }] }));
+      fireEvent.click(screen.getByText("Apply"));
+      const upd = bridge.sent.find((m) => m.type === "setup.session.update") as any;
+      expect(upd.patch.escalation).toBeUndefined();
+      expect(upd.patch.files["settings.yaml"]).toBeUndefined();
+    }
+  });
+
   it("derives billing from catalog price, zero price, channel type and claude costs", () => {
     const { bridge } = mk();
     openWizard(
@@ -2088,9 +2191,13 @@ describe("wizard apply agent building", () => {
       }),
     );
     expect(screen.getByText(/best-fit-model/)).toBeTruthy();
+    // Review → deep-thinking fallback → Evaluator (two Backs now).
+    fireEvent.click(screen.getByText("Back"));
     fireEvent.click(screen.getByText("Back"));
     fireEvent.click(screen.getByText("Build proposal"));
     act(() => bridge.inbound({ type: "setup.recommend.result", ok: false, error: "ai exploded" }));
+    // The failure renders on Review, so advance past the fallback step.
+    fireEvent.click(screen.getByText("Next: review"));
     expect(screen.getByText(/ai exploded/)).toBeTruthy();
     expect(screen.queryByText(/best-fit-model/)).toBeNull();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);

@@ -2,7 +2,7 @@
 export {
   matchGlob, validateRoles,
 } from "./roles.js";
-export { DEFAULT_MIN_CONTEXT, roleNeeds, roleChainIds, eligibleChain, chainErrors, agentContext, agentRefusal } from "./chain.js";
+export { DEFAULT_MIN_CONTEXT, roleNeeds, roleChainIds, effectiveEffort, eligibleChain, chainErrors, agentContext, agentRefusal, divertTarget } from "./chain.js";
 export {
   hashBody, parseSkillMd, serializeSkillMd, shippedDefaultRoles, resolveSkills, shippedSkill, baseHashFor,
 } from "./skills.js";

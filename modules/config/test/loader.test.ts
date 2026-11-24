@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SelfWriteGuard, effectiveSecurity, hashContent, isProjectFile, loadConfig } from "../src/api.js";
+import { effortSchema } from "../src/schema.js";
 
 const role = (id: string, turns = 10) => `version: 1\nitems:\n  - id: ${id}\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: ${turns}\n`;
 
@@ -131,6 +132,14 @@ describe("qualification + role agent/secondary schema", () => {
     expect("chain" in c.roles[0]).toBe(false);
   });
 
+  it("keeps other role fields while migrating a legacy chain", () => {
+    const roles = `version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    effort: high\n    chain: [a1, a2, a3]\n`;
+    const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0]).toMatchObject({ agent: "a1", secondary: "a2", effort: "high" });
+    expect("chain" in c.roles[0]).toBe(false);
+  });
+
   it("drops a legacy chain whose first entry differs from agent (stale override)", () => {
     const roles = `version: 1\nitems:\n  - id: reviewer\n    enabled: true\n    agent: aif\n    chain: [ollama]\n`;
     const c = loadConfig({ "roles.yaml": roles }, undefined, {}, { trusted: true });
@@ -238,5 +247,64 @@ describe("security (business policy) config", () => {
   it("rejects a bad channel override", () => {
     const c = loadConfig({ "channels.yaml": ch("    security:\n      passwords: 3\n") }, undefined, {}, { trusted: true });
     expect(c.errors.join()).toMatch(/channels.yaml/);
+  });
+});
+
+describe("effort", () => {
+  it("effortSchema accepts exactly low/medium/high/max", () => {
+    expect(effortSchema.parse("low")).toBe("low");
+    expect(effortSchema.parse("medium")).toBe("medium");
+    expect(effortSchema.parse("high")).toBe("high");
+    expect(effortSchema.parse("max")).toBe("max");
+    expect(() => effortSchema.parse("xhigh")).toThrow();
+    expect(() => effortSchema.parse("off")).toThrow();
+  });
+
+  it("roles carry an optional effort and agents default to medium", () => {
+    const c = loadConfig(
+      { "roles.yaml": role("r") + "    effort: high\n", "agents.yaml": 'version: 1\nitems:\n  - id: a1\n    channel: claude\n    model: sonnet\n' },
+      undefined,
+      {},
+      { trusted: true },
+    );
+    expect(c.errors).toEqual([]);
+    expect(c.roles[0].effort).toBe("high");
+    expect(c.agents[0].effort).toBe("medium");
+  });
+
+  it("rejects a bad role effort value", () => {
+    const c = loadConfig({ "roles.yaml": role("r") + "    effort: xhigh\n" }, undefined, {}, { trusted: true });
+    expect(c.errors.join()).toMatch(/roles.yaml/);
+  });
+});
+
+describe("escalation (loop-guard divert) settings", () => {
+  it("is absent by default", () => {
+    const c = loadConfig({}, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.settings.escalation).toBeUndefined();
+  });
+
+  it("round-trips onLoopGuard agent + effort through settings.yaml", () => {
+    const yaml = "version: 1\nescalation:\n  onLoopGuard:\n    agent: strong\n    effort: max\n";
+    const c = loadConfig({ "settings.yaml": yaml }, undefined, {}, { trusted: true });
+    expect(c.errors).toEqual([]);
+    expect(c.settings.escalation).toEqual({ onLoopGuard: { agent: "strong", effort: "max" } });
+  });
+
+  it("merges a project layer over the user layer", () => {
+    const c = loadConfig(
+      { "settings.yaml": "version: 1\nescalation:\n  onLoopGuard:\n    agent: a\n    effort: high\n" },
+      { "settings.yaml": "version: 1\nescalation:\n  onLoopGuard:\n    agent: b\n" },
+      {},
+      { trusted: true },
+    );
+    expect(c.errors).toEqual([]);
+    expect(c.settings.escalation).toEqual({ onLoopGuard: { agent: "b", effort: "high" } });
+  });
+
+  it("rejects a bad effort value", () => {
+    const c = loadConfig({ "settings.yaml": "version: 1\nescalation:\n  onLoopGuard:\n    effort: xhigh\n" }, undefined, {}, { trusted: true });
+    expect(c.errors.join()).toMatch(/settings.yaml/);
   });
 });

@@ -604,4 +604,22 @@ describe("native-loop truncation and think", () => {
     await collect(nativeLoop.run(turn({ channel: ch })));
     expect(reqs[1].minNumCtx).toBe(8192);
   });
+
+  it("passes the effective effort to the channel request", async () => {
+    const reqs: { effort?: string }[] = [];
+    const ch = fakeChannel([[{ kind: "text", text: "ok" }, { kind: "done" }]], (r) => reqs.push(r as { effort?: string }));
+    await collect(nativeLoop.run(turn({ channel: ch, effort: "high" })));
+    expect(reqs[0].effort).toBe("high");
+  });
+
+  it("drops the effort on the think:false retry (off-switch wins)", async () => {
+    const reqs: { think?: boolean; effort?: string }[] = [];
+    const ch = fakeChannel([cut(), [{ kind: "text", text: "report" }, { kind: "done" }]], (r) => reqs.push(r as { think?: boolean; effort?: string }));
+    const evs = await collect(nativeLoop.run(turn({ channel: ch, think: true, effort: "high" })));
+    expect(last(evs)).toEqual({ kind: "finished", reason: "stop" });
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]).toMatchObject({ think: true, effort: "high" });
+    expect(reqs[1]).toMatchObject({ think: false });
+    expect("effort" in reqs[1]).toBe(false);
+  });
 });

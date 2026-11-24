@@ -133,6 +133,45 @@ describe("ClaudeCliAdapter", () => {
   });
 });
 
+describe("probeCaps --help effort probe", () => {
+  it("reports effortSupport true when help mentions --effort, with a clean env", async () => {
+    const { spawn, captured } = fakeSpawn(["Options:\n  --model <model>\n  --effort <level>  low, medium, high, max"]);
+    const adapter = new ClaudeCliAdapter(deps(spawn));
+    expect(await adapter.probeCaps()).toMatchObject({ tools: "native", vision: true, reasoning: true, effortSupport: true });
+    expect(captured[0].argv.slice(0, 2)).toEqual(["claude", "--help"]);
+    expect(captured[0].env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(captured[0].env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it("reports effortSupport false when help lacks the flag", async () => {
+    const { spawn } = fakeSpawn(["Options:\n  --model <model>"]);
+    const adapter = new ClaudeCliAdapter(deps(spawn));
+    expect(await adapter.probeCaps()).toMatchObject({ effortSupport: false });
+  });
+
+  it("omits effortSupport when the CLI cannot be started or the probe hangs", async () => {
+    const noent = fakeSpawn([], { spawnError: "spawn claude ENOENT", code: -1 });
+    expect(await new ClaudeCliAdapter(deps(noent.spawn)).probeCaps()).not.toHaveProperty("effortSupport");
+    const hanging = fakeSpawn([]);
+    hanging.spawn = (() => {
+      const proc: SpawnedProc = {
+        stdin: () => {},
+        write: () => {},
+        end: () => {},
+        stdout: (async function* () {
+          await new Promise(() => {});
+          yield "";
+        })(),
+        stderrText: async () => "",
+        done: new Promise(() => {}),
+        kill: async () => {},
+      };
+      return proc;
+    }) as SpawnFn;
+    expect(await new ClaudeCliAdapter(deps(hanging.spawn, { effortProbeMs: 20 })).probeCaps()).not.toHaveProperty("effortSupport");
+  });
+});
+
 describe("classify", () => {
   it("maps auth, model, rate-limit and generic stderr", () => {
     expect(classify("not logged in")).toBe("auth");

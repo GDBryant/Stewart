@@ -97,6 +97,13 @@ function warnIfTruncated(c: TurnCtx): void {
 }
 
 /** Ollama channel: NDJSON streaming, /api/tags + /api/show probes. */
+/** Ollama `think` wire value: `think: false` is the hard off-switch; otherwise high/max effort turns thinking on where unset. */
+function thinkFor(req: ChatRequest): boolean | undefined {
+  if (req.think !== undefined) return req.think;
+  if (req.effort === "high" || req.effort === "max") return true;
+  return undefined;
+}
+
 export class OllamaAdapter implements ChannelAdapter {
   readonly type = "ollama";
   constructor(private deps: ChannelDeps) {}
@@ -135,7 +142,7 @@ export class OllamaAdapter implements ChannelAdapter {
       tools: tools?.length ? tools : undefined,
       stream: true,
       format: req.responseSchema,
-      think: req.think,
+      think: thinkFor(req),
       options: { temperature: req.temperature, num_ctx: numCtx },
     });
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: `num_ctx=${numCtx ?? "default"} ${body}` });

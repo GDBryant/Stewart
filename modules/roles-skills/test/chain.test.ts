@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig, type AgentDef, type ChannelDef, type RoleDef } from "@stewart/config";
-import { agentRefusal, eligibleChain, roleChainIds, roleNeeds, chainErrors } from "../src/chain.js";
+import { agentRefusal, divertTarget, eligibleChain, effectiveEffort, roleChainIds, roleNeeds, chainErrors } from "../src/chain.js";
 
 const agent = (id: string): AgentDef => ({ id, channel: "c", model: "m", effort: "medium" });
 const chan = (qualified?: Record<string, { passed: boolean; at: number; version: number }>): ChannelDef => ({
@@ -24,6 +24,17 @@ describe("roleChainIds", () => {
     expect(roleChainIds(role({ secondary: "a1" }), [lead], agents)).toEqual(["a2", "a1"]);
     expect(roleChainIds(role({ agent: "a3" }), [lead], agents)).toEqual(["a3"]);
     expect(roleChainIds(role({ id: "lead" }), [], agents)).toEqual(["a1"]);
+  });
+});
+
+describe("effectiveEffort", () => {
+  it("role override wins, then the agent value, then medium", () => {
+    const hi: AgentDef = { id: "a", channel: "c", model: "m", effort: "high" };
+    const lo: AgentDef = { id: "a", channel: "c", model: "m", effort: "low" };
+    expect(effectiveEffort(role({}), hi)).toBe("high");
+    expect(effectiveEffort(role({ effort: "max" }), lo)).toBe("max");
+    expect(effectiveEffort(role({ effort: "low" }), hi)).toBe("low");
+    expect(effectiveEffort(role({}), agent("a"))).toBe("medium");
   });
 });
 
@@ -156,5 +167,64 @@ describe("chainErrors", () => {
     const ch = chan(undefined);
     expect(chainErrors(role({ agent: "a1" }), [agent("a1")], [ch])).toEqual(["role r: agent 'a1' not qualified as agent (run Qualify)"]);
     expect(chainErrors(role({ agent: "a1", enabled: false }), [agent("a1")], [ch])).toEqual([]);
+  });
+});
+
+describe("divertTarget", () => {
+  const q = { agent: { passed: true, at: 1, version: 2, context: 32000 } };
+  const capChan = (caps: Record<string, { qualified?: typeof q; reasoning?: boolean; contextTokens?: number }>): ChannelDef => ({
+    id: "c", type: "ollama", enabled: true, discoverModels: true, extraModels: [], modelCaps: caps,
+  });
+  const A = (id: string, model: string, effort: AgentDef["effort"] = "medium"): AgentDef => ({ id, channel: "c", model, effort });
+  const allQ = { m1: { qualified: q }, m2: { qualified: q }, m3: { qualified: q } };
+  const opts = (over: Partial<Parameters<typeof divertTarget>[0]> = {}) => ({
+    candidates: [A("a2", "m2"), A("a3", "m3")],
+    tried: ["a1"],
+    current: A("a1", "m1"),
+    role: role({ agent: "a1" }),
+    channels: [capChan(allQ)],
+    ...over,
+  });
+  it("picks an eligible reasoning-capable candidate ranked by window then effort, skipping tried/current/unqualified", () => {
+    const ch = capChan({
+      m1: { qualified: q },
+      m2: { qualified: q, reasoning: true, contextTokens: 32000 },
+      m3: { qualified: q, reasoning: true, contextTokens: 64000 },
+    });
+    expect(divertTarget(opts({ channels: [ch] }))?.id).toBe("a3");
+    expect(divertTarget(opts({ channels: [ch], tried: ["a1", "a3"] }))?.id).toBe("a2");
+    expect(divertTarget(opts({ channels: [ch], tried: ["a1", "a2", "a3"] }))).toBeUndefined();
+  });
+  it("reasoning-capable ranks above unknown, then wider window, then deeper effort, then stable order", () => {
+    const reasoningWins = capChan({ m1: { qualified: q }, m2: { qualified: q, reasoning: true, contextTokens: 32000 }, m3: { qualified: q, contextTokens: 128000 } });
+    expect(divertTarget(opts({ channels: [reasoningWins] }))?.id).toBe("a2");
+    const windowWins = capChan({ m1: { qualified: q }, m2: { qualified: q, contextTokens: 64000 }, m3: { qualified: q, contextTokens: 32000 } });
+    expect(divertTarget(opts({ channels: [windowWins] }))?.id).toBe("a2");
+    const sameWin = capChan({ m1: { qualified: q }, m2: { qualified: q, contextTokens: 32000 }, m3: { qualified: q, contextTokens: 32000 } });
+    expect(divertTarget(opts({ channels: [sameWin], candidates: [A("a2", "m2", "low"), A("a3", "m3", "high")] }))?.id).toBe("a3");
+    expect(divertTarget(opts({ channels: [sameWin], candidates: [A("a2", "m2"), A("a3", "m3")] }))?.id).toBe("a2");
+  });
+  it("excludes agents that agentRefusal refuses, even if otherwise capable", () => {
+    const refused = capChan({
+      m1: { qualified: q, vision: true },
+      m2: { qualified: q, reasoning: true, contextTokens: 32000, vision: true },
+      m3: { qualified: { agent: { passed: true, at: 1, version: 2 } }, vision: true }, // window unknown → refused
+    });
+    expect(divertTarget(opts({ role: role({ agent: "a1", needs: { vision: true } }), channels: [refused] }))?.id).toBe("a2");
+    expect(divertTarget(opts({ channels: [refused] }))?.id).toBe("a2");
+  });
+  it("an explicit target wins when eligible; when ineligible it falls back to the auto-ranking", () => {
+    const ch = capChan({ m1: { qualified: q }, m2: { qualified: q, reasoning: true, contextTokens: 64000 }, m3: { qualified: q } });
+    expect(divertTarget(opts({ channels: [ch], explicit: "a3" }))?.id).toBe("a3");
+    expect(divertTarget(opts({ channels: [ch], explicit: "ghost" }))?.id).toBe("a2");
+    expect(divertTarget(opts({ channels: [ch], explicit: "a2", tried: ["a1", "a2"] }))?.id).toBe("a3");
+    const noVision = capChan({ m1: { qualified: q }, m2: { qualified: q, reasoning: true, contextTokens: 32000 }, m3: { qualified: q, vision: true } });
+    expect(divertTarget(opts({ role: role({ agent: "a1", needs: { vision: true } }), channels: [noVision], explicit: "a2" }))?.id).toBe("a3");
+  });
+  it("returns undefined when nothing is eligible", () => {
+    expect(divertTarget(opts({ candidates: [] }))).toBeUndefined();
+    expect(divertTarget(opts({ tried: ["a1", "a2", "a3"] }))).toBeUndefined();
+    const unq = capChan({ m1: { qualified: q }, m2: {}, m3: {} });
+    expect(divertTarget(opts({ channels: [unq] }))).toBeUndefined();
   });
 });

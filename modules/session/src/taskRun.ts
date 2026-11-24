@@ -1,4 +1,4 @@
-import type { AgentDef, RoleDef } from "@stewart/config";
+import type { AgentDef, Effort, RoleDef } from "@stewart/config";
 import type { ManagedChannel } from "@stewart/channels";
 import type { ChatMessage, HostPort } from "@stewart/kernel";
 import type { ApproveFn, Permissions } from "@stewart/permissions";
@@ -6,7 +6,8 @@ import type { Interaction } from "@stewart/interaction";
 import { questionPrompt } from "@stewart/interaction";
 import type { RunLedger } from "@stewart/ledger";
 import type { RunEvent } from "@stewart/protocol";
-import { eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
+import { eligibleChain, effectiveEffort, type EffectiveConfig } from "@stewart/roles-skills";
+import { maybeDivert } from "./divert.js";
 import { engineFor as defaultEngineFor, type Engine, type WriteRecord } from "@stewart/engines";
 import { evidenceText, failureText, healthRepairInstruction, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
 import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewart/tools";
@@ -92,6 +93,8 @@ interface Loop {
   last: Verify | undefined;
   prev: AgentDef | undefined;
   agent: AgentDef | undefined;
+  /** Agent ids already attempted in this chain; feeds the loop-guard divert's `tried` exclusion. */
+  tried: Set<string>;
 }
 
 interface Ctx {
@@ -153,7 +156,7 @@ export function turnsFor(spec: Pick<TaskSpec, "maxTurns" | "role">, repair: bool
   return budget >= UNBOUNDED_TURNS ? Number.POSITIVE_INFINITY : budget;
 }
 
-async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
+async function attempt(c: Ctx, agent: AgentDef, repair = false, effort?: Effort): Promise<void> {
   const { spec, deps, ts } = c;
   const channel = deps.channelFor(agent.channel);
   const engine = (deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
@@ -173,6 +176,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
     signal: spec.run.controller.signal,
     maxTurns: ts.maxTurns,
     ...(spec.role.think !== undefined ? { think: spec.role.think } : {}),
+    effort: effort ?? effectiveEffort(spec.role, agent),
     ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
   };
   const refused = await cliPolicyGate(c, channel);
@@ -189,10 +193,10 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false): Promise<void> {
   }
 }
 
-function escalate(c: Ctx, next: AgentDef): void {
+function escalate(c: Ctx, next: AgentDef, divert = false): void {
   const { spec, deps, ts } = c;
   spec.transcript.push({ role: "user", content: handoverText(c.st.prev!.id, spec.goal, ts.tried, ts.error ?? "unknown") });
-  const reason = ts.reason === "stop" || !ts.reason ? "check_failed" : ts.reason;
+  const reason = divert ? "loop_guard_divert" : ts.reason === "stop" || !ts.reason ? "check_failed" : ts.reason;
   deps.bus.emit({ kind: "run.escalated", runId: spec.runId, ...(spec.taskId ? { taskId: spec.taskId } : {}), roleId: spec.role.id, from: c.st.prev!.id, to: next.id, reason });
 }
 
@@ -276,36 +280,60 @@ async function askAndRetry(c: Ctx, baseline: Baseline): Promise<boolean> {
   return true;
 }
 
-/** One chain attempt; returns a terminal TaskResult or undefined to continue the chain. */
-async function tryAgent(c: Ctx, baseline: Baseline, agent: AgentDef): Promise<TaskResult | undefined> {
+/** One pending chain entry: the agent to attempt, the effort its attempt uses (the divert override, when it applies),
+ * and whether this is the loop-guard divert (its handover is labeled `loop_guard_divert`). */
+interface Pending {
+  agent: AgentDef;
+  effort?: Effort;
+  divert?: boolean;
+}
+
+/** One chain attempt; returns a terminal TaskResult or undefined to continue the chain (with the loop-guard flag, if that tripped). */
+async function tryAgent(c: Ctx, baseline: Baseline, p: Pending): Promise<{ r?: TaskResult; loop?: boolean }> {
   const { spec, ts } = c;
-  if (c.st.prev) escalate(c, agent);
+  if (c.st.prev) escalate(c, p.agent, p.divert);
   ts.reason = "" as FinishReason;
   ts.error = undefined;
-  await attempt(c, agent);
-  c.st.agent = agent;
-  if (ts.reason === "cancelled" || spec.run.costCapped) return result(c, baseline, "cancelled");
+  await attempt(c, p.agent, false, p.effort);
+  c.st.agent = p.agent;
+  if (ts.reason === "cancelled" || spec.run.costCapped) return { r: result(c, baseline, "cancelled") };
   if (ts.reason !== "stop") {
     if (!ts.error) ts.error = ts.reason;
-    return undefined;
+    return ts.reason === "loop_guard" ? { loop: true } : {};
   }
   c.st.last = await verify(c, baseline);
-  if (c.st.last.res.passed) return result(c, baseline, "done");
+  if (c.st.last.res.passed) return { r: result(c, baseline, "done") };
   ts.error = failureText(c.st.last.res);
-  const repaired = await repairHealth(c, baseline, agent);
-  if (repaired === "done" || repaired === "cancelled") return result(c, baseline, repaired);
+  const repaired = await repairHealth(c, baseline, p.agent);
+  if (repaired === "done" || repaired === "cancelled") return { r: result(c, baseline, repaired) };
+  return {};
+}
+
+/** Try each agent in turn; a business-policy failure skips the rest of the same channel (it would block the same content).
+ * On a loop-guard trip the run diverts once to the strongest reasoning-capable eligible agent (see divert.ts); the
+ * diverted attempt alone uses the divert's effort override, the rest of the chain keeps its effective effort. When the
+ * divert target is already in the remaining chain it is pulled to the front (tried now, once) with the override. */
+async function runChain(c: Ctx, baseline: Baseline, chain: AgentDef[]): Promise<TaskResult | undefined> {
+  const rest: Pending[] = chain.map((agent) => ({ agent }));
+  while (rest.length) {
+    const p = rest.shift()!;
+    if (policyFailed(c.ts.error) && c.st.prev?.channel === p.agent.channel) continue;
+    c.st.tried.add(p.agent.id);
+    const { r, loop } = await tryAgent(c, baseline, p);
+    c.st.prev = p.agent;
+    if (r) return r;
+    if (loop) divertPending(c, rest, p);
+  }
   return undefined;
 }
 
-/** Try each agent in turn; a business-policy failure skips the rest of the same channel (it would block the same content). */
-async function runChain(c: Ctx, baseline: Baseline, chain: AgentDef[]): Promise<TaskResult | undefined> {
-  for (const agent of chain) {
-    if (policyFailed(c.ts.error) && c.st.prev?.channel === agent.channel) continue;
-    const r = await tryAgent(c, baseline, agent);
-    if (r) return r;
-    c.st.prev = agent;
-  }
-  return undefined;
+/** The loop-guard divert: pull the strongest eligible agent to the front of the pending chain (at most once per run). */
+function divertPending(c: Ctx, rest: Pending[], p: Pending): void {
+  const d = maybeDivert({ cfg: c.deps.config(), role: c.spec.role, current: p.agent, triedIds: [...c.st.tried], reason: c.ts.reason, run: c.spec.run });
+  if (!d) return;
+  const i = rest.findIndex((x) => x.agent.id === d.next.id);
+  if (i >= 0) rest.splice(i, 1); // the target is already pending; try it now, once
+  rest.unshift({ agent: d.next, effort: d.effort, divert: true });
 }
 
 /**
@@ -315,7 +343,7 @@ async function runChain(c: Ctx, baseline: Baseline, chain: AgentDef[]): Promise<
 export async function runTask(spec: TaskSpec, deps: TaskDeps): Promise<TaskResult> {
   const cfg = deps.config();
   const chain = eligibleChain(spec.role, cfg.roles, cfg.agents, cfg.channels);
-  const c: Ctx = { spec, deps, ts: newTaskState(), st: { last: undefined, prev: undefined, agent: undefined } };
+  const c: Ctx = { spec, deps, ts: newTaskState(), st: { last: undefined, prev: undefined, agent: undefined, tried: new Set() } };
   let baseline: Baseline;
   try {
     baseline = spec.baseline ?? (await abortRace(deps.tracker.begin(spec.taskId ? `task-${spec.taskId}` : `turn-${spec.runId}`), spec.run));

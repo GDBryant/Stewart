@@ -1,5 +1,5 @@
 import type { ChatMessage, Json } from "@stewart/kernel";
-import type { AgentDef } from "@stewart/config";
+import type { AgentDef, Effort } from "@stewart/config";
 import type { ManagedChannel, SpawnFn } from "@stewart/channels";
 import type { ApproveFn } from "@stewart/permissions";
 import type { ToolRegistry } from "@stewart/tools";
@@ -45,6 +45,8 @@ export interface EngineTurn {
   maxTurns: number;
   /** Role `think` setting: false asks the channel not to emit reasoning. */
   think?: boolean;
+  /** Effective reasoning depth (role override > agent > medium); engines pass it to the provider where supported. */
+  effort?: Effort;
   /** Called before each model request; used only when `caps.ownContext` is false (claude-code manages its own). */
   beforeModelTurn?: () => Promise<void>;
 }
