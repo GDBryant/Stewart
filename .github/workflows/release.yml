@@ -69,10 +69,13 @@ jobs:
             node scripts/bundle-node.mjs "$key"
             ./gradlew buildPlugin -Pversion="$VERSION" -q
             mv build/distributions/stewart-*.zip "release-out/stewart-${VERSION}-${key}.zip"
+            exe=node; case "$key" in windows-*) exe=node.exe;; esac
+            unzip -l "release-out/stewart-${VERSION}-${key}.zip" | grep -q "node/${key}/${exe}$" || { echo "missing bundled node for $key"; exit 1; }
           done
           rm -rf dist/node
           ./gradlew buildPlugin -Pversion="$VERSION" -q
           mv build/distributions/stewart-*.zip "release-out/stewart-${VERSION}.zip"
+          if unzip -l "release-out/stewart-${VERSION}.zip" | grep -q "/node/"; then echo "base zip must not bundle node"; exit 1; fi
 
       - name: Fail if built artifact versions differ from the tag
         run: |

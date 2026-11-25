@@ -307,6 +307,27 @@ class NodeFetcherTest {
     }
 
     @Test
+    fun `STEWART_NODE override wins when it probes as node 22`() {
+        val f = tmp("ov").resolve("mynode").toFile().apply { writeText("x") }
+        val (node, downloaded) = NodeFetcher.resolveNode(null, tmp("ov-c").toFile(), probe = { 22 }, override = f.absolutePath)
+        assertEquals(f, node)
+        assertFalse(downloaded)
+    }
+
+    @Test
+    fun `STEWART_NODE override that is missing or too old fails clearly`() {
+        val old = tmp("ov2").resolve("old").toFile().apply { writeText("x") }
+        for ((path, major) in listOf(old.absolutePath to 18, "/no/such/node" to 22)) {
+            try {
+                NodeFetcher.resolveNode(null, tmp("ov2-c").toFile(), probe = { major }, override = path)
+                fail("expected NodeFetchException")
+            } catch (e: NodeFetcher.NodeFetchException) {
+                assertTrue(e.message!!.contains("STEWART_NODE"))
+            }
+        }
+    }
+
+    @Test
     fun `resolveNode prefers bundled over cache and path`() {
         val root = tmp("rn-bundled").toFile()
         val cache = tmp("rn-bundled-cache").toFile()

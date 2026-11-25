@@ -21,7 +21,12 @@ class WebviewRouter(
     private val send: (JsonObject) -> Unit,
     private val userConfigDir: () -> File,
     private val openInEditor: (File) -> Unit = {},
+    private val linkReady: () -> Boolean = { true },
 ) {
+    companion object {
+        /** Webview messages posted on load; dropped silently while the sidecar link is down. */
+        private val BOOTSTRAP_TYPES = setOf("ready", "config.get", "permissions.bypass", "slash.list")
+    }
     private val json = Json { ignoreUnknownKeys = true }
     private val routeLock = Any()
 
@@ -39,6 +44,7 @@ class WebviewRouter(
             send(errorMsg("missing type"))
             return
         }
+        if (!linkReady() && type in BOOTSTRAP_TYPES) return
         try {
             if (type == "chat.cancel" || type == "chat.approve" || type == "chat.answer") {
                 request(type, withProject(m)).exceptionally { e ->
@@ -50,10 +56,8 @@ class WebviewRouter(
             synchronized(routeLock) {
             when (type) {
                 "ready" -> {
-                    // The webview can send 'ready' before the sidecar link is up
-                    // (late bootstrap / self-healing download). A failed hello
-                    // surfaces as a reply-free error via [send]; the panels keep
-                    // their actionable error, and the next panel action retries.
+                    // While the link is down 'ready' is dropped above; the host
+                    // pushes 'sidecar.ready' once up and the webview re-bootstraps.
                     try {
                         request("hello", buildJsonObject {
                             put("protocol", JsonPrimitive(1))

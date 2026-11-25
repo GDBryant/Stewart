@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 
 class WebviewRouterTest {
     private class Rig(
+        up: Boolean = true,
         responder: (String, JsonObject?) -> kotlinx.serialization.json.JsonElement? = { _, _ -> JsonObject(emptyMap()) },
     ) {
         val sent = LinkedBlockingQueue<JsonObject>()
@@ -33,6 +34,7 @@ class WebviewRouterTest {
             send = { sent.add(it) },
             userConfigDir = { configDir },
             openInEditor = { opened.add(it) },
+            linkReady = { up },
         )
     }
 
@@ -45,6 +47,21 @@ class WebviewRouterTest {
         assertEquals("ready", rig.sent.poll(2, TimeUnit.SECONDS)!!.type())
         assertEquals("hello", rig.calls[0].first)
         assertEquals(1, rig.calls[0].second!!["protocol"]!!.jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun `bootstrap messages are dropped silently while link is down`() {
+        val rig = Rig(up = false)
+        for (t in listOf("ready", "config.get", "permissions.bypass", "slash.list")) rig.router.route("""{"type":"$t"}""")
+        assertTrue(rig.calls.isEmpty())
+        assertTrue(rig.sent.isEmpty())
+    }
+
+    @Test
+    fun `non-bootstrap messages still reach the sidecar while link is down`() {
+        val rig = Rig(up = false)
+        rig.router.route("""{"type":"history.list"}""")
+        assertEquals("history.list", rig.calls[0].first)
     }
 
     @Test

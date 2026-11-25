@@ -57,6 +57,7 @@ export class StoreHandlers {
     "history.messages": (m) => this.onHistoryMessages(m),
     insertText: (m) => this.patch({ composerInsert: { text: m.text, seq: this.host.nextInsertSeq() } }),
     ready: () => {},
+    "sidecar.ready": () => this.onSidecarReady(),
     "permissions.bypass.result": (m) => this.onBypass(m.on),
     "setup.probe.result": (m) => {
       const { type: _t, ...snap } = m;
@@ -217,6 +218,15 @@ export class StoreHandlers {
       refreshSummary: m.ok ? refreshSummary(m) : undefined,
       lastError: m.ok ? this.state.lastError : (m.error ?? "models refresh failed"),
     });
+    this.host.post({ type: "config.get" });
+  }
+
+  /** Sidecar link came up after this panel loaded: clear the start error and re-run the load-time requests. */
+  private onSidecarReady(): void {
+    this.patch({ lastError: undefined });
+    this.host.post({ type: "ready" });
+    this.host.post({ type: "permissions.bypass" });
+    this.host.post({ type: "slash.list" });
     this.host.post({ type: "config.get" });
   }
 

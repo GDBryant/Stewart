@@ -62,3 +62,29 @@ describe("bypass toggle", () => {
     expect(bridge.sent.some((m) => m.type === "chat.approve")).toBe(false);
   });
 });
+
+describe("sidecar.ready", () => {
+  it("clears the start error and re-posts load-time requests", () => {
+    const { bridge, store } = mk();
+    act(() => bridge.inbound({ type: "error", message: "sidecar not running" }));
+    expect(store.state.lastError).toBe("sidecar not running");
+    bridge.sent.length = 0;
+    act(() => bridge.inbound({ type: "sidecar.ready" }));
+    expect(store.state.lastError).toBeUndefined();
+    expect(bridge.sent).toEqual([{ type: "ready" }, { type: "permissions.bypass" }, { type: "slash.list" }, { type: "config.get" }]);
+  });
+
+  it("is idempotent and keeps chat items", () => {
+    const { bridge, store } = mk();
+    store.send("hi");
+    const n = store.state.items.length;
+    act(() => bridge.inbound({ type: "sidecar.ready" }));
+    act(() => bridge.inbound({ type: "sidecar.ready" }));
+    expect(store.state.items).toHaveLength(n);
+  });
+
+  it("is not sent by the webview before the link is up (only load-time posts)", () => {
+    const { bridge } = mk();
+    expect(bridge.sent.filter((m) => m.type === "config.get")).toHaveLength(0);
+  });
+});

@@ -179,6 +179,7 @@ class StewartProjectService(private val project: Project) : Disposable {
             onInstalled(sup)
             sup.onLinkReady = { link ->
                 wireLink(link)
+                pushToPanels(JsonObject(mapOf("type" to JsonPrimitive("sidecar.ready"))))
                 if (downloaded) {
                     notifyBalloon(
                         "Stewart installed Node ${NodeFetcher.VERSION} (self-heal)",
@@ -236,6 +237,7 @@ class StewartProjectService(private val project: Project) : Disposable {
             request = { m, p -> supervisorRequest(m, p) },
             send = { msg -> panel.pushInbound(msg) },
             userConfigDir = { userConfigDir },
+            linkReady = { supervisor?.state == SupervisorState.RUNNING },
             openInEditor = { f ->
                 LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f)?.let {
                     FileEditorManager.getInstance(project).openFile(it, true)

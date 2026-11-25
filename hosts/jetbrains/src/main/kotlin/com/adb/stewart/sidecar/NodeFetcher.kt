@@ -75,7 +75,16 @@ object NodeFetcher {
         probe: (File) -> Int? = NodeLocator::probeMajor,
         canceled: () -> Boolean = { false },
         fetch: (NodeTarget, File, (Long, Long) -> Unit, () -> Boolean) -> File = { t, c, p, can -> NodeFetcher.fetch(t, c, onProgress = p, canceled = can) },
+        override: String? = System.getenv("STEWART_NODE"),
     ): Pair<File, Boolean> {
+        if (!override.isNullOrBlank()) {
+            val f = File(override)
+            val major = if (f.isFile) probe(f) else null
+            if (major == null || major < NodeLocator.MIN_MAJOR) {
+                throw NodeFetchException("STEWART_NODE=$override is not a Node ${NodeLocator.MIN_MAJOR}+ executable")
+            }
+            return f to false
+        }
         bundledRoot?.let { NodeLocator.bundledNode(it) }?.let { return it to false }
         val key = NodeLocator.osKey(System.getProperty("os.name"), System.getProperty("os.arch"))
             ?: throw NodeFetchException("unsupported platform: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}")
@@ -267,4 +276,4 @@ object NodeFetcher {
 
 /** Actionable message for "no usable Node 22": download via the tool window, or install one yourself. */
 fun nodeStewartError(): String =
-    """No Node.js 22+ found. Stewart can download and cache Node ${NodeFetcher.VERSION} from nodejs.org — open the Stewart tool window and press Restart to self-install, or install Node 22+ yourself (https://nodejs.org) and restart the IDE. The per-OS Stewart plugin zips also bundle a Node runtime."""
+    """No Node.js 22+ found. Stewart can download and cache Node ${NodeFetcher.VERSION} from nodejs.org — use Tools → Restart Stewart Sidecar to self-install, install Node 22+ yourself (https://nodejs.org), or set STEWART_NODE to a Node 22+ binary, then restart the IDE. The per-OS Stewart plugin zips also bundle a Node runtime."""

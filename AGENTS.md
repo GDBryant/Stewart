@@ -23,7 +23,9 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 ## References
 
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
+- Harness efficiency plan (proposed): `docs/HARNESS_EFFICIENCY_PLAN.md` — reasoning control for openai-compatible channels, compaction fit/hysteresis, window-aware tool caps, re-read guard; from `docs/investigations/SLOW_RUNS_2026-11-25.md`.
 - Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
+- Sidecar self-heal plan (built, uncommitted M3/M4): `docs/SIDECAR_SELF_HEAL_PLAN.md` — JetBrains "Sidecar not running": Node 22 resolve/download, `sidecar.ready` late bootstrap, `STEWART_NODE`.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.

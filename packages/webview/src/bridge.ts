@@ -153,6 +153,7 @@ export type Inbound =
   | { type: "insertText"; text: string }
   | { type: "permissions.bypass.result"; on: boolean }
   | { type: "ready" }
+  | { type: "sidecar.ready" }
   | {
       type: "setup.recommend.result";
       ok: boolean;

@@ -6,6 +6,10 @@ Artifacts produced per release:
 - `build/distributions/stewart-<version>.zip` — JetBrains plugin, system-Node fallback.
 - `stewart-<version>-<os>-<arch>.zip` — JetBrains plugin with a bundled Node 22 runtime for one platform (`linux-x64`, `linux-arm64`, `macos-x64`, `macos-arm64`, `windows-x64`).
 
+## Packaging guard
+
+`release.yml` asserts every per-OS zip contains `node/<os-key>/node(.exe)` and the base zip contains no `node/` entry (base zip relies on `NodeFetcher` self-install; `bundle-node.mjs` targets mirror `NodeFetcher`). Locked-down networks: set `STEWART_NODE` to a Node 22+ binary.
+
 ## Local builds
 
 ```bash
