@@ -9,6 +9,7 @@
     <depends>com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="Stewart" displayType="BALLOON"/>
         <projectService serviceImplementation="com.adb.stewart.StewartProjectService"/>
         <toolWindow id="Stewart" anchor="right" factoryClass="com.adb.stewart.StewartToolWindowFactory" canCloseContents="false"/>
         <updateSettingsProvider implementation="com.adb.stewart.StewartUpdateSettingsProvider"/>
@@ -22,6 +23,10 @@
         <action id="Stewart.AddSelectionToChat" class="com.adb.stewart.actions.AddSelectionToChatAction"
                 text="Add Selection to Stewart Chat" description="Send the selected code to the Stewart chat">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="Stewart.Restart" class="com.adb.stewart.actions.RestartAction"
+                text="Restart Stewart Sidecar" description="Restart the sidecar; self-installs a Node 22 runtime on first start when none is bundled or on PATH">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>

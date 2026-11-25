@@ -12,27 +12,27 @@ describe("bundle-node targets", () => {
     expect(TARGETS["windows-x64"].exe).toBe("node.exe");
     expect(TARGETS["windows-x64"].zip).toBe(true);
     for (const [key, t] of Object.entries(TARGETS)) {
-      if (key !== "windows-x64") {
-        expect(t.exe).toBe("node");
-        expect(t.member).toBe("bin/node");
-      }
       expect(t.archive).toContain("{v}");
       expect(t.archive.replace("{v}", NODE_VERSION)).not.toContain("{v}");
+      // The member is the archive's top-level dir (keeps the version, e.g.
+      // node-v{v}-linux-x64) plus the exe path inside it.
+      const dir = t.archive.replace(/\.(tar\.gz|zip)$/, "");
+      expect(t.member).toBe(`${dir}/${t.exe === "node.exe" ? "node.exe" : "bin/node"}`);
     }
   });
 });
 
 describe("archive member path", () => {
-  it("prefixes the zip's top-level dir for windows (node.exe is not at the zip root)", () => {
-    expect(memberPath("node-v22.20.0-win-x64.zip", "node.exe")).toBe("node-v22.20.0-win-x64/node.exe");
+  it("substitutes {v} for the windows zip (node.exe is not at the zip root)", () => {
+    expect(memberPath("node-v22.20.0-win-x64.zip", "node-v{v}-win-x64/node.exe")).toBe("node-v22.20.0-win-x64/node.exe");
   });
 
-  it("prefixes the tarball's top-level dir for unix", () => {
-    expect(memberPath("node-v22.20.0-linux-x64.tar.gz", "bin/node")).toBe("node-v22.20.0-linux-x64/bin/node");
+  it("substitutes {v} for the unix tarball", () => {
+    expect(memberPath("node-v22.20.0-linux-x64.tar.gz", "node-v{v}-linux-x64/bin/node")).toBe("node-v22.20.0-linux-x64/bin/node");
   });
 
-  it("does not leave the bare member name", () => {
-    expect(memberPath("node-v22.20.0-win-x64.zip", "node.exe")).not.toBe("node.exe");
+  it("does not double-prefix an already-qualified member", () => {
+    expect(memberPath("node-v22.20.0-win-x64.zip", "node-v22.20.0-win-x64/node.exe")).toBe("node-v22.20.0-win-x64/node.exe");
   });
 });
 

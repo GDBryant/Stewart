@@ -50,11 +50,20 @@ class WebviewRouter(
             synchronized(routeLock) {
             when (type) {
                 "ready" -> {
-                    request("hello", buildJsonObject {
-                        put("protocol", JsonPrimitive(1))
-                        put("capabilities", Json.parseToJsonElement("""["stream_events","approvals","diff_preview","diagnostics","images"]"""))
-                    }).get()
-                    send(JsonObject(mapOf("type" to JsonPrimitive("ready"))))
+                    // The webview can send 'ready' before the sidecar link is up
+                    // (late bootstrap / self-healing download). A failed hello
+                    // surfaces as a reply-free error via [send]; the panels keep
+                    // their actionable error, and the next panel action retries.
+                    try {
+                        request("hello", buildJsonObject {
+                            put("protocol", JsonPrimitive(1))
+                            put("capabilities", Json.parseToJsonElement("""["stream_events","approvals","diff_preview","diagnostics","images"]"""))
+                        }).get()
+                        send(JsonObject(mapOf("type" to JsonPrimitive("ready"))))
+                    } catch (e: Throwable) {
+                        send(errorMsg(e.cause?.message ?: e.message ?: "sidecar not ready"))
+                    }
+                    return
                 }
                 "config.get" -> {
                     val r = request("config.get", withProject()).get()?.jsonObject ?: JsonObject(emptyMap())

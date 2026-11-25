@@ -9,11 +9,11 @@ import { pathToFileURL } from "node:url";
 export const NODE_VERSION = "22.20.0";
 
 export const TARGETS = {
-  "linux-x64": { archive: "node-v{v}-linux-x64.tar.gz", member: "bin/node", exe: "node", zip: false },
-  "linux-arm64": { archive: "node-v{v}-linux-arm64.tar.gz", member: "bin/node", exe: "node", zip: false },
-  "macos-x64": { archive: "node-v{v}-darwin-x64.tar.gz", member: "bin/node", exe: "node", zip: false },
-  "macos-arm64": { archive: "node-v{v}-darwin-arm64.tar.gz", member: "bin/node", exe: "node", zip: false },
-  "windows-x64": { archive: "node-v{v}-win-x64.zip", member: "node.exe", exe: "node.exe", zip: true },
+  "linux-x64": { archive: "node-v{v}-linux-x64.tar.gz", member: "node-v{v}-linux-x64/bin/node", exe: "node", zip: false },
+  "linux-arm64": { archive: "node-v{v}-linux-arm64.tar.gz", member: "node-v{v}-linux-arm64/bin/node", exe: "node", zip: false },
+  "macos-x64": { archive: "node-v{v}-darwin-x64.tar.gz", member: "node-v{v}-darwin-x64/bin/node", exe: "node", zip: false },
+  "macos-arm64": { archive: "node-v{v}-darwin-arm64.tar.gz", member: "node-v{v}-darwin-arm64/bin/node", exe: "node", zip: false },
+  "windows-x64": { archive: "node-v{v}-win-x64.zip", member: "node-v{v}-win-x64/node.exe", exe: "node.exe", zip: true },
 };
 
 export function sha256Hex(bytes) {
@@ -45,8 +45,10 @@ export function archiveDirName(archive) {
   return archive.replace(/\.(tar\.gz|zip)$/, "");
 }
 
+/** TARGETS members already include the archive's top-level dir; substitute {v} from the archive name. */
 export function memberPath(archive, member) {
-  return `${archiveDirName(archive)}/${member}`;
+  const version = archive.replace(/^node-v/, "").split("-")[0];
+  return member.replace("{v}", version);
 }
 
 function extractMember(archivePath, archive, { member, zip }) {
