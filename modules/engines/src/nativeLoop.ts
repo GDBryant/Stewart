@@ -8,6 +8,7 @@ import type { Effort } from "@stewart/config";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { capOutput, outputCap } from "./outputCap.js";
 import { ReadGuard } from "./readGuard.js";
+import { ExploreGuard } from "./exploreGuard.js";
 import { LoopGuard } from "./loopGuard.js";
 import { forNative } from "./nativeMessages.js";
 import { runFunction } from "./functionRun.js";
@@ -342,8 +343,9 @@ function measuredOf(out: ModelOut, len: number): { tokens: number; len: number }
 
 async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
-  const guard = new LoopGuard();
-  const policy = new ReasoningPolicy();
+  const g = newGuards(turn);
+  const guard = g.loop;
+  const policy = g.policy;
   const reads = new ReadGuard();
   readGuards.set(turn, reads);
   let measured: { tokens: number; len: number } | undefined;
@@ -367,7 +369,7 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
       yield { kind: "finished", reason: "stop" };
       return;
     }
-    yield* runBatches(turn, out.calls, guard, policy);
+    yield* runBatches(turn, out.calls, g);
     if (guard.trip) {
       yield { kind: "finished", reason: "loop_guard", error: guard.trip };
       return;
@@ -380,7 +382,19 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   yield { kind: "finished", reason: "turn_limit" };
 }
 
-async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard, policy: ReasoningPolicy): AsyncGenerator<EngineEvent, void> {
+/** Per-run guards the loop consults after each batch of tool calls. */
+interface Guards {
+  loop: LoopGuard;
+  policy: ReasoningPolicy;
+  explore: ExploreGuard;
+}
+
+function newGuards(turn: EngineTurn): Guards {
+  const canWrite = ["WriteFile", "EditFile", "ApplyPatch"].some((t) => turn.tools.find(t));
+  return { loop: new LoopGuard(), policy: new ReasoningPolicy(), explore: new ExploreGuard({ root: turn.cwd, canWrite }) };
+}
+
+async function* runBatches(turn: EngineTurn, calls: ToolCall[], g: Guards): AsyncGenerator<EngineEvent, void> {
   const seen = new Map<string, Seen>();
   for (let i = 0; i < calls.length; ) {
     let j = i;
@@ -393,14 +407,26 @@ async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard
       yield* executeBatch(turn, batch, seen);
     }
   }
+  const { warnings, nudges } = collectWarnings(seen, g);
+  for (const w of nudges) yield { kind: "diag", tag: "exploration_nudge", detail: w.slice(0, 160) };
+  g.policy.observe([...seen.values()], warnings.length > 0);
+  if (warnings.length && !g.loop.trip) turn.transcript.push({ role: "user", content: warnings.join("\n") });
+}
+
+/** Loop-guard warnings and exploration nudges for one finished batch; `nudges` are the exploration ones (also logged). */
+function collectWarnings(seen: Map<string, Seen>, g: Guards): { warnings: string[]; nudges: string[] } {
   const warnings: string[] = [];
+  const nudges: string[] = [];
   for (const { call, ok, result } of seen.values()) {
-    const w = guard.record({ name: call.name, args: call.arguments, ok, result });
+    const w = g.loop.record({ name: call.name, args: call.arguments, ok, result });
     if (w) warnings.push(w);
+    const nudge = g.explore.record(call, ok);
+    if (nudge) nudges.push(nudge);
   }
-  guard.endTurn();
-  policy.observe([...seen.values()], warnings.length > 0);
-  if (warnings.length && !guard.trip) turn.transcript.push({ role: "user", content: warnings.join("\n") });
+  g.loop.endTurn();
+  const stall = g.explore.endTurn();
+  if (stall) nudges.push(stall);
+  return { warnings: [...warnings, ...nudges], nudges };
 }
 
 /** Stewart's own tool loop over a channel's native tool calling. */
