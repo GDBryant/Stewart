@@ -48,8 +48,12 @@ export interface EngineTurn {
   think?: boolean;
   /** Effective reasoning depth (role override > agent > medium); engines pass it to the provider where supported. */
   effort?: Effort;
-  /** Called before each model request; used only when `caps.ownContext` is false (claude-code manages its own). */
-  beforeModelTurn?: () => Promise<void>;
+  /**
+   * Called before each model request; used only when `caps.ownContext` is false (claude-code manages its own).
+   * `measured` is the provider's prompt-token count for an earlier request that covered `transcript.slice(0, len)`.
+   * Resolves true when it changed the transcript (the measurement is then stale).
+   */
+  beforeModelTurn?: (ctx?: { measured?: { tokens: number; len: number } }) => Promise<boolean | void>;
 }
 
 /** One function-task request: no tools, a schema-constrained JSON object out. */

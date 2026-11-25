@@ -29,13 +29,15 @@ interface ModelOut {
   truncated: boolean;
   /** Prompt + output tokens of the request, when reported. */
   tokens: number;
+  /** Prompt tokens of the request (provider-reported), 0 when unreported. */
+  inTokens: number;
   /** Reasoning chars streamed so far; `overrun` is set when the request was cut for exceeding `OVERRUN_CHARS` with no answer. */
   reasoningChars: number;
   watch: boolean;
   overrun: boolean;
 }
 
-const freshOut = (watch = false): ModelOut => ({ calls: [], content: "", truncated: false, tokens: 0, reasoningChars: 0, watch, overrun: false });
+const freshOut = (watch = false): ModelOut => ({ calls: [], content: "", truncated: false, tokens: 0, inTokens: 0, reasoningChars: 0, watch, overrun: false });
 
 /** How one request is sent: a length-cut retry, thinking off for a routine turn. */
 interface Mode {
@@ -131,6 +133,7 @@ function* modelEvent(ev: ChatEvent, out: ModelOut): Generator<EngineEvent, void>
   } else if (ev.kind === "done") {
     out.truncated = ev.truncated === true;
     out.tokens = ev.usage ? ev.usage.in + ev.usage.out : 0;
+    out.inTokens = ev.usage?.in ?? 0;
     if (ev.usage) yield { kind: "usage", inTokens: ev.usage.in, outTokens: ev.usage.out, costUsd: ev.costUsd };
   }
 }
@@ -335,19 +338,27 @@ function dropCalls(turn: EngineTurn): void {
   if (!msg.content.trim()) msg.content = EMPTY_REPORT;
 }
 
+/** The provider's prompt-token count for a request that sent `len` transcript messages, when it reported one. */
+function measuredOf(out: ModelOut, len: number): { tokens: number; len: number } | undefined {
+  return out.inTokens > 0 ? { tokens: out.inTokens, len } : undefined;
+}
+
 async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
   const guard = new LoopGuard();
   const policy = new ReasoningPolicy();
+  let measured: { tokens: number; len: number } | undefined;
   for (let n = 0; n < turn.maxTurns; n++) {
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
       return;
     }
-    await turn.beforeModelTurn?.();
+    if (await turn.beforeModelTurn?.({ measured })) measured = undefined;
     const salvage = budgetTurn(turn, n);
+    const sentLen = turn.transcript.length;
     const out = yield* modelTurn(turn, policy, salvage);
     if (!out) return;
+    measured = measuredOf(out, sentLen);
     if (salvage) {
       dropCalls(turn);
       break;

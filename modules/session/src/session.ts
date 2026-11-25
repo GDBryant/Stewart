@@ -14,7 +14,7 @@ import { leadRole, systemPrompt } from "./lead.js";
 import { askUserTool, loadSkillTool, setCheckTool, type Declared } from "./sessionTools.js";
 import { ChildRunner } from "./child.js";
 import { PlanRunner } from "./plan.js";
-import { compactTranscript, expandArchived } from "./compact.js";
+import { compactTranscript, expandArchived, type CompactState } from "./compact.js";
 import { planSummary, revertSession, showFileDiff } from "./planOps.js";
 import { drivePlan, leadContract } from "./planDrive.js";
 import { abortRace, AbortedRun, err, newRunState, lastUserText, runOutcome, closeOpenCalls, type RunState } from "./turnState.js";
@@ -58,6 +58,8 @@ interface TurnWork {
   tracker: ChangeTracker;
   /** Coalesced mid-turn persist (user message, tool batches, model turns). */
   stepSave: () => void;
+  /** Requests since the last model summary (compaction cooldown). */
+  compactState: CompactState;
 }
 
 /** One session service per project: a chat's full transcript, the lead's turn, and the after-turn check. */
@@ -139,6 +141,7 @@ export class SessionService {
       state: await loadEngineState(host, stateDir, sessionId),
       plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction, tracker }),
       stepSave: () => {},
+      compactState: { sinceSummary: Number.POSITIVE_INFINITY },
     };
     w.stepSave = stepSaver(() => this.persist(w));
     return w;
@@ -195,7 +198,7 @@ export class SessionService {
         interactive: true,
         maxTurns: config.settings.runTurnLimit,
         run: w.rs,
-        beforeModelTurn: async (agent: AgentDef) => this.compact(w, agent, config),
+        beforeModelTurn: async (agent: AgentDef, ctx?: { measured?: { tokens: number; len: number } }) => this.compact(w, agent, config, ctx?.measured),
         onStep: w.stepSave,
         ...(o.baseline ? { baseline: o.baseline } : {}),
       },
@@ -206,9 +209,9 @@ export class SessionService {
   }
 
   /** Summarise older turns near the window; the plan rides in the system prompt. Skipped when the engine owns context. */
-  private async compact(w: TurnWork, agent: AgentDef, config: EffectiveConfig): Promise<void> {
+  private async compact(w: TurnWork, agent: AgentDef, config: EffectiveConfig, measured?: { tokens: number; len: number }): Promise<boolean> {
     const channel = this.deps.channelFor(agent.channel);
-    if ((this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type).caps.ownContext) return;
+    if ((this.deps.engineFor ?? defaultEngineFor)(channel.cfg.type).caps.ownContext) return false;
     const did = await compactTranscript({
       host: this.deps.host,
       transcript: w.transcript,
@@ -217,8 +220,11 @@ export class SessionService {
       window: agentContext(agent, config.channels),
       archivePath: `${w.stateDir}/sessions/${w.sessionId}.archive.jsonl`,
       signal: w.rs.controller.signal,
+      measured,
+      state: w.compactState,
     });
     if (did) this.deps.host.log(`session ${w.sessionId}: transcript compacted`);
+    return did;
   }
 
   private drive(w: TurnWork, first: TaskResult["baseline"]): Promise<TaskResult> {

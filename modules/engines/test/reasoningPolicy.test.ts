@@ -174,3 +174,28 @@ describe("ReasoningPolicy", () => {
     expect(p.thinkOff(t, true)).toBe(false);
   });
 });
+
+describe("measured prompt size handed to beforeModelTurn", () => {
+  const usage = (n: number): ChatEvent[] => [{ kind: "tool_calls", calls: [{ id: `u${n}`, name: "ReadFile", arguments: { n } }] }, { kind: "done", usage: { in: n, out: 5 } }];
+
+  it("passes the previous request's prompt tokens and the transcript length it covered; none before the first response", async () => {
+    const seen: ChatRequest[] = [];
+    const ch = channel([usage(100), usage(200), stop], seen);
+    const got: ({ tokens: number; len: number } | undefined)[] = [];
+    await run(turn(ch, [tool("ReadFile")], { beforeModelTurn: async (c) => void got.push(c?.measured) }));
+    expect(got[0]).toBeUndefined();
+    expect(got[1]).toEqual({ tokens: 100, len: 1 }); // request 1 sent [user]
+    expect(got[2]).toEqual({ tokens: 200, len: 3 }); // request 2 sent [user, assistant, tool]
+  });
+
+  it("forgets the measurement after a hook that changed the transcript, and when usage is unreported", async () => {
+    const ch = channel([usage(100), usage(200), stop], []);
+    const got: ({ tokens: number; len: number } | undefined)[] = [];
+    await run(turn(ch, [tool("ReadFile")], { beforeModelTurn: async (c) => { got.push(c?.measured); return got.length === 2; } }));
+    expect(got[1]).toEqual({ tokens: 100, len: 1 });
+    expect(got[2]).toEqual({ tokens: 200, len: 3 }); // fresh after the compaction request
+    const got2: ({ tokens: number; len: number } | undefined)[] = [];
+    await run(turn(channel([calls("ReadFile"), stop], []), [tool("ReadFile")], { beforeModelTurn: async (c) => void got2.push(c?.measured) }));
+    expect(got2[1]).toBeUndefined();
+  });
+});

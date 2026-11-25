@@ -47,7 +47,7 @@ export interface TaskSpec {
   maxTurns?: number;
   /** Shared per-run state: controller/signal, event seq, accrued cost, costCapped. */
   run: RunState;
-  beforeModelTurn?: (agent: AgentDef) => Promise<void>;
+  beforeModelTurn?: (agent: AgentDef, ctx?: { measured?: { tokens: number; len: number } }) => Promise<boolean | void>;
   onWrite?: (w: WriteRecord) => void;
   onStep?: () => void | Promise<void>;
 }
@@ -177,7 +177,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false, effort?: Effort)
     maxTurns: ts.maxTurns,
     ...(spec.role.think !== undefined ? { think: spec.role.think } : {}),
     effort: effort ?? effectiveEffort(spec.role, agent),
-    ...(spec.beforeModelTurn ? { beforeModelTurn: () => spec.beforeModelTurn!(agent) } : {}),
+    ...(spec.beforeModelTurn ? { beforeModelTurn: (ctx?: { measured?: { tokens: number; len: number } }) => spec.beforeModelTurn!(agent, ctx) } : {}),
   };
   const refused = await cliPolicyGate(c, channel);
   if (refused) {

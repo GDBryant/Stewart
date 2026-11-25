@@ -66,7 +66,7 @@ describe("compactTranscript", () => {
     expect(seen.system).toContain("Summarise");
     expect(seen.user).toContain("first goal");
     expect(seen.user).not.toContain("third: open task");
-    expect(files["s/x.archive.jsonl"].trim().split("\n")).toHaveLength(3);
+    expect(files["s/x.archive.jsonl"].trim().split("\n")).toHaveLength(4); // 3 summarised messages + the original of the one trimmed tool result
   });
   it("does nothing under the threshold, with nothing older, or with the default window when unknown", async () => {
     const short: ChatMessage[] = [{ role: "user", content: "a" }, { role: "assistant", content: "b" }, { role: "user", content: "c" }];
@@ -79,8 +79,9 @@ describe("compactTranscript", () => {
   it("leaves the transcript untouched when the summary fails or is empty", async () => {
     for (const ch of [channel(new Error("down")), channel([{ kind: "text", text: "  " }, { kind: "done" }])]) {
       const t = long();
-      expect(await compactTranscript(args(t, ch).a)).toBe(false);
+      await compactTranscript(args(t, ch).a);
       expect(t).toHaveLength(7);
+      expect(t.some((m) => m.content.startsWith(SUMMARY_PREFIX))).toBe(false);
     }
   });
 });
@@ -89,7 +90,7 @@ describe("compactTranscript", () => {
 function longTurn(pairs: number): ChatMessage[] {
   const t: ChatMessage[] = [{ role: "user", content: "build the feature" }];
   for (let i = 0; i < pairs; i++) {
-    t.push({ role: "assistant", content: `step ${i}`, toolCalls: [{ id: `c${i}`, name: "ReadFile", arguments: { path: `f${i}` } }] });
+    t.push({ role: "assistant", content: `step ${i} ${big}`, toolCalls: [{ id: `c${i}`, name: "ReadFile", arguments: { path: `f${i}` } }] });
     t.push({ role: "tool", toolCallId: `c${i}`, content: big });
   }
   return t;
@@ -120,7 +121,8 @@ describe("compaction inside one long turn", () => {
       t.push({ role: "tool", toolCallId: `c${i}`, content: big.repeat(4) });
     }
     const { a } = args(t, channel([{ kind: "text", text: "s" }, { kind: "done" }]));
-    expect(await compactTranscript(a)).toBe(false);
+    await compactTranscript(a);
+    expect(t.some((m) => m.content.startsWith(SUMMARY_PREFIX))).toBe(false); // old results may be trimmed, but nothing is summarised
   });
   it("expandArchived restores the full transcript in order, nested chunks included", async () => {
     const original = longTurn(10);
