@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
 import { ChannelError } from "./types.js";
+import { probeReasoningControl, reasoningBody, reasoningField } from "./openaiReasoning.js";
 import { postForStream, sseData, StreamAccumulator, type WireDelta } from "./stream.js";
 
 function url(cfg: ChannelConfig, path: string): string {
@@ -54,7 +55,7 @@ function openAiDeltas(j: OpenAIChunk): WireDelta[] {
   return out;
 }
 
-function chatBody(req: ChatRequest): string {
+function chatBody(cfg: ChannelConfig, req: ChatRequest): string {
   const tools = req.tools?.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.schema } }));
   return JSON.stringify({
     model: req.model,
@@ -63,6 +64,7 @@ function chatBody(req: ChatRequest): string {
     stream: true,
     stream_options: { include_usage: true },
     temperature: req.temperature,
+    ...reasoningBody(cfg, req),
     response_format:
       req.responseSchema !== undefined ? { type: "json_schema", json_schema: { name: "reply", schema: req.responseSchema } } : undefined,
   });
@@ -124,7 +126,14 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     }
     const j = JSON.parse(body);
     const msg = j.choices?.[0]?.message;
-    return { tools: Array.isArray(msg?.tool_calls) ? "native" : "unknown" };
+    const tools = Array.isArray(msg?.tool_calls) ? "native" : "unknown";
+    if (reasoningField(cfg) === "none") return { tools };
+    const reasoningControl = await probeReasoningControl(cfg, model, async (b) => {
+      const pr = await this.deps.fetcher(url(cfg, "/chat/completions"), { method: "POST", headers: this.headers(cfg, secret), body: JSON.stringify(b) });
+      const text = await new Response(pr.body).text();
+      return { status: pr.status, json: pr.status === 200 ? JSON.parse(text) : undefined };
+    });
+    return reasoningControl === undefined ? { tools } : { tools, reasoningControl };
   }
 
   async generateImage(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }> {
@@ -142,7 +151,7 @@ export class OpenAICompatAdapter implements ChannelAdapter {
 
   async *chat(cfg: ChannelConfig, secret: string | undefined, req: ChatRequest): AsyncIterable<ChatEvent> {
     const dbg = this.deps.debug;
-    const body = chatBody(req);
+    const body = chatBody(cfg, req);
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: body });
     const stream = await postForStream(
       { deps: this.deps, provider: this.type, model: req.model },

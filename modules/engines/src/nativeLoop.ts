@@ -9,6 +9,7 @@ import type { Engine, EngineEvent, EngineTurn } from "./types.js";
 import { LoopGuard } from "./loopGuard.js";
 import { forNative } from "./nativeMessages.js";
 import { runFunction } from "./functionRun.js";
+import { OVERRUN_CHARS, ReasoningPolicy } from "./reasoningPolicy.js";
 
 interface Seen {
   call: ToolCall;
@@ -28,9 +29,19 @@ interface ModelOut {
   truncated: boolean;
   /** Prompt + output tokens of the request, when reported. */
   tokens: number;
+  /** Reasoning chars streamed so far; `overrun` is set when the request was cut for exceeding `OVERRUN_CHARS` with no answer. */
+  reasoningChars: number;
+  watch: boolean;
+  overrun: boolean;
 }
 
-const freshOut = (): ModelOut => ({ calls: [], content: "", truncated: false, tokens: 0 });
+const freshOut = (watch = false): ModelOut => ({ calls: [], content: "", truncated: false, tokens: 0, reasoningChars: 0, watch, overrun: false });
+
+/** How one request is sent: a length-cut retry, thinking off for a routine turn. */
+interface Mode {
+  retry?: { minNumCtx: number };
+  thinkOff?: boolean;
+}
 const RETRY_MIN_CTX = 8192;
 
 /** Cut off by the length limit before producing any reply or tool call. */
@@ -53,28 +64,44 @@ function summaryOf(outcome: ToolOutcome): string {
 }
 
 /** Request options for the role's `think` setting; a retry turns reasoning off (dropping effort) and raises the window floor. */
-function retryOpts(turn: EngineTurn, retry?: { minNumCtx: number }): { think?: boolean; minNumCtx?: number; effort?: Effort } {
-  if (retry) return { think: false, minNumCtx: retry.minNumCtx };
+function retryOpts(turn: EngineTurn, mode: Mode): { think?: boolean; minNumCtx?: number; effort?: Effort } {
+  if (mode.retry) return { think: false, minNumCtx: mode.retry.minNumCtx };
+  if (mode.thinkOff) return { think: false };
   return { ...(turn.think !== undefined ? { think: turn.think } : {}), ...(turn.effort ? { effort: turn.effort } : {}) };
 }
 
-async function* streamModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, void> {
+async function* streamModel(turn: EngineTurn, out: ModelOut, mode: Mode): AsyncGenerator<EngineEvent, void> {
+  const cut = new AbortController();
+  const onAbort = (): void => cut.abort();
+  turn.signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    yield* streamCut(turn, out, mode, cut);
+  } finally {
+    turn.signal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function* streamCut(turn: EngineTurn, out: ModelOut, mode: Mode, cut: AbortController): AsyncGenerator<EngineEvent, void> {
   const withheld: Violation[] = [];
   const pre = withholdTools(turn.channel, turn.system, turn.transcript);
   yield* pre.notices;
   const req = {
     model: turn.agent.model,
     temperature: turn.agent.temperature,
-    ...retryOpts(turn, retry),
+    ...retryOpts(turn, mode),
     messages: [{ role: "system" as const, content: turn.system }, ...forNative(pre.transcript, new Set(turn.tools.specs.map((s) => s.name)))],
     tools: turn.tools.specs.map((s) => ({ name: s.name, description: s.description, schema: s.parameters })),
     onWithheld: (w: Violation[]) => withheld.push(...w),
-    signal: turn.signal,
+    signal: cut.signal,
   };
   try {
     for await (const ev of turn.channel.chat(req)) {
       yield* freshWithheld(turn.channel.cfg.id, req.messages, withheld.splice(0));
       yield* modelEvent(ev, out);
+      if (out.overrun) {
+        cut.abort();
+        break;
+      }
     }
     yield* freshWithheld(turn.channel.cfg.id, req.messages, withheld.splice(0));
   } catch (e) {
@@ -86,11 +113,18 @@ async function* streamModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx
   }
 }
 
+/** Counts streamed reasoning; flags an overrun when a watched request reasons past the limit with no answer yet. */
+function noteReasoning(out: ModelOut, text: string): void {
+  out.reasoningChars += text.length;
+  if (out.watch && !out.content.trim() && !out.calls.length && out.reasoningChars > OVERRUN_CHARS) out.overrun = true;
+}
+
 function* modelEvent(ev: ChatEvent, out: ModelOut): Generator<EngineEvent, void> {
   if (ev.kind === "text") {
     out.content += ev.text;
     yield { kind: "text", text: ev.text };
   } else if (ev.kind === "reasoning") {
+    noteReasoning(out, ev.text);
     yield { kind: "reasoning", text: ev.text };
   } else if (ev.kind === "tool_calls") {
     out.calls.push(...ev.calls);
@@ -102,9 +136,9 @@ function* modelEvent(ev: ChatEvent, out: ModelOut): Generator<EngineEvent, void>
 }
 
 /** One model request; a thrown channel error becomes a `finished` event and `false`. */
-async function* requestModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCtx: number }): AsyncGenerator<EngineEvent, boolean> {
+async function* requestModel(turn: EngineTurn, out: ModelOut, mode: Mode): AsyncGenerator<EngineEvent, boolean> {
   try {
-    yield* streamModel(turn, out, retry);
+    yield* streamModel(turn, out, mode);
     return true;
   } catch (e) {
     const aborted = turn.signal.aborted || (e instanceof Error && e.name === "AbortError");
@@ -117,12 +151,19 @@ async function* requestModel(turn: EngineTurn, out: ModelOut, retry?: { minNumCt
  * A reply cut off by the context window before any content (a reasoning model spent it all thinking) is
  * retried once with reasoning off and a larger window; if that is cut off too, the turn fails with that cause.
  */
-async function* modelTurn(turn: EngineTurn): AsyncGenerator<EngineEvent, ModelOut | null> {
-  let out = freshOut();
-  if (!(yield* requestModel(turn, out))) return null;
+async function* modelTurn(turn: EngineTurn, policy: ReasoningPolicy, report: boolean): AsyncGenerator<EngineEvent, ModelOut | null> {
+  let out = freshOut(policy.watch(turn));
+  const mode: Mode = { thinkOff: policy.thinkOff(turn, report) };
+  if (!(yield* requestModel(turn, out, mode))) return null;
+  if (out.overrun) {
+    policy.overran();
+    yield { kind: "diag", tag: "reasoning_overrun", detail: `${out.reasoningChars} reasoning chars with no answer; retrying with thinking off` };
+    out = freshOut();
+    if (!(yield* requestModel(turn, out, { thinkOff: true }))) return null;
+  }
   if (cutOffEmpty(out)) {
     const retry = freshOut();
-    if (!(yield* requestModel(turn, retry, { minNumCtx: Math.max(RETRY_MIN_CTX, out.tokens * 2) }))) return null;
+    if (!(yield* requestModel(turn, retry, { retry: { minNumCtx: Math.max(RETRY_MIN_CTX, out.tokens * 2) } }))) return null;
     out = retry;
     if (cutOffEmpty(out)) {
       yield { kind: "finished", reason: "error", error: `reply cut off by the context window (${out.tokens} tokens used) before any answer; raise numCtx or shorten the task` };
@@ -297,6 +338,7 @@ function dropCalls(turn: EngineTurn): void {
 async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
   const guard = new LoopGuard();
+  const policy = new ReasoningPolicy();
   for (let n = 0; n < turn.maxTurns; n++) {
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
@@ -304,7 +346,7 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
     }
     await turn.beforeModelTurn?.();
     const salvage = budgetTurn(turn, n);
-    const out = yield* modelTurn(turn);
+    const out = yield* modelTurn(turn, policy, salvage);
     if (!out) return;
     if (salvage) {
       dropCalls(turn);
@@ -314,7 +356,7 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
       yield { kind: "finished", reason: "stop" };
       return;
     }
-    yield* runBatches(turn, out.calls, guard);
+    yield* runBatches(turn, out.calls, guard, policy);
     if (guard.trip) {
       yield { kind: "finished", reason: "loop_guard", error: guard.trip };
       return;
@@ -327,7 +369,7 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   yield { kind: "finished", reason: "turn_limit" };
 }
 
-async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard): AsyncGenerator<EngineEvent, void> {
+async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard, policy: ReasoningPolicy): AsyncGenerator<EngineEvent, void> {
   const seen = new Map<string, Seen>();
   for (let i = 0; i < calls.length; ) {
     let j = i;
@@ -346,6 +388,7 @@ async function* runBatches(turn: EngineTurn, calls: ToolCall[], guard: LoopGuard
     if (w) warnings.push(w);
   }
   guard.endTurn();
+  policy.observe([...seen.values()], warnings.length > 0);
   if (warnings.length && !guard.trip) turn.transcript.push({ role: "user", content: warnings.join("\n") });
 }
 

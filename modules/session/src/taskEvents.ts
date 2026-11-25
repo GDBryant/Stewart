@@ -21,6 +21,7 @@ export interface EventCtx {
     ledger: RunLedger;
     config: () => EffectiveConfig;
     costCapUsd: number;
+    host: { log(msg: string): void };
   };
   ts: TaskState;
 }
@@ -69,16 +70,24 @@ function onTool(ev: Extract<EngineEvent, { kind: "tool.request" | "tool.outcome"
   void spec.onStep?.();
 }
 
+function onText(ev: Extract<EngineEvent, { kind: "text" | "reasoning" }>, c: EventCtx): void {
+  c.deps.bus.emit({ kind: ev.kind === "text" ? "text_delta" : "reasoning_delta", ...evBase(c.spec), seq: c.spec.run.seq++, text: ev.text });
+}
+
+function onNotice(ev: Extract<EngineEvent, { kind: "diag" | "policy.notice" }>, c: EventCtx): void {
+  if (ev.kind === "diag") c.deps.host.log(`${ev.tag}: ${ev.detail}`);
+  else c.deps.bus.emit({ ...ev, ...evBase(c.spec) });
+}
+
 export async function onEvent(ev: EngineEvent, c: EventCtx, agent: AgentDef): Promise<void> {
   const { spec, deps, ts } = c;
-  if (ev.kind === "text" || ev.kind === "reasoning")
-    return deps.bus.emit({ kind: ev.kind === "text" ? "text_delta" : "reasoning_delta", ...evBase(spec), seq: spec.run.seq++, text: ev.text });
+  if (ev.kind === "text" || ev.kind === "reasoning") return onText(ev, c);
   if (ev.kind === "tool.request" || ev.kind === "tool.outcome") return onTool(ev, c);
   if (ev.kind === "write") {
     ts.writes.push(ev.record);
     return void spec.onWrite?.(ev.record);
   }
-  if (ev.kind === "policy.notice") return deps.bus.emit({ ...ev, ...evBase(spec) });
+  if (ev.kind === "diag" || ev.kind === "policy.notice") return onNotice(ev, c);
   if (ev.kind === "usage") return await onUsage(ev, c, agent);
   if (ev.kind === "engine.context") return onEngineContext(ev, c, agent);
   ts.reason = ev.reason;

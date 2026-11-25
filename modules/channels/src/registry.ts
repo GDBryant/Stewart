@@ -5,6 +5,7 @@ import { applyOutbound, type RuleId, type Violation } from "@stewart/business-po
 import type { ChatMessage } from "@stewart/kernel";
 import { stripImages } from "@stewart/kernel";
 import { Semaphore } from "./semaphore.js";
+import { reasoningRouting } from "./openaiReasoning.js";
 
 /**
  * Wraps an adapter + config with per-channel concurrency (maxParallel queue),
@@ -166,6 +167,11 @@ export class ManagedChannel {
   /** Whether the channel's engine can set reasoning effort on this model: explicit caps win, else the run-time adapter probe; false when unproven. */
   effortSupport(model: string): boolean {
     return capsFor(this.cfg, model).effortSupport ?? this.effortProbed ?? false;
+  }
+
+  /** Whether this channel carries a reasoning field for the model (configured and not probed ineffective): the native loop then drives `think` per turn. */
+  reasoningRouting(model: string): boolean {
+    return reasoningRouting(this.cfg, model);
   }
 
   /** Resolves the adapter's effort probe (memoized by the adapter) so a later `effortSupport` is accurate without a prior wizard probe. Never throws. */

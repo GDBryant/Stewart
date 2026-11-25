@@ -84,3 +84,16 @@ Fixed 20-instance subset (`SUBSET_20` in `src/swebench/instances.ts`): django ×
 Validation (2026-11-16, labels `val-none-*` / `val-gold-*`): every `--no-patch` run unresolved, every `--gold` run resolved, no error rows — 20/20 and 0/20. No F2P passed at baseline in any no-patch row. Smoke run (real lead): `smoke-claude`, `configs/lead-claude`, `django__django-11119` resolved, f2p 1/1, p2p 7/7, 97 s, $0.0478. Full subset run (2026-11-17, `lead-claude-20`, `configs/lead-claude`): resolved 18/20 (90%), unresolved 2 (`django__django-12663`, `django__django-15280`), harness errors 0, cost $1.4383; results `results/2026-11-17-swebench-lead-claude-20.json`.
 
 Deviation from the notes: log parsing instead of a per-id test resolver — 167 of 231 django instances have docstring ids that cannot be turned into a test label, so each row's `eval_script` runs verbatim and the row's `log_parser` port does the resolution. Known gaps: the lead works on a host checkout and cannot run the repo's tests (the prompt says so); images are ~4 GB each (use `--rmi`); amd64 only; scoring not yet cross-checked against the official Python harness.
+
+## Harness efficiency measurements
+
+`node scripts/analyze-debug-log.mjs <debug-log> [--gap s] [--json]` (tests: `scripts/analyze-debug-log.test.mjs`) reports per run: requests, wall/model time, reasoning share of completion tokens, compactions (count, time, share), requests over the 32k window, repeat file reads. Runs split on a 900 s pause. Plan: `docs/HARNESS_EFFICIENCY_PLAN.md`; every step reports before/after with this script.
+
+Baseline, `2026-11-25.log` (AIF `qwen3-8-27b`, 32k window, `effort: medium`), before any harness-efficiency step:
+
+| Run | Requests | Model time | Reasoning share | Compactions | Max prompt | Over 32k | Repeat reads |
+|---|---|---|---|---|---|---|---|
+| 1 | 9 | 37 s | 51% | 1 (17 s) | 25.8k | 0 | 0 |
+| 2 | 49 | 642 s | 81% | 7 (133 s, 21%) | 49.5k | 19 | 36 |
+| 3 | 53 | 309 s | 76% | 3 (46 s, 15%) | 29.1k | 0 | 21 |
+| 4 (run-7 in the investigation) | 798 | 7524 s | 82% | 63 (1189 s, 16%) | 55.6k | 240 | 325 |

@@ -31,6 +31,8 @@ const modelCaps = z.object({
   /** The channel's engine can set reasoning effort on this model (claude-cli `--effort`, probed from `claude --help`). */
   effortSupport: z.boolean().optional(),
   reasoning: z.boolean().optional(),
+  /** openai-compatible: the channel's reasoning request field demonstrably cuts reasoning tokens on this model (probe); false = never send it. */
+  reasoningControl: z.boolean().optional(),
   imageGen: z.boolean().optional(),
   contextTokens: z.number().int().positive().optional(),
   numCtx: z.number().int().positive().optional(),
@@ -60,6 +62,8 @@ export const channelSchema = z.object({
   discoverModels: z.boolean().default(true),
   extraModels: z.array(z.string()).default([]),
   maxParallel: z.number().int().min(1).optional(), // default: ollama 1, others 4
+  /** openai-compatible: which request field carries reasoning depth. `none` (default) sends nothing; proxies differ. */
+  reasoning: z.enum(["none", "reasoning_effort", "enable_thinking"]).default("none"),
   settingSources: z.string().optional(), // claude-cli: --setting-sources; default "" loads no user/project/local settings
   modelCaps: z.record(z.string(), modelCaps).default({}),
   security: channelSecuritySchema.optional(), // absent key = inherit settings.security

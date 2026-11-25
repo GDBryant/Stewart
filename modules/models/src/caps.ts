@@ -37,6 +37,8 @@ export type ModelCaps = {
   /** The channel's engine can set reasoning effort on this model (e.g. claude-cli `--effort`, probed from `claude --help`). */
   effortSupport?: boolean;
   reasoning: boolean;
+  /** Probe result: the channel's reasoning field cuts reasoning tokens on this model; false = never send it, undefined = not probed. */
+  reasoningControl?: boolean;
   imageGen: boolean;
   contextTokens: number;
   numCtx?: number;
