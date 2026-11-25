@@ -23,6 +23,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 ## References
 
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
+- Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
