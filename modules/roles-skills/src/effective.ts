@@ -1,6 +1,7 @@
 import { loadConfig as loadBase, type Config as BaseConfig, type ConfigLayer } from "@stewart/config";
 import { resolveSkills, type ResolvedSkill } from "./skills.js";
 import { validateRoles } from "./roles.js";
+import { heavyAgentErrors, roleWindowWarnings } from "./roleWindow.js";
 
 /** Base config plus the skills resolved from the same layers. */
 export type EffectiveConfig = BaseConfig & { skills: ResolvedSkill[] };
@@ -13,5 +14,10 @@ export function loadEffectiveConfig(user: ConfigLayer, project: ConfigLayer | un
   const base = loadBase(user, project, defaults, opts);
   const { trusted } = opts;
   const skills = resolveSkills(user, trusted ? project : undefined);
-  return { ...base, skills, errors: [...base.errors, ...validateRoles(base.roles, base.agents, base.channels)] };
+  const problems = [
+    ...validateRoles(base.roles, base.agents, base.channels),
+    ...heavyAgentErrors(base.roles, base.agents, base.channels),
+    ...roleWindowWarnings(base.roles, base.agents, base.channels, base.settings.runTurnLimit),
+  ];
+  return { ...base, skills, errors: [...base.errors, ...problems] };
 }

@@ -8,6 +8,7 @@ import type { RunLedger } from "@stewart/ledger";
 import type { RunEvent } from "@stewart/protocol";
 import { agentContext, eligibleChain, effectiveEffort, type EffectiveConfig } from "@stewart/roles-skills";
 import { maybeDivert } from "./divert.js";
+import { heavyFirst } from "./heavyAgent.js";
 import { engineFor as defaultEngineFor, type Engine, type WriteRecord } from "@stewart/engines";
 import { evidenceText, failureText, healthRepairInstruction, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
 import { ToolRegistry, decide, roleIsReadOnly, type ProjectPaths } from "@stewart/tools";
@@ -343,7 +344,7 @@ function divertPending(c: Ctx, rest: Pending[], p: Pending): void {
  */
 export async function runTask(spec: TaskSpec, deps: TaskDeps): Promise<TaskResult> {
   const cfg = deps.config();
-  const chain = eligibleChain(spec.role, cfg.roles, cfg.agents, cfg.channels);
+  const chain = heavyFirst(spec.role, eligibleChain(spec.role, cfg.roles, cfg.agents, cfg.channels), cfg, spec.baseline !== undefined);
   const c: Ctx = { spec, deps, ts: newTaskState(), st: { last: undefined, prev: undefined, agent: undefined, tried: new Set() } };
   let baseline: Baseline;
   try {
