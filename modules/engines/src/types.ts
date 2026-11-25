@@ -44,6 +44,8 @@ export interface EngineTurn {
   cwd: string;
   signal: AbortSignal;
   maxTurns: number;
+  /** The agent's context window in tokens, when known; sizes the per-result output cap. */
+  window?: number;
   /** Role `think` setting: false asks the channel not to emit reasoning. */
   think?: boolean;
   /** Effective reasoning depth (role override > agent > medium); engines pass it to the provider where supported. */

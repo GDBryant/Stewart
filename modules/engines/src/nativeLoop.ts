@@ -6,6 +6,8 @@ import { BusinessPolicyError, type ChatEvent } from "@stewart/channels";
 import { freshWithheld, noticesOf, redactBlocked, withholdTools } from "./policyNotice.js";
 import type { Effort } from "@stewart/config";
 import type { Engine, EngineEvent, EngineTurn } from "./types.js";
+import { capOutput, outputCap } from "./outputCap.js";
+import { ReadGuard } from "./readGuard.js";
 import { LoopGuard } from "./loopGuard.js";
 import { forNative } from "./nativeMessages.js";
 import { runFunction } from "./functionRun.js";
@@ -18,8 +20,9 @@ interface Seen {
 }
 
 const TOOL_TIMEOUT_MS = 120_000;
-const OUTPUT_CAP = 20_000;
 const SUMMARY_CAP = 200;
+/** Per-run re-read guard, keyed by the turn object the loop runs. */
+const readGuards = new WeakMap<EngineTurn, ReadGuard>();
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch"]);
 
 interface ModelOut {
@@ -51,13 +54,6 @@ const cutOffEmpty = (o: ModelOut): boolean => o.truncated && !o.calls.length && 
 
 function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-function capOutput(raw: string): string {
-  if (raw.length <= OUTPUT_CAP) return raw;
-  const head = Math.ceil(OUTPUT_CAP * 0.7);
-  const tail = Math.floor(OUTPUT_CAP * 0.3);
-  return `${raw.slice(0, head)}\n[output truncated: ${raw.length - OUTPUT_CAP} chars omitted]\n${raw.slice(-tail)}`;
 }
 
 function summaryOf(outcome: ToolOutcome): string {
@@ -211,7 +207,8 @@ async function invoke(turn: EngineTurn, call: ToolCall, tool: Tool, preview: Too
   try {
     const out = await execWithTimeout(tool, call, preview, turn.signal);
     const raw = typeof out === "string" ? out : out.text;
-    return { kind: "success", content: capOutput(raw), images: typeof out === "string" ? undefined : out.images };
+    const dup = readGuards.get(turn)?.check(call, raw, turn.transcript);
+    return { kind: "success", content: dup ?? capOutput(raw, outputCap(turn.window), call.name), images: typeof out === "string" ? undefined : out.images };
   } catch (e) {
     if (turn.signal.aborted) return { kind: "failure", message: "cancelled" };
     return { kind: "failure", message: err(e) };
@@ -347,12 +344,15 @@ async function* run(raw: EngineTurn): AsyncGenerator<EngineEvent, void> {
   const turn = raw.hostTools ? { ...raw, tools: new ToolRegistry([...raw.tools.tools, ...raw.hostTools.tools]) } : raw;
   const guard = new LoopGuard();
   const policy = new ReasoningPolicy();
+  const reads = new ReadGuard();
+  readGuards.set(turn, reads);
   let measured: { tokens: number; len: number } | undefined;
   for (let n = 0; n < turn.maxTurns; n++) {
     if (turn.signal.aborted) {
       yield { kind: "finished", reason: "cancelled" };
       return;
     }
+    reads.turn = n;
     if (await turn.beforeModelTurn?.({ measured })) measured = undefined;
     const salvage = budgetTurn(turn, n);
     const sentLen = turn.transcript.length;

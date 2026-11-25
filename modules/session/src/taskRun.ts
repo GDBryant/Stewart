@@ -6,7 +6,7 @@ import type { Interaction } from "@stewart/interaction";
 import { questionPrompt } from "@stewart/interaction";
 import type { RunLedger } from "@stewart/ledger";
 import type { RunEvent } from "@stewart/protocol";
-import { eligibleChain, effectiveEffort, type EffectiveConfig } from "@stewart/roles-skills";
+import { agentContext, eligibleChain, effectiveEffort, type EffectiveConfig } from "@stewart/roles-skills";
 import { maybeDivert } from "./divert.js";
 import { engineFor as defaultEngineFor, type Engine, type WriteRecord } from "@stewart/engines";
 import { evidenceText, failureText, healthRepairInstruction, runCheck, type Baseline, type ChangeTracker, type Check, type CheckInput, type CheckResult, type Evidence } from "@stewart/tasks";
@@ -175,6 +175,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false, effort?: Effort)
     cwd: deps.paths.base,
     signal: spec.run.controller.signal,
     maxTurns: ts.maxTurns,
+    window: agentContext(agent, deps.config().channels),
     ...(spec.role.think !== undefined ? { think: spec.role.think } : {}),
     effort: effort ?? effectiveEffort(spec.role, agent),
     ...(spec.beforeModelTurn ? { beforeModelTurn: (ctx?: { measured?: { tokens: number; len: number } }) => spec.beforeModelTurn!(agent, ctx) } : {}),
