@@ -28,6 +28,7 @@ const CHANNEL_FIELDS: Field[] = [
   { key: "apiKey", label: "API key", kind: "secret", placeholder: "paste to store in IDE secrets (leave blank to keep)" },
   { key: "extraModels", label: "extraModels (csv)", kind: "list" },
   { key: "maxParallel", label: "maxParallel", kind: "number" },
+  { key: "reasoning", label: "reasoning field", kind: "select", options: ["none", "reasoning_effort", "enable_thinking"] },
 ];
 const AGENT_FIELDS: Field[] = [
   { key: "id", label: "id" },

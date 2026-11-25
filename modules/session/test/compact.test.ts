@@ -125,8 +125,8 @@ describe("compaction inside one long turn", () => {
     expect(t.some((m) => m.content.startsWith(SUMMARY_PREFIX))).toBe(false); // old results may be trimmed, but nothing is summarised
   });
   it("expandArchived restores the full transcript in order, nested chunks included", async () => {
-    const original = longTurn(10);
-    const t = [...original];
+    const t = longTurn(10);
+    const original = structuredClone(t); // compaction trims tool results in place; the archive keeps the originals
     const { a } = args(t, channel([{ kind: "text", text: "s1" }, { kind: "done" }]), { chunkId: "k3" });
     expect(await compactTranscript(a)).toBe(true);
     const full = await expandArchived(a.host, t, a.archivePath);

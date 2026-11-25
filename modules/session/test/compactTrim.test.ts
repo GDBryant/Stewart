@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fakeHost, type ChatMessage } from "@stewart/kernel";
 import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import type { AgentDef } from "@stewart/config";
-import { compactTranscript, currentTokens, estimateTokens, SUMMARY_PREFIX, type CompactState } from "../src/compact.js";
+import { compactTranscript, currentTokens, estimateTokens, expandArchived, SUMMARY_PREFIX, type CompactState } from "../src/compact.js";
 import { KEEP_RECENT, STUB_CAP, stubOf, trimOldResults } from "../src/compactTrim.js";
 
 const agent: AgentDef = { id: "a", channel: "c", model: "m", effort: "medium" };
@@ -189,5 +189,31 @@ describe("cooldown and second pass", () => {
     };
     await compactTranscript({ ...a, channel: channel([{ kind: "done" }]) });
     expect(JSON.stringify(t)).toBe(before);
+  });
+});
+
+describe("expandArchived restores trimmed originals", () => {
+  it("puts each trimmed tool result back, also inside an expanded summary chunk; the live transcript is untouched", async () => {
+    const t = turn(10, 3000, 3000);
+    const originals = t.filter((m) => m.role === "tool").map((m) => m.content);
+    const { a, files } = mk(t, channel(summaryReply), { window: 6000, chunkId: "k" });
+    await compactTranscript(a);
+    expect(t.some((m) => m.content.includes("tool result truncated"))).toBe(true);
+    const live = JSON.stringify(t);
+    const { host } = fakeHost();
+    const full = await expandArchived({ ...host, files: { ...host.files, exists: async () => true, readLines: async () => files["a.jsonl"].trim().split("\n") } }, t, "a.jsonl");
+    expect(JSON.stringify(t)).toBe(live);
+    const tools = full.filter((m) => m.role === "tool").map((m) => m.content);
+    expect(tools).toEqual(originals);
+    expect(full.some((m) => m.content.includes("tool result truncated"))).toBe(false);
+  });
+
+  it("a stub with no archived original (or a different head) stays as it is; torn lines are skipped", async () => {
+    const stub = { role: "tool" as const, toolCallId: "c1", content: "head\n[Stewart: tool result truncated, 9 chars omitted]\ntail" };
+    const lines = ["not json", JSON.stringify({ chunk: "t1", trimmed: true, message: { role: "tool", toolCallId: "c1", content: "other head ......" } })];
+    const { host } = fakeHost();
+    const files = { ...host.files, exists: async () => true, readLines: async () => lines };
+    const out = await expandArchived({ ...host, files }, [stub], "a.jsonl");
+    expect(out[0]).toBe(stub);
   });
 });

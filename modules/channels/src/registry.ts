@@ -5,7 +5,7 @@ import { applyOutbound, type RuleId, type Violation } from "@stewart/business-po
 import type { ChatMessage } from "@stewart/kernel";
 import { stripImages } from "@stewart/kernel";
 import { Semaphore } from "./semaphore.js";
-import { reasoningRouting } from "./openaiReasoning.js";
+import { reasoningBody, reasoningRouting } from "./openaiReasoning.js";
 
 /**
  * Wraps an adapter + config with per-channel concurrency (maxParallel queue),
@@ -25,6 +25,8 @@ export class ManagedChannel {
   unhealthy = false;
   /** Adapter-probed effort support (cleared on config reload); consulted when the caps carry no explicit value. */
   private effortProbed: boolean | undefined;
+  /** Models whose provider rejected the reasoning request field (400/422): never sent again until the config reloads. */
+  private readonly reasoningOff = new Set<string>();
 
   constructor(adapter: ChannelAdapter, cfg: ChannelConfig, secret?: string) {
     this.adapter = adapter;
@@ -42,6 +44,7 @@ export class ManagedChannel {
   update(cfg: ChannelConfig): void {
     this.config = cfg;
     this.effortProbed = undefined;
+    this.reasoningOff.clear();
     this.requests.setLimit(cfg.maxParallel);
     this.admissions.setLimit(cfg.maxParallel);
   }
@@ -123,7 +126,7 @@ export class ManagedChannel {
     if (!vision) req = { ...req, messages: stripImages(req.messages) };
     let ok = false;
     try {
-      for await (const ev of this.adapter.chat(this.cfg, this.secret, req)) {
+      for await (const ev of this.stream(req)) {
         yield ev;
         if (ev.kind === "done") ok = true;
       }
@@ -135,6 +138,32 @@ export class ManagedChannel {
       this.release();
     }
     if (!ok) this.onFailure(new ChannelError("stream ended without done"));
+  }
+
+  /** True when this request would carry a reasoning field to the provider. */
+  private carriesReasoning(req: ChatRequest): boolean {
+    return !this.reasoningOff.has(req.model) && Object.keys(reasoningBody(this.cfg, req)).length > 0;
+  }
+
+  /**
+   * adapter.chat plus the reasoning-field fallback: a 400/422 before any event, for a request that carried the field,
+   * is retried once without `think`/`effort` and remembered (`reasoningRouting` turns false), so a proxy that rejects
+   * the field costs one request instead of the run.
+   */
+  private async *stream(req: ChatRequest): AsyncGenerator<ChatEvent> {
+    const sent = this.carriesReasoning(req);
+    const plain: ChatRequest = { ...req, think: undefined, effort: undefined };
+    let yielded = false;
+    try {
+      for await (const ev of this.adapter.chat(this.cfg, this.secret, this.reasoningOff.has(req.model) ? plain : req)) {
+        yielded = true;
+        yield ev;
+      }
+    } catch (e) {
+      if (yielded || !sent || !(e instanceof ChannelError) || (e.status !== 400 && e.status !== 422)) throw e;
+      this.reasoningOff.add(req.model);
+      yield* this.adapter.chat(this.cfg, this.secret, plain);
+    }
   }
 
   async listModels(): Promise<string[]> {
@@ -171,7 +200,7 @@ export class ManagedChannel {
 
   /** Whether this channel carries a reasoning field for the model (configured and not probed ineffective): the native loop then drives `think` per turn. */
   reasoningRouting(model: string): boolean {
-    return reasoningRouting(this.cfg, model);
+    return !this.reasoningOff.has(model) && reasoningRouting(this.cfg, model);
   }
 
   /** Resolves the adapter's effort probe (memoized by the adapter) so a later `effortSupport` is accurate without a prior wizard probe. Never throws. */

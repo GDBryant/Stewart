@@ -20,6 +20,8 @@ export type ChannelSpec = {
   extraModels?: string[];
   maxParallel?: number;
   modelCaps?: Record<string, Partial<ModelCaps>>;
+  /** openai-compatible: request field that carries reasoning depth (`none` | `reasoning_effort` | `enable_thinking`). */
+  reasoning?: string;
   /** Per-rule override of the global business-policy switch; absent rule = inherit. */
   security?: Partial<Record<RuleId, boolean>>;
   [k: string]: unknown;

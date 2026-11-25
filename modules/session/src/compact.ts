@@ -2,7 +2,7 @@ import type { AgentDef } from "@stewart/config";
 import type { ChatMessage, HostPort } from "@stewart/kernel";
 import type { ManagedChannel } from "@stewart/channels";
 import { applyOutbound } from "@stewart/business-policy";
-import { trimOldResults } from "./compactTrim.js";
+import { TRIM_MARK, trimOldResults } from "./compactTrim.js";
 
 /** Context window assumed when the model's is unknown. */
 const DEFAULT_WINDOW = 32_768;
@@ -148,8 +148,9 @@ function pickRange(transcript: ChatMessage[]): { from: number; to: number } | un
   return freed * 2 >= estimateTokens(transcript) ? { from: u + 1, to: tail } : undefined;
 }
 
-async function archive(a: CompactArgs, chunk: string, older: ChatMessage[]): Promise<void> {
-  for (const message of older) await a.host.files.appendLine(a.archivePath, JSON.stringify({ chunk, message }));
+/** Appends messages to the archive; `trimmed` lines hold the originals of tool results later shortened in place. */
+async function archive(a: CompactArgs, chunk: string, older: ChatMessage[], trimmed = false): Promise<void> {
+  for (const message of older) await a.host.files.appendLine(a.archivePath, JSON.stringify({ chunk, message, ...(trimmed ? { trimmed: true } : {}) }));
 }
 
 /** Current prompt size: the last measured count plus the estimate of what was appended since, else the plain estimate. */
@@ -164,7 +165,7 @@ async function trimPass(a: CompactArgs, keepRecent?: number, cap?: number): Prom
   const { originals, freedTokens } = trimOldResults(probe, keepRecent, cap);
   if (!originals.length) return 0;
   try {
-    await archive(a, `t${Date.now().toString(36)}`, originals);
+    await archive(a, `t${Date.now().toString(36)}`, originals, true);
   } catch (e) {
     a.host.log(`trim skipped (archive failed): ${e instanceof Error ? e.message : String(e)}`);
     return 0;
@@ -227,37 +228,58 @@ export async function compactTranscript(a: CompactArgs): Promise<boolean> {
 
 const SUMMARY_ID = /^\[Summary of earlier conversation\] #(\S+)/;
 
-async function readChunks(host: Pick<HostPort, "files">, archivePath: string): Promise<Map<string, ChatMessage[]>> {
-  const chunks = new Map<string, ChatMessage[]>();
-  if (!(await host.files.exists(archivePath))) return chunks;
+interface Archive {
+  /** Summarised ranges by chunk id. */
+  chunks: Map<string, ChatMessage[]>;
+  /** Original tool results shortened in place, by tool-call id (a provider may reuse ids, so several). */
+  originals: Map<string, ChatMessage[]>;
+}
+
+const callId = (m: ChatMessage): string => (m.role === "tool" ? m.toolCallId : "");
+
+async function readArchive(host: Pick<HostPort, "files">, archivePath: string): Promise<Archive> {
+  const out: Archive = { chunks: new Map(), originals: new Map() };
+  if (!(await host.files.exists(archivePath))) return out;
   for (const line of await host.files.readLines(archivePath)) {
     try {
-      const { chunk, message } = JSON.parse(line) as { chunk?: string; message?: ChatMessage };
+      const { chunk, message, trimmed } = JSON.parse(line) as { chunk?: string; message?: ChatMessage; trimmed?: boolean };
       if (!chunk || !message) continue;
-      chunks.set(chunk, [...(chunks.get(chunk) ?? []), message]);
+      if (trimmed) {
+        const id = callId(message);
+        out.originals.set(id, [...(out.originals.get(id) ?? []), message]);
+      } else out.chunks.set(chunk, [...(out.chunks.get(chunk) ?? []), message]);
     } catch {
       /* a torn line is skipped */
     }
   }
-  return chunks;
+  return out;
 }
 
-function expand(transcript: ChatMessage[], chunks: Map<string, ChatMessage[]>, depth = 0): ChatMessage[] {
+/** A trimmed tool result with its original put back (matched by call id and the stub's kept head); other messages pass through. */
+function restore(m: ChatMessage, originals: Map<string, ChatMessage[]>): ChatMessage {
+  const at = m.role === "tool" ? m.content.indexOf(`\n${TRIM_MARK}`) : -1;
+  if (at < 0) return m;
+  const head = m.content.slice(0, at);
+  const orig = originals.get(callId(m))?.find((o) => o.content.startsWith(head));
+  return orig ?? m;
+}
+
+function expand(transcript: ChatMessage[], arc: Archive, depth = 0): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const m of transcript) {
     const id = m.role === "user" ? SUMMARY_ID.exec(m.content)?.[1] : undefined;
-    const body = id ? chunks.get(id) : undefined;
-    if (body && depth < 20) out.push(...expand(body, chunks, depth + 1));
-    else out.push(m);
+    const body = id ? arc.chunks.get(id) : undefined;
+    if (body && depth < 20) out.push(...expand(body, arc, depth + 1));
+    else out.push(restore(m, arc.originals));
   }
   return out;
 }
 
-/** The full transcript for display: every compaction summary replaced by the messages it archived. */
+/** The full transcript for display: every compaction summary replaced by the messages it archived, and every trimmed tool result by its original. */
 export async function expandArchived(host: Pick<HostPort, "files">, transcript: ChatMessage[], archivePath: string): Promise<ChatMessage[]> {
   try {
-    const chunks = await readChunks(host, archivePath);
-    return chunks.size ? expand(transcript, chunks) : transcript;
+    const arc = await readArchive(host, archivePath);
+    return arc.chunks.size || arc.originals.size ? expand(transcript, arc) : transcript;
   } catch {
     return transcript;
   }

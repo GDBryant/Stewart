@@ -4,7 +4,9 @@ import type { ChatMessage } from "@stewart/kernel";
 export const STUB_CAP = 1500;
 /** Messages at the end of the transcript a first trim pass leaves whole. */
 export const KEEP_RECENT = 4;
-const MARK = "[Stewart: tool result truncated";
+/** Marker inside a trimmed tool result; the readers of the archive and the engine's re-read guard look for it. */
+export const TRIM_MARK = "[Stewart: tool result truncated";
+const MARK = TRIM_MARK;
 
 /** Head 2/3 + tail 1/3 of `text` around an explicit marker; text already within `cap` is returned as is. */
 export function stubOf(text: string, cap = STUB_CAP): string {

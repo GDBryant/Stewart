@@ -114,3 +114,100 @@ describe("OpenAICompatAdapter.probeCaps reasoning", () => {
     expect(await new OpenAICompatAdapter({ fetcher: f2.fetcher }).probeCaps(cfg("reasoning_effort"), undefined, "m")).toEqual({ tools: "native" });
   });
 });
+
+import { ManagedChannel } from "../src/registry.js";
+import { ChannelRegistry } from "../src/registry.js";
+import { ChannelService } from "../src/service.js";
+import { ChannelError } from "../src/types.js";
+
+const SSE = ['data: {"choices":[{"delta":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}', "data: [DONE]"];
+const abort = () => new AbortController().signal;
+const chatReq = (over: Partial<ChatRequest> = {}): ChatRequest => ({ model: "m", messages: [{ role: "user", content: "hi" }], signal: abort(), ...over });
+
+describe("ChannelService → ManagedChannel (production wiring)", () => {
+  async function wired(reasoning: string | undefined, fetches: Parameters<typeof fakeFetcher>[0], modelCaps?: ChannelConfig["modelCaps"]) {
+    const f = fakeFetcher(fetches);
+    const registry = new ChannelRegistry();
+    registry.register("openai-compatible", () => new OpenAICompatAdapter({ fetcher: f.fetcher }));
+    const svc = new ChannelService({ registry, adapterDeps: {} });
+    const host = { secrets: { get: async () => undefined }, log: () => {} };
+    const row = { id: "a", type: "openai-compatible", enabled: true, baseUrl: "https://h", ...(reasoning ? { reasoning } : {}), ...(modelCaps ? { modelCaps } : {}) };
+    await svc.rebuild([row], host);
+    return { mc: svc.get("a")!, calls: f.calls, svc, host, row };
+  }
+
+  it("a channels.yaml row with reasoning: enable_thinking puts the field on the wire for think:false", async () => {
+    const { mc, calls } = await wired("enable_thinking", [{ body: SSE }]);
+    expect(mc.cfg.reasoning).toBe("enable_thinking");
+    expect(mc.reasoningRouting("m")).toBe(true);
+    for await (const _ of mc.chat(chatReq({ think: false }))) void _;
+    expect(JSON.parse(calls[0].body!).chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it("without the key nothing is sent and routing is off; a probed false suppresses the field after a reload", async () => {
+    const none = await wired(undefined, [{ body: SSE }]);
+    expect(none.mc.reasoningRouting("m")).toBe(false);
+    for await (const _ of none.mc.chat(chatReq({ think: false }))) void _;
+    expect("chat_template_kwargs" in JSON.parse(none.calls[0].body!)).toBe(false);
+
+    const probed = await wired("reasoning_effort", [{ body: SSE }, { body: SSE }], { m: { reasoningControl: false } });
+    expect(probed.mc.reasoningRouting("m")).toBe(false);
+    for await (const _ of probed.mc.chat(chatReq({ think: false }))) void _;
+    expect("reasoning_effort" in JSON.parse(probed.calls[0].body!)).toBe(false);
+    // a reload that clears the probe result (fresh row without caps) turns it back on
+    await probed.svc.rebuild([{ ...probed.row, modelCaps: {} }], probed.host);
+    const reloaded = probed.svc.get("a")!;
+    expect(reloaded.reasoningRouting("m")).toBe(true);
+    for await (const _ of reloaded.chat(chatReq({ think: false }))) void _;
+    expect(JSON.parse(probed.calls[1].body!).reasoning_effort).toBe("none");
+  });
+});
+
+describe("reasoning field rejected by the provider", () => {
+  const mk = (fetches: Parameters<typeof fakeFetcher>[0]) => {
+    const f = fakeFetcher(fetches);
+    const mc = new ManagedChannel(new OpenAICompatAdapter({ fetcher: f.fetcher }), cfg("reasoning_effort"));
+    return { mc, calls: f.calls };
+  };
+  const run = async (mc: ManagedChannel, req: ChatRequest) => {
+    const evs = [];
+    for await (const e of mc.chat(req)) evs.push(e);
+    return evs;
+  };
+
+  it("a 400 on a request that carried the field is retried once without it and remembered", async () => {
+    const { mc, calls } = mk([{ status: 400, body: "unknown field reasoning_effort" }, { body: SSE }, { body: SSE }]);
+    const evs = await run(mc, chatReq({ effort: "medium" }));
+    expect(evs.some((e) => e.kind === "text")).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(calls[0].body!).reasoning_effort).toBe("medium");
+    expect("reasoning_effort" in JSON.parse(calls[1].body!)).toBe(false);
+    expect(mc.reasoningRouting("m")).toBe(false);
+    await run(mc, chatReq({ effort: "high", think: false })); // later requests never carry it
+    expect(calls).toHaveLength(3);
+    expect("reasoning_effort" in JSON.parse(calls[2].body!)).toBe(false);
+  });
+
+  it("422 behaves the same; update() forgets the rejection", async () => {
+    const { mc, calls } = mk([{ status: 422, body: "bad" }, { body: SSE }, { body: SSE }]);
+    await run(mc, chatReq({ think: false }));
+    expect(mc.reasoningRouting("m")).toBe(false);
+    mc.update({ ...mc.cfg });
+    expect(mc.reasoningRouting("m")).toBe(true);
+    await run(mc, chatReq({ think: false }));
+    expect(JSON.parse(calls[2].body!).reasoning_effort).toBe("none");
+  });
+
+  it("other failures are not retried: a 500, a 400 on a request without the field, and a second 400 after the retry", async () => {
+    const a = mk([{ status: 500, body: "boom" }]);
+    await expect(run(a.mc, chatReq({ effort: "low" }))).rejects.toBeInstanceOf(ChannelError);
+    expect(a.calls).toHaveLength(1);
+    expect(a.mc.reasoningRouting("m")).toBe(true);
+    const b = mk([{ status: 400, body: "bad" }]);
+    await expect(run(b.mc, chatReq())).rejects.toMatchObject({ status: 400 }); // no think/effort → no field sent → no retry
+    expect(b.calls).toHaveLength(1);
+    const c = mk([{ status: 400, body: "bad" }, { status: 400, body: "still bad" }]);
+    await expect(run(c.mc, chatReq({ effort: "low" }))).rejects.toMatchObject({ status: 400 });
+    expect(c.calls).toHaveLength(2);
+  });
+});
