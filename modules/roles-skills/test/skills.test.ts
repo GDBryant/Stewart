@@ -130,3 +130,21 @@ describe("project-health skill", () => {
     expect(body()).not.toContain("call ListCodeFiles");
   });
 });
+
+describe("pipeline skills", () => {
+  const ids = ["interview-me", "planning-and-task-breakdown", "lean-build", "doubt-driven-development", "idea-refine", "spec-driven-development", "incremental-implementation", "debugging-and-error-recovery", "constraint-driven-development", "code-simplification", "findings-triage", "goal-check"];
+  it("ships every golden-pipeline skill once, with a bounded body", () => {
+    for (const id of ids) {
+      const hits = DEFAULT_SKILLS.filter((s) => s.id === id);
+      expect(hits, id).toHaveLength(1);
+      expect(hits[0].body.length, id).toBeGreaterThan(200);
+      expect(hits[0].body.length, id).toBeLessThan(2000);
+    }
+  });
+  it("has unique ids across all shipped skills", () => {
+    expect(new Set(DEFAULT_SKILLS.map((s) => s.id)).size).toBe(DEFAULT_SKILLS.length);
+  });
+  it("does not ship a skill that is missing from the list", () => {
+    expect(DEFAULT_SKILLS.some((s) => s.id === "not-a-skill")).toBe(false);
+  });
+});
