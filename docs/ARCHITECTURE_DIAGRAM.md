@@ -6,7 +6,7 @@ Rendered view of the code as built (v3.0.14). Prose source of truth: [`docs/ai_d
 
 ```
 packages/   protocol · core · sidecar · webview · evals (own suite + SWE-bench Docker runner)
-modules/    17 × @stewart/<module> (strict layers, scripts/layers.json)
+modules/    19 × @stewart/<module> (strict layers, scripts/layers.json)
 hosts/      vscode (TS, in-process core) · jetbrains (Kotlin + sidecar)
 ```
 
@@ -21,7 +21,7 @@ flowchart LR
     end
 
     subgraph JBK["JetBrains host (Kotlin)"]
-        JH["SidecarSupervisor (bundled Node, restart/backoff)<br/>HostRequestHandler · JCEF WebviewRouter"]
+        JH["SidecarSupervisor (restart/backoff)<br/>NodeFetcher: STEWART_NODE → bundled/cache/PATH v22+ → verified download<br/>HostRequestHandler · JCEF WebviewRouter (sidecar.ready re-bootstrap)"]
         SC["sidecar<br/>Node stdio JSON-RPC server<br/>rpc.ts · server.ts · host.ts"]
         JH <--> SC
     end
@@ -40,7 +40,7 @@ Evals are host-free: the own suite runs tasks over a real `Core` + `nodeHost`; t
 
 ## 2. Module layers
 
-17 `@stewart/<module>` packages; a module imports **only strictly lower layers** (`scripts/layers.json`, `pnpm check:layers`). Each package is composite with a 90/80 coverage gate.
+19 `@stewart/<module>` packages; a module imports **only strictly lower layers** (`scripts/layers.json`, `pnpm check:layers`). Each package is composite with a 90/80 coverage gate.
 
 ```mermaid
 flowchart TB
@@ -48,9 +48,9 @@ flowchart TB
     L6["Layer 6 — engines"]
     L5["Layer 5 — tools"]
     L4["Layer 4 — context · tasks"]
-    L3["Layer 3 — channels · ledger · permissions · roles-skills · code-health"]
+    L3["Layer 3 — channels · ledger · permissions · roles-skills · code-health · slash"]
     L2["Layer 2 — config · models · interaction"]
-    L1["Layer 1 — catalog · diagnostics"]
+    L1["Layer 1 — catalog · diagnostics · business-policy"]
     L0["Layer 0 — kernel (wire types, ports, EventBus, test fakes)"]
     L7 -->|"imports ↓ only"| L6 --> L5 --> L4 --> L3 --> L2 --> L1 --> L0
 ```
@@ -63,11 +63,11 @@ flowchart TD
     HS --> SS["SessionService.send<br/>(modules/session · runTask/turnState)"]
     SS --> HIST["ChatHistoryStore<br/>transcript + <id>.engine.json<br/>compaction before model turns"]
     SS --> CHAIN["eligibleChain<br/>(roles-skills chain.ts —<br/>qualified[kind], window, vision)"]
-    SS --> PROMPT["lead system prompt + skill index<br/>+ context.loadProjectContext (8k cap)"]
+    SS --> PROMPT["lead system prompt + skill index + exploration rules<br/>+ context.loadProjectContext (8k cap)"]
     SS --> TOOLS["projectTools(...).for(lead)<br/>+ hostTools: delegate · health_report ·<br/>plan_write · load_skill · ask_user · set_check"]
     TOOLS --> ENG{"engineFor(channel)"}
-    ENG -->|"claude-cli channel"| CC["claude-code engine<br/>claude -p stream-json subprocess<br/>--setting-sources '' · --resume · MCP hostTools<br/>engine.context observability"]
-    ENG -->|"all other channels"| NL["native-loop engine<br/>channel.chat + native tools<br/>foreign names resolve · LoopGuard shared by both"]
+    ENG -->|"claude-cli channel"| CC["claude-code engine<br/>claude -p stream-json subprocess<br/>--setting-sources '' · --resume · capability-gated --effort<br/>MCP hostTools · engine.context observability"]
+    ENG -->|"all other channels"| NL["native-loop engine<br/>channel.chat + native tools · foreign names resolve<br/>effort/think reasoning control · output caps · re-read guard<br/>LoopGuard shared by both"]
     CC --> CH["channels<br/>ManagedChannel (retry/backoff) → adapter"]
     NL --> CH
     CH --> PR["provider APIs · ollama · claude CLI"]
@@ -81,7 +81,7 @@ flowchart TD
     TRK -- "pass + engine stop → done<br/>else escalate next agent in chain" --> SS
 ```
 
-Escalation: each failed attempt (check failure, engine error, `turn_limit`, `loop_guard`) appends a handover message, emits `run.escalated {from,to,reason}`, and moves to the next eligible agent; after the chain, one `ask_user` retry, then fail with evidence.
+Escalation: each failed attempt (check failure, engine error, `turn_limit`, `loop_guard`) appends a handover message, emits `run.escalated {from,to,reason}`, and moves to the next eligible agent. On the first `loop_guard` trip, the deep-thinking divert may instead switch once to the explicit/auto-ranked reasoning-capable agent with its configured effort (`settings.escalation.onLoopGuard`); after the chain, one `ask_user` retry, then fail with evidence.
 
 Process spawns are wrapped by kernel helpers: no inherited stdin except interactive `claude-code` and the sidecar RPC link, login-shell env at both host seams, one retry on the Windows start failure, and `done.cause`/`exitCause` text instead of bare exit codes. `engine.context` carries `engineSessionId`, `inputTokens`, `windowTokens`, `compacted` and `turnCount`; failed `run.finished` adds `contextAtFailure: "<tokens>/<window>"`.
 

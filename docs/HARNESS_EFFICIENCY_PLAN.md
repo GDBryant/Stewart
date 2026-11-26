@@ -46,7 +46,7 @@ Track `path → last content hash + range` per run in the native loop. A repeat 
 ### E7. Lead/agent selection for long runs
 - Warn in setup/Settings when a role's agent has a qualified window ≤ 32k and `turnBudget` > 40.
 - Re-probe context on `models.refresh` (it may exceed the recorded 32000); show the probed value in the agent row.
-- Optional per-role `heavyAgent` hand-over: long build/plan runs start on the larger-window agent. Reuse the divert machinery (`DEEP_THINK_DIVERT_PLAN.md`) rather than a new path.
+- Optional per-role `heavyAgent` hand-over: long build/plan runs start on the larger-window agent. Reuse the divert machinery (`archived_v3/DEEP_THINK_DIVERT_PLAN_2026-11-24.md`) rather than a new path.
 
 ## Docs and gates
 Update `docs/ai_docs/ARCHITECTURE_NOW.md` (compaction rules, channel reasoning config, caps, re-read guard) in the same commit as each step; keep `check:functions` limits (compact.ts is at 188 lines; split trimming into `compactTrim.ts`). Update `docs/ai_docs/DEBUG_LOGGING.md` if new log tags (`reasoning_overrun`) are added, and `PROGRESS.md` per milestone.

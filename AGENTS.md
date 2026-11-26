@@ -22,10 +22,10 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 
 ## References
 
+Active plans:
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
 - Harness efficiency plan (built E1–E7, E7 re-probe not built; replay measurement pending): `docs/HARNESS_EFFICIENCY_PLAN.md` — reasoning control for openai-compatible channels, compaction fit/hysteresis, window-aware tool caps, re-read guard, exploration nudges, heavyAgent; from `docs/investigations/SLOW_RUNS_2026-11-25.md`; as-built in ARCHITECTURE_NOW §3j.
 - Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
-- Sidecar self-heal plan (built, uncommitted M3/M4): `docs/SIDECAR_SELF_HEAL_PLAN.md` — JetBrains "Sidecar not running": Node 22 resolve/download, `sidecar.ready` late bootstrap, `STEWART_NODE`.
 
 `docs/ai_docs/` — living as-built docs:
 - Architecture now: `docs/ai_docs/ARCHITECTURE_NOW.md` — living description of the code as built (modules, run paths, model facts, gaps). Always kept current.
@@ -51,6 +51,8 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 - Slash commands refactor plan (implemented S1–S4; S5 optional, not built): `docs/archived_v3/SLASH_COMMANDS_REFACTOR_PLAN_2026-11-19.md` — new `@stewart/slash` module, one file per command, `SlashSessionPort`, registry with duplicate/alias check, central error capture, `slash.list` + composer autocomplete; build order S1–S5.
 - Model refresh plan (implemented): `docs/archived_v3/MODEL_REFRESH_PLAN_2026-11-20.md` — `models.refresh` re-discovers channel models and reconciles `agents.yaml` via `ask_user` question cards: unreachable channel keep/retry/disable/remove, batch-add new agents, per-agent removal with role unbind; pure diff/apply in `@stewart/setup`.
 - Removal cascade (implemented): `docs/archived_v3/REMOVAL_CASCADE_PLAN_2026-11-23.md` — channel removal removes its agents, agent removal resets bound roles (promote surviving secondary), Settings id rename re-points references; `config.set` cascade, wizard, inline confirm, tests (see ARCHITECTURE_NOW §3i).
+- Deep-thinking divert plan (implemented): `docs/archived_v3/DEEP_THINK_DIVERT_PLAN_2026-11-24.md` — end-to-end `effort`, capability-aware loop-guard divert, `settings.escalation`, wizard Deep thinking step; as-built in ARCHITECTURE_NOW §§3a/3b/5.
+- Sidecar self-heal plan (implemented): `docs/archived_v3/SIDECAR_SELF_HEAL_PLAN_2026-11-25.md` — JetBrains "Sidecar not running": Node 22 resolve/download, `sidecar.ready` late bootstrap, `STEWART_NODE`; as-built in ARCHITECTURE_NOW §1.
 
 `docs/archived_v2/` — superseded or completed v2-era plans and builds:
 - Modular design: `docs/archived_v2/MODULAR_DESIGN.md` — layered modules (§3 as-built table), surfaces, health rules, enforcement, migration order (steps 0–8 done), §11 sketch-vs-build deviations.

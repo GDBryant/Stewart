@@ -1,6 +1,6 @@
 # Deep-thinking divert: effort wiring + capability-aware escalation + wizard step
 
-Status: **planned, audited** (2026-11-24; v2 after layer/architecture interrogation — see "Audit corrections" for what changed from v1 and why). Self-contained handoff doc.
+Status: **implemented** (2026-11-25; M1–M3 built; M4 was the final repository-gate verification milestone). Durable as-built summary: `docs/ai_docs/ARCHITECTURE_NOW.md` §§3a/3b/5 and `docs/ai_docs/PROGRESS.md`. The audited v2 plan below is retained for design context.
 
 ## Problem
 

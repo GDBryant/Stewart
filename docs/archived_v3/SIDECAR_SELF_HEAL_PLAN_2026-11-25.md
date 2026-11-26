@@ -1,7 +1,7 @@
 # JetBrains "Sidecar not running": self-healing Node + late-bootstrap plan
 
-**Status:** complete — M1–M4 built (M3/M4 uncommitted); verified: `./gradlew test` 259/0, webview vitest 267/0, `check:docs`/`check:boundaries`/`check:functions` green
-**Date:** 2026-11-25 (state as of `0e5602e` + uncommitted M3 start)
+**Status:** complete — M1–M4 built and committed; verified: `./gradlew test` 259/0, webview vitest 267/0, `check:docs`/`check:boundaries`/`check:functions` green
+**Date:** 2026-11-25 (M3/M4 landed in `7490968`)
 **Goal:** the JetBrains host no longer dead-ends on "Sidecar not running" when no suitable
 Node 22 is available: Node resolution is version-checked, self-healing (download + verify +
 cache), failures surface as an actionable balloon + webview error with a Restart path, and
@@ -105,4 +105,4 @@ ARCHITECTURE_NOW (resolution chain, `sidecar.ready`), RELEASING (packaging guard
 - pnpm lives under `~/.nvm/versions/node/*/bin` — export to PATH before
   `pnpm check:docs` / `pnpm version:set`.
 - `docs/investigations/` is intentionally untracked and out of scope for these commits.
-- Working tree: M3/M4 changes are uncommitted; `AGENTS.md` and `docs/HARNESS_EFFICIENCY_PLAN.md` are unrelated.
+- Historical note: M3/M4 were initially uncommitted when this plan was written; they later landed in `7490968`.
