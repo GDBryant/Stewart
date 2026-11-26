@@ -144,3 +144,25 @@ describe("native loop exploration nudges", () => {
     expect(reader.transcript.some((m) => m.role === "user" && m.content.includes("without a file change"))).toBe(false);
   });
 });
+
+describe("ExploreGuard scratch scripts", () => {
+  const write = (path: string): ToolCall => ({ id: path, name: "WriteFile", arguments: { path, content: "x" } });
+  it("nudges once toward health_batches for a script under /tmp or hidden in the root", () => {
+    const g = new ExploreGuard({ canWrite: true });
+    expect(g.record(write("/tmp/pack.py"), true)).toMatch(/health_batches/);
+    expect(g.record(write(".pack_health.py"), true)).toBeUndefined(); // once per run
+  });
+  it("ignores ordinary project files, non-scripts, failed writes and other tools", () => {
+    const g = new ExploreGuard({ canWrite: true });
+    expect(g.record(write("scripts/build.mjs"), true)).toBeUndefined();
+    expect(g.record(write("pack.py"), true)).toBeUndefined();
+    expect(g.record(write("/tmp/notes.txt"), true)).toBeUndefined();
+    expect(g.record(write("/tmp/pack.py"), false)).toBeUndefined();
+    expect(g.record({ id: "r", name: "ReadFile", arguments: { path: "/tmp/pack.py" } }, true)).toBeUndefined();
+  });
+  it("still counts the write for the no-write nudge", () => {
+    const g = new ExploreGuard({ canWrite: true });
+    g.record(write(".x.sh"), true);
+    for (let i = 0; i < NO_WRITE_TURNS - 1; i++) expect(g.endTurn()).toBeUndefined();
+  });
+});

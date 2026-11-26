@@ -1,6 +1,6 @@
-# Harness efficiency plan (built E1–E7 except the E7 re-probe; replay verification pending)
+# Harness efficiency plan (built E1–E7; replay verification pending)
 
-As built: `docs/ai_docs/ARCHITECTURE_NOW.md` §3j. Deviations: E3 trims in place (originals archived) instead of an outgoing copy; E5 always executes the read and compares hashes; E6's no-write nudge goes to the model (plus a host-log tag); E7 re-probe on `models.refresh` not built (cost), `heavyAgent` applies to plan milestone tasks. The replay (exit criteria) needs a live run on `AIF-qwen3-8-27b` and is not done.
+As built: `docs/ai_docs/ARCHITECTURE_NOW.md` §3j. Deviations: E3 trims in place (originals archived) instead of an outgoing copy; E5 always executes the read and compares hashes; E6's no-write nudge goes to the model (plus a host-log tag); E7 re-probe on `models.refresh` is an opt-in question (one ≈62k-token request per floor-window agent; verifies 64k), `heavyAgent` applies to plan milestone tasks. The replay (exit criteria) needs a live run on `AIF-qwen3-8-27b` and is not done.
 
 Basis: `docs/investigations/SLOW_RUNS_2026-11-25.md` (run-7: 8046 s, 660 requests, 82% reasoning tokens, 53 compactions = 16% of model time, prompts up to 55k tokens against a 32k window, repeated file re-reads).
 

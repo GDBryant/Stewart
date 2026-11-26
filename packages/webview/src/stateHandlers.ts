@@ -27,6 +27,7 @@ function refreshSummary(m: RefreshReply): string {
     fmt(m.disabledChannels?.length, "channel disabled"),
     fmt(m.removedChannels?.length, "channel removed"),
     fmt(m.unreachable?.length, "channel unreachable"),
+    fmt(m.reprobed?.length, "larger window"),
   ].filter(Boolean);
   return `models refresh: ${parts.length ? parts.join(", ") : "agents up to date"}`;
 }

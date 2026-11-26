@@ -2,7 +2,7 @@
   "name": "stewart",
   "displayName": "Stewart",
   "description": "Multi-role AI assistant",
-  "version": "3.0.14",
+  "version": "3.0.15",
   "private": true,
   "publisher": "stewart",
   "license": "MIT",

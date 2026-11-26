@@ -25,6 +25,7 @@ Cross-IDE AI assistant (v2 rebuild): shared TS core, VS Code + JetBrains hosts, 
 Active plans:
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
 - Harness efficiency plan (built E1–E7, E7 re-probe not built; replay measurement pending): `docs/HARNESS_EFFICIENCY_PLAN.md` — reasoning control for openai-compatible channels, compaction fit/hysteresis, window-aware tool caps, re-read guard, exploration nudges, heavyAgent; from `docs/investigations/SLOW_RUNS_2026-11-25.md`; as-built in ARCHITECTURE_NOW §3j.
+- Harness efficiency plan 2 (built F1–F3, F4 not built): `docs/HARNESS_EFFICIENCY_PLAN_2.md` — from the 2026-11-26 health-check log: transient-error retry/first-token deadline (504 escalated straight to Claude), E2 reasoning field unset so inert, lead hand-batching instead of `health_report`.
 - Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
 
 `docs/ai_docs/` — living as-built docs:
@@ -52,6 +53,7 @@ Active plans:
 - Model refresh plan (implemented): `docs/archived_v3/MODEL_REFRESH_PLAN_2026-11-20.md` — `models.refresh` re-discovers channel models and reconciles `agents.yaml` via `ask_user` question cards: unreachable channel keep/retry/disable/remove, batch-add new agents, per-agent removal with role unbind; pure diff/apply in `@stewart/setup`.
 - Removal cascade (implemented): `docs/archived_v3/REMOVAL_CASCADE_PLAN_2026-11-23.md` — channel removal removes its agents, agent removal resets bound roles (promote surviving secondary), Settings id rename re-points references; `config.set` cascade, wizard, inline confirm, tests (see ARCHITECTURE_NOW §3i).
 - Deep-thinking divert plan (implemented): `docs/archived_v3/DEEP_THINK_DIVERT_PLAN_2026-11-24.md` — end-to-end `effort`, capability-aware loop-guard divert, `settings.escalation`, wizard Deep thinking step; as-built in ARCHITECTURE_NOW §§3a/3b/5.
+- Native loop split plan (implemented): `docs/archived_v3/NATIVE_LOOP_SPLIT_PLAN.md` — `nativeLoop.ts` split into `nativeModel` / `nativeToolExec` / `nativeBudget` / orchestration; as-built in ARCHITECTURE_NOW §3.
 - Sidecar self-heal plan (implemented): `docs/archived_v3/SIDECAR_SELF_HEAL_PLAN_2026-11-25.md` — JetBrains "Sidecar not running": Node 22 resolve/download, `sidecar.ready` late bootstrap, `STEWART_NODE`; as-built in ARCHITECTURE_NOW §1.
 
 `docs/archived_v2/` — superseded or completed v2-era plans and builds:

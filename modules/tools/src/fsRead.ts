@@ -126,7 +126,7 @@ function findMatch(p: string, base: string, matcher: RegExp, results: string[]):
   return true;
 }
 
-async function locEntry(paths: ProjectPaths, rel: string): Promise<{ path: string; loc: number | null }> {
+export async function locEntry(paths: ProjectPaths, rel: string): Promise<{ path: string; loc: number | null }> {
   try {
     const st = await paths.stat(rel);
     if (st.size > MAX_FILE_BYTES) return { path: rel, loc: null };

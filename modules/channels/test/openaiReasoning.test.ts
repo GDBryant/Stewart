@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OpenAICompatAdapter } from "../src/openai.js";
-import { probeReasoningControl, reasoningBody, reasoningRouting, reasoningTokensOf, type ProbePost } from "../src/openaiReasoning.js";
+import { probeReasoningControl, suggestReasoningField, reasoningBody, reasoningRouting, reasoningTokensOf, type ProbePost } from "../src/openaiReasoning.js";
 import { collect, fakeFetcher } from "@stewart/kernel";
 import type { ChannelConfig, ChatRequest } from "../src/types.js";
 
@@ -106,10 +106,11 @@ describe("OpenAICompatAdapter.probeCaps reasoning", () => {
     expect(caps).toEqual({ tools: "native", reasoningControl: true });
   });
 
-  it("does not probe reasoning on a none channel, and omits the key when inconclusive", async () => {
+  it("never sends a reasoning field on a none channel (one baseline, no reasoning tokens → no suggestion), and omits the key when inconclusive", async () => {
     const { fetcher, calls } = fakeFetcher([{ body: ok({}, true) }]);
     expect(await new OpenAICompatAdapter({ fetcher }).probeCaps(cfg("none"), undefined, "m")).toEqual({ tools: "native" });
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls.slice(1).every((c) => !/reasoning_effort|enable_thinking/.test(c.body ?? ""))).toBe(true);
     const f2 = fakeFetcher([{ body: ok({}, true) }, { body: ok({}) }]);
     expect(await new OpenAICompatAdapter({ fetcher: f2.fetcher }).probeCaps(cfg("reasoning_effort"), undefined, "m")).toEqual({ tools: "native" });
   });
@@ -209,5 +210,33 @@ describe("reasoning field rejected by the provider", () => {
     const c = mk([{ status: 400, body: "bad" }, { status: 400, body: "still bad" }]);
     await expect(run(c.mc, chatReq({ effort: "low" }))).rejects.toMatchObject({ status: 400 });
     expect(c.calls).toHaveLength(2);
+  });
+});
+
+describe("suggestReasoningField", () => {
+  const withTokens = (n: number) => ({ status: 200, json: { usage: { completion_tokens_details: { reasoning_tokens: n } } } });
+  /** A model whose reasoning drops to 0 only when the named field is sent. */
+  const obeys = (field: string): ProbePost => async (b) => withTokens(field in b || (field === "enable_thinking" && "chat_template_kwargs" in b) ? 0 : 400);
+
+  it("returns the first candidate field that cut reasoning tokens", async () => {
+    expect(await suggestReasoningField(cfg(), "m", obeys("reasoning_effort"))).toBe("reasoning_effort");
+    expect(await suggestReasoningField(cfg(), "m", obeys("enable_thinking"))).toBe("enable_thinking");
+  });
+  it("says none when the model reasons and neither field cuts it", async () => {
+    expect(await suggestReasoningField(cfg(), "m", async () => withTokens(400))).toBe("none");
+  });
+  it("says nothing when the model does not reason or the baseline fails", async () => {
+    expect(await suggestReasoningField(cfg(), "m", async () => withTokens(0))).toBeUndefined();
+    expect(await suggestReasoningField(cfg(), "m", async () => ({ status: 500 }))).toBeUndefined();
+  });
+});
+
+describe("probeCaps on a channel with no reasoning field", () => {
+  const chatJson = (n: number) => JSON.stringify({ choices: [{ message: { tool_calls: [] } }], usage: { completion_tokens_details: { reasoning_tokens: n } } });
+  it("reports reasoningSuggest without changing config; none when the model does not reason", async () => {
+    const f1 = fakeFetcher([{ body: chatJson(300) }, { body: chatJson(300) }, { body: chatJson(300) }, { body: chatJson(300) }, { body: chatJson(300) }]);
+    expect((await new OpenAICompatAdapter({ fetcher: f1.fetcher }).probeCaps(cfg(), "k", "m")).reasoningSuggest).toBe("none");
+    const f2 = fakeFetcher([{ body: chatJson(0) }]);
+    expect("reasoningSuggest" in (await new OpenAICompatAdapter({ fetcher: f2.fetcher }).probeCaps(cfg(), "k", "m"))).toBe(false);
   });
 });

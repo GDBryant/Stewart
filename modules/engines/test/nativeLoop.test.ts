@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
+import { ChannelError, ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import type { AgentDef } from "@stewart/config";
 import type { ChatMessage, ToolCall } from "@stewart/kernel";
 import type { Tool } from "@stewart/tools";
@@ -7,7 +7,7 @@ import { ToolRegistry } from "@stewart/tools";
 import type { ApproveFn } from "@stewart/permissions";
 import { engineFor, nativeLoop, type EngineEvent, type EngineTurn } from "../src/api.js";
 import { collect } from "@stewart/kernel";
-import { budgetTurn } from "../src/nativeLoop.js";
+import { budgetTurn } from "../src/nativeBudget.js";
 
 function fakeChannel(turns: ChatEvent[][], onReq?: (req: unknown) => void): ManagedChannel {
   let i = 0;
@@ -621,5 +621,73 @@ describe("native-loop truncation and think", () => {
     expect(reqs[0]).toMatchObject({ think: true, effort: "high" });
     expect(reqs[1]).toMatchObject({ think: false });
     expect("effort" in reqs[1]).toBe(false);
+  });
+});
+
+describe("transient provider errors", () => {
+  function flaky(failures: Error[], then: ChatEvent[], seen: { n: number }, partial?: ChatEvent): ManagedChannel {
+    const adapter: ChannelAdapter = {
+      type: "fake",
+      listModels: async () => ["m"],
+      probeCaps: async () => ({}),
+      chat: async function* () {
+        seen.n++;
+        const f = failures.shift();
+        if (f) {
+          if (partial) yield partial;
+          throw f;
+        }
+        yield* then;
+      },
+    };
+    return new ManagedChannel(adapter, { id: "c", type: "fake", enabled: true, maxParallel: 1 });
+  }
+  const ok: ChatEvent[] = [{ kind: "text", text: "fine" }, { kind: "done" }];
+  const gw = (): Error => new ChannelError("POST /chat/completions → 504: GatewayTimeout", 504);
+
+  it("repeats the request after a 504 and logs a retry diag", async () => {
+    const seen = { n: 0 };
+    const evs = await collect(nativeLoop.run(turn({ channel: flaky([gw()], ok, seen), retryDelaysMs: [0, 0] })));
+    expect(seen.n).toBe(2);
+    expect(evs.find((e) => e.kind === "diag" && e.tag === "retry")).toBeTruthy();
+    expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "stop" });
+  });
+  it("finishes with an error once the retries are used up", async () => {
+    const seen = { n: 0 };
+    const evs = await collect(nativeLoop.run(turn({ channel: flaky([gw(), gw(), gw()], ok, seen), retryDelaysMs: [0, 0] })));
+    expect(seen.n).toBe(3);
+    expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "error" });
+  });
+  it("does not retry by default on short runs (probes, conformance): maxTurns < 10", async () => {
+    const seen = { n: 0 };
+    const evs = await collect(nativeLoop.run(turn({ channel: flaky([gw()], ok, seen), maxTurns: 3 })));
+    expect(seen.n).toBe(1);
+    expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "error" });
+  });
+  it("retries by default on full runs (maxTurns >= 10)", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen = { n: 0 };
+      const p = collect(nativeLoop.run(turn({ channel: flaky([gw()], ok, seen), maxTurns: 60 })));
+      await vi.advanceTimersByTimeAsync(2_000);
+      const evs = await p;
+      expect(seen.n).toBe(2);
+      expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "stop" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("does not repeat a non-transient failure", async () => {
+    const seen = { n: 0 };
+    const bad = new ChannelError("401", 401);
+    const evs = await collect(nativeLoop.run(turn({ channel: flaky([bad], ok, seen), retryDelaysMs: [0, 0] })));
+    expect(seen.n).toBe(1);
+    expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "error" });
+  });
+  it("does not repeat after output has started streaming", async () => {
+    const seen = { n: 0 };
+    const evs = await collect(nativeLoop.run(turn({ channel: flaky([gw()], ok, seen, { kind: "text", text: "par" }), retryDelaysMs: [0, 0] })));
+    expect(seen.n).toBe(1);
+    expect(evs.at(-1)).toMatchObject({ kind: "finished", reason: "error" });
   });
 });

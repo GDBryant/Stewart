@@ -6,6 +6,8 @@ const WINDOW = 20;
 /** Model turns without a successful file write after which the model is asked to re-plan. */
 export const NO_WRITE_TURNS = 40;
 const WRITE_TOOLS = new Set(["WriteFile", "EditFile", "ApplyPatch"]);
+/** A scratch script: a script file under /tmp or hidden in the project root. */
+const SCRATCH_SCRIPT = /^(?:\/tmp\/[^\n]*|\.[^/\n]+)\.(?:py|sh|mjs|js|rb)$/;
 const PATH_TOKEN = /(?:^|\s)(~?\/[^\s'"`;|&]+)/;
 
 const isAbs = (p: string): boolean => p.startsWith("/") || p.startsWith("~");
@@ -45,14 +47,20 @@ export class ExploreGuard {
   private wrote = false;
   private readonly dirs = new Map<string, number[]>();
   private readonly nudged = new Set<string>();
+  private scriptNudged = false;
 
   constructor(private readonly opts: ExploreOpts) {}
 
   /** One finished tool call; returns a nudge to show the model, if any. */
   record(call: ToolCall, ok: boolean): string | undefined {
     if (ok && WRITE_TOOLS.has(call.name)) this.wrote = true;
-    if (call.name !== "RunTerminal") return undefined;
-    const prefix = dirPrefix(call.arguments, this.opts.root);
+    if (call.name === "WriteFile") return ok ? this.scratchScript(call.arguments) : undefined;
+    return call.name === "RunTerminal" ? this.sweep(call.arguments) : undefined;
+  }
+
+  /** One terminal call: nudge once per directory prefix hit `SAME_DIR` times within `WINDOW` turns. */
+  private sweep(args: Record<string, unknown>): string | undefined {
+    const prefix = dirPrefix(args, this.opts.root);
     if (!prefix || this.nudged.has(prefix)) return undefined;
     const hits = (this.dirs.get(prefix) ?? []).filter((t) => this.turn - t < WINDOW);
     hits.push(this.turn);
@@ -60,6 +68,14 @@ export class ExploreGuard {
     if (hits.length < SAME_DIR) return undefined;
     this.nudged.add(prefix);
     return `[Stewart] ${hits.length} terminal commands on ${prefix} in the last ${WINDOW} turns. Stop sweeping it: summarise what you have learned, make the change with what you know, or ask the user.`;
+  }
+
+  /** Once per run: a helper script written to a scratch path gets a pointer to the purpose-built tools. */
+  private scratchScript(args: Record<string, unknown>): string | undefined {
+    const path = typeof args.path === "string" ? args.path : "";
+    if (this.scriptNudged || !SCRATCH_SCRIPT.test(path)) return undefined;
+    this.scriptNudged = true;
+    return `[Stewart] You wrote a scratch script (${path}). Scratch scripts cost turns and leave files behind: for a project health check call health_batches and delegate the batches; otherwise use Search, FindFiles or ListCodeFiles.`;
   }
 
   /** Close one model turn; returns the no-write nudge every `NO_WRITE_TURNS` turns without a write. */

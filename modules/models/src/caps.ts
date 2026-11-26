@@ -39,6 +39,8 @@ export type ModelCaps = {
   reasoning: boolean;
   /** Probe result: the channel's reasoning field cuts reasoning tokens on this model; false = never send it, undefined = not probed. */
   reasoningControl?: boolean;
+  /** Probe result on a channel with no `reasoning` field set: the field that cut reasoning tokens on this model, or `none` when the model reasons and neither candidate did. Advisory only: never written to config. */
+  reasoningSuggest?: "reasoning_effort" | "enable_thinking" | "none";
   imageGen: boolean;
   contextTokens: number;
   numCtx?: number;

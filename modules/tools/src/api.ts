@@ -6,6 +6,7 @@ export type { Tool, ToolProvider, ToolOutcome } from "./types.js";
 export { projectTools } from "./builtins.js";
 export type { ProjectToolsDeps } from "./builtins.js";
 export { ListCodeFiles } from "./fsRead.js";
+export { HealthBatches } from "./healthBatches.js";
 export { CodeMetrics } from "./codeMetrics.js";
 export { applyUnifiedPatch } from "./fsWrite.js";
 export type { ImageGenerator } from "./media.js";

@@ -199,6 +199,7 @@ describe("lead turn checks", () => {
       async function* (turn: EngineTurn) {
         expect(turn.tools.find("set_task")).toBeUndefined();
         expect(turn.tools.find("set_check")).toBeTruthy();
+        expect(turn.tools.find("health_batches")).toBeTruthy();
         turn.transcript.push({ role: "assistant", content: "ok" });
         yield { kind: "finished", reason: "stop" };
       },

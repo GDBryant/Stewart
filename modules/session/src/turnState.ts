@@ -83,7 +83,7 @@ export function err(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-const READ_TOOLS = new Set(["delegate", "ReadFile", "ListCodeFiles", "FindFiles", "Search", "GetDiff", "CodeMetrics", "GetProblems", "Read", "Grep", "Glob", "LS"]);
+const READ_TOOLS = new Set(["delegate", "ReadFile", "ListCodeFiles", "health_batches", "FindFiles", "Search", "GetDiff", "CodeMetrics", "GetProblems", "Read", "Grep", "Glob", "LS"]);
 
 /** True for tools whose success means the agent looked at the project. */
 export function isReadTool(tool: string): boolean {

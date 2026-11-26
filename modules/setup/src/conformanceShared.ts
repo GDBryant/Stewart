@@ -47,15 +47,19 @@ export function agentCriteria(content: string, wcOk: boolean, transcript: ChatMe
 /** Probe message ≈ 28k real tokens: a 32k-class window must hold it plus the reply. */
 export const PROBE_MIN_CHARS = 84_000;
 const USAGE_MIN_TOKENS = 20_000;
+/** Larger re-probe (≈62k real tokens): a model passing it has a window of at least LARGE_WINDOW. */
+export const LARGE_PROBE_CHARS = 186_000;
+export const LARGE_WINDOW = 64_000;
+const LARGE_USAGE_MIN_TOKENS = 56_000;
 const PROBE_WORD = "quillfeather";
 
 /** Probe message: the code word on line 1, then numbered filler lines. */
-export function probeMessage(): string {
+export function probeMessage(minChars: number = PROBE_MIN_CHARS): string {
   const head = `The code word is ${PROBE_WORD}.\n`;
   const tail = "\nReply with only the code word from the first line.";
   const parts: string[] = [head];
   let len = head.length + tail.length;
-  for (let i = 1; len < PROBE_MIN_CHARS; i++) {
+  for (let i = 1; len < minChars; i++) {
     const line = `line ${i}: lorem ipsum dolor sit amet\n`;
     len += line.length;
     parts.push(line);
@@ -84,15 +88,16 @@ export function channelProbe(channel: ManagedChannel, model: string): ProbeTrans
 }
 
 /** Window probe: the model must echo a word from the top of a ≈28k-token message; undefined = pass. */
-async function windowProbe(transport: ProbeTransport): Promise<string | undefined> {
+export async function windowProbe(transport: ProbeTransport, large = false): Promise<string | undefined> {
   let reply: { text: string; truncated?: boolean; usageIn?: number };
+  const minTokens = large ? LARGE_USAGE_MIN_TOKENS : USAGE_MIN_TOKENS;
   try {
-    reply = await transport(probeMessage());
+    reply = await transport(probeMessage(large ? LARGE_PROBE_CHARS : PROBE_MIN_CHARS));
   } catch (e) {
     return errorMessage(e);
   }
   if (reply.truncated) return "reply truncated";
-  if (reply.usageIn !== undefined && reply.usageIn < USAGE_MIN_TOKENS)
+  if (reply.usageIn !== undefined && reply.usageIn < minTokens)
     return `prompt truncated by provider (${reply.usageIn} tokens evaluated)`;
   if (!reply.text.toLowerCase().includes(PROBE_WORD)) return "code word not echoed";
   return undefined;
@@ -106,4 +111,16 @@ export async function contextQual(ch: ChannelDef, model: string, now: number, io
   return reason === undefined
     ? { ...qual(true, now), context: AGENT_MIN_CONTEXT }
     : qual(false, now, `context window below ${AGENT_MIN_CONTEXT} (window probe failed: ${reason})`);
+}
+
+/** Models whose recorded window is only the probe floor (no provider-reported window) and may be larger. */
+export function needsLargeProbe(ch: ChannelDef, model: string): boolean {
+  const p = resolveModelProfile({ channels: [ch] }, { channel: ch.id, model });
+  return p.contextTokens === undefined && p.caps.qualified?.agent?.context === AGENT_MIN_CONTEXT;
+}
+
+/** Re-probe with a ≈62k-token message; returns the verified window (LARGE_WINDOW) or undefined when the probe fails. */
+export async function reprobeWindow(ch: ChannelDef, model: string, channel: ManagedChannel, transport?: ProbeTransport): Promise<number | undefined> {
+  const reason = await windowProbe(transport ?? channelProbe(channel, model), true);
+  return reason === undefined ? LARGE_WINDOW : undefined;
 }

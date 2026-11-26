@@ -6,6 +6,7 @@ export type { RecommendChannelInfo, Assignment, RecommendOptions, RecommendResul
 export { BENCH_VERSION, benchModel } from "./bench.js";
 export { CONFORMANCE_VERSION, qualifyAgent, qualifyFunction, agentBlockReason, usesEngineTransport } from "./conformance.js";
 export type { QualifyDeps } from "./conformance.js";
+export { needsLargeProbe, reprobeWindow, LARGE_WINDOW } from "./conformanceShared.js";
 export type { QualifyResult } from "./probeTypes.js";
 export { scanWorkspace, gatherHardware, SCAN_FILE_CAP, SCAN_DEADLINE_MS } from "./setupContext.js";
 export type { WorkspaceInfo, HardwareInfo, SetupContext } from "./setupContext.js";

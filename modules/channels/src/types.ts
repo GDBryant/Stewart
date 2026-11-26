@@ -64,7 +64,7 @@ export interface ChannelAdapter {
   generateImage?(cfg: ChannelConfig, secret: string | undefined, model: string, prompt: string): Promise<{ base64: string }>;
 }
 
-export type ChannelDeps = { fetcher: Fetcher; stallTimeoutMs?: number; debug?: DebugSink };
+export type ChannelDeps = { fetcher: Fetcher; stallTimeoutMs?: number; /** Max wait for the first response byte of a chat request (default 120 s). */ firstTokenTimeoutMs?: number; debug?: DebugSink };
 
 export class ChannelError extends Error {
   constructor(message: string, readonly status?: number, readonly retryAfterMs?: number, readonly code?: string) {

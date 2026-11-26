@@ -1,6 +1,7 @@
 import type { ChannelAdapter, ChannelConfig, ChannelDeps, ChatEvent, ChatRequest } from "./types.js";
 import { ChannelError } from "./types.js";
-import { probeReasoningControl, reasoningBody, reasoningField } from "./openaiReasoning.js";
+import { probeReasoningControl, reasoningBody, reasoningField, suggestReasoningField } from "./openaiReasoning.js";
+import { firstTokenDeadline } from "./transient.js";
 import { postForStream, sseData, StreamAccumulator, type WireDelta } from "./stream.js";
 
 function url(cfg: ChannelConfig, path: string): string {
@@ -127,12 +128,16 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     const j = JSON.parse(body);
     const msg = j.choices?.[0]?.message;
     const tools = Array.isArray(msg?.tool_calls) ? "native" : "unknown";
-    if (reasoningField(cfg) === "none") return { tools };
-    const reasoningControl = await probeReasoningControl(cfg, model, async (b) => {
+    const post = async (b: Record<string, unknown>): Promise<{ status: number; json?: unknown }> => {
       const pr = await this.deps.fetcher(url(cfg, "/chat/completions"), { method: "POST", headers: this.headers(cfg, secret), body: JSON.stringify(b) });
       const text = await new Response(pr.body).text();
       return { status: pr.status, json: pr.status === 200 ? JSON.parse(text) : undefined };
-    });
+    };
+    if (reasoningField(cfg) === "none") {
+      const reasoningSuggest = await suggestReasoningField(cfg, model, post).catch(() => undefined);
+      return reasoningSuggest === undefined ? { tools } : { tools, reasoningSuggest };
+    }
+    const reasoningControl = await probeReasoningControl(cfg, model, post);
     return reasoningControl === undefined ? { tools } : { tools, reasoningControl };
   }
 
@@ -153,28 +158,41 @@ export class OpenAICompatAdapter implements ChannelAdapter {
     const dbg = this.deps.debug;
     const body = chatBody(cfg, req);
     dbg?.record({ direction: "outgoing", provider: this.type, model: req.model, payload: body });
-    const stream = await postForStream(
-      { deps: this.deps, provider: this.type, model: req.model },
-      url(cfg, "/chat/completions"),
-      { headers: this.headers(cfg, secret), signal: req.signal, body },
-      (status, text) => new ChannelError(`POST /chat/completions → ${status}: ${text.slice(0, 200)}`, status),
-    );
+    const deadline = firstTokenDeadline(req.signal, this.deps.firstTokenTimeoutMs ?? 120_000);
     const acc = new StreamAccumulator();
+    let opened = false;
     try {
-      for await (const data of sseData(stream, req.signal, this.deps.stallTimeoutMs ?? 60_000)) {
-        dbg?.record({ direction: "incoming", provider: this.type, model: req.model, payload: data });
-        let j: OpenAIChunk;
-        try {
-          j = JSON.parse(data);
-        } catch {
-          continue; // fail closed on malformed chunks
-        }
-        for (const d of openAiDeltas(j)) yield* acc.apply(d);
-      }
+      const stream = await postForStream(
+        { deps: this.deps, provider: this.type, model: req.model },
+        url(cfg, "/chat/completions"),
+        { headers: this.headers(cfg, secret), signal: deadline.signal, body },
+        (status, text) => new ChannelError(`POST /chat/completions → ${status}: ${text.slice(0, 200)}`, status),
+      );
+      opened = true;
+      yield* this.readStream(stream, deadline, req.model, acc);
     } catch (e) {
-      dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: e instanceof Error ? e.message : String(e) });
-      throw e;
+      const out = deadline.timedOut() ? deadline.error() : e;
+      // HTTP and connection failures are already recorded by postForStream; stream failures and timeouts are recorded here.
+      if (opened || out !== e) dbg?.record({ direction: "error", provider: this.type, model: req.model, payload: out instanceof Error ? out.message : String(out) });
+      throw out;
+    } finally {
+      deadline.clear();
     }
     yield* acc.finish();
+  }
+
+  private async *readStream(stream: ReadableStream<Uint8Array>, deadline: ReturnType<typeof firstTokenDeadline>, model: string, acc: StreamAccumulator): AsyncGenerator<ChatEvent> {
+    const dbg = this.deps.debug;
+    for await (const data of sseData(stream, deadline.signal, this.deps.stallTimeoutMs ?? 60_000)) {
+      deadline.clear();
+      dbg?.record({ direction: "incoming", provider: this.type, model, payload: data });
+      let j: OpenAIChunk;
+      try {
+        j = JSON.parse(data);
+      } catch {
+        continue; // fail closed on malformed chunks
+      }
+      for (const d of openAiDeltas(j)) yield* acc.apply(d);
+    }
   }
 }

@@ -125,4 +125,8 @@ describe("project-health skill", () => {
     expect(body()).toContain("health_report");
     expect(body()).not.toContain("reviewer");
   });
+  it("gets batches from health_batches instead of manual packing", () => {
+    expect(body()).toContain("health_batches");
+    expect(body()).not.toContain("call ListCodeFiles");
+  });
 });

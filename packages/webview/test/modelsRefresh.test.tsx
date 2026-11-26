@@ -51,6 +51,16 @@ describe("models refresh", () => {
     expect(store.state.refreshSummary).toBe("models refresh: +2 agents, 1 removed, 1 channel unreachable");
   });
 
+  it("summarizes re-probed larger windows and omits the part when none", () => {
+    const { bridge, store } = mk();
+    store.refreshModels();
+    act(() => bridge.inbound({ type: "models.refresh.result", ok: true, reprobed: ["a1", "a2"] }));
+    expect(store.state.refreshSummary).toBe("models refresh: 2 larger windows");
+    store.refreshModels();
+    act(() => bridge.inbound({ type: "models.refresh.result", ok: true, reprobed: [] }));
+    expect(store.state.refreshSummary).toBe("models refresh: agents up to date");
+  });
+
   it("reports failure on lastError and unlatches", () => {
     const { bridge, store } = mk();
     store.refreshModels();

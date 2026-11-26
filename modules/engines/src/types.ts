@@ -48,6 +48,8 @@ export interface EngineTurn {
   window?: number;
   /** Role `think` setting: false asks the channel not to emit reasoning. */
   think?: boolean;
+  /** Waits before each repeat of a request that failed transiently with no output (default `RETRY_DELAYS_MS`); tests pass `[0, 0]`. */
+  retryDelaysMs?: readonly number[];
   /** Effective reasoning depth (role override > agent > medium); engines pass it to the provider where supported. */
   effort?: Effort;
   /**

@@ -680,6 +680,7 @@ describe("SessionService delegate", () => {
         expect(names).not.toContain("delegate");
         expect(names).not.toContain("WriteFile");
         expect(names).not.toContain("health_report");
+        expect(names).not.toContain("health_batches");
         turn.transcript.push({ role: "assistant", content: "found nothing" });
         yield { kind: "finished", reason: "stop" };
       },

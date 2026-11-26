@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { projectTools } from "../src/builtins.js";
+import { HealthBatches } from "../src/healthBatches.js";
 import { ProjectPaths } from "../src/projectPaths.js";
 import { ToolRegistry, type Tool } from "../src/types.js";
 import { fakeHost } from "@stewart/kernel";
@@ -368,5 +369,48 @@ describe("ApplyPatch / GetProblems / GetDiff / ReadImage / GenerateImage", () =>
     const preview = await tool.preview!({});
     expect(categoryOf(preview, tool)).toBe("MCP:linear");
     expect(await tool.execute({}, preview, sig)).toBe("issues");
+  });
+});
+
+describe("HealthBatches", () => {
+  async function tool(files: Record<string, string>) {
+    const h = fakeHost(files);
+    const paths = await ProjectPaths.forProject(h.host);
+    return new HealthBatches(h.host, paths);
+  }
+  const many = (n: number, loc = 1): Record<string, string> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`src/f${String(i).padStart(3, "0")}.ts`, "x\n".repeat(loc)]));
+
+  it("splits source files into batches of at most 8 files with a summary header", async () => {
+    const out = (await (await tool({ ...many(10), "README.md": "doc", "dist/a.js": "x" })).execute({}, null, sig)) as string;
+    const lines = out.split("\n");
+    expect(lines[0]).toMatch(/^10 files, 10 lines, 2 batches\./);
+    expect(lines[1]).toMatch(/^batch 1 \(8 files, 8 lines\): src\/f000\.ts /);
+    expect(lines[2]).toMatch(/^batch 2 \(2 files, 2 lines\): src\/f008\.ts src\/f009\.ts$/);
+    expect(lines[3]).toBe("[end of batches]");
+    expect(out).not.toContain("README.md");
+    expect(out).not.toContain("dist/");
+  });
+  it("pages by from, naming the next page and rejecting one past the end", async () => {
+    const t = await tool(many(8 * 20));
+    const first = (await t.execute({}, null, sig)) as string;
+    expect(first.split("\n").filter((l) => l.startsWith("batch ")).length).toBe(15);
+    expect(first).toContain("[next: from=16; 5 batches remain]");
+    const second = (await t.execute({ from: 16 }, null, sig)) as string;
+    expect(second).toContain("batch 20 ");
+    expect(second).toContain("[end of batches]");
+    expect(await t.execute({ from: 99 }, null, sig)).toBe("no batch 99; there are 20");
+  });
+  it("keeps big files in their own batch, and an oversize file counts as 3000 lines", async () => {
+    const out = (await (await tool({ "a.ts": "x\n".repeat(2900), "b.ts": "x\n".repeat(200), "huge.ts": "x".repeat(1_000_001) })).execute({}, null, sig)) as string;
+    expect(out).toMatch(/3 batches/);
+    expect(out).toContain("batch 3 (1 files, 3000 lines): huge.ts");
+  });
+  it("scopes to path, honours include_tests, reports empty, and rejects escapes and missing dirs", async () => {
+    const t = await tool({ "src/a.ts": "x", "src/a.test.ts": "x", "other/b.ts": "x" });
+    expect(await t.execute({ path: "src" }, null, sig)).toContain("batch 1 (1 files, 1 lines): src/a.ts");
+    expect(await t.execute({ path: "src", include_tests: true }, null, sig)).toContain("src/a.test.ts");
+    expect(await (await tool({ "README.md": "d" })).execute({}, null, sig)).toBe("no source files");
+    await expect(t.execute({ path: "../x" }, null, sig)).rejects.toThrow(/escapes workspace/);
+    await expect(t.execute({ path: "nope" }, null, sig)).rejects.toThrow(/not found/);
   });
 });

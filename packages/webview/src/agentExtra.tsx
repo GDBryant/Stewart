@@ -8,6 +8,15 @@ export function isUnmeteredAgent(item: AgentSummary, ch: ChannelSummary | undefi
   return item.billing === "unmetered" || (!item.billing && ch?.type === "openai-compatible" && ch.id !== "aif");
 }
 
+/** Probe advice for a channel with no reasoning field: name the field to set, or warn that reasoning cannot be turned down. */
+function ReasoningHint({ suggest }: { suggest: unknown }) {
+  if (suggest === "reasoning_effort" || suggest === "enable_thinking") {
+    return <span class="badge warn" title={`Set this channel's "reasoning field" to ${suggest} in Settings to cut reasoning on routine turns`}>set reasoning field: {suggest}</span>;
+  }
+  if (suggest === "none") return <span class="badge warn" title="The model reasons and neither request field reduced it; routine turns stay slow">reasoning not controllable</span>;
+  return null;
+}
+
 function CapBadges({ caps }: { caps: Record<string, unknown> }) {
   return (
     <>
@@ -15,6 +24,7 @@ function CapBadges({ caps }: { caps: Record<string, unknown> }) {
       {caps.vision ? <span class="badge">vision</span> : null}
       {caps.reasoning ? <span class="badge">reasoning</span> : null}
       {caps.imageGen ? <span class="badge">imageGen</span> : null}
+      <ReasoningHint suggest={caps.reasoningSuggest} />
       {typeof caps.contextTokens === "number" ? <span class="badge">{Math.round(caps.contextTokens / 1000)}k</span> : null}
     </>
   );
@@ -54,8 +64,9 @@ export function AgentExtra({ item, channels, store }: { item: AgentSummary; chan
   const ch = channels.find((c) => c.id === item.channel);
   const probe = store.state.probeResults[`${item.channel}:${item.model}`];
   const staticCaps = (ch?.modelCaps?.[item.model] ?? {}) as Record<string, unknown>;
-  const caps = { ...staticCaps, ...(probe?.caps ?? {}) };
-  const qualStored = (ch?.modelCaps?.[item.model] as Record<string, unknown> | undefined)?.qualified as { agent?: { passed: boolean; version?: number }; function?: { passed: boolean; version?: number } } | undefined;
+  const qualStored = (ch?.modelCaps?.[item.model] as Record<string, unknown> | undefined)?.qualified as { agent?: { passed: boolean; version?: number; context?: number }; function?: { passed: boolean; version?: number } } | undefined;
+  const merged = { ...staticCaps, ...(probe?.caps ?? {}) };
+  const caps = typeof merged.contextTokens === "number" || qualStored?.agent?.context === undefined ? merged : { ...merged, contextTokens: qualStored.agent.context };
   const qual = store.state.qualResults[`${item.channel}:${item.model}`] ?? qualStored;
   const [pending, setPending] = useState<{ prev: unknown } | null>(null);
   const waiting = pending !== null && pending.prev === probe;

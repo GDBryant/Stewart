@@ -7,7 +7,7 @@ import type { AgentDef } from "@stewart/config";
 import { agentContext, eligibleChain, type EffectiveConfig } from "@stewart/roles-skills";
 import { ChatHistoryStore } from "./history.js";
 import { RunLedger } from "@stewart/ledger";
-import { ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
+import { HealthBatches, ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
 import { engineFor as defaultEngineFor, type Engine } from "@stewart/engines";
 import { changeTracker, type ChangeTracker } from "@stewart/tasks";
 import { leadRole, systemPrompt } from "./lead.js";
@@ -179,7 +179,7 @@ export class SessionService {
     const deps = await this.taskDeps(w);
     const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
     const children = new ChildRunner({ ...deps, ids: this.deps.ids, stateDir: w.stateDir, sessionId: w.sessionId, runId: w.runId, agent: chain[0], ledger: deps.ledger, parent: w.rs });
-    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
+    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), new HealthBatches(this.deps.host, w.paths), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
     const res = await runTask(
       {

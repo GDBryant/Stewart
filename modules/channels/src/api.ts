@@ -1,5 +1,6 @@
 // Public surface of @stewart/channels. Only this file is importable from outside.
 export { ChannelError, BusinessPolicyError } from "./types.js";
+export { isTransientError, FIRST_TOKEN_TIMEOUT } from "./transient.js";
 export type { ChatEvent, ChatRequest, ChannelConfig, ChannelAdapter, ChannelDeps } from "./types.js";
 export { ManagedChannel, ChannelRegistry } from "./registry.js";
 export { OllamaAdapter, extractError, estimatePromptTokens, autoNumCtx } from "./ollama.js";

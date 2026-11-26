@@ -90,8 +90,8 @@ When the task asks for a health report, follow the required JSON contract suppli
   {
     id: "project-health",
     description: "Whole-project code-health report via parallel auditors.",
-    version: 2,
-    body: `For a project or folder health check: call ListCodeFiles for the scope; split the files into batches of at most 8 files and 3000 lines; delegate each batch to the auditor (the role carrying the code-health skill) in parallel with report "health", a task naming every file, and scope entries for every file or file:start-end assigned; delegate one 'Project checks' task to tester with report "health" to detect and run the project's test or coverage command once; after every delegated task has finished, call health_report (even when delegated tasks fail, and again if it reports tasks still running) and give the user its summary, coverage status and the report path. Do not score files yourself, do not use rejected worker output as findings, and do not promote unverified worker claims to verified findings.`,
+    version: 3,
+    body: `For a project or folder health check: call health_batches for the scope (it returns the files already split into batches of at most 8 files and 3000 lines; page with from=N until it says end of batches; never pack or script batches yourself); delegate each batch to the auditor (the role carrying the code-health skill) in parallel with report "health", a task naming every file, and scope entries for every file or file:start-end assigned; delegate one 'Project checks' task to tester with report "health" to detect and run the project's test or coverage command once; after every delegated task has finished, call health_report (even when delegated tasks fail, and again if it reports tasks still running) and give the user its summary, coverage status and the report path. Do not score files yourself, do not use rejected worker output as findings, and do not promote unverified worker claims to verified findings.`,
   },
   {
     id: "docs-writing",

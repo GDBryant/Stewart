@@ -973,6 +973,23 @@ describe("webview settings", () => {
     expect(screen.getByText("Re-probe")).toBeTruthy();
   });
 
+  it("probe advice: names the reasoning field to set, warns when uncontrollable, nothing otherwise", () => {
+    const { bridge } = mk();
+    fireEvent.click(screen.getAllByText("Settings")[0]);
+    act(() => bridge.inbound(configReply));
+    fireEvent.click(screen.getByText("agents"));
+    const probe = (reasoningSuggest?: string) =>
+      act(() => bridge.inbound({ type: "channel.probe.result", channelId: "c1", model: "m", ok: true, caps: { tools: "native", ...(reasoningSuggest ? { reasoningSuggest } : {}) }, probedAt: 1 }));
+    probe();
+    expect(screen.queryByText(/set reasoning field/)).toBeNull();
+    expect(screen.queryByText("reasoning not controllable")).toBeNull();
+    probe("enable_thinking");
+    expect(screen.getByText("set reasoning field: enable_thinking")).toBeTruthy();
+    probe("none");
+    expect(screen.getByText("reasoning not controllable")).toBeTruthy();
+    expect(screen.queryByText(/set reasoning field/)).toBeNull();
+  });
+
   it("+ Add opens a draft card and saves config.set only after an id is entered", () => {
     const { bridge } = mk();
     fireEvent.click(screen.getAllByText("Settings")[0]);

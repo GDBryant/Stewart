@@ -101,6 +101,54 @@ async function rig(opts: { channels?: ConfigLayer; models?: Record<string, Manag
 const itemsOf = (layer: ConfigLayer, file: string): Record<string, unknown>[] => ((parseYaml(layer[file] ?? "") as { items?: Record<string, unknown>[] } | null)?.items ?? []);
 const refresh = (core: Core) => core.dispatch("models.refresh", { projectId: "p" }) as Promise<{ ok: boolean; error?: string; added?: string[]; removed?: string[]; unreachable?: string[] }>;
 
+const FLOOR_CHANNELS = CHANNELS_YAML.replace("id: c1\n    type: ollama\n    enabled: true", `id: c1
+    type: ollama
+    enabled: true
+    modelCaps:
+      m1:
+        qualified:
+          agent: { passed: true, at: 1, version: 2, context: 32000 }`);
+
+function probeChannel(id: string, text: string, usageIn: number): ManagedChannel {
+  const base = mc(id, { list: async () => (id === "c1" ? ["m1"] : ["m9"]) });
+  return {
+    ...base,
+    cfg: { id, type: "ollama", modelCaps: {} },
+    chat: async function* () {
+      yield { kind: "text", text };
+      yield { kind: "done", usage: { in: usageIn, out: 1 } };
+    },
+  } as unknown as ManagedChannel;
+}
+
+describe("models.refresh window re-probe", () => {
+  it("asks once, probes floor-window agents and persists the larger window", async () => {
+    const r = await rig({ channels: { "channels.yaml": FLOOR_CHANNELS }, models: { c1: probeChannel("c1", "quillfeather", 62000), c2: mc("c2", { list: async () => ["m9"] }) } });
+    r.answer(["Re-probe"]);
+    const res = (await refresh(r.core)) as { ok: boolean; reprobed?: string[] };
+    expect(res).toMatchObject({ ok: true, reprobed: ["a1"] });
+    expect(r.questions.filter((q) => q.includes("Re-probe"))).toHaveLength(1);
+    const c1 = itemsOf(r.layer, "channels.yaml")[0] as { modelCaps: { m1: { qualified: { agent: { context: number; passed: boolean } } } } };
+    expect(c1.modelCaps.m1.qualified.agent).toMatchObject({ context: 64000, passed: true });
+  });
+
+  it("leaves the window alone when skipped, when the probe fails, or when no agent is at the floor", async () => {
+    const skip = await rig({ channels: { "channels.yaml": FLOOR_CHANNELS }, models: { c1: probeChannel("c1", "quillfeather", 62000), c2: mc("c2", { list: async () => ["m9"] }) } });
+    skip.answer(["Skip"]);
+    expect(await refresh(skip.core)).toMatchObject({ ok: true, reprobed: [] });
+    expect(skip.layer["channels.yaml"]).toBe(FLOOR_CHANNELS);
+
+    const fail = await rig({ channels: { "channels.yaml": FLOOR_CHANNELS }, models: { c1: probeChannel("c1", "quillfeather", 30000), c2: mc("c2", { list: async () => ["m9"] }) } });
+    fail.answer(["Re-probe"]);
+    expect(await refresh(fail.core)).toMatchObject({ ok: true, reprobed: [] });
+    expect(fail.layer["channels.yaml"]).toBe(FLOOR_CHANNELS);
+
+    const none = await rig({ models: { c1: mc("c1", { list: async () => ["m1"] }), c2: mc("c2", { list: async () => ["m9"] }) } });
+    expect(await refresh(none.core)).toMatchObject({ ok: true, reprobed: [] });
+    expect(none.questions).toHaveLength(0);
+  });
+});
+
 describe("models.refresh", () => {
   it("registers an agent for a new model on confirmation", async () => {
     const r = await rig({ models: { c1: mc("c1", { list: async () => ["m1", "m2"] }), c2: mc("c2", {}) } });

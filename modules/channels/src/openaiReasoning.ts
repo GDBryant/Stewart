@@ -56,3 +56,20 @@ export async function probeReasoningControl(cfg: ChannelConfig, model: string, p
     return undefined;
   }
 }
+
+export type ReasoningSuggest = "reasoning_effort" | "enable_thinking" | "none";
+
+/**
+ * For a channel with no reasoning field: tries each candidate field (`reasoning_effort`, then `enable_thinking`) and returns the first
+ * that cut reasoning tokens, `none` when the model reasons but neither did, undefined when it does not reason or the baseline failed.
+ */
+export async function suggestReasoningField(cfg: ChannelConfig, model: string, post: ProbePost): Promise<ReasoningSuggest | undefined> {
+  let reasons = false;
+  for (const field of ["reasoning_effort", "enable_thinking"] as const) {
+    const r = await probeReasoningControl({ ...cfg, reasoning: field }, model, post);
+    if (r === true) return field;
+    if (r === undefined) return reasons ? "none" : undefined; // baseline failed or model does not reason: a second candidate would repeat it
+    reasons = true;
+  }
+  return reasons ? "none" : undefined;
+}

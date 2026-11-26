@@ -3,6 +3,7 @@ import { questionPrompt } from "@stewart/interaction";
 import type { AgentDef, ChannelDef } from "@stewart/config";
 import { applyDecisions, diffModels, mintAgent, type AddedModel, type GoneAgent, type ListedChannel, type SyncDocs } from "@stewart/setup";
 import type { CoreCtx, ProjectCtx } from "./types.js";
+import { reprobeWindows } from "./modelsReprobe.js";
 import { catalogFor, docItems, writeItems } from "./util.js";
 
 /** One enabled channel's refresh discovery result; `error` set = unreachable. */
@@ -37,6 +38,7 @@ async function runModelsRefresh(core: CoreCtx, ctx: ProjectCtx, projectId: strin
   const probes = await discover(core, ctx);
   const ask = asker(ctx, (core.deps.ids ?? counterIds()).next("sync"));
   const d = await collectDecisions(core, ctx, probes, ask);
+  const reprobed = await reprobeWindows(core, ctx, new Set(probes.filter((p) => !p.error).map((p) => p.def.id)), ask);
   if (hasChanges(d)) {
     await applyToConfig(core, ctx, d);
     await core.reload(projectId);
@@ -48,6 +50,7 @@ async function runModelsRefresh(core: CoreCtx, ctx: ProjectCtx, projectId: strin
     disabledChannels: [...d.disableChannels],
     removedChannels: [...d.removeChannels],
     unreachable: unreachableIds(probes),
+    reprobed,
   };
 }
 

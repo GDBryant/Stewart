@@ -21,7 +21,7 @@ Format: one line per record in `<dir>/yyyy-MM-dd.log` (UTC day, appended, mode `
 `[<ISO-8601>] [<direction>] [<provider>] [<model>] [<payload>]`. Directions: `outgoing`, `incoming`, `stderr`,
 `error`, `event`. `\`, CR, LF and TAB are escaped in every field. Writes are buffered (about 250 ms) and flushed on exit.
 
-Host-log tags (not debug-log records): `reasoning_overrun: <n> reasoning chars with no answer…` — a request was cut for reasoning past 20k chars and retried with thinking off (see ARCHITECTURE_NOW §3j). `exploration_nudge: <message>` — the loop added a `[Stewart]` exploration nudge (terminal sweep of one directory, or 40 turns without a write).
+Host-log tags (not debug-log records): `reasoning_overrun: <n> reasoning chars with no answer…` — a request was cut for reasoning past 20k chars and retried with thinking off (see ARCHITECTURE_NOW §3j). `retry: <error>; attempt n of 3 in s` — a request failed transiently (5xx, 429, first-token timeout, network) before any output and is being repeated. `exploration_nudge: <message>` — the loop added a `[Stewart]` exploration nudge (terminal sweep of one directory, or 40 turns without a write).
 
 Redaction (before the sink): `Authorization` header values, standalone `Bearer <token>` and every stored channel
 secret value become `[REDACTED]`. Prompt and response text is otherwise verbatim, so treat the files as sensitive.

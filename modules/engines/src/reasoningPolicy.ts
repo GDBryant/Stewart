@@ -2,7 +2,7 @@ import type { ToolCall } from "@stewart/kernel";
 import type { EngineTurn } from "./types.js";
 
 /** Tools whose outcome needs no planning: the next turn can run with reasoning off. */
-const ROUTINE_TOOLS = new Set(["ReadFile", "Search", "FindFiles", "ListCodeFiles", "ReadImage", "GetDiff"]);
+const ROUTINE_TOOLS = new Set(["ReadFile", "Search", "FindFiles", "ListCodeFiles", "health_batches", "ReadImage", "GetDiff"]);
 /** Reasoning chars with no content or tool call after which a request is cut and retried with thinking off. */
 export const OVERRUN_CHARS = 20_000;
 
