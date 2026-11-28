@@ -612,6 +612,33 @@ class WebviewRouterTest {
     }
 
     @Test
+    fun `chat steer failure yields a typed result`() {
+        val rig = Rig { _, _ -> throw IllegalStateException("sidecar gone") }
+        rig.router.route("""{"type":"chat.steer","runId":"r1","text":"nudge"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.steer.result", m.type())
+        assertEquals("false", m["ok"]!!.jsonPrimitive.content)
+        assertEquals("sidecar gone", m["reason"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `chat steer non-object reply still yields a shaped result`() {
+        val rig = Rig { _, _ -> null }
+        rig.router.route("""{"type":"chat.steer","runId":"r1","text":"nudge"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.steer.result", m.type())
+    }
+
+    @Test
+    fun `chat send null reply still yields a shaped result`() {
+        val rig = Rig { _, _ -> null }
+        rig.router.route("""{"type":"chat.send","text":"hi"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.send.result", m.type())
+        assertEquals("true", m["ok"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `chat send replies with the shaped result`() {
         val rig = Rig { m, _ ->
             if (m == "chat.send") Json.parseToJsonElement("""{"runId":"r2","sessionId":"s1"}""") as JsonObject
