@@ -2,6 +2,7 @@
  * window.stewartHost { post(string) }; tests pass a MockBridge. */
 export type Outbound =
   | { type: "chat.send"; text: string; images?: string[]; sessionId?: string }
+  | { type: "chat.steer"; runId: string; text: string; images?: string[] }
   | { type: "chat.cancel"; runId: string }
   | { type: "chat.resume"; sessionId: string }
   | { type: "chat.revert"; sessionId: string; checkpoint?: string }
@@ -153,6 +154,8 @@ export type Inbound =
   | { type: "history.sessions"; sessions: SessionSummary[] }
   | { type: "slash.commands"; commands: import("@stewart/protocol").SlashCommandInfo[] }
   | { type: "history.messages"; sessionId: string; messages: StoredMessage[]; plan?: { goal?: string; status?: string; active?: boolean; milestones?: { id: string; title: string; status: string; checkpoint?: string }[] } }
+  | { type: "chat.send.result"; ok?: boolean; runId?: string; sessionId?: string; error?: string }
+  | { type: "chat.steer.result"; ok: boolean; reason?: string }
   | { type: "insertText"; text: string }
   | { type: "permissions.bypass.result"; on: boolean }
   | { type: "ready" }

@@ -1,7 +1,7 @@
 export type RouteMessage = { type: string; [k: string]: unknown };
 type MessageHandler = (message: RouteMessage) => Promise<void>;
 
-const CONTROL_MESSAGES = new Set(["chat.answer", "chat.approve", "chat.cancel"]);
+const CONTROL_MESSAGES = new Set(["chat.answer", "chat.approve", "chat.cancel", "chat.steer"]);
 
 export function createMessageDispatcher(handle: MessageHandler): MessageHandler {
   let queue: Promise<void> = Promise.resolve();

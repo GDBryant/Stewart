@@ -134,6 +134,9 @@ export const runEventSchema = z.discriminatedUnion("kind", [
 export type RunEvent = z.infer<typeof runEventSchema>;
 export type RunEventKind = RunEvent["kind"];
 
+/** Prefix marking a transcript user message as mid-run guidance; session writes it, the webview strips it on render. */
+export const STEWART_GUIDANCE_MARKER = "<stewart-guidance>";
+
 /** Wire shape of a slash command for discovery (`slash.list`); owned here so hosts and the registry share one type. */
 export interface SlashCommandInfo {
   name: string;
@@ -148,6 +151,7 @@ export interface SlashCommandInfo {
 export interface CoreRequests {
   hello: { params: Hello; result: HelloResult };
   "chat.send": { params: { projectId: string; text: string; images?: string[]; sessionId?: string }; result: { runId?: string; sessionId?: string } };
+  "chat.steer": { params: { projectId: string; runId: string; text: string; images?: string[] }; result: { ok: boolean; reason?: string } };
   "chat.cancel": { params: { projectId: string; runId: string }; result: { ok: true } };
   "chat.resume": { params: { projectId: string; sessionId: string }; result: { runId?: string; ok?: boolean; reason?: string } };
   "chat.revert": { params: { projectId: string; sessionId: string; checkpoint?: string }; result: { ok: boolean; filesRestored?: string[]; reason?: string } };
@@ -189,6 +193,7 @@ export interface CoreNotifications {
 export const METHODS = [
   "hello",
   "chat.send",
+  "chat.steer",
   "chat.cancel",
   "chat.resume",
   "chat.revert",

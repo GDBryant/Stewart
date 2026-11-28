@@ -34,7 +34,20 @@ export interface ChatItem {
   filesBaseline?: string;
   /** Show a "Revert this turn" action (failed run with a turn baseline). */
   revertTurn?: boolean;
+  /** Mid-run guidance sent while a run was active (steer accepted, or loaded from history). */
+  guidance?: boolean;
   plan?: PlanState;
+}
+
+/** One client-held follow-up: not posted until it reaches the head and nothing is running. */
+export interface OutboxItem {
+  id: string;
+  sessionId?: string;
+  text: string;
+  images?: string[];
+  createdAt: number;
+  status: "pending" | "sending" | "failed";
+  error?: string;
 }
 
 export const MAX_PENDING_IMAGES = 5;
@@ -114,6 +127,14 @@ export interface State {
   pendingImages: string[];
   draft: string;
   attachError?: string;
+  /** Client-held follow-up queue (panel memory only; lost on reload). */
+  outbox: OutboxItem[];
+  /** A dispatched outbox head returned a runId; held until its run.started arrives. */
+  outboxSending?: boolean;
+  /** A chat.steer request is in flight. */
+  steerPending?: boolean;
+  /** Inline composer warning for steer fallback/restore. */
+  steerWarning?: string;
   /** Host pushed text into the composer (e.g. "Add selection to chat"). */
   composerInsert?: { text: string; seq: number };
   /** Last {type:"error"} message; shown in Settings since it may carry no chat context. */

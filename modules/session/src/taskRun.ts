@@ -161,6 +161,7 @@ async function attempt(c: Ctx, agent: AgentDef, repair = false, effort?: Effort)
   const { spec, deps, ts } = c;
   const channel = deps.channelFor(agent.channel);
   const engine = (deps.engineFor ?? defaultEngineFor)(channel.cfg.type);
+  spec.run.steerable = !engine.caps.ownContext;
   ts.maxTurns = turnsFor(spec, repair);
   const turn = {
     sessionId: spec.sessionId,

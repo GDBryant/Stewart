@@ -36,6 +36,16 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
   return { runId: res.runId, sessionId: res.sessionId };
 }
 
+export async function handleChatSteer(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string; runId: string; text: string; images?: string[] };
+  const ctx = core.ctx(p.projectId);
+  const mention = await expandMentions(ctx.host, p.text);
+  for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
+  const norm = normalizeImages(p.images ?? []);
+  if (norm.dropped) ctx.host.log(`${norm.dropped} image(s) dropped: over size/count limits`);
+  return ctx.sessions.steer(p.runId, mention.text, norm.images.length ? norm.images : undefined);
+}
+
 export function handleChatCancel(core: CoreCtx, params: unknown): unknown {
   const p = params as { projectId: string; runId: string };
   return { ok: core.ctx(p.projectId).sessions.cancel(p.runId) };

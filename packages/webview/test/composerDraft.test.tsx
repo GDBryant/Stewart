@@ -50,13 +50,14 @@ describe("composer draft across view switches", () => {
     expect(store.state.draft).toBe("");
   });
 
-  it("rejects send while busy and keeps the draft", () => {
+  it("send while busy steers the active run instead of posting chat.send", () => {
     const { bridge, store } = mk();
     fireEvent.input(ta(), { target: { value: "still here" } });
     act(() => bridge.inbound(ev("run.started", { title: "x" })));
     act(() => store.send(store.state.draft));
     expect(bridge.sent.filter((m) => m.type === "chat.send")).toHaveLength(0);
-    expect(store.state.draft).toBe("still here");
+    expect(bridge.sent).toContainEqual(expect.objectContaining({ type: "chat.steer", runId: "r1", text: "still here" }));
+    expect(store.state.draft).toBe("");
   });
 
   it("insertText appends to an existing draft after a view switch", () => {

@@ -3,6 +3,7 @@ import type { SlashCommandInfo } from "@stewart/protocol";
 import { slashMenuComplete, slashMenuFilter, slashMenuMove, slashMenuOpen } from "./slashMenuModel.js";
 import { SlashMenu } from "./SlashMenu.js";
 import type { Store } from "./state.js";
+import type { OutboxItem } from "./stateTypes.js";
 
 function dataUriFromFile(file: File, done: (uri: string) => void): void {
   const r = new FileReader();
@@ -87,7 +88,7 @@ function slashMenuKey(e: KeyboardEvent, m: SlashMenuCtl): boolean {
     m.setSel(slashMenuMove(m.selected, m.items.length, -1));
     return true;
   }
-  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey)) {
     e.preventDefault();
     m.complete(m.items[m.selected]);
     return true;
@@ -101,15 +102,15 @@ function slashMenuKey(e: KeyboardEvent, m: SlashMenuCtl): boolean {
 }
 
 function useComposerKeys(store: Store, menu: SlashMenuCtl) {
-  const send = () => store.send(store.state.draft);
+  const submit = (queue = false) => store.submit(store.state.draft, queue);
   const onKey = (e: KeyboardEvent) => {
     if (menu.open && slashMenuKey(e, menu)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      submit(e.ctrlKey || e.metaKey);
     }
   };
-  return { send, onKey };
+  return { submit, onKey };
 }
 
 function PendingImages({ images, onRemove }: { images: string[]; onRemove(i: number): void }) {
@@ -126,9 +127,54 @@ function PendingImages({ images, onRemove }: { images: string[]; onRemove(i: num
   );
 }
 
-function ComposerAction({ busy, canSend, onStop, onSend }: { busy: boolean; canSend: boolean; onStop(): void; onSend(): void }) {
-  if (busy) return <button class="stop" onClick={onStop}>Stop</button>;
-  return <button class="send" disabled={!canSend} onClick={onSend}>Send</button>;
+function OutboxStrip({ store }: { store: Store }) {
+  const items = store.state.outbox;
+  if (!items.length) return null;
+  const q = store.queue;
+  return (
+    <div class="outbox" aria-label="Queued follow-ups" aria-live="polite" title="unsent; kept only in this panel">
+      {items.map((it: OutboxItem, i: number) => (
+        <div key={it.id} class={`outbox-row ${it.status}`}>
+          {i === 0 ? <span class="badge">Next</span> : null}
+          <span class="outbox-text">
+            {it.text}
+            {it.images?.length ? ` · ${it.images.length} image${it.images.length === 1 ? "" : "s"}` : ""}
+          </span>
+          {it.status === "sending" ? <span class="hint">sending…</span> : null}
+          {it.status === "failed" ? (
+            <>
+              <span class="fail outbox-error">{it.error}</span>
+              <button class="small" title="Try sending this follow-up again" onClick={() => q.retry(it.id)}>Retry</button>
+            </>
+          ) : null}
+          <button class="small" disabled={it.status === "sending"} title="Move this back into the composer; available when the composer is empty" onClick={() => q.edit(it.id)}>Edit</button>
+          <button class="deny" disabled={it.status === "sending"} title="Discard this unsent follow-up" onClick={() => q.remove(it.id)}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const IS_MAC = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+const BUSY_HINT = IS_MAC ? "Enter guides · ⌘Enter queues · Shift+Enter newline" : "Enter guides · Ctrl+Enter queues · Shift+Enter newline";
+
+function ComposerAction({ store, canSend, onStop, submit }: { store: Store; canSend: boolean; onStop(): void; submit(queue: boolean): void }) {
+  const s = store.state;
+  if (s.busyRunId) {
+    return (
+      <>
+        <button class="send" aria-keyshortcuts="Enter" title="Send guidance into the active run (Enter)" disabled={!canSend || !!s.steerPending} onClick={() => submit(false)}>Guide</button>
+        <button class="small" aria-keyshortcuts="Control+Enter Meta+Enter" title={IS_MAC ? "Queue as a follow-up (⌘Enter)" : "Queue as a follow-up (Ctrl+Enter)"} disabled={!canSend || s.outbox.length >= 20} onClick={() => submit(true)}>Queue</button>
+        <button class="stop" onClick={onStop}>Stop</button>
+      </>
+    );
+  }
+  const queued = !!s.outboxSending || s.outbox.length > 0;
+  return (
+    <button class="send" disabled={!canSend} title={queued ? "Add to the queued follow-ups" : undefined} onClick={() => submit(queued)}>
+      {queued ? "Queue" : "Send"}
+    </button>
+  );
 }
 
 function ComposerTextarea({ draft, busy, onDraft, onAttach, onKey, onBlur }: {
@@ -146,8 +192,8 @@ function ComposerTextarea({ draft, busy, onDraft, onAttach, onKey, onBlur }: {
   return (
     <textarea
       value={draft}
-      placeholder={busy ? "Waiting for reply…" : "Ask Stewart"}
-      disabled={busy}
+      placeholder={busy ? "Guide this run…" : "Ask Stewart"}
+      aria-describedby={busy ? "composer-hint" : undefined}
       onInput={(e) => onDraft((e.target as HTMLTextAreaElement).value)}
       onPaste={onPaste}
       onKeyDown={onKey}
@@ -182,11 +228,15 @@ export function Composer({ store }: { store: Store }) {
   const s = store.state;
   useComposerInsert(store);
   const menu = useSlashMenu(store);
-  const { send, onKey } = useComposerKeys(store, menu);
+  const { submit, onKey } = useComposerKeys(store, menu);
   const attach = (files: FileList | File[]) => attachFiles(store, files);
+  const busy = !!s.busyRunId;
   return (
     <div class="composer-wrap">
       {menu.open ? <SlashMenu items={menu.items} selected={menu.selected} onPick={menu.complete} /> : null}
+      <OutboxStrip store={store} />
+      {busy ? <div class="composer-hint" id="composer-hint">{BUSY_HINT}</div> : null}
+      {s.steerWarning ? <div class="fail composer-warning">{s.steerWarning}</div> : null}
       <div
         class="composer"
         onDragOver={(e) => e.preventDefault()}
@@ -197,9 +247,9 @@ export function Composer({ store }: { store: Store }) {
       >
         <PendingImages images={s.pendingImages} onRemove={(i) => store.removeImage(i)} />
         {s.attachError ? <div class="fail attach-error">{s.attachError}</div> : null}
-        <ComposerTextarea draft={s.draft} busy={!!s.busyRunId} onDraft={(t) => store.setDraft(t)} onAttach={attach} onKey={onKey} onBlur={menu.dismiss} />
+        <ComposerTextarea draft={s.draft} busy={busy} onDraft={(t) => store.setDraft(t)} onAttach={attach} onKey={onKey} onBlur={menu.dismiss} />
         <AttachButton onFiles={attach} />
-        <ComposerAction busy={!!s.busyRunId} canSend={!!s.draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} onSend={send} />
+        <ComposerAction store={store} canSend={!!s.draft.trim() || s.pendingImages.length > 0} onStop={() => store.cancel()} submit={submit} />
       </div>
     </div>
   );

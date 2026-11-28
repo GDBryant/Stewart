@@ -257,6 +257,15 @@ describe("Core", () => {
     });
   });
 
+  it("chat.steer returns a typed failure for an unknown run", async () => {
+    const { core } = mkCore(['{"done":true}']);
+    await core.attachProject("p", fakeHost());
+    await core.dispatch("hello", { protocol: 1, capabilities: [] });
+    const res = (await core.dispatch("chat.steer", { projectId: "p", runId: "nope", text: "hi" })) as { ok: boolean; reason?: string };
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("run not active");
+  });
+
   describe("file.diff", () => {
     function mkDiff() {
       const { host, files, diffShows } = kernelHost({ "src/a.ts": "new" });

@@ -1,4 +1,5 @@
 import type { RunEvent } from "@stewart/protocol";
+import { STEWART_GUIDANCE_MARKER } from "@stewart/protocol";
 import type { Inbound, Outbound, SetupProbeSnapshot, StoredMessage } from "./bridge.js";
 import type { ActivityEntry, ChatItem, PlanState, State, TaskRow } from "./stateTypes.js";
 import { finishedItems } from "./runFinished.js";
@@ -53,6 +54,8 @@ export class StoreHandlers {
           [`${m.channelId}:${m.model}`]: { ok: m.ok, caps: m.caps, probedAt: m.probedAt, cached: m.cached, catalog: m.catalog, error: m.error },
         },
       }),
+    "chat.send.result": () => {},
+    "chat.steer.result": () => {},
     "history.sessions": (m) => this.patch({ sessions: m.sessions }),
     "slash.commands": (m) => this.patch({ slashCommands: m.commands }),
     "history.messages": (m) => this.onHistoryMessages(m),
@@ -239,13 +242,17 @@ export class StoreHandlers {
   }
 
   private onHistoryMessages(m: { sessionId: string; messages: StoredMessage[]; plan?: { goal?: string; status?: string; active?: boolean; milestones?: { id: string; title: string; status: string; checkpoint?: string }[] } }): void {
-    const items = m.messages.map((msg: StoredMessage): ChatItem => ({
-      id: `h${this.host.nextItemSeq()}`,
-      role: msg.role === "tool" ? "system" : msg.role,
-      text: msg.role === "tool" ? `⚙ ${msg.content}` : msg.content,
-      images: msg.images,
-      activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
-    }));
+    const items = m.messages.map((msg: StoredMessage): ChatItem => {
+      const guided = msg.role === "user" && msg.content.startsWith(STEWART_GUIDANCE_MARKER);
+      return {
+        id: `h${this.host.nextItemSeq()}`,
+        role: msg.role === "tool" ? "system" : msg.role,
+        text: msg.role === "tool" ? `⚙ ${msg.content}` : guided ? msg.content.slice(STEWART_GUIDANCE_MARKER.length) : msg.content,
+        images: msg.images,
+        activity: (msg.toolCalls ?? []).map((tc) => ({ kind: "tool", text: tc.name })),
+        ...(guided ? { guidance: true } : {}),
+      };
+    });
     const plan: PlanState | undefined = m.plan
       ? {
           goal: m.plan.goal,

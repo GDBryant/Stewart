@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { METHODS, negotiate, runEventSchema, PROTOCOL_VERSION } from "../src/index.js";
+import { METHODS, negotiate, runEventSchema, PROTOCOL_VERSION, STEWART_GUIDANCE_MARKER } from "../src/index.js";
 
 describe("protocol", () => {
   it("accepts every declared run event kind", () => {
@@ -53,6 +53,7 @@ describe("protocol", () => {
 
   it("declares all RPC methods", () => {
     expect(METHODS).toContain("chat.send");
+    expect(METHODS).toContain("chat.steer");
     expect(METHODS).toContain("permissions.bypass");
     expect(METHODS).toContain("history.list");
     expect(METHODS).toContain("history.load");
@@ -65,6 +66,10 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.retry");
     expect(METHODS).toContain("setup.session.addChannel");
     expect(METHODS).toContain("setup.session.removeChannel");
-    expect(METHODS.length).toBe(42);
+    expect(METHODS.length).toBe(43);
+  });
+
+  it("exports the guidance marker shared by session persistence and webview rendering", () => {
+    expect(STEWART_GUIDANCE_MARKER).toBe("<stewart-guidance>");
   });
 });

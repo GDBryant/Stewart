@@ -214,11 +214,41 @@ describe("routes", () => {
     expect(s.api.workspace.openTextDocument).not.toHaveBeenCalled();
   });
 
+  it("chat.send replies with the typed result incl. runId/sessionId", async () => {
+    const s = setup();
+    s.results.set("chat.send", { runId: "r1", sessionId: "s1" });
+    await s.run({ type: "chat.send", text: "hi", projectId: "spoof" });
+    expect(s.dispatchCalls[0]).toEqual({ method: "chat.send", params: { type: "chat.send", text: "hi", projectId: PROJECT_ID } });
+    expect(s.posted).toEqual([{ type: "chat.send.result", ok: true, runId: "r1", sessionId: "s1" }]);
+  });
+
+  it("chat.send failure posts a typed result, not a generic error", async () => {
+    const s = setup();
+    s.core.dispatch.mockRejectedValueOnce(new Error("no lead"));
+    await s.run({ type: "chat.send", text: "hi" });
+    expect(s.posted).toEqual([{ type: "chat.send.result", ok: false, error: "no lead" }]);
+  });
+
+  it("chat.steer forwards runId/text and replies with the core result", async () => {
+    const s = setup();
+    s.results.set("chat.steer", { ok: true });
+    await s.run({ type: "chat.steer", runId: "r1", text: "nudge" });
+    expect(s.dispatchCalls[0]).toEqual({ method: "chat.steer", params: { type: "chat.steer", runId: "r1", text: "nudge", projectId: PROJECT_ID } });
+    expect(s.posted).toEqual([{ type: "chat.steer.result", ok: true }]);
+  });
+
+  it("chat.steer failure posts a typed result with reason", async () => {
+    const s = setup();
+    s.core.dispatch.mockRejectedValueOnce(new Error("boom"));
+    await s.run({ type: "chat.steer", runId: "r1", text: "nudge" });
+    expect(s.posted).toEqual([{ type: "chat.steer.result", ok: false, reason: "boom" }]);
+  });
+
   it("unknown and prototype-key types fall through to dispatch", async () => {
     const s = setup();
-    await s.run({ type: "chat.send", text: "hi", projectId: "spoof" });
+    await s.run({ type: "chat.ping", text: "hi", projectId: "spoof" });
     await s.run({ type: "hasOwnProperty" });
-    expect(s.dispatchCalls[0]).toEqual({ method: "chat.send", params: { type: "chat.send", text: "hi", projectId: PROJECT_ID } });
+    expect(s.dispatchCalls[0]).toEqual({ method: "chat.ping", params: { type: "chat.ping", text: "hi", projectId: PROJECT_ID } });
     expect(s.dispatchCalls[1]).toEqual({ method: "hasOwnProperty", params: { type: "hasOwnProperty", projectId: PROJECT_ID } });
     expect(s.posted).toHaveLength(0);
   });

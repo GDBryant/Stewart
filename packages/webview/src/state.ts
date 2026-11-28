@@ -1,6 +1,7 @@
-import type { Bridge, Effort } from "./bridge.js";
-import { isOpenSegment, nextSegmentId } from "./segments.js";
+import type { Bridge, Effort, Inbound } from "./bridge.js";
+import { isOpenSegment, nextSegmentId, closeSegment } from "./segments.js";
 import { StoreHandlers } from "./stateHandlers.js";
+import { Outbox } from "./outbox.js";
 import { MAX_IMAGE_BYTES, MAX_PENDING_IMAGES } from "./stateTypes.js";
 import type { ActivityEntry, ChatItem, State, TaskRow } from "./stateTypes.js";
 
@@ -34,10 +35,13 @@ export class Store {
     historyOpen: false,
     pendingImages: [],
     draft: "",
+    outbox: [],
   };
   private listeners = new Set<Listener>();
   private itemSeq = 0;
   private insertSeq = 0;
+  private steerInFlight?: { runId: string; text: string; images: string[] };
+  private steerTimer?: ReturnType<typeof setTimeout>;
   private readonly handlers = new StoreHandlers({
     getState: () => this.state,
     patch: (p) => this.patch(p),
@@ -50,9 +54,16 @@ export class Store {
     nextItemSeq: () => ++this.itemSeq,
     nextInsertSeq: () => ++this.insertSeq,
   });
+  readonly queue = new Outbox({
+    getState: () => this.state,
+    patch: (p) => this.patch(p),
+    post: (m) => this.bridge.post(m),
+    nextItemSeq: () => ++this.itemSeq,
+    appendUser: (text, images) => this.appendUser(text, images),
+  });
 
   constructor(private bridge: Bridge) {
-    bridge.onMessage((m) => this.handlers.onInbound(m));
+    bridge.onMessage((m) => this.onInbound(m));
     bridge.post({ type: "ready" });
     bridge.post({ type: "permissions.bypass" });
     bridge.post({ type: "slash.list" });
@@ -71,25 +82,99 @@ export class Store {
   }
 
   send(text: string): void {
+    this.submit(text);
+  }
+
+  /** Composer submit: `queue` = Ctrl/Cmd+Enter. Busy Enter steers the run; a started run or a non-empty
+   * outbox captures both Enter keys so a later message cannot slip ahead of the outbox head. */
+  submit(text: string, queue = false): void {
     const images = this.state.pendingImages;
-    if ((!text.trim() && !images.length) || this.state.busyRunId) return;
+    if (!text.trim() && !images.length) return;
+    if (this.state.busyRunId) {
+      if (!queue && !this.knownSlash(text)) return this.steer(text, images);
+      this.queue.enqueue(text, images);
+      return;
+    }
+    if (this.state.outboxSending || this.state.outbox.length) return this.queue.enqueue(text, images);
+    this.sendNow(text, images);
+  }
+
+  private sendNow(text: string, images: string[]): void {
     const sessionId = this.state.sessionId ?? `s${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    this.patch({
-      items: [
-        ...this.state.items,
-        { id: `u${++this.itemSeq}`, role: "user", text, images: images.length ? images : undefined, activity: [] },
-      ],
-      pendingImages: [],
-      draft: "",
-      attachError: undefined,
-      sessionId,
-    });
+    this.appendUser(text, images.length ? images : undefined);
+    this.patch({ pendingImages: [], draft: "", attachError: undefined, sessionId });
     this.bridge.post({
       type: "chat.send",
       text,
       images: images.length ? images : undefined,
       sessionId,
     });
+  }
+
+  private appendUser(text: string, images?: string[]): void {
+    this.patch({
+      items: [...this.state.items, { id: `u${++this.itemSeq}`, role: "user", text, images: images?.length ? images : undefined, activity: [] }],
+    });
+  }
+
+  private knownSlash(text: string): boolean {
+    const m = /^\/([a-z0-9-]+)/i.exec(text.trim());
+    if (!m) return false;
+    const name = m[1].toLowerCase();
+    return this.state.slashCommands.some((c) => c.name.toLowerCase() === name || (c.aliases ?? []).some((a) => a.toLowerCase() === name));
+  }
+
+  private steer(text: string, images: string[]): void {
+    const runId = this.state.busyRunId;
+    if (!runId) return;
+    this.steerInFlight = { runId, text, images };
+    this.patch({ pendingImages: [], draft: "", attachError: undefined, steerPending: true, steerWarning: undefined });
+    this.steerTimer = setTimeout(() => this.steerTimeout(), 3000);
+    this.bridge.post({ type: "chat.steer", runId, text, images: images.length ? images : undefined });
+  }
+
+  private onSteerResult(m: { ok: boolean; reason?: string }): void {
+    const f = this.steerInFlight;
+    if (!f) return;
+    this.steerInFlight = undefined;
+    clearTimeout(this.steerTimer);
+    if (m.ok) {
+      this.patch({
+        steerPending: false,
+        items: [...closeSegment(this.state.items, f.runId), { id: `u${++this.itemSeq}`, role: "user", text: f.text, images: f.images.length ? f.images : undefined, activity: [], guidance: true }],
+      });
+      return;
+    }
+    this.patch({ steerPending: false, steerWarning: `Couldn't guide this run — ${steerReason(m.reason)}. Queued as a follow-up.` });
+    this.queue.enqueue(f.text.startsWith("/") ? `/${f.text}` : f.text, f.images);
+  }
+
+  private steerTimeout(): void {
+    const f = this.steerInFlight;
+    if (!f) return;
+    this.steerInFlight = undefined;
+    const room = Math.max(0, MAX_PENDING_IMAGES - this.state.pendingImages.length);
+    this.patch({
+      steerPending: false,
+      steerWarning: "No confirmation from Stewart; your text was restored.",
+      draft: this.state.draft ? `${f.text}\n${this.state.draft}` : f.text,
+      pendingImages: [...f.images.slice(0, room), ...this.state.pendingImages],
+    });
+  }
+
+  private onInbound(m: Inbound): void {
+    this.handlers.onInbound(m);
+    if (m.type === "chat.steer.result") return this.onSteerResult(m);
+    if (m.type === "chat.send.result") return this.queue.result(m);
+    if (m.type !== "event") return;
+    if (m.ev.kind === "run.started") this.queue.runStarted();
+    if (m.ev.kind === "run.finished") this.queue.pump();
+    if (m.ev.kind === "chat.cleared") {
+      this.steerInFlight = undefined;
+      clearTimeout(this.steerTimer);
+      this.queue.clear();
+      this.patch({ steerPending: false });
+    }
   }
 
   setDraft(text: string): void {
@@ -118,15 +203,20 @@ export class Store {
     if (historyOpen) this.bridge.post({ type: "history.list" });
   }
   openSession(sessionId: string): void {
+    if (this.sessionLocked()) return;
     this.bridge.post({ type: "history.load", sessionId });
   }
   deleteSession(sessionId: string): void {
+    if (this.state.sessionId === sessionId && this.sessionLocked()) return;
     this.bridge.post({ type: "history.delete", sessionId });
     if (this.state.sessionId === sessionId) this.patch({ sessionId: undefined });
     this.bridge.post({ type: "history.list" });
   }
+  sessionLocked(): boolean {
+    return !!this.state.busyRunId || !!this.state.outboxSending || this.state.outbox.length > 0;
+  }
   newSession(): void {
-    if (this.state.busyRunId) return;
+    if (this.sessionLocked()) return;
     this.patch({ sessionId: undefined, items: [], historyOpen: false, plan: undefined, tasks: [], cost: undefined, questions: [], approvals: [] });
   }
   cancel(): void {
@@ -302,4 +392,14 @@ export class Store {
     it.activity = it.activity.map((a, i) => (i === index ? { ...a, ...patch } : a));
     this.changed();
   }
+}
+
+const STEER_REASONS: Record<string, string> = {
+  "engine unsupported": "this agent can't take guidance mid-run",
+  "run not active": "the run already finished",
+  "steer limit": "too much pending guidance",
+};
+
+function steerReason(reason: string | undefined): string {
+  return (reason && STEER_REASONS[reason]) ?? reason ?? "steer failed";
 }

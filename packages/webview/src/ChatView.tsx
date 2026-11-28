@@ -41,9 +41,10 @@ export function ChatView({ store }: { store: Store }) {
 
 export function ChatBar({ store }: { store: Store }) {
   const s = store.state;
+  const locked = store.sessionLocked();
   return (
     <div class="chat-bar">
-      <button class="small" onClick={() => store.newSession()}>New chat</button>
+      <button class="small" disabled={locked} title={locked ? "available when the current run finishes" : undefined} onClick={() => store.newSession()}>New chat</button>
       <button class="small" onClick={() => store.toggleHistory()}>History</button>
       <button
         class={s.bypass ? "small deny" : "small"}
@@ -60,21 +61,25 @@ export function ChatBar({ store }: { store: Store }) {
 
 function HistoryPanel({ store }: { store: Store }) {
   const s = store.state;
+  const locked = store.sessionLocked();
   return (
     <div class="card history">
       <div class="card-title">Sessions</div>
       {s.sessions.length ? (
-        s.sessions.map((sess) => (
-          <div key={sess.sessionId} class={`session-row ${sess.sessionId === s.sessionId ? "active" : ""}`}>
-            <button class="session-open" onClick={() => store.openSession(sess.sessionId)} title={sess.sessionId}>
-              {sess.title || sess.sessionId}
-            </button>
-            <span class="session-meta">
-              {new Date(sess.savedAt).toLocaleString()} · {sess.messageCount} msg
-            </span>
-            <button class="small deny" onClick={() => store.deleteSession(sess.sessionId)}>Delete</button>
-          </div>
-        ))
+        s.sessions.map((sess) => {
+          const active = sess.sessionId === s.sessionId;
+          return (
+            <div key={sess.sessionId} class={`session-row ${active ? "active" : ""}`}>
+              <button class="session-open" disabled={locked} title={locked ? "available when the current run finishes" : sess.sessionId} onClick={() => store.openSession(sess.sessionId)}>
+                {sess.title || sess.sessionId}
+              </button>
+              <span class="session-meta">
+                {new Date(sess.savedAt).toLocaleString()} · {sess.messageCount} msg
+              </span>
+              <button class="small deny" disabled={active && locked} title={active && locked ? "available when the current run finishes" : undefined} onClick={() => store.deleteSession(sess.sessionId)}>Delete</button>
+            </div>
+          );
+        })
       ) : (
         <p class="hint">No saved sessions.</p>
       )}

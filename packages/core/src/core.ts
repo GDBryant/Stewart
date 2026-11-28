@@ -167,6 +167,7 @@ export class Core implements CoreCtx {
   private readonly handlers: Record<string, (p: unknown) => unknown | Promise<unknown>> = {
     hello: (p) => setup.handleHello(p),
     "chat.send": (p) => chat.handleChatSend(this, p),
+    "chat.steer": (p) => chat.handleChatSteer(this, p),
     "chat.cancel": (p) => chat.handleChatCancel(this, p),
     "chat.resume": (p) => chat.handleChatResume(this, p),
     "chat.revert": (p) => chat.handleChatRevert(this, p),

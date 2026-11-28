@@ -1,5 +1,6 @@
 import type { ChatMessage, Clock, HostPort, IdGen } from "@stewart/kernel";
 import type { RunEvent } from "@stewart/protocol";
+import { STEWART_GUIDANCE_MARKER } from "@stewart/protocol";
 import type { ManagedChannel } from "@stewart/channels";
 import type { Interaction } from "@stewart/interaction";
 import type { Permissions } from "@stewart/permissions";
@@ -90,6 +91,18 @@ export class SessionService {
     return true;
   }
 
+  /** Mid-run guidance: buffered on the run state, drained into the transcript at the lead's next model turn. */
+  steer(runId: string, text: string, images?: string[]): { ok: boolean; reason?: string } {
+    const rs = this.active.get(runId);
+    if (!rs) return { ok: false, reason: "run not active" };
+    if (rs.controller.signal.aborted) return { ok: false, reason: "run cancelled" };
+    if (rs.steerable === false) return { ok: false, reason: "engine unsupported" };
+    if (!text.trim() && !images?.length) return { ok: false, reason: "empty" };
+    if (rs.steers.length >= 20) return { ok: false, reason: "steer limit" };
+    rs.steers.push({ text, ...(images?.length ? { images } : {}) });
+    return { ok: true };
+  }
+
   /** Shared per-project history store; also backs the history.* handlers. */
   async historyStore(): Promise<ChatHistoryStore> {
     if (!this.history) {
@@ -159,11 +172,20 @@ export class SessionService {
       bus.emit({ kind: "run.started", runId, roleId: lead.id, title: req.text.slice(0, 60) });
       const res = await this.task(w, { goal: lastUserText(w.transcript), contract: leadContract(this.deps.config, w.declared), planTool: true });
       await this.persist(w);
+      this.requeueSteers(sessionId, rs, res.status === "cancelled");
       await this.finish(w, res);
     } catch (e) {
+      this.requeueSteers(sessionId, rs, rs.controller.signal.aborted);
       bus.emit(failedRunEvent({ runId, roleId: leadEventId(this.deps.config()), rs }, err(e)));
     } finally {
       this.active.delete(runId);
+    }
+  }
+
+  /** Accepted steers the run never drained re-enter as literal session turns ahead of later sends; a cancelled run discards them. */
+  private requeueSteers(sessionId: string, rs: RunState, cancelled: boolean): void {
+    for (const s of rs.steers.splice(0)) {
+      if (!cancelled) void this.send({ sessionId, text: s.text, images: s.images });
     }
   }
 
@@ -181,6 +203,7 @@ export class SessionService {
     const lead = w.lead;
     const deps = await this.taskDeps(w);
     const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
+    if (chain[0]) w.rs.steerable = !(deps.engineFor ?? defaultEngineFor)(deps.channelFor(chain[0].channel).cfg.type).caps.ownContext;
     const children = new ChildRunner({ ...deps, ids: this.deps.ids, stateDir: w.stateDir, sessionId: w.sessionId, runId: w.runId, agent: chain[0], ledger: deps.ledger, parent: w.rs });
     const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId, lead.id), ...(children.hasDelegateTargets() ? [children.delegateTool()] : []), children.healthReportTool(), new HealthBatches(this.deps.host, w.paths), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
@@ -201,7 +224,10 @@ export class SessionService {
         interactive: true,
         maxTurns: config.settings.runTurnLimit,
         run: w.rs,
-        beforeModelTurn: async (agent: AgentDef, ctx?: { measured?: { tokens: number; len: number } }) => this.compact(w, agent, config, ctx?.measured),
+        beforeModelTurn: async (agent: AgentDef, ctx?: { measured?: { tokens: number; len: number } }) => {
+          const did = await this.compact(w, agent, config, ctx?.measured);
+          return this.drainSteers(w) || did;
+        },
         onStep: w.stepSave,
         ...(o.baseline ? { baseline: o.baseline } : {}),
       },
@@ -209,6 +235,16 @@ export class SessionService {
     );
     const verdict = children.healthVerdict();
     return verdict && res.status === "done" ? { ...res, status: "failed", error: verdict } : res;
+  }
+
+  /** Move accepted steers into the transcript as marked user guidance, effective at the next model turn; persists itself. */
+  private drainSteers(w: TurnWork): boolean {
+    if (!w.rs.steers.length) return false;
+    for (const s of w.rs.steers.splice(0)) {
+      w.transcript.push({ role: "user", content: `${STEWART_GUIDANCE_MARKER}${s.text}`, ...(s.images?.length ? { images: s.images } : {}) });
+    }
+    w.stepSave();
+    return true;
   }
 
   /** Summarise older turns near the window; the plan rides in the system prompt. Skipped when the engine owns context. */
@@ -263,17 +299,25 @@ export class SessionService {
       const lead = leadRole(this.deps.config());
       const w = await this.turnWork(runId, sessionId, rs, lead);
       const plan = await w.plan.resumePlan();
-      if (!plan) return bus.emit(failedRunEvent({ runId, roleId: lead.id, rs }, "no active plan for this session"));
+      if (!plan) {
+        this.requeueSteers(sessionId, rs, false);
+        return bus.emit(failedRunEvent({ runId, roleId: lead.id, rs }, "no active plan for this session"));
+      }
       bus.emit({ kind: "run.started", runId, roleId: lead.id, title: `Resume plan: ${plan.goal}` });
       const first = await abortRace(w.tracker.begin(`resume-${runId}`), rs).catch((e) => {
         if (!(e instanceof AbortedRun)) throw e;
         return undefined;
       });
-      if (!first) return bus.emit({ kind: "run.finished", runId, roleId: lead.id, status: "cancelled" });
+      if (!first) {
+        this.requeueSteers(sessionId, rs, true);
+        return bus.emit({ kind: "run.finished", runId, roleId: lead.id, status: "cancelled" });
+      }
       const res = await this.drive(w, first);
       await this.persist(w);
+      this.requeueSteers(sessionId, rs, res.status === "cancelled");
       await this.finish(w, res, first);
     } catch (e) {
+      this.requeueSteers(sessionId, rs, rs.controller.signal.aborted);
       bus.emit(failedRunEvent({ runId, roleId: leadEventId(this.deps.config()), rs }, err(e)));
     } finally {
       this.active.delete(runId);

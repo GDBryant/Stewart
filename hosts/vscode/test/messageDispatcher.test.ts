@@ -33,7 +33,7 @@ describe("createMessageDispatcher", () => {
     expect(calls).toEqual(["models.refresh", "config.get", "config.set"]);
   });
 
-  it.each(["chat.answer", "chat.approve", "chat.cancel"])("dispatches %s while an ordinary request is pending", async (type) => {
+  it.each(["chat.answer", "chat.approve", "chat.cancel", "chat.steer"])("dispatches %s while an ordinary request is pending", async (type) => {
     const gate = deferred<void>();
     const calls: RouteMessage[] = [];
     const dispatch = createMessageDispatcher(async (m) => {

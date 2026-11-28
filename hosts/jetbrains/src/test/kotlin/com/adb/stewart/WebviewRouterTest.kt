@@ -269,10 +269,20 @@ class WebviewRouterTest {
     @Test
     fun `request failure yields error message`() {
         val rig = Rig { _, _ -> throw IllegalStateException("sidecar gone") }
-        rig.router.route("""{"type":"chat.send","text":"hi"}""")
+        rig.router.route("""{"type":"history.load","sessionId":"s1"}""")
         val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
         assertEquals("error", m.type())
         assertEquals("sidecar gone", m["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `chat send failure yields a typed result`() {
+        val rig = Rig { _, _ -> throw IllegalStateException("sidecar gone") }
+        rig.router.route("""{"type":"chat.send","text":"hi"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.send.result", m.type())
+        assertEquals("false", m["ok"]!!.jsonPrimitive.content)
+        assertEquals("sidecar gone", m["error"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -573,6 +583,46 @@ class WebviewRouterTest {
         assertEquals("chat.revert.result", b.type())
         assertEquals(listOf("chat.resume", "chat.revert"), rig.calls.map { it.first })
         assertEquals("s1", rig.calls[0].second!!["sessionId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `chat steer bypasses route lock and replies with shaped result`() {
+        val calls = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val stuck = CompletableFuture<kotlinx.serialization.json.JsonElement?>()
+        val sent = LinkedBlockingQueue<JsonObject>()
+        val router = WebviewRouter(
+            projectId = { "p1" },
+            request = { m, _ ->
+                calls.add(m)
+                if (m == "history.load") stuck else CompletableFuture.completedFuture(Json.parseToJsonElement("""{"ok":true}"""))
+            },
+            send = { sent.add(it) },
+            userConfigDir = { File(System.getProperty("java.io.tmpdir")) },
+        )
+        val t = Thread { router.route("""{"type":"history.load","sessionId":"s1"}""") }.apply { start() }
+        val deadline = System.currentTimeMillis() + 2000
+        while (calls.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        router.route("""{"type":"chat.steer","runId":"r1","text":"nudge"}""")
+        val m = sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.steer.result", m.type())
+        assertEquals("true", m["ok"]!!.jsonPrimitive.content)
+        assertEquals("chat.steer", calls.last())
+        stuck.complete(JsonObject(emptyMap()))
+        t.join(2000)
+    }
+
+    @Test
+    fun `chat send replies with the shaped result`() {
+        val rig = Rig { m, _ ->
+            if (m == "chat.send") Json.parseToJsonElement("""{"runId":"r2","sessionId":"s1"}""") as JsonObject
+            else JsonObject(emptyMap())
+        }
+        rig.router.route("""{"type":"chat.send","text":"hi"}""")
+        val m = rig.sent.poll(2, TimeUnit.SECONDS)!!
+        assertEquals("chat.send.result", m.type())
+        assertEquals("true", m["ok"]!!.jsonPrimitive.content)
+        assertEquals("r2", m["runId"]!!.jsonPrimitive.content)
+        assertEquals("p1", rig.calls[0].second!!["projectId"]!!.jsonPrimitive.content)
     }
 
     @Test

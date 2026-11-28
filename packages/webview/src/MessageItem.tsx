@@ -29,8 +29,9 @@ export function activityIcon(a: ActivityEntry): string {
   return hit ? hit[1] : "⚙";
 }
 
-function roleLabel(role: ChatItem["role"]) {
-  return role === "user" ? "user" : role === "assistant" ? "Stewart (agent)" : null;
+function roleLabel(item: ChatItem) {
+  if (item.role === "user") return item.guidance ? "user · guidance" : "user";
+  return item.role === "assistant" ? "Stewart (agent)" : null;
 }
 
 function bubbleBody(item: ChatItem) {
@@ -88,7 +89,7 @@ export function MessageItem({ item, onRevertTurn, onOpenFile }: { item: ChatItem
   if (item.qa) return <QaCard qa={item.qa} />;
   return (
     <div class={`item ${item.role}`}>
-      <div class={`role-label ${item.role}`}>{roleLabel(item.role)}</div>
+      <div class={`role-label ${item.role}`}>{roleLabel(item)}</div>
       {item.reasoning ? <details class="reasoning"><summary>thinking</summary>{item.reasoning}</details> : null}
       {item.activity.length ? <StepsBlock item={item} /> : null}
       <div class={`bubble${item.role === "assistant" ? " bubble-md" : ""}`}>
@@ -98,6 +99,7 @@ export function MessageItem({ item, onRevertTurn, onOpenFile }: { item: ChatItem
           </button>
         ) : null}
         {item.images?.length ? imagesBlock(item.images) : null}
+        {item.guidance ? <div class="guidance-note">sent while the run was active</div> : null}
         {bubbleBody(item)}
       </div>
       {item.filesChanged?.length ? filesChangedBlock(item.filesChanged, item.filesBaseline, item.filesBaseline ? onOpenFile : undefined) : null}

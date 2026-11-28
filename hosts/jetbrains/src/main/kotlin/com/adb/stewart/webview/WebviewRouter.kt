@@ -53,6 +53,15 @@ class WebviewRouter(
                 }
                 return
             }
+            if (type == "chat.steer") {
+                request(type, withProject(m)).thenAccept { r ->
+                    send(JsonObject(((r as? JsonObject) ?: JsonObject(emptyMap())) + ("type" to JsonPrimitive("chat.steer.result"))))
+                }.exceptionally { e ->
+                    send(errorResult(type, e.cause?.message ?: e.message ?: "error"))
+                    null
+                }
+                return
+            }
             synchronized(routeLock) {
             when (type) {
                 "ready" -> {
@@ -102,6 +111,10 @@ class WebviewRouter(
                     val r = request("permissions.bypass", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("permissions.bypass.result"))))
                 }
+                "chat.send" -> {
+                    val r = request("chat.send", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
+                    send(JsonObject(r + ("type" to JsonPrimitive("chat.send.result")) + ("ok" to JsonPrimitive(true))))
+                }
                 "chat.resume" -> {
                     val r = request("chat.resume", withProject(m)).get()?.jsonObject ?: JsonObject(emptyMap())
                     send(JsonObject(r + ("type" to JsonPrimitive("chat.resume.result"))))
@@ -134,8 +147,14 @@ class WebviewRouter(
             }
             }
         } catch (e: Throwable) {
-            send(errorMsg(e.cause?.message ?: e.message ?: "error"))
+            send(errorResult(type, e.cause?.message ?: e.message ?: "error"))
         }
+    }
+
+    private fun errorResult(type: String, message: String): JsonObject = when (type) {
+        "chat.send" -> JsonObject(mapOf("type" to JsonPrimitive("chat.send.result"), "ok" to JsonPrimitive(false), "error" to JsonPrimitive(message)))
+        "chat.steer" -> JsonObject(mapOf("type" to JsonPrimitive("chat.steer.result"), "ok" to JsonPrimitive(false), "reason" to JsonPrimitive(message)))
+        else -> errorMsg(message)
     }
 
     private fun withProject(m: JsonObject = JsonObject(emptyMap())): JsonObject =

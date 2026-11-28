@@ -28,6 +28,10 @@ export interface RunState {
   engineContext?: { inputTokens?: number; windowTokens?: number };
   /** Set once the loop-guard divert fires; the divert is allowed at most once per run. */
   divertUsed?: boolean;
+  /** Mid-run user guidance accepted but not yet drained into the transcript (lead task only). */
+  steers: { text: string; images?: string[] }[];
+  /** Stamped per attempt from the live engine's caps; undefined = not yet known (treated as steerable). */
+  steerable?: boolean;
 }
 
 /** Per-task facts one runTask accumulates (the lead turn is one task; each delegated child is another). */
@@ -55,7 +59,7 @@ export function closeOpenCalls(transcript: ChatMessage[]): void {
 }
 
 export function newRunState(): RunState {
-  return { controller: new AbortController(), seq: 0, accrued: 0, costCapped: false };
+  return { controller: new AbortController(), seq: 0, accrued: 0, costCapped: false, steers: [] };
 }
 
 /** Thrown by abortRace when the run's signal fires before the awaited work settles. */

@@ -46,6 +46,8 @@ const ROUTES: Record<string, Handler> = {
     ),
   "permissions.bypass": (ctx, m) =>
     dispatchAndReply(ctx, "permissions.bypass", { projectId: PROJECT_ID, on: m.on }, { type: "permissions.bypass.result" }),
+  "chat.send": (ctx, m) => dispatchAndReply(ctx, "chat.send", { ...m, projectId: PROJECT_ID }, { type: "chat.send.result", ok: true }),
+  "chat.steer": (ctx, m) => dispatchAndReply(ctx, "chat.steer", { ...m, projectId: PROJECT_ID }, { type: "chat.steer.result" }),
   "chat.resume": (ctx, m) => dispatchAndReply(ctx, "chat.resume", { projectId: PROJECT_ID, sessionId: m.sessionId }, { type: "chat.resume.result" }),
   "chat.revert": (ctx, m) =>
     dispatchAndReply(ctx, "chat.revert", { projectId: PROJECT_ID, sessionId: m.sessionId, checkpoint: m.checkpoint }, { type: "chat.revert.result" }),
@@ -99,6 +101,8 @@ const ROUTES: Record<string, Handler> = {
 /** Per-route error replies; routes absent here get the generic `{ type: "error" }`. */
 const ERROR_REPLY: Record<string, (message: string) => Record<string, unknown>> = {
   "models.refresh": (error) => ({ type: "models.refresh.result", ok: false, error }),
+  "chat.send": (error) => ({ type: "chat.send.result", ok: false, error }),
+  "chat.steer": (error) => ({ type: "chat.steer.result", ok: false, reason: error }),
 };
 
 const fallback: Handler = async (ctx, m) => {
