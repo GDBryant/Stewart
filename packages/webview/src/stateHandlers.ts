@@ -45,7 +45,7 @@ export class StoreHandlers {
   private replyHandlers: ReplyHandlers = {
     config: (m) => this.patch({ config: { files: m.files, summary: m.summary, errors: m.errors, secrets: m.secrets }, lastError: undefined }),
     "channel.test.result": (m) =>
-      this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error } } }),
+      this.patch({ channelTest: { ...this.state.channelTest, [m.channelId]: { ok: m.ok, models: m.models, error: m.error, reasoning: m.reasoning } } }),
     "channel.probe.result": (m) =>
       this.patch({
         probeResults: {

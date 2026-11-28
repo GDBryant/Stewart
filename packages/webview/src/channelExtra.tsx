@@ -4,9 +4,29 @@ import type { ChannelSummary } from "./bridge.js";
 import { looksLikeKey } from "./fields.js";
 import { ChannelSecurity } from "./channelSecurity.js";
 
-function ChannelTestBadge({ test }: { test?: { ok: boolean; models?: string[]; error?: string } }) {
+type TestResult = { ok: boolean; models?: string[]; error?: string; reasoning?: { suggest?: "reasoning_effort" | "enable_thinking" | "none"; control?: boolean } };
+
+function ReasoningNote({ reasoning }: { reasoning: TestResult["reasoning"] }) {
+  if (!reasoning) return null;
+  if (reasoning.control === true) return <span class="ok" title="The configured reasoning request field demonstrably cuts reasoning tokens">· reasoning field works</span>;
+  if (reasoning.control === false) return <span class="fail" title="The configured reasoning request field did not cut reasoning tokens on the probed model">· reasoning field ineffective</span>;
+  if (reasoning.suggest === "reasoning_effort" || reasoning.suggest === "enable_thinking") {
+    return <span class="warn" title={`Probing the first model shows ${reasoning.suggest} controls reasoning — set it in the channel editor`}>· reasoning: set {reasoning.suggest}</span>;
+  }
+  if (reasoning.suggest === "none") return <span class="hint" title="The probed model reasons, but neither reasoning_effort nor enable_thinking controlled it">· no working reasoning field found</span>;
+  return null;
+}
+
+function ChannelTestBadge({ test }: { test?: TestResult }) {
   if (!test) return null;
-  if (test.ok) return <span class="ok">✓ {(test.models ?? []).join(", ")}</span>;
+  if (test.ok) {
+    return (
+      <span class="ok">
+        ✓ {(test.models ?? []).join(", ")}
+        <ReasoningNote reasoning={test.reasoning} />
+      </span>
+    );
+  }
   return <span class="fail">✗ {test.error}</span>;
 }
 

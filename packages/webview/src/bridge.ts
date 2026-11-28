@@ -147,7 +147,7 @@ export interface StoredMessage {
 export type Inbound =
   | { type: "event"; ev: import("@stewart/protocol").RunEvent }
   | ({ type: "config" } & ConfigReply)
-  | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string }
+  | { type: "channel.test.result"; channelId: string; ok: boolean; models?: string[]; error?: string; reasoning?: { suggest?: "reasoning_effort" | "enable_thinking" | "none"; control?: boolean } }
   | { type: "models.refresh.result"; ok: boolean; added?: string[]; removed?: string[]; disabledChannels?: string[]; removedChannels?: string[]; unreachable?: string[]; reprobed?: string[]; error?: string }
   | { type: "channel.probe.result"; channelId: string; model: string; ok: boolean; caps?: Record<string, unknown>; probedAt?: number; cached?: boolean; catalog?: CatalogInfo; error?: string }
   | { type: "history.sessions"; sessions: SessionSummary[] }

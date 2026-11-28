@@ -163,9 +163,28 @@ export async function handleChannelTest(core: CoreCtx, params: unknown): Promise
   if (!ch) return { ok: false, error: "channel not configured or disabled" };
   try {
     const models = await ch.listModels();
-    return { ok: true, models };
+    const reasoning = await cursoryReasoningCheck(core, ch, { projectId: p.projectId, channelId: p.channelId, models });
+    return reasoning ? { ok: true, models, reasoning } : { ok: true, models };
   } catch (e) {
     return { ok: false, error: errorMessage(e) };
+  }
+}
+
+/**
+ * One probeCaps call on the first listed model for openai-compatible channels: the probe's reasoning half
+ * suggests a request field when the channel has none, or verifies the configured one. Never fails the test.
+ */
+async function cursoryReasoningCheck(core: CoreCtx, ch: ProbeChannel, o: { projectId: string; channelId: string; models: string[] }): Promise<{ suggest?: string; control?: boolean } | undefined> {
+  const cfg = core.ctx(o.projectId).config.channels.find((c) => c.id === o.channelId);
+  if (!cfg || cfg.type !== "openai-compatible" || !o.models.length) return undefined;
+  try {
+    const caps = await ch.probeCaps(o.models[0]);
+    const out: { suggest?: string; control?: boolean } = {};
+    if (caps.reasoningSuggest !== undefined) out.suggest = caps.reasoningSuggest;
+    if (caps.reasoningControl !== undefined) out.control = caps.reasoningControl;
+    return Object.keys(out).length ? out : undefined;
+  } catch {
+    return undefined;
   }
 }
 

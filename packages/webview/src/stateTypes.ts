@@ -98,7 +98,7 @@ export interface State {
   bypass: boolean;
   questions: PendingQuestion[];
   config?: ConfigReply;
-  channelTest: Record<string, { ok: boolean; models?: string[]; error?: string }>;
+  channelTest: Record<string, { ok: boolean; models?: string[]; error?: string; reasoning?: { suggest?: "reasoning_effort" | "enable_thinking" | "none"; control?: boolean } }>;
   /** models.refresh in flight; summary line after it finishes. */
   refreshBusy?: boolean;
   refreshSummary?: string;

@@ -367,6 +367,61 @@ describe("Core config", () => {
     expect(secrets.has("sk")).toBe(false);
   });
 
+  it("channel.test on openai-compatible probes the reasoning field and suggests one when unset", async () => {
+    const completion = (reasoning: number) =>
+      JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { completion_tokens_details: { reasoning_tokens: reasoning } } });
+    const { fetcher } = fakeFetcher([
+      { body: ['{"data":[{"id":"m1"}]}'] }, // GET /models
+      { body: [completion(0)] }, // tools probe
+      { body: [completion(100)] }, // reasoning baseline (reasoning_effort candidate)
+      { body: [completion(0)] }, // reasoning-effort-off probe cuts tokens
+    ]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: openai-compatible\n    baseUrl: http://x\n" });
+    const core = new Core({ defaults: {}, userConfig: user, projectConfig: async () => memStore(), fetcher, emitEvent: () => {} });
+    await core.attachProject("p", fakeHost());
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "oc" })) as { ok: boolean; reasoning?: { suggest?: string; control?: boolean } };
+    expect(res.ok).toBe(true);
+    expect(res.reasoning?.suggest).toBe("reasoning_effort");
+    expect(res.reasoning?.control).toBe(undefined);
+  });
+
+  it("channel.test verifies a configured reasoning field and skips non-openai channels", async () => {
+    const completion = (reasoning: number) =>
+      JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: { completion_tokens_details: { reasoning_tokens: reasoning } } });
+    const { fetcher } = fakeFetcher([
+      { body: ['{"data":[{"id":"m1"}]}'] },
+      { body: [completion(0)] },
+      { body: [completion(100)] },
+      { body: [completion(80)] }, // off probe does not cut enough? 80 < 100 → control true
+    ]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: openai-compatible\n    baseUrl: http://x\n    reasoning: enable_thinking\n" });
+    const core = new Core({ defaults: {}, userConfig: user, projectConfig: async () => memStore(), fetcher, emitEvent: () => {} });
+    await core.attachProject("p", fakeHost());
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "oc" })) as { ok: boolean; reasoning?: { suggest?: string; control?: boolean } };
+    expect(res.reasoning?.control).toBe(true);
+    expect(res.reasoning?.suggest).toBe(undefined);
+  });
+
+  it("channel.test still passes when the reasoning probe itself fails", async () => {
+    const { fetcher } = fakeFetcher([{ body: ['{"data":[{"id":"m1"}]}'] }, { status: 500, body: ["probe boom"] }]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: oc\n    type: openai-compatible\n    baseUrl: http://x\n" });
+    const core = new Core({ defaults: {}, userConfig: user, projectConfig: async () => memStore(), fetcher, emitEvent: () => {} });
+    await core.attachProject("p", fakeHost());
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "oc" })) as { ok: boolean; reasoning?: unknown };
+    expect(res.ok).toBe(true);
+    expect(res.reasoning).toBe(undefined);
+  });
+
+  it("channel.test omits reasoning for ollama channels and survives a probe failure", async () => {
+    const { fetcher } = fakeFetcher([{ body: ['{"models":[{"name":"m1"}]}'] }, { status: 500, body: ["boom"] }]);
+    const user = memStore({ "channels.yaml": "version: 1\nitems:\n  - id: ol\n    type: ollama\n    baseUrl: http://x\n" });
+    const core = new Core({ defaults: {}, userConfig: user, projectConfig: async () => memStore(), fetcher, emitEvent: () => {} });
+    await core.attachProject("p", fakeHost());
+    const res = (await core.dispatch("channel.test", { projectId: "p", channelId: "ol" })) as { ok: boolean; reasoning?: unknown };
+    expect(res.ok).toBe(true);
+    expect(res.reasoning).toBe(undefined);
+  });
+
   it("secret.set trims the key and rejects empty values", async () => {
     const secrets = new Map<string, string>();
     const host = fakeHost();
