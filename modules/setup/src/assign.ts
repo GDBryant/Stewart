@@ -67,7 +67,13 @@ const LEAD_LIKE: Profile = { needs: { tools: true }, minCtx: 16384, minSizeB: 7,
 export const ROLE_PROFILES: Record<string, Profile> = {
   lead: { ...LEAD_LIKE, longContext: true, strongFallback: true },
   explorer: LEAD_LIKE,
-  reviewer: LEAD_LIKE,
+  reviewer: { ...LEAD_LIKE, costSensitivity: "low" },
+  planner: { ...LEAD_LIKE, costSensitivity: "low" },
+  interrogator: { ...LEAD_LIKE, costSensitivity: "low" },
+  "spec-writer": { ...LEAD_LIKE, costSensitivity: "low" },
+  investigator: { ...LEAD_LIKE, costSensitivity: "low" },
+  builder: { ...LEAD_LIKE, wantsReasoning: false, cheap: true, costSensitivity: "high" },
+  documenter: { needs: { tools: true }, minCtx: 16384, cheap: true, latency: "interactive", typicalTurns: [2, 15], costSensitivity: "high" },
   /** Scripted health batches run many at once: small, fast, cheap; tools still required for CodeMetrics/ReadFile. */
   auditor: { needs: { tools: true }, minCtx: 32768, cheap: true, latency: "batch", typicalTurns: [2, 15], minToolReliability: 0.5, costSensitivity: "high", parallelism: "high" },
 };

@@ -1,5 +1,5 @@
 import type { AgentDef, RoleDef } from "@stewart/config";
-import { eligibleChain } from "@stewart/roles-skills";
+import { avoidedModels, eligibleChain, pickIndependent, primaryAgent, resolveActiveLead } from "@stewart/roles-skills";
 import type { ChatMessage, Json } from "@stewart/kernel";
 import type { ApproveFn } from "@stewart/permissions";
 import { roleIsReadOnly, ToolRegistry, type Tool } from "@stewart/tools";
@@ -25,7 +25,7 @@ function capReply(raw: string): string {
   return `${raw.slice(0, head)}\n[reply truncated: ${raw.length - REPLY_CAP} chars omitted]\n${raw.slice(-Math.floor(REPLY_CAP * 0.3))}`;
 }
 
-type ChildRequest = Omit<ChildJob, "taskId">;
+type ChildRequest = Omit<ChildJob, "taskId"> & { chosen: AgentDef | undefined; independent: boolean };
 
 /** Per-lead-run child runs behind the delegate/health_report tools. Depth 1: children never get these tools. */
 export class ChildRunner {
@@ -36,8 +36,19 @@ export class ChildRunner {
     this.health = new HealthTracker(d);
   }
 
+  /** Enabled non-lead roles: the delegate enum, rebuilt from live config every time. Empty means the tool is omitted. */
+  hasDelegateTargets(): boolean {
+    return this.delegateTargets().length > 0;
+  }
+
+  private delegateTargets(): string[] {
+    const cfg = this.d.config();
+    const leadId = resolveActiveLead(cfg.roles)?.role.id;
+    return cfg.roles.filter((r) => r.enabled && r.id !== leadId).map((r) => r.id);
+  }
+
   delegateTool(): Tool {
-    const roles = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead").map((r) => r.id);
+    const roles = this.delegateTargets();
     return {
       spec: {
         name: "delegate",
@@ -82,38 +93,81 @@ export class ChildRunner {
   private childRequest(args: Json): ChildRequest {
     const roleId = String(args.role ?? "");
     const role = this.d.config().roles.find((r) => r.id === roleId);
-    if (!role || role.id === "lead" || !role.enabled) throw new Error(`unknown delegate role '${roleId}'`);
+    const leadId = resolveActiveLead(this.d.config().roles)?.role.id;
+    if (!role || role.id === leadId || !role.enabled) throw new Error(`unknown delegate role '${roleId}'`);
     const report = args.report === undefined ? "text" : String(args.report);
     this.checkReport(role, report);
     const scope = strings(args.scope);
     if (report === "health" && roleIsReadOnly(role) && !scope?.length) throw new Error("health report needs scope entries");
-    return { role, task: String(args.task ?? ""), report: report as "text" | "health", check: parseCheck(args.check), scope };
+    return { role, task: String(args.task ?? ""), report: report as "text" | "health", check: parseCheck(args.check), scope, ...this.pickAgent(role) };
+  }
+
+  /** Independent agent pick: first eligible chain agent not sharing a model with an enabled `distinctFrom` role; otherwise the first (or the deps fallback), flagged `independent: false`. */
+  private pickAgent(role: RoleDef): { chosen: AgentDef | undefined; independent: boolean } {
+    const cfg = this.d.config();
+    const avoid = avoidedModels(role, cfg.roles, cfg.agents);
+    const chain = eligibleChain(role, cfg.roles, cfg.agents, cfg.channels);
+    if (chain.length) {
+      const pick = pickIndependent(chain, avoid);
+      return { chosen: pick.agent ?? this.d.agent, independent: pick.independent };
+    }
+    const fallback = this.d.agent;
+    return { chosen: fallback, independent: !fallback || !avoid.has(`${fallback.channel}/${fallback.model}`) };
+  }
+
+  /**
+   * Task-local role copy pinning the chosen agent, so `roleChainIds` (and admission, events, the
+   * run) all use it; the persisted config is not mutated. Only a non-independent pick drops the
+   * secondary — it must run on the shared model, so the chain collapses to the chosen agent. An
+   * independent pick is the first eligible chain agent anyway, and the role's secondary stays as
+   * its escalation target (children escalate along their chain).
+   */
+  private withChosenAgent(role: RoleDef, chosen: AgentDef, independent: boolean): RoleDef {
+    return independent ? { ...role, agent: chosen.id } : { ...role, agent: chosen.id, secondary: undefined };
+  }
+
+  /** The enabled distinctFrom role whose primary agent shares the model with `chosen`, for the non-independent warning. */
+  private sharedWith(role: RoleDef, chosen: AgentDef | undefined): string | undefined {
+    if (!chosen) return undefined;
+    const cfg = this.d.config();
+    const key = `${chosen.channel}/${chosen.model}`;
+    for (const id of role.distinctFrom ?? []) {
+      const other = cfg.roles.find((r) => r.id === id);
+      if (!other || other.enabled === false || other.id === role.id) continue;
+      const p = primaryAgent(other, cfg.roles, cfg.agents);
+      if (p && `${p.channel}/${p.model}` === key) return other.id;
+    }
+    return undefined;
   }
 
   private async delegate(args: Json): Promise<string> {
     const req = this.childRequest(args);
-    if (req.role.kind === "function") return await this.limits.limited(() => this.admitted(req.role, () => runFunctionTask(this.d, req.role, req.task, functionSchema(args.schema))));
-    const run = () => this.limits.limited(() => this.childTurn(req));
-    return roleIsReadOnly(req.role) ? await this.limits.asReader(run) : await this.limits.asWriter(run);
+    let out: string;
+    if (req.role.kind === "function") out = await this.limits.limited(() => this.admitted(req.chosen, () => runFunctionTask(this.d, req.role, req.task, functionSchema(args.schema))));
+    else {
+      const run = () => this.limits.limited(() => this.childTurn(req));
+      out = await (roleIsReadOnly(req.role) ? this.limits.asReader(run) : this.limits.asWriter(run));
+    }
+    return req.independent ? out : `${this.independenceWarning(req)}\n${out}`;
+  }
+
+  private independenceWarning(req: ChildRequest): string {
+    const { role, chosen } = req;
+    return `[Stewart] warning: ${role.id} ran on ${chosen ? `${chosen.channel}/${chosen.model}` : "the lead agent"}, the same model as ${this.sharedWith(role, chosen) ?? "a distinctFrom role"} — independent review is weakened.`;
   }
 
   private checkReport(role: RoleDef, report: string): void {
     if (report !== "text" && report !== "health") throw new Error(`unknown report mode '${report}'`);
     if (report === "health" && role.kind === "function") throw new Error(`role '${role.id}' cannot report health`);
     if (report === "health" && roleIsReadOnly(role) && !role.skills.includes("code-health")) {
-      const able = this.d.config().roles.filter((r) => r.enabled && r.id !== "lead" && roleIsReadOnly(r) && r.skills.includes("code-health")).map((r) => r.id);
+      const able = this.delegateTargets().filter((id) => { const r = this.d.config().roles.find((x) => x.id === id); return r && roleIsReadOnly(r) && r.skills.includes("code-health"); });
       throw new Error(`role '${role.id}' cannot report health (no code-health skill); use ${able.length ? able.join(", ") : "no configured role"}`);
     }
   }
 
-  private childAgent(role: RoleDef): AgentDef | undefined {
-    const cfg = this.d.config();
-    return eligibleChain(role, cfg.roles, cfg.agents, cfg.channels)[0] ?? this.d.agent;
-  }
-
-  /** Holds one admission slot on the role's channel for the whole task, so a channel with maxParallel N never has more than N delegated tasks running (the rest wait as pending). */
-  private async admitted<T>(role: RoleDef, fn: () => Promise<T>): Promise<T> {
-    const release = await this.admitChannel(role);
+  /** Holds one admission slot on the chosen agent's channel for the whole task, so a channel with maxParallel N never has more than N delegated tasks running (the rest wait as pending). */
+  private async admitted<T>(agent: AgentDef | undefined, fn: () => Promise<T>): Promise<T> {
+    const release = await this.admitChannel(agent);
     try {
       return await fn();
     } finally {
@@ -121,10 +175,10 @@ export class ChildRunner {
     }
   }
 
-  private async admitChannel(role: RoleDef): Promise<() => void> {
+  private async admitChannel(agent: AgentDef | undefined): Promise<() => void> {
+    if (!agent) return () => {};
     try {
-      const agent = this.childAgent(role);
-      return agent ? await this.d.channelFor(agent.channel).admit() : () => {};
+      return await this.d.channelFor(agent.channel).admit();
     } catch {
       return () => {}; // unknown channel: the run itself reports it
     }
@@ -141,9 +195,9 @@ export class ChildRunner {
     bus.emit({ kind: "task.created", runId: this.d.runId, taskId, roleId: role.id, title: task.slice(0, 80) });
     let res: TaskResult;
     try {
-      res = await this.admitted(role, () => {
-        bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: this.childAgent(role)?.id ?? "" });
-        return this.runChild({ ...req, taskId });
+      res = await this.admitted(req.chosen, () => {
+        bus.emit({ kind: "task.started", runId: this.d.runId, taskId, roleId: role.id, agentId: req.chosen?.id ?? "" });
+        return this.runChild({ ...req, taskId, role: req.chosen ? this.withChosenAgent(role, req.chosen, req.independent) : role });
       });
     } catch (e) {
       bus.emit({ kind: "task.failed", runId: this.d.runId, taskId, roleId: role.id, error: err(e) });

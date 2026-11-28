@@ -5,11 +5,15 @@ import { effortSchema } from "../src/schema.js";
 const role = (id: string, turns = 10) => `version: 1\nitems:\n  - id: ${id}\n    enabled: true\n    skills: []\n    tools: []\n    writePaths: []\n    turnBudget: ${turns}\n`;
 
 describe("loadConfig", () => {
-  it("merges shipped < user < project roles by id, field by field", () => {
+  it("merges user < project roles by id, field by field", () => {
     const c = loadConfig({ "roles.yaml": role("r", 20) }, { "roles.yaml": role("r", 30) }, { "roles.yaml": role("r") }, { trusted: true });
     expect(c.errors).toEqual([]);
     expect(c.roles).toHaveLength(1);
     expect(c.roles[0].turnBudget).toBe(30);
+  });
+  it("does not merge shipped roles into the live list", () => {
+    const c = loadConfig({}, undefined, { "roles.yaml": role("shipped") }, { trusted: true });
+    expect(c.roles).toEqual([]);
   });
   it("ignores the project layer in an untrusted workspace and says so", () => {
     const c = loadConfig({}, { "roles.yaml": role("r") }, {}, { trusted: false });

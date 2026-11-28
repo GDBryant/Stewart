@@ -9,6 +9,8 @@ import type { Declared } from "./sessionTools.js";
 /** What the plan driver needs from a TurnWork. */
 export interface DriveWork {
   runId: string;
+  /** The turn's active lead; milestone events key on its id. */
+  lead: { id: string };
   transcript: ChatMessage[];
   declared: Declared;
   plan: PlanRunner;
@@ -64,7 +66,7 @@ export async function drivePlan(w: DriveWork, first: Baseline, io: DriveIO): Pro
       await w.plan.save();
       return res;
     }
-    io.bus.emit({ kind: "milestone.started", runId: w.runId, roleId: "lead", milestoneId: m.id, title: m.title });
+    io.bus.emit({ kind: "milestone.started", runId: w.runId, roleId: w.lead.id, milestoneId: m.id, title: m.title });
     const text = milestoneText(st.plan, m);
     w.transcript.push({ role: "user", content: text });
     w.declared.value = undefined;

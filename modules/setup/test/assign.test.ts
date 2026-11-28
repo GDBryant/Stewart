@@ -172,3 +172,19 @@ describe("default-profile role assignment", () => {
     expect(scoreAssignments(["custom"], [c("m:30b", { tools: "none" })]).unfilled[0].role).toBe("custom");
   });
 });
+
+describe("golden pipeline role profiles", () => {
+  const strong = { ...c("p", { tools: "native", reasoning: true }, "openai-compatible", "c2"), costTier: "high" as const, costBlended: 20 };
+  const local = { ...c("f:30b", { tools: "native" }), costTier: "free" as const, costBlended: 0 };
+  it("sends thinking roles to the strong model and builder/documenter to the cheap one", () => {
+    for (const role of ["planner", "interrogator", "spec-writer", "investigator", "reviewer"]) expect(pick(role, [strong, local]).model, role).toBe("p");
+    for (const role of ["builder", "documenter"]) expect(pick(role, [strong, local]).model, role).toBe("f:30b");
+  });
+  it("assigns every golden role with one model; refuses without tools", () => {
+    const roles = ["lead", "explorer", "reviewer", "auditor", "tester", "planner", "interrogator", "spec-writer", "builder", "investigator", "documenter"];
+    const r = scoreAssignments(roles, [c("only:14b", { tools: "native" })]);
+    expect(r.assignments).toHaveLength(roles.length);
+    expect(r.unfilled).toEqual([]);
+    expect(scoreAssignments(["builder", "documenter"], [c("x:14b", { tools: "none" })]).unfilled).toHaveLength(2);
+  });
+});

@@ -26,7 +26,8 @@ Active plans:
 - ACP channel plan (proposed): `docs/ACP_CHANNEL_PLAN.md` — generic Agent Client Protocol channel/engine (`devin acp` first target); spike questions, file checklist, test plan.
 - Harness efficiency plan (built E1–E7, E7 re-probe not built; replay measurement pending): `docs/HARNESS_EFFICIENCY_PLAN.md` — reasoning control for openai-compatible channels, compaction fit/hysteresis, window-aware tool caps, re-read guard, exploration nudges, heavyAgent; from `docs/investigations/SLOW_RUNS_2026-11-25.md`; as-built in ARCHITECTURE_NOW §3j.
 - Harness efficiency plan 2 (built F1–F3, F4 not built): `docs/HARNESS_EFFICIENCY_PLAN_2.md` — from the 2026-11-26 health-check log: transient-error retry/first-token deadline (504 escalated straight to Claude), E2 reasoning field unset so inert, lead hand-batching instead of `health_report`.
-- Golden steps, roles and skills: `docs/GOLDEN_STEPS_ROLES_SKILLS.md` — 12-step build pipeline mapped to 7 roles; its skills ship in `roles-skills` (`pipelineSkills.ts`), roles not yet bound.
+- Golden steps pipeline spec: `docs/GOLDEN_STEPS_SPEC.md` — pipeline mechanics: artifact contracts with provenance, checkpoints C0–C9 + human gates H1–H3, refactor-first health policy, loop tripwires, skill sources.
+- Golden steps, roles and skills: `docs/GOLDEN_STEPS_ROLES_SKILLS.md` — 12-step build pipeline mapped to 7 roles; Stewart binding (role lifecycle, lead resolution, degraded rosters); skills ship in `roles-skills` (`pipelineSkills.ts`).
 - Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
 
 `docs/ai_docs/` — living as-built docs:

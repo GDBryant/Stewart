@@ -113,7 +113,7 @@ async function gateCommand(c: Ctx, cmd: ContractCommand, n: number): Promise<Evi
   const { spec, deps } = c;
   if (cmd.approved) return undefined;
   const gate = deps.permissions.gate(spec.runId, spec.run.controller.signal);
-  const call = { id: `check-${spec.taskId ?? "lead"}-${n}`, name: "verify_command", arguments: { command: cmd.argv } };
+  const call = { id: `check-${spec.taskId ?? spec.role.id}-${n}`, name: "verify_command", arguments: { command: cmd.argv } };
   const d = await gate(call, { kind: "command", command: cmd.argv.join(" "), cwd: "." }, { roleId: spec.role.id, ...(spec.taskId ? { taskId: spec.taskId } : {}) });
   return d.kind === "approved" ? undefined : { code: "command_denied", ok: false, detail: `check command not approved: ${cmd.argv.join(" ")}` };
 }

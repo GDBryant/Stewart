@@ -65,6 +65,6 @@ describe("protocol", () => {
     expect(METHODS).toContain("setup.probe.retry");
     expect(METHODS).toContain("setup.session.addChannel");
     expect(METHODS).toContain("setup.session.removeChannel");
-    expect(METHODS.length).toBe(41);
+    expect(METHODS.length).toBe(42);
   });
 });

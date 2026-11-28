@@ -30,6 +30,8 @@ const adapter: ChannelAdapter = {
   },
 };
 
+const LEAD_ROLES = "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n";
+
 function mk(userLayer: ConfigLayer = {}, projectLayer: ConfigLayer = {}, defaults: ConfigLayer = {}) {
   const user = memStore(userLayer);
   const project = memStore(projectLayer);
@@ -39,7 +41,6 @@ function mk(userLayer: ConfigLayer = {}, projectLayer: ConfigLayer = {}, default
     defaults: {
       "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: fake\n    enabled: true\n    modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } }\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m1\n",
-      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
       ...defaults,
     },
     userConfig: user,
@@ -131,7 +132,7 @@ describe("config handlers", () => {
 
 describe("chat handlers", () => {
   it("chat.send starts a lead session and cancel/answer/approve/history handlers respond", async () => {
-    const { core } = mk();
+    const { core } = mk({ "roles.yaml": LEAD_ROLES });
     await attach(core);
     const r = (await core.dispatch("chat.send", { projectId: "p", text: "hi" })) as { runId: string };
     expect(r.runId).toBeTruthy();
@@ -153,7 +154,7 @@ describe("chat handlers", () => {
         yield { kind: "done" } as ChatEvent;
       },
     };
-    const { core } = mk();
+    const { core } = mk({ "roles.yaml": LEAD_ROLES });
     core.channels.register("fake", () => blocking);
     await attach(core);
     await core.dispatch("chat.send", { projectId: "p", text: "hi", sessionId: "s-block" });

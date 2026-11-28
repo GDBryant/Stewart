@@ -98,11 +98,13 @@ export function loadConfig(user: ConfigLayer, project: ConfigLayer | undefined, 
 
   const ch = loadLayerFile(channelsFile, "channels.yaml", [defaults["channels.yaml"], user["channels.yaml"]], errors);
   const ag = loadLayerFile(agentsFile, "agents.yaml", [defaults["agents.yaml"], user["agents.yaml"]], errors);
-  const rl = loadLayerFile(rolesFile, "roles.yaml", [defaults["roles.yaml"], user["roles.yaml"], proj["roles.yaml"]], errors);
+  // Roles are live user data, not config: the shipped defaults layer no longer merges in.
+  // `roles.addDefaults` copies selected shipped roles into the user's roles.yaml explicitly.
+  const rl = loadLayerFile(rolesFile, "roles.yaml", [user["roles.yaml"], proj["roles.yaml"]], errors);
   const st = loadLayerFile(settingsFile, "settings.yaml", [defaults["settings.yaml"], user["settings.yaml"], proj["settings.yaml"]], errors);
   const prj = parseFile(projectFile, "project.yaml", proj["project.yaml"], errors);
 
-  const roles = mergeById(mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []), rl[2]?.items ?? []);
+  const roles = mergeById(rl[0]?.items ?? [], rl[1]?.items ?? []);
 
   return { channels: mergedItems(ch), agents: mergedItems(ag), roles, settings: mergeSettingsLayers(st), project: { verify: prj?.verify ?? [], readRoots: prj?.readRoots ?? [] }, errors };
 }

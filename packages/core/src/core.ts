@@ -204,6 +204,7 @@ export class Core implements CoreCtx {
     "skills.save": (p) => cfg.handleSkillsSave(this, p),
     "skills.reset": (p) => cfg.handleSkillsReset(this, p),
     "roles.reset": (p) => cfg.handleRolesReset(this, p),
+    "roles.addDefaults": (p) => cfg.handleRolesAddDefaults(this, p),
     "roles.assignAgent": (p) => cfg.handleRolesAssignAgent(this, p),
     "secret.set": (p) => cfg.handleSecretSet(this, p),
     "secret.delete": (p) => cfg.handleSecretDelete(this, p),

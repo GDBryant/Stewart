@@ -1,3 +1,4 @@
+import { GOLDEN_PIPELINE_SKILL } from "./goldenPipeline.js";
 import { PIPELINE_SKILLS } from "./pipelineSkills.js";
 import type { ShippedSkill } from "./shippedSkill.js";
 
@@ -5,6 +6,7 @@ export type { ShippedSkill };
 
 export const DEFAULT_SKILLS: ShippedSkill[] = [
   ...PIPELINE_SKILLS,
+  GOLDEN_PIPELINE_SKILL,
   {
     id: "spec-first",
     description: "Pin down the contract before planning implementation.",

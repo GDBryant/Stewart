@@ -93,6 +93,8 @@ export const roleSchema = z.preprocess(
     secondary: z.string().optional(),
     /** Larger-window agent that serves this role's plan milestone tasks first (long builds); falls back to the normal chain. */
     heavyAgent: z.string().optional(),
+    /** Role ids whose primary agent's model this role should avoid running on (independent review/plan). */
+    distinctFrom: z.array(z.string()).default([]),
   needs: z.object({ vision: z.boolean().optional(), minContext: z.number().int().positive().optional() }).optional(),
   skills: z.array(z.string()).default([]),
   tools: z.array(z.string()).default([]),

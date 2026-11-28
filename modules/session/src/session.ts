@@ -10,7 +10,7 @@ import { RunLedger } from "@stewart/ledger";
 import { HealthBatches, ProjectPaths, projectTools, ToolRegistry } from "@stewart/tools";
 import { engineFor as defaultEngineFor, type Engine } from "@stewart/engines";
 import { changeTracker, type ChangeTracker } from "@stewart/tasks";
-import { leadRole, systemPrompt } from "./lead.js";
+import { leadEventId, leadRole, systemPrompt } from "./lead.js";
 import { askUserTool, loadSkillTool, setCheckTool, type Declared } from "./sessionTools.js";
 import { ChildRunner } from "./child.js";
 import { PlanRunner } from "./plan.js";
@@ -46,6 +46,8 @@ export interface SendRequest {
 interface TurnWork {
   runId: string;
   sessionId: string;
+  /** The active lead resolved once for this turn. */
+  lead: import("@stewart/config").RoleDef;
   transcript: ChatMessage[];
   state: Record<string, unknown>;
   rs: RunState;
@@ -128,7 +130,7 @@ export class SessionService {
     await persistTurn(this.deps.host, w);
   }
 
-  private async turnWork(runId: string, sessionId: string, rs: RunState): Promise<TurnWork> {
+  private async turnWork(runId: string, sessionId: string, rs: RunState, lead: import("@stewart/config").RoleDef): Promise<TurnWork> {
     const { host, bus } = this.deps;
     const stateDir = await host.workspace.stateDir();
     const store = await this.historyStore();
@@ -137,9 +139,9 @@ export class SessionService {
     const transcript = (await store.load(sessionId)) ?? [];
     closeOpenCalls(transcript);
     const w: TurnWork = {
-      runId, sessionId, rs, stateDir, store, paths, tracker, declared: {}, transcript,
+      runId, sessionId, lead, rs, stateDir, store, paths, tracker, declared: {}, transcript,
       state: await loadEngineState(host, stateDir, sessionId),
-      plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction, tracker }),
+      plan: new PlanRunner({ host, paths, stateDir, sessionId, runId, bus, interaction: this.deps.interaction, tracker, leadId: lead.id }),
       stepSave: () => {},
       compactState: { sinceSummary: Number.POSITIVE_INFINITY },
     };
@@ -150,15 +152,16 @@ export class SessionService {
   private async runTurn(runId: string, sessionId: string, req: SendRequest, rs: RunState): Promise<void> {
     const { bus } = this.deps;
     try {
-      const w = await this.turnWork(runId, sessionId, rs);
+      const lead = leadRole(this.deps.config());
+      const w = await this.turnWork(runId, sessionId, rs, lead);
       w.transcript.push({ role: "user", content: req.text, images: req.images?.length ? req.images : undefined });
       w.stepSave();
-      bus.emit({ kind: "run.started", runId, roleId: "lead", title: req.text.slice(0, 60) });
+      bus.emit({ kind: "run.started", runId, roleId: lead.id, title: req.text.slice(0, 60) });
       const res = await this.task(w, { goal: lastUserText(w.transcript), contract: leadContract(this.deps.config, w.declared), planTool: true });
       await this.persist(w);
       await this.finish(w, res);
     } catch (e) {
-      bus.emit(failedRunEvent(runId, rs, err(e)));
+      bus.emit(failedRunEvent({ runId, roleId: leadEventId(this.deps.config()), rs }, err(e)));
     } finally {
       this.active.delete(runId);
     }
@@ -175,11 +178,11 @@ export class SessionService {
 
   private async task(w: TurnWork, o: { goal: string; contract: () => Contract; baseline?: TaskResult["baseline"]; needs?: { mustChange?: boolean }; planTool: boolean }): Promise<TaskResult> {
     const config = this.deps.config();
-    const lead = leadRole(config);
+    const lead = w.lead;
     const deps = await this.taskDeps(w);
     const chain = eligibleChain(lead, config.roles, config.agents, config.channels);
     const children = new ChildRunner({ ...deps, ids: this.deps.ids, stateDir: w.stateDir, sessionId: w.sessionId, runId: w.runId, agent: chain[0], ledger: deps.ledger, parent: w.rs });
-    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId), children.delegateTool(), children.healthReportTool(), new HealthBatches(this.deps.host, w.paths), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
+    const hostTools = new ToolRegistry([loadSkillTool(config.skills), askUserTool(this.deps.interaction, w.runId, lead.id), ...(children.hasDelegateTargets() ? [children.delegateTool()] : []), children.healthReportTool(), new HealthBatches(this.deps.host, w.paths), setCheckTool(w.declared), ...(o.planTool ? w.plan.tools() : [])]);
     const tools = new ToolRegistry([...projectTools(this.deps.host, w.paths).for(lead).tools, ...hostTools.tools]);
     const res = await runTask(
       {
@@ -249,28 +252,29 @@ export class SessionService {
             throw e;
           });
     const outcome = runOutcome(out.contract, out.check, changed, first);
-    if (w.rs.accrued > 0) await this.emitCost(w.runId, w.rs.accrued);
-    this.deps.bus.emit(finishedEvent(w.runId, w.rs, out, outcome));
+    if (w.rs.accrued > 0) await this.emitCost(w.runId, w.lead.id, w.rs.accrued);
+    this.deps.bus.emit(finishedEvent({ runId: w.runId, roleId: w.lead.id, rs: w.rs }, out, outcome));
   }
 
   /** Resume run: no lead pre-task — the driver continues at the first not-done milestone. */
   private async resumeRun(runId: string, sessionId: string, rs: RunState): Promise<void> {
     const { bus } = this.deps;
     try {
-      const w = await this.turnWork(runId, sessionId, rs);
+      const lead = leadRole(this.deps.config());
+      const w = await this.turnWork(runId, sessionId, rs, lead);
       const plan = await w.plan.resumePlan();
-      if (!plan) return bus.emit(failedRunEvent(runId, rs, "no active plan for this session"));
-      bus.emit({ kind: "run.started", runId, roleId: "lead", title: `Resume plan: ${plan.goal}` });
+      if (!plan) return bus.emit(failedRunEvent({ runId, roleId: lead.id, rs }, "no active plan for this session"));
+      bus.emit({ kind: "run.started", runId, roleId: lead.id, title: `Resume plan: ${plan.goal}` });
       const first = await abortRace(w.tracker.begin(`resume-${runId}`), rs).catch((e) => {
         if (!(e instanceof AbortedRun)) throw e;
         return undefined;
       });
-      if (!first) return bus.emit({ kind: "run.finished", runId, roleId: "lead", status: "cancelled" });
+      if (!first) return bus.emit({ kind: "run.finished", runId, roleId: lead.id, status: "cancelled" });
       const res = await this.drive(w, first);
       await this.persist(w);
       await this.finish(w, res, first);
     } catch (e) {
-      bus.emit(failedRunEvent(runId, rs, err(e)));
+      bus.emit(failedRunEvent({ runId, roleId: leadEventId(this.deps.config()), rs }, err(e)));
     } finally {
       this.active.delete(runId);
     }
@@ -338,10 +342,10 @@ export class SessionService {
     if (!res.ok) throw new Error(res.reason);
   }
 
-  private async emitCost(runId: string, accrued: number): Promise<void> {
+  private async emitCost(runId: string, roleId: string, accrued: number): Promise<void> {
     const c = (await this.ledgerFor()).cost(runId);
     const cap = this.deps.config().settings.costLimit.perRunUsd;
-    this.deps.bus.emit({ kind: "cost.summary", runId, roleId: "lead", capUsd: cap, accruedUsd: c.costUsd || accrued, overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent });
+    this.deps.bus.emit({ kind: "cost.summary", runId, roleId, capUsd: cap, accruedUsd: c.costUsd || accrued, overshootUsd: Math.max(0, c.costUsd - cap), byRole: c.byRole, byAgent: c.byAgent });
   }
 }
 

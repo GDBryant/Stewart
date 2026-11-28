@@ -26,7 +26,7 @@ export function loadSkillTool(skills: ResolvedSkill[]): Tool {
 }
 
 /** `ask_user({question, options?})`: a question card on the shared Interaction; no timeout applies. */
-export function askUserTool(interaction: Interaction, runId: string): Tool {
+export function askUserTool(interaction: Interaction, runId: string, roleId: string): Tool {
   return {
     spec: {
       name: "ask_user",
@@ -45,7 +45,7 @@ export function askUserTool(interaction: Interaction, runId: string): Tool {
     awaitsUser: true,
     execute: async (args, _preview, signal) => {
       const options = Array.isArray(args.options) ? (args.options as unknown[]).map(String) : undefined;
-      const o = await interaction.ask(questionPrompt("ask_user", String(args.question), options), { runId, roleId: "lead" }, signal);
+      const o = await interaction.ask(questionPrompt("ask_user", String(args.question), options), { runId, roleId }, signal);
       return o.kind === "answered" ? o.value : NOT_ANSWERED_CANCELLED;
     },
   };

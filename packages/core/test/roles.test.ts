@@ -50,14 +50,25 @@ describe("Core roles + skills dispatch", () => {
     return { core, layer, events };
   }
 
-  it("shipped defaults provide the lead role and the generic skill set", async () => {
+  it("an empty roster is valid: no roles load, shipped skills still merge", async () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { id: string; enabled: boolean }[]; skills: { id: string; source: string }[] } };
-    expect(r.summary.roles.map((x) => x.id)).toEqual(["lead", "explorer", "reviewer", "auditor", "tester", "planner"]);
-    expect(r.summary.roles[0].enabled).toBe(true);
+    expect(r.summary.roles).toEqual([]);
     expect(r.summary.skills.map((s) => s.id)).toContain("tdd");
     expect(r.summary.skills.every((s) => s.source === "shipped")).toBe(true);
+  });
+
+  it("roles.addDefaults copies shipped rows verbatim: disabled and unbound", async () => {
+    const { core, layer } = mk();
+    await core.attachProject("p", fakeHost().host);
+    const r = (await core.dispatch("roles.addDefaults", { projectId: "p" })) as { added: string[] };
+    expect(r.added.length).toBe(11);
+    const saved = (parseYaml(layer["roles.yaml"]!) as { items: { id: string; enabled?: boolean; agent?: string }[] }).items;
+    for (const row of saved) {
+      expect(row.enabled, row.id).toBe(false);
+      expect(row.agent, row.id).toBeUndefined();
+    }
   });
 
   it("skills.save writes a user skill file with baseHash; skills.reset removes it", async () => {
@@ -84,17 +95,41 @@ describe("Core roles + skills dispatch", () => {
     expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(3);
     await core.dispatch("roles.reset", { projectId: "p", roleId: "lead" });
     r = (await core.dispatch("config.get", { projectId: "p" })) as typeof r;
-    expect(r.summary.roles.find((x) => x.id === "lead")!.turnBudget).toBe(60); // shipped default
+    expect(r.summary.roles.find((x) => x.id === "lead")).toBeUndefined(); // shipped defaults no longer reappear
     await core.dispatch("roles.reset", { projectId: "p" });
     expect(layer["roles.yaml"]).toContain("items: []");
+  });
+
+  it("roles.addDefaults adds only the shipped roles missing from the user file and keeps custom rows", async () => {
+    const { core, layer } = mk({
+      "roles.yaml": "version: 1\nitems:\n  - id: mine\n    enabled: true\n    prompt: custom\n  - id: lead\n    turnBudget: 3\n",
+    });
+    await core.attachProject("p", fakeHost().host);
+    const r = (await core.dispatch("roles.addDefaults", { projectId: "p" })) as { ok: boolean; added: string[] };
+    expect(r.added).toEqual(["explorer", "reviewer", "auditor", "tester", "planner", "interrogator", "spec-writer", "builder", "investigator", "documenter"]);
+    const saved = (parseYaml(layer["roles.yaml"]!) as { items: { id: string; turnBudget?: number; prompt?: string }[] }).items;
+    expect(saved.map((x) => x.id)).toEqual(["mine", "lead", ...r.added]);
+    expect(saved.find((x) => x.id === "mine")!.prompt).toBe("custom");
+    expect(saved.find((x) => x.id === "lead")!.turnBudget).toBe(3);
+  });
+
+  it("roles.addDefaults is a no-op write when nothing is missing", async () => {
+    const { core, layer } = mk();
+    await core.attachProject("p", fakeHost().host);
+    await core.dispatch("roles.addDefaults", { projectId: "p" });
+    const before = layer["roles.yaml"];
+    const r = (await core.dispatch("roles.addDefaults", { projectId: "p" })) as { added: string[] };
+    expect(r.added).toEqual([]);
+    expect(layer["roles.yaml"]).toBe(before);
   });
 
   it("roles.assignAgent sets agent on every role and validates the id", async () => {
     const { core } = mk();
     await core.attachProject("p", fakeHost().host);
     await expect(core.dispatch("roles.assignAgent", { projectId: "p", agentId: "nope" })).rejects.toThrow(/unknown agent/);
-    await core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1" });
+    await core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1", wizard: true });
     const r = (await core.dispatch("config.get", { projectId: "p" })) as { summary: { roles: { agent?: string }[] } };
+    expect(r.summary.roles.length).toBe(11);
     expect(r.summary.roles.every((x) => x.agent === "a1")).toBe(true);
   });
 
@@ -123,7 +158,7 @@ describe("Core roles + skills dispatch", () => {
       emitEvent: () => {},
     });
     await core.attachProject("p", fakeHost().host);
-    await expect(core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1" })).rejects.toThrow(/cannot serve lead: not qualified as agent/);
+    await expect(core.dispatch("roles.assignAgent", { projectId: "p", agentId: "a1", wizard: true })).rejects.toThrow(/cannot serve lead: not qualified as agent/);
   });
 
   it("roles.assignAgent with wizard enables only the lead role", async () => {
@@ -144,7 +179,7 @@ describe("Core roles + skills dispatch", () => {
     const core = new Core({
       defaults,
       userConfig: memStore({
-        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
+        "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    prompt: You are Stewart, a coding assistant.\n    tools: [ReadFile, WriteFile]\n    turnBudget: 1\n",
       }),
       projectConfig: async () => memStore(),
       fetcher,
@@ -176,7 +211,7 @@ describe("Core roles + skills dispatch", () => {
       emitEvent: () => {},
     });
     await core.attachProject("p", fakeHost().host);
-    await expect(core.dispatch("chat.send", { projectId: "p", text: "hi" })).rejects.toThrow(/lead role is disabled/);
+    await expect(core.dispatch("chat.send", { projectId: "p", text: "hi" })).rejects.toThrow(/no enabled agent-kind role/);
   });
 
   it("surfaces unknown bound agents as config errors", async () => {
@@ -194,7 +229,7 @@ describe("Core roles + skills dispatch", () => {
     };
     const core = new Core({
       defaults,
-      userConfig: memStore(),
+      userConfig: memStore({ "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    prompt: You are Stewart, a coding assistant.\n" }),
       projectConfig: async () => memStore(),
       fetcher,
       emitEvent: () => {},
@@ -215,20 +250,20 @@ describe("Core roles + skills dispatch", () => {
 
 describe("shipped lead role", () => {
   const shipped = () => (parseYaml(DEFAULT_ROLES_YAML) as { items: RoleDef[] }).items;
-  it("ships lead first, all enabled", () => {
+  it("ships lead first, all disabled", () => {
     const roles = shipped();
-    expect(roles.map((r) => r.id)).toEqual(["lead", "explorer", "reviewer", "auditor", "tester", "planner"]);
-    expect(roles[0].enabled).toBe(true);
+    expect(roles.map((r) => r.id)).toEqual(["lead", "explorer", "reviewer", "auditor", "tester", "planner", "interrogator", "spec-writer", "builder", "investigator", "documenter"]);
+    expect(roles[0].enabled).toBe(false);
   });
   it("every shipped role references only shipped skills", () => {
     const ids = new Set(DEFAULT_SKILLS.map((s) => s.id));
     for (const x of shipped()) for (const s of x.skills) expect(ids.has(s), `${x.id}:${s}`).toBe(true);
   });
-  it("user roles.yaml with old role ids loads them as inert profiles alongside lead", () => {
+  it("user roles.yaml with old role ids loads them as inert profiles; shipped rows never merge in", () => {
     const user = stringifyYaml({ version: 1, items: [{ id: "orchestrator", enabled: false }, { id: "general-worker", enabled: false }] });
     const cfg = loadEffectiveConfig({ "roles.yaml": user }, undefined, { "roles.yaml": DEFAULT_ROLES_YAML }, { trusted: true });
     const ids = cfg.roles.map((x) => x.id).sort();
-    expect(ids).toEqual(["auditor", "explorer", "general-worker", "lead", "orchestrator", "planner", "reviewer", "tester"]);
+    expect(ids).toEqual(["general-worker", "orchestrator"]);
     expect(cfg.errors).toEqual([]);
   });
 });

@@ -3,7 +3,8 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { userCaps, type ModelCaps } from "@stewart/models";
 import { BENCH_VERSION, benchModel, gatherHardware, mergeEscalationIntoSettings, recommendAssignments, SetupSession, type DraftChannelInput, type SetupContext, type SetupSessionDeps } from "@stewart/setup";
 import { errorMessage } from "@stewart/kernel";
-import { CONFIG_FILE_SCHEMAS } from "@stewart/config";
+import { CONFIG_FILE_SCHEMAS, rolesFile } from "@stewart/config";
+import { DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { applyChannelSecret, applyProbes, catalogFor, dropChannelSecret, workspaceInfoFor } from "./util.js";
 import { persistAllQualified, withSessionQualified } from "./qualify.js";
@@ -218,6 +219,14 @@ type SetupRecommendParams = {
 
 const clamp = (n: unknown): 1 | 2 | 3 => (n === 1 || n === 3 ? n : 2);
 
+/** The wizard recommends over the union of the live roster and the inert shipped
+ * templates: templates are the candidate universe the wizard seeds from, live roster rows win. */
+function withTemplateRoles<T extends { roles: { id: string }[] }>(config: T): T {
+  const live = new Set(config.roles.map((r) => r.id));
+  const templates = rolesFile.parse(parseYaml(DEFAULT_ROLES_YAML)).items.filter((r) => !live.has(r.id));
+  return { ...config, roles: [...config.roles, ...templates] as T["roles"] };
+}
+
 export async function handleSetupRecommend(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as SetupRecommendParams;
   const ctx = core.ctx(p.projectId);
@@ -229,7 +238,7 @@ export async function handleSetupRecommend(core: CoreCtx, params: unknown): Prom
   if (p.evaluator && exclude.has(p.evaluator.channel)) {
     return { ok: false as const, error: `evaluator channel is excluded from this setup run: ${p.evaluator.channel}` };
   }
-  return recommendAssignments(withSessionQualified(core, ctx.config), core.channelService, {
+  return recommendAssignments(withTemplateRoles(withSessionQualified(core, ctx.config)), core.channelService, {
     mode: p.mode,
     evaluator,
     eligible,

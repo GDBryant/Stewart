@@ -1,4 +1,5 @@
 import { loadConfig as loadBase, type Config as BaseConfig, type ConfigLayer } from "@stewart/config";
+import { distinctWarnings } from "./distinct.js";
 import { resolveSkills, type ResolvedSkill } from "./skills.js";
 import { validateRoles } from "./roles.js";
 import { heavyAgentErrors, roleWindowWarnings } from "./roleWindow.js";
@@ -18,6 +19,7 @@ export function loadEffectiveConfig(user: ConfigLayer, project: ConfigLayer | un
     ...validateRoles(base.roles, base.agents, base.channels),
     ...heavyAgentErrors(base.roles, base.agents, base.channels),
     ...roleWindowWarnings(base.roles, base.agents, base.channels, base.settings.runTurnLimit),
+    ...distinctWarnings(base.roles, base.agents),
   ];
   return { ...base, skills, errors: [...base.errors, ...problems] };
 }

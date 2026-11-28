@@ -119,9 +119,21 @@ function ReviewRows({ rec, roles, rowFor, edits, probeResults, eligiblePairs, on
   );
 }
 
+function ApplyAction({ rec, recommendBusy, anyChosen, onApply }: { rec: unknown; recommendBusy?: boolean; anyChosen: boolean; onApply(): void }) {
+  return (
+    <>
+      <button class="send" disabled={!rec || recommendBusy || !anyChosen} title={anyChosen ? undefined : "Pick a model for at least one agent-kind role"} aria-busy={recommendBusy ? "true" : undefined} onClick={onApply}>
+        {recommendBusy ? <><Spinner /> Apply</> : "Apply"}
+      </button>
+      {rec && !anyChosen ? <span class="warn">Pick a model for at least one agent role — apply requires an enabled agent-kind role.</span> : null}
+    </>
+  );
+}
+
 export function ReviewStep({
   rec, recommendBusy, recommendError, evalMode, bench, roles, eligiblePairs, rowFor, edits, probeResults, onEditRole, secondaryFor, onSecondaryChange, onApply, onBack, onUseRules,
 }: ReviewProps) {
+  const anyChosen = roles.some((r) => (r.kind ?? "agent") === "agent" && rowFor(r.id));
   return (
     <div class="form review">
       <p><b>What to do:</b> check who does what. Change any row, or leave a role off. Warnings mean the model is weak for that role.</p>
@@ -139,9 +151,7 @@ export function ReviewStep({
       </div>
       <div class="row review-actions">
         <button class="small" onClick={onBack}>Back</button>
-        <button class="send" disabled={!rec || recommendBusy} aria-busy={recommendBusy ? "true" : undefined} onClick={onApply}>
-          {recommendBusy ? <><Spinner /> Apply</> : "Apply"}
-        </button>
+        <ApplyAction rec={rec} recommendBusy={recommendBusy} anyChosen={anyChosen} onApply={onApply} />
       </div>
     </div>
   );

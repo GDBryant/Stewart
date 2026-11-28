@@ -23,6 +23,7 @@ export type Outbound =
   | { type: "skills.reset"; id: string }
   | { type: "skills.open"; id: string }
   | { type: "roles.reset"; roleId?: string }
+  | { type: "roles.addDefaults" }
   | { type: "roles.assignAgent"; agentId: string; wizard?: boolean }
   | { type: "setup.recommend"; mode?: "rules" | "ai"; evaluator?: { channel: string; model: string }; evaluatorAny?: boolean; context?: { priorities?: { speed?: number; cost?: number; quality?: number }; typicalWork?: string }; bench?: boolean; excludeChannels?: string[] }
   | { type: "setup.probe.start"; candidates?: { channel: string; model: string }[]; evaluator?: { channel: string; model: string } }
@@ -80,6 +81,8 @@ export interface ConfigSummary {
   channels: ChannelSummary[];
   agents: AgentSummary[];
   roles: RoleSummary[];
+  /** Shipped role templates verbatim (inert: disabled, unbound) — the wizard's candidate universe, never merged into the roster. */
+  roleTemplates?: RoleSummary[];
   skills: SkillSummary[];
   settings: SettingsSummary;
 }

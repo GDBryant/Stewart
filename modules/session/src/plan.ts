@@ -15,6 +15,8 @@ export interface PlanDeps {
   interaction: Interaction;
   /** Shared change tracker (calls serialize): plan baseline and milestone checkpoints are baselines. */
   tracker: ChangeTracker;
+  /** roleId for plan events: the turn's active lead. */
+  leadId: string;
 }
 
 interface PlanState {
@@ -146,7 +148,7 @@ export class PlanRunner {
     const b = await this.d.tracker.begin(m.id);
     m.status = "done";
     m.checkpoint = b.id;
-    this.d.bus.emit({ kind: "milestone.done", runId: this.d.runId, roleId: "lead", milestoneId: m.id });
+    this.d.bus.emit({ kind: "milestone.done", runId: this.d.runId, roleId: this.d.leadId, milestoneId: m.id });
     if (!currentMilestone(st.plan)) st.plan.status = "done";
     await this.save();
     return b.id;
@@ -157,7 +159,7 @@ export class PlanRunner {
     const st = this.st!;
     m.status = "failed";
     st.plan.status = "paused";
-    this.d.bus.emit({ kind: "milestone.failed", runId: this.d.runId, roleId: "lead", milestoneId: m.id, error });
+    this.d.bus.emit({ kind: "milestone.failed", runId: this.d.runId, roleId: this.d.leadId, milestoneId: m.id, error });
     await this.save();
   }
 
@@ -211,13 +213,13 @@ export class PlanRunner {
       return { id: `M${i + 1}`, title: String(m.title), detail: m.detail ?? "", check, status: "pending" as const };
     });
     const plan: Plan = { goal: String(args.goal ?? ""), status: "active", sessionId: this.d.sessionId, milestones };
-    const o = await this.d.interaction.ask(questionPrompt("plan_write", `**Approve this plan?**\n\n${renderPlanSummary(plan)}`, ["Approve", "Revise"]), { runId: this.d.runId, roleId: "lead" }, signal);
+    const o = await this.d.interaction.ask(questionPrompt("plan_write", `**Approve this plan?**\n\n${renderPlanSummary(plan)}`, ["Approve", "Revise"]), { runId: this.d.runId, roleId: this.d.leadId }, signal);
     if (o.kind !== "answered" || o.value !== "Approve") return `not approved: ${o.kind === "answered" ? o.value : o.kind}`;
     const baseline = await this.d.tracker.begin("start");
     this.st = { plan, baseline: baseline.id };
     await this.save();
     await this.d.host.files.writeAtomic(this.baselineFile(), `${baseline.id}\n`);
-    this.d.bus.emit({ kind: "plan.approved", runId: this.d.runId, roleId: "lead", milestoneCount: milestones.length });
+    this.d.bus.emit({ kind: "plan.approved", runId: this.d.runId, roleId: this.d.leadId, milestoneCount: milestones.length });
     return "Plan approved. Stop now: Stewart will give you each milestone in turn.";
   }
 }

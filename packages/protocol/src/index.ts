@@ -206,6 +206,7 @@ export const METHODS = [
   "skills.save",
   "skills.reset",
   "roles.reset",
+  "roles.addDefaults",
   "roles.assignAgent",
   "channel.test",
   "channel.probe",

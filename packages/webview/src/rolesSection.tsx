@@ -202,6 +202,7 @@ function RolesHeader({ store, agents, onAdd }: { store: Store; agents: AgentSumm
       Roles
       <span class="spacer" />
       <button class="small" onClick={onAdd}>+ Add</button>
+      <button class="small" title="Copy the shipped role templates missing from your roles.yaml (they arrive disabled and unbound — bind an agent and enable them)" onClick={() => store.addDefaultRoles()}>Add defaults</button>
       <select value={assignee} onChange={(e) => setAssignee((e.target as HTMLSelectElement).value)}>
         <option value="">assign agent…</option>
         {agents.map((a) => <option key={a.id} value={a.id}>{a.id}</option>)}
@@ -242,7 +243,12 @@ export function RolesSection({ store, roles, agents, channels, skills }: {
           onCancel={() => setDraft(undefined)}
         />
       ) : null}
-      {!roles.length && !draft ? <p class="hint">No roles configured.</p> : null}
+      {!roles.length && !draft ? (
+        <p class="hint">
+          No roles configured — chat cannot run until an agent-kind role is enabled. Click <b>Add defaults</b> to copy the
+          shipped role templates into your roster, then bind an agent and enable one; or run the setup wizard.
+        </p>
+      ) : null}
     </section>
   );
 }

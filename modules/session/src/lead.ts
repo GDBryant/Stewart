@@ -1,16 +1,28 @@
 import type { RoleDef } from "@stewart/config";
 import type { HostPort } from "@stewart/kernel";
 import { loadProjectContext } from "@stewart/context";
-import type { EffectiveConfig, ResolvedSkill } from "@stewart/roles-skills";
+import { resolveActiveLead, type EffectiveConfig, type LeadResolution, type ResolvedSkill } from "@stewart/roles-skills";
 
 const PROJECT_NOTES_CAP = 8000;
 
-/** The session's role; throws when the shipped `lead` entry was removed or disabled. */
+/** Actionable empty state: no enabled agent-kind role means chat is unavailable, not corrupt. */
+export const NO_LEAD_MESSAGE = "no enabled agent-kind role — run the setup wizard or use Settings > Roles > Add defaults, then bind an agent and enable a role";
+
+/** The resolution for one user turn; undefined means the empty state (chat unavailable). */
+export function leadResolution(config: EffectiveConfig): LeadResolution | undefined {
+  return resolveActiveLead(config.roles);
+}
+
+/** The session's active lead role; throws the actionable empty-state message when there is none. */
 export function leadRole(config: EffectiveConfig): RoleDef {
-  const r = config.roles.find((r) => r.id === "lead");
-  if (!r) throw new Error("role 'lead' not configured");
-  if (!r.enabled) throw new Error("role 'lead' is disabled");
-  return r;
+  const r = leadResolution(config);
+  if (!r) throw new Error(NO_LEAD_MESSAGE);
+  return r.role;
+}
+
+/** roleId for lead-position events: the active lead's id, or the positional label when there is none. */
+export function leadEventId(config: EffectiveConfig): string {
+  return leadResolution(config)?.role.id ?? "lead";
 }
 
 function skillLine(s: ResolvedSkill): string {

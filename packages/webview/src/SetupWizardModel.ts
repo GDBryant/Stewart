@@ -49,6 +49,8 @@ type WizardInputs = ReturnType<typeof useWizardInputs>;
 /** Recommendation/apply actions built on the inputs. Plain functions, no hooks. */
 function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, m: WizardInputs) {
   const rec = store.state.recommendation;
+  const rosterIds = new Set(roles.map((r) => r.id));
+  const candidateRoles = [...roles, ...(store.state.config?.summary.roleTemplates ?? []).filter((t) => !rosterIds.has(t.id))];
   const row = (role: string) => rowRef(rec, m.edits, role);
   const buildProposal = () => {
     m.setEdits({});
@@ -64,9 +66,9 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
   };
   const apply = () => {
     if (!rec) return;
-    const chosen = roles.map((r) => ({ role: r.id, ref: row(r.id) }));
-    const secondaries = roles.map((r) => ({ role: r.id, ref: secondaryFor(r.id) })).filter((c) => c.ref);
-    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles, chosen, probeResults: store.state.probeResults, secondaries, passed: passedPairs(m.smoke, m.eligiblePairs) });
+    const chosen = candidateRoles.map((r) => ({ role: r.id, ref: row(r.id) }));
+    const secondaries = candidateRoles.map((r) => ({ role: r.id, ref: secondaryFor(r.id) })).filter((c) => c.ref);
+    const { agents: nextAgents, roles: nextRoles } = buildAgentsForRoles({ agents, channels, roles: candidateRoles, chosen, probeResults: store.state.probeResults, secondaries, passed: passedPairs(m.smoke, m.eligiblePairs), rosterIds });
     store.setupApply(
       {
         "agents.yaml": stringify({ version: 1, items: nextAgents }, null, 2),
@@ -79,7 +81,7 @@ function useWizardActions({ store, channels, agents, roles }: SetupWizardProps, 
   };
   const statusChannels = m.source === "existing" ? m.enabled : m.enabled.filter((c) => m.added.has(c.id));
   const divertCandidates = divertCandidatesFor(agents, channels, store.state.probeResults);
-  return { rec, row, buildProposal, apply, statusChannels, divertCandidates, secondaryFor,
+  return { rec, row, buildProposal, apply, statusChannels, divertCandidates, secondaryFor, candidateRoles,
     onSecondaryChange: (role: string, ref: string) => m.setSecondaryEdits({ ...m.secondaryEdits, [role]: ref }) };
 }
 

@@ -1,7 +1,9 @@
 import { errorMessage } from "@stewart/kernel";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CONFIG_FILE_SCHEMAS, isProjectFile } from "@stewart/config";
-import { agentRefusal, baseHashFor, serializeSkillMd, shippedDefaultRoles, shippedSkill } from "@stewart/roles-skills";
+import { agentRefusal, baseHashFor, resolveActiveLead, serializeSkillMd, shippedDefaultRoles, shippedSkill, DEFAULT_ROLES_YAML } from "@stewart/roles-skills";
+import { rolesFile } from "@stewart/config";
+import type { RoleDef } from "@stewart/config";
 import type { CoreCtx, ProjectCtx } from "./types.js";
 import { cascadeConfigSet } from "./configCascade.js";
 import { applyChannelSecret, dropChannelSecret } from "./util.js";
@@ -23,11 +25,12 @@ export async function handleConfigGet(core: CoreCtx, params: unknown): Promise<u
   const projectFiles = ctx.trusted ? await ctx.projectStore.read() : {};
   const files = { ...core.defaults, ...userFiles, ...projectFiles };
   const { errors, ...summary } = ctx.config;
+  const roleTemplates = rolesFile.parse(parseYaml(DEFAULT_ROLES_YAML)).items;
   const secrets: Record<string, boolean> = {};
   for (const c of ctx.config.channels) {
     if (c.secretRef && !(c.secretRef in secrets)) secrets[c.secretRef] = (await ctx.host.secrets.get(c.secretRef)) !== undefined;
   }
-  return { files, summary, errors, secrets };
+  return { files, summary: { ...summary, roleTemplates }, errors, secrets };
 }
 
 export async function handleConfigReload(core: CoreCtx, params: unknown): Promise<unknown> {
@@ -121,28 +124,70 @@ export async function handleRolesReset(core: CoreCtx, params: unknown): Promise<
   return { ok: true };
 }
 
+/** Writes every shipped role missing from the user's roles.yaml into it (existing rows untouched); replies with the added ids. */
+export async function handleRolesAddDefaults(core: CoreCtx, params: unknown): Promise<unknown> {
+  const p = params as { projectId: string };
+  const ctx = core.ctx(p.projectId);
+  const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null;
+  const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
+  const have = new Set(items.map((i) => i.id));
+  const shipped = (parseYaml(core.defaults["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null)?.items ?? [];
+  const missing = shipped.filter((r) => r && !have.has(r.id));
+  if (missing.length) {
+    await writeUser(core, "roles.yaml", stringifyYaml({ version: 1, items: [...items, ...missing] }));
+    await core.reload(p.projectId);
+  }
+  return { ok: true, added: missing.map((r) => r.id) };
+}
+
+/**
+ * Assign one agent to every role in the write set. Non-wizard: the live roster only — an empty roster
+ * gains no rows. Wizard: missing shipped templates are seeded as verbatim copies first (the wizard's
+ * in-memory candidates), every written row is bound, and exactly `lead` is enabled — the minimum
+ * population the lifecycle requires; other seeded rows stay inert until the user enables and binds them.
+ */
 export async function handleRolesAssignAgent(core: CoreCtx, params: unknown): Promise<unknown> {
   const p = params as { projectId: string; agentId: string; wizard?: boolean };
   const ctx = core.ctx(p.projectId);
   const agent = ctx.config.agents.find((a) => a.id === p.agentId);
   if (!agent) throw new Error(`unknown agent: ${p.agentId}`);
-  const lead = ctx.config.roles.find((r) => r.id === "lead");
-  const why = lead ? agentRefusal(lead, agent, ctx.config.channels) : null;
-  if (why) throw new Error(`agent ${p.agentId} cannot serve lead: ${why}`);
   const doc = parseYaml(ctx.userLayer["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null;
   const items = (doc?.items ?? []).filter((i) => i && typeof i === "object");
   const byId = new Map(items.map((i) => [String(i.id), i]));
-  for (const r of ctx.config.roles) {
-    const item = byId.get(r.id) ?? { id: r.id };
-    item.agent = p.agentId;
-    delete item.chain;
-    if (item.secondary === p.agentId) delete item.secondary;
-    if (p.wizard) item.enabled = r.id === "lead";
-    byId.set(r.id, item);
-  }
+  const ids = p.wizard ? seededWizardIds(core, ctx.config.roles, byId) : ctx.config.roles.map((r) => r.id);
+  const writeRows = ids.map((id) => effectiveWizardRow(core, byId, id, p));
+  const resolution = resolveActiveLead(writeRows as RoleDef[]);
+  const why = resolution ? agentRefusal(resolution.role, agent, ctx.config.channels) : null;
+  if (why) throw new Error(`agent ${p.agentId} cannot serve ${resolution!.role.id}: ${why}`);
+  for (const row of writeRows) byId.set(String(row.id), row as Record<string, unknown>);
+  if (!ids.length && !items.length) return { ok: true };
   await writeUser(core, "roles.yaml", stringifyYaml({ version: 1, items: [...byId.values()] }));
   await core.reload(p.projectId);
   return { ok: true };
+}
+
+/** Wizard write set: the live roster ids plus every shipped template id missing from it. */
+function seededWizardIds(core: CoreCtx, roster: { id: string }[], byId: Map<string, Record<string, unknown>>): string[] {
+  const have = new Set([...roster.map((r) => r.id), ...byId.keys()]);
+  const shipped = (parseYaml(core.defaults["roles.yaml"] ?? "") as { items?: { id?: string }[] } | null)?.items ?? [];
+  const out = roster.map((r) => r.id);
+  for (const t of shipped) {
+    const id = String(t.id ?? "");
+    if (id && !have.has(id)) out.push(id);
+  }
+  return out;
+}
+
+/** One row of the write set: the user row when present, else the shipped template copy; agent bound, chain dropped, wizard enables only lead. */
+function effectiveWizardRow(core: CoreCtx, byId: Map<string, Record<string, unknown>>, id: string, p: { agentId: string; wizard?: boolean }): Record<string, unknown> {
+  const shipped = (parseYaml(core.defaults["roles.yaml"] ?? "") as { items?: Record<string, unknown>[] } | null)?.items ?? [];
+  const base = byId.get(id) ?? shipped.find((t) => String(t.id ?? "") === id) ?? { id };
+  const item: Record<string, unknown> = { ...base, id };
+  item.agent = p.agentId;
+  delete item.chain;
+  if (item.secondary === p.agentId) delete item.secondary;
+  if (p.wizard) item.enabled = id === "lead";
+  return item;
 }
 
 export async function handleSecretSet(core: CoreCtx, params: unknown): Promise<unknown> {

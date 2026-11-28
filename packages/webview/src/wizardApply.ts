@@ -64,6 +64,8 @@ export function buildAgentsForRoles(input: {
   secondaries?: { role: string; ref: string }[];
   /** Probe pairs that passed qualification: each gets an agent even without a role binding. */
   passed?: { channel: string; model: string }[];
+  /** Ids already in the live roster. Unchosen pre-existing rows are written disabled; unchosen template candidates are omitted entirely. */
+  rosterIds?: Set<string>;
 }): { agents: AgentSummary[]; roles: RoleSummary[] } {
   const { agents, channels, roles, chosen, probeResults, secondaries } = input;
   const pairToAgent = new Map<string, string>();
@@ -75,13 +77,16 @@ export function buildAgentsForRoles(input: {
     const i = ref.indexOf(":");
     pairToAgent.set(ref, ensureAgent(pool, ref.slice(0, i), ref.slice(i + 1)));
   }
-  const nextRoles = roles.map((r) => {
+  const nextRoles = roles.flatMap((r) => {
     const ref = chosen.find((c) => c.role === r.id)?.ref;
-    if (!ref) return { ...r, enabled: false };
+    if (!ref) {
+      if (input.rosterIds && !input.rosterIds.has(r.id)) return [];
+      return [{ ...r, enabled: false }];
+    }
     const agent = pairToAgent.get(ref);
     const secRef = secondaries?.find((c) => c.role === r.id)?.ref;
     const sec = secRef ? pairToAgent.get(secRef) : undefined;
-    return { ...r, agent, secondary: sec && sec !== agent ? sec : undefined, enabled: true };
+    return [{ ...r, agent, secondary: sec && sec !== agent ? sec : undefined, enabled: true }];
   });
   return { agents: [...nextAgents.values()], roles: nextRoles };
 }

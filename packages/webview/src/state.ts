@@ -199,6 +199,11 @@ export class Store {
     this.bridge.post({ type: "roles.reset", roleId });
     this.requestConfig();
   }
+  /** Adds the shipped roles missing from the user's roles.yaml. */
+  addDefaultRoles(): void {
+    this.bridge.post({ type: "roles.addDefaults" });
+    this.requestConfig();
+  }
   assignAgentToAll(agentId: string, wizard?: boolean): void {
     this.bridge.post(wizard !== undefined ? { type: "roles.assignAgent", agentId, wizard } : { type: "roles.assignAgent", agentId });
     this.requestConfig();

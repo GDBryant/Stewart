@@ -115,9 +115,14 @@ describe("ReviewStep busy", () => {
   });
 
   it("shows no busy note and enables Apply when a recommendation is present", () => {
-    render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} />);
+    render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} rowFor={(role: string) => (role === "general-worker" ? "c1:m" : "")} />);
     expect(document.querySelector(".busy")).toBeNull();
     expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("disables Apply when no agent-kind role has a pick", () => {
+    render(<ReviewStep {...reviewProps} rec={rec as never} recommendBusy={false} />);
+    expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

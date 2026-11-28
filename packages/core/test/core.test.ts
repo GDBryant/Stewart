@@ -122,10 +122,10 @@ describe("loadEffectiveConfig", () => {
 });
 
 describe("Core", () => {
+  const rolesUser = "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n";
   const defaults = {
     "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
     "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
-    "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    agent: a1\n    turnBudget: 40\n",
   };
 
   function mkCore(body: string[]) {
@@ -134,7 +134,7 @@ describe("Core", () => {
     const core = new Core({
       fetcher,
       defaults,
-      userConfig: memStore(),
+      userConfig: memStore({ "roles.yaml": rolesUser }),
       projectConfig: async () => memStore(),
       emitEvent: (e) => events.push(e),
     });
@@ -157,7 +157,7 @@ describe("Core", () => {
     const events: RunEvent[] = [];
     const { fetcher } = fakeFetcher([{ body: ['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1000,"eval_count":1000}'] }]);
     const priced = { ...defaults, "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n    billing: priced\n    price: { inPerMTok: 3, outPerMTok: 15 }\n" };
-    const core = new Core({ fetcher, defaults: priced, userConfig: memStore(), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
+    const core = new Core({ fetcher, defaults: priced, userConfig: memStore({ "roles.yaml": rolesUser }), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
     await core.attachProject("p", fakeHost());
     await core.dispatch("chat.send", { projectId: "p", text: "yo" });
     await vi.waitFor(() => expect(events.some((e) => e.kind === "run.finished")).toBe(true));
@@ -187,7 +187,7 @@ describe("Core", () => {
         },
       }),
     });
-    const core = new Core({ fetcher, defaults, userConfig: memStore(), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
+    const core = new Core({ fetcher, defaults, userConfig: memStore({ "roles.yaml": rolesUser }), projectConfig: async () => memStore(), emitEvent: (e) => events.push(e) });
     await core.attachProject("p", fakeHost());
     const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
     await new Promise((r) => setTimeout(r, 30));
@@ -206,10 +206,10 @@ describe("Core", () => {
   });
 
   describe("lead path", () => {
+    const leadRoles = "version: 1\nitems:\n  - id: lead\n    enabled: true\n    turnBudget: 5\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
     const leadDefaults = {
       "channels.yaml": "version: 1\nitems:\n  - id: c1\n    type: ollama\n    baseUrl: http://oll\n    modelCaps:\n      m:\n        qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } }\n",
       "agents.yaml": "version: 1\nitems:\n  - id: a1\n    channel: c1\n    model: m\n",
-      "roles.yaml": "version: 1\nitems:\n  - id: lead\n    enabled: true\n    turnBudget: 5\n  - id: general-worker\n    enabled: true\n    agent: a1\n",
     };
 
     function mkLead(body: string[], rolesYaml?: string) {
@@ -217,8 +217,8 @@ describe("Core", () => {
       const { fetcher } = fakeFetcher([{ body }]);
       const core = new Core({
         fetcher,
-        defaults: rolesYaml ? { ...leadDefaults, "roles.yaml": rolesYaml } : leadDefaults,
-        userConfig: memStore(),
+        defaults: leadDefaults,
+        userConfig: memStore({ "roles.yaml": rolesYaml ?? leadRoles }),
         projectConfig: async () => memStore(),
         emitEvent: (e) => events.push(e),
       });
@@ -238,11 +238,22 @@ describe("Core", () => {
       expect(events.some((e) => e.kind === "check.result")).toBe(true);
     });
 
-    it("rejects chat.send when lead is disabled", async () => {
+    it("a disabled lead falls back to the next enabled agent-kind role", async () => {
       const roles = "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: true\n    agent: a1\n";
+      const { core, events } = mkLead(['{"message":{"content":"hi"},"done":false}', '{"done":true,"prompt_eval_count":1,"eval_count":1}'], roles);
+      await core.attachProject("p", fakeHost());
+      const res = (await core.dispatch("chat.send", { projectId: "p", text: "yo" })) as { runId: string };
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.kind === "run.finished" && e.runId === res.runId)).toBe(true);
+      });
+      expect(events.find((e) => e.kind === "run.started")).toMatchObject({ roleId: "general-worker" });
+    });
+
+    it("rejects chat.send with the actionable empty state when no agent-kind role is enabled", async () => {
+      const roles = "version: 1\nitems:\n  - id: lead\n    enabled: false\n  - id: general-worker\n    enabled: false\n    agent: a1\n";
       const { core } = mkLead(['{"done":true}'], roles);
       await core.attachProject("p", fakeHost());
-      await expect(core.dispatch("chat.send", { projectId: "p", text: "yo" })).rejects.toThrow(/lead role is disabled/);
+      await expect(core.dispatch("chat.send", { projectId: "p", text: "yo" })).rejects.toThrow(/no enabled agent-kind role/);
     });
   });
 

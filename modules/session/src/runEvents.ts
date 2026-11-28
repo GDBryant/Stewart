@@ -7,12 +7,15 @@ function contextAtFailure(rs: RunState): string | undefined {
   return c?.inputTokens === undefined ? undefined : `${c.inputTokens}/${c.windowTokens ?? "unknown"}`;
 }
 
-export function failedRunEvent(runId: string, rs: RunState, error: string, outcome?: ReturnType<typeof runOutcome>): RunEvent {
+export type RunEventTarget = { runId: string; roleId: string; rs: RunState };
+
+export function failedRunEvent(t: RunEventTarget, error: string, outcome?: ReturnType<typeof runOutcome>): RunEvent {
+  const { runId, roleId, rs } = t;
   const context = contextAtFailure(rs);
   return {
     kind: "run.finished",
     runId,
-    roleId: "lead",
+    roleId,
     status: "failed",
     error,
     ...(context ? { contextAtFailure: context } : {}),
@@ -21,9 +24,10 @@ export function failedRunEvent(runId: string, rs: RunState, error: string, outco
 }
 
 /** The terminal run.finished event: cancel and cost cap short-circuit without an outcome. */
-export function finishedEvent(runId: string, rs: RunState, res: TaskResult, outcome: ReturnType<typeof runOutcome>): RunEvent {
-  if (rs.costCapped) return failedRunEvent(runId, rs, "cost cap reached");
-  if (res.reason === "cancelled") return { kind: "run.finished", runId, roleId: "lead", status: "cancelled" };
-  if (res.status === "done") return { kind: "run.finished", runId, roleId: "lead", status: "done", outcome };
-  return failedRunEvent(runId, rs, res.error ?? "failed", outcome);
+export function finishedEvent(t: RunEventTarget, res: TaskResult, outcome: ReturnType<typeof runOutcome>): RunEvent {
+  const { runId, roleId, rs } = t;
+  if (rs.costCapped) return failedRunEvent(t, "cost cap reached");
+  if (res.reason === "cancelled") return { kind: "run.finished", runId, roleId, status: "cancelled" };
+  if (res.status === "done") return { kind: "run.finished", runId, roleId, status: "done", outcome };
+  return failedRunEvent(t, res.error ?? "failed", outcome);
 }

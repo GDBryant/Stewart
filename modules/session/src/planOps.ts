@@ -3,7 +3,9 @@ import type { RunEvent } from "@stewart/protocol";
 import type { Interaction } from "@stewart/interaction";
 import { ProjectPaths } from "@stewart/tools";
 import { changeTracker } from "@stewart/tasks";
+import type { EffectiveConfig } from "@stewart/roles-skills";
 import { PlanRunner } from "./plan.js";
+import { leadEventId } from "./lead.js";
 import { isBaselineId, isDiffPath } from "./diffArgs.js";
 
 /** What the out-of-turn plan operations (revert, history, resume) need. */
@@ -12,13 +14,14 @@ export interface PlanOpsDeps {
   bus: { emit(ev: RunEvent): void };
   ids: IdGen;
   interaction: Interaction;
+  config: () => EffectiveConfig;
 }
 
 async function runnerFor(d: PlanOpsDeps, sessionId: string, runId: string): Promise<{ runner: PlanRunner; tracker: ReturnType<typeof changeTracker>; stateDir: string }> {
   const stateDir = await d.host.workspace.stateDir();
   const paths = await ProjectPaths.forProject(d.host);
   const tracker = changeTracker(d.host, { cwd: paths.base, stateDir, sessionId });
-  return { runner: new PlanRunner({ host: d.host, paths, stateDir, sessionId, runId, bus: d.bus, interaction: d.interaction, tracker }), tracker, stateDir };
+  return { runner: new PlanRunner({ host: d.host, paths, stateDir, sessionId, runId, bus: d.bus, interaction: d.interaction, tracker, leadId: leadEventId(d.config()) }), tracker, stateDir };
 }
 
 /** Revert the session's worktree: "turn" = the last turn baseline; else a checkpoint id, "baseline", or latest. */
@@ -30,13 +33,13 @@ export async function revertSession(d: PlanOpsDeps, sessionId: string, checkpoin
     if (!id) return { ok: false, reason: "no turn baseline for this session" };
     const done = await tracker.restore(await tracker.baseline(id));
     const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
-    d.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
+    d.bus.emit({ kind: "run.reverted", runId, roleId: leadEventId(d.config()), filesRestored });
     return { ok: true, filesRestored };
   }
   const done = await runner.revertTo(checkpoint);
   if (!done) return { ok: false, reason: "no checkpoint for this session" };
   const filesRestored = [...done.restored, ...done.deleted.map((p) => `-${p}`)];
-  d.bus.emit({ kind: "run.reverted", runId, roleId: "lead", filesRestored });
+  d.bus.emit({ kind: "run.reverted", runId, roleId: leadEventId(d.config()), filesRestored });
   return { ok: true, filesRestored };
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ManagedChannel, type ChannelAdapter, type ChatEvent } from "@stewart/channels";
 import { settingsFile } from "@stewart/config";
 import { counterIds, fakeHost, systemClock, type ChatMessage, type HostPort } from "@stewart/kernel";
@@ -8,7 +8,9 @@ import { nativeLoop, type Engine, type EngineEvent, type EngineTurn } from "@ste
 import type { EffectiveConfig } from "@stewart/roles-skills";
 import type { RunEvent } from "@stewart/protocol";
 import { SessionService, type SessionDeps } from "../src/api.js";
+import { NO_LEAD_MESSAGE } from "../src/lead.js";
 import { fakeChannel, harness, makeConfig, scriptedEngine, type Harness } from "./harness.js";
+import { ChildLimiter } from "../src/childLimits.js";
 
 /** A successful read call: a read-only child's report must have looked at something. */
 async function* readOnce(id = "r"): AsyncGenerator<EngineEvent, void> {
@@ -380,14 +382,26 @@ describe("SessionService", () => {
     expect(h.svc.cancel("run-unknown")).toBe(false);
   });
 
-  it("fails clearly when the lead role is missing or disabled", async () => {
+  it("fails with the actionable empty state when no agent-kind role is enabled", async () => {
     let h = harness({ config: makeConfig({ roles: [] }) });
+    let finished = h.waitFor("run.finished");
     await h.svc.send({ text: "x" });
-    expect(await h.waitFor("run.finished")).toMatchObject({ status: "failed", error: "role 'lead' not configured" });
+    expect(await finished).toMatchObject({ status: "failed", error: NO_LEAD_MESSAGE });
     const disabled = makeConfig({ roles: [{ ...makeConfig().roles[0], enabled: false }] });
     h = harness({ config: disabled });
+    finished = h.waitFor("run.finished");
     await h.svc.send({ text: "x" });
-    expect(await h.waitFor("run.finished")).toMatchObject({ status: "failed", error: "role 'lead' is disabled" });
+    expect(await finished).toMatchObject({ status: "failed", error: NO_LEAD_MESSAGE });
+  });
+
+  it("a disabled lead falls back to the next enabled agent-kind role, keyed on its id", async () => {
+    const fallback = { ...makeConfig().roles[0], id: "planner", enabled: true };
+    const disabledLead = { ...makeConfig().roles[0], enabled: false };
+    const config = makeConfig({ roles: [disabledLead, fallback] });
+    const h = harness({ config });
+    const startedP = h.waitFor("run.started");
+    await h.svc.send({ text: "x" });
+    expect((await startedP).roleId).toBe("planner");
   });
 
   it("indexes skills by body first line when description is empty; the lead budget comes from settings.runTurnLimit, not the role", async () => {
@@ -1639,6 +1653,7 @@ describe("policy backstop", () => {
 describe("child read/write lock", () => {
   const explorer = { id: "explorer", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5 };
   const writer = { id: "writer", enabled: true, prompt: "", skills: [], tools: ["WriteFile"], writePaths: [], turnBudget: 5 };
+  const reviewer = { id: "reviewer", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5 };
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   it("a writer waits for a running reader and blocks a later reader", async () => {
     const order: string[] = [];
@@ -1713,6 +1728,208 @@ describe("child read/write lock", () => {
     await h.svc.send({ text: "go" });
     expect((await h.waitFor("run.finished")).status).toBe("done");
     expect(order).toEqual(["as", "bs", "ae", "be"]);
+  });
+
+  it("picks the independent agent in the chain (a3, not planner's a1) and omits the warning", async () => {
+    const lead = makeConfig().roles[0];
+    const planner = { id: "planner", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1" };
+    const interrogator = { id: "interrogator", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, distinctFrom: ["planner"], agent: "a1", secondary: "a3" };
+    const config = makeConfig({
+      channels: [
+        { id: "c1", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+        { id: "c3", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m3: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+      ],
+      agents: [{ id: "a1", channel: "c1", model: "m1", effort: "medium" }, { id: "a3", channel: "c3", model: "m3", effort: "medium" }],
+      roles: [lead, planner, interrogator],
+    });
+    const admitted = { c1: 0, c3: 0 };
+    const c1 = fakeChannel([[{ kind: "text", text: "unused" }, { kind: "done" }]]);
+    const c3 = fakeChannel([[{ kind: "text", text: "unused" }, { kind: "done" }]]);
+    for (const [id, ch] of [["c1", c1], ["c3", c3]] as const) {
+      const orig = ch.admit.bind(ch);
+      (ch as unknown as Record<string, unknown>).admit = async () => {
+        admitted[id]++;
+        return orig();
+      };
+    }
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        const out = String(await tool.execute({ role: "interrogator", task: "interrogate" }, null, turn.signal));
+        expect(out).toContain("status: done");
+        expect(out).not.toContain("[Stewart] warning");
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "asked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine, channelFor: (id) => (id === "c1" ? c1 : c3) });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished")).status).toBe("done");
+    const started = h.events.find((e) => e.kind === "task.started");
+    expect(started).toMatchObject({ roleId: "interrogator", agentId: "a3" });
+    expect(admitted).toEqual({ c1: 0, c3: 1 });
+  });
+
+  it("falls back to the shared agent when the chain has no independent one and prefixes the warning", async () => {
+    const lead = makeConfig().roles[0];
+    const planner = { id: "planner", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1" };
+    const interrogator = { id: "interrogator", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, distinctFrom: ["planner"] };
+    const config = makeConfig({
+      channels: [{ id: "c1", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } }],
+      agents: [{ id: "a1", channel: "c1", model: "m1", effort: "medium" }],
+      roles: [lead, planner, interrogator],
+    });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        const out = String(await tool.execute({ role: "interrogator", task: "interrogate" }, null, turn.signal));
+        const [first, second] = out.split("\n");
+        expect(first).toBe("[Stewart] warning: interrogator ran on c1/m1, the same model as planner — independent review is weakened.");
+        expect(second.startsWith("status:")).toBe(true);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "asked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished")).status).toBe("done");
+    expect(h.events.find((e) => e.kind === "task.started")).toMatchObject({ roleId: "interrogator", agentId: "a1" });
+  });
+
+  it("keeps the old behaviour (first eligible agent, no prefix) for a role with empty distinctFrom", async () => {
+    const lead = makeConfig().roles[0];
+    const planner = { id: "planner", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1" };
+    const interrogator = { id: "interrogator", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, distinctFrom: [] };
+    const config = makeConfig({
+      channels: [
+        { id: "c1", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+        { id: "c3", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m3: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+      ],
+      agents: [{ id: "a1", channel: "c1", model: "m1", effort: "medium" }, { id: "a3", channel: "c3", model: "m3", effort: "medium" }],
+      roles: [lead, planner, interrogator],
+    });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        const out = String(await tool.execute({ role: "interrogator", task: "interrogate" }, null, turn.signal));
+        expect(out).toContain("status: done");
+        expect(out).not.toContain("[Stewart] warning");
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "asked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished")).status).toBe("done");
+    expect(h.events.find((e) => e.kind === "task.started")).toMatchObject({ roleId: "interrogator", agentId: "a1" });
+  });
+
+  it("does not mutate the config's roles when a child run pins its chosen agent", async () => {
+    const lead = makeConfig().roles[0];
+    const planner = { id: "planner", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, agent: "a1" };
+    const interrogator = { id: "interrogator", enabled: true, prompt: "", skills: [], tools: ["ReadFile"], writePaths: [], turnBudget: 5, distinctFrom: ["planner"], agent: "a3" };
+    const config = makeConfig({
+      channels: [
+        { id: "c1", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m1: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+        { id: "c3", type: "fake", enabled: true, discoverModels: true, extraModels: [], modelCaps: { m3: { qualified: { agent: { passed: true, at: 1, version: 2, context: 32000 } } } } },
+      ],
+      agents: [{ id: "a1", channel: "c1", model: "m1", effort: "medium" }, { id: "a3", channel: "c3", model: "m3", effort: "medium" }],
+      roles: [lead, planner, interrogator],
+    });
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await tool.execute({ role: "interrogator", task: "interrogate" }, null, turn.signal);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "asked" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished")).status).toBe("done");
+    const after = config.roles.find((r) => r.id === "interrogator")!;
+    expect(after.agent).toBe("a3");
+    expect(after.secondary).toBeUndefined();
+    expect(config.agents).toEqual(expect.arrayContaining([expect.objectContaining({ id: "a1", channel: "c1", model: "m1" })]));
+  });
+
+  it("lists the enabled shipped golden roles in the delegate enum and excludes a disabled one", async () => {
+    const mk = (id: string, enabled = true) => ({ id, enabled, prompt: "", skills: [], tools: [], writePaths: [], turnBudget: 5 });
+    const golden = ["planner", "interrogator", "spec-writer", "builder", "investigator", "reviewer", "documenter"];
+    const config = makeConfig({ roles: [makeConfig().roles[0], ...golden.map((id) => mk(id)), mk("auditor", false)] });
+    const engine = scriptedEngine([async function* (turn) {
+      const tool = turn.tools.find("delegate")!;
+      const enumIds = (tool.spec.parameters.properties.role as { enum: string[] }).enum;
+      expect(enumIds).toEqual(expect.arrayContaining(golden));
+      expect(enumIds).not.toContain("auditor");
+      turn.transcript.push({ role: "assistant", content: "done" });
+      yield { kind: "finished", reason: "stop" };
+    }]);
+    const h = harness({ config, engine });
+    await h.svc.send({ text: "go" });
+    expect((await h.waitFor("run.finished")).status).toBe("done");
+  });
+
+  it("runs write-capable children through asWriter and read-only children through asReader", async () => {
+    const lead = makeConfig().roles[0];
+    const builder = { id: "builder", enabled: true, prompt: "", skills: [], tools: ["ReadFile", "WriteFile"], writePaths: [], turnBudget: 5 };
+    const engine = scriptedEngine([
+      async function* (turn) {
+        const tool = turn.tools.find("delegate")!;
+        await Promise.all([
+          tool.execute({ role: "builder", task: "build" }, null, turn.signal),
+          tool.execute({ role: "reviewer", task: "review" }, null, turn.signal),
+        ]);
+        turn.transcript.push({ role: "assistant", content: "done" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield { kind: "tool.request", callId: "w", tool: "WriteFile", args: { path: "b.ts", content: "x" }, category: "WRITE" };
+        yield { kind: "write", record: { path: "b.ts", ok: true } };
+        turn.transcript.push({ role: "assistant", content: "built b.ts" });
+        yield { kind: "finished", reason: "stop" };
+      },
+      async function* (turn) {
+        yield* readOnce();
+        turn.transcript.push({ role: "assistant", content: "reviewed" });
+        yield { kind: "finished", reason: "stop" };
+      },
+    ]);
+    const config = makeConfig({ roles: [lead, builder, reviewer] });
+    const h = harness({ config, engine });
+    const writer = vi.spyOn(ChildLimiter.prototype, "asWriter");
+    const reader = vi.spyOn(ChildLimiter.prototype, "asReader");
+    try {
+      await h.svc.send({ text: "go" });
+      expect((await h.waitFor("run.finished")).status).toBe("done");
+      expect(writer).toHaveBeenCalledTimes(1);
+      expect(reader).toHaveBeenCalledTimes(1);
+      const doneRoles = h.events.filter((e) => e.kind === "task.done").map((e) => (e as { roleId: string }).roleId);
+      expect(doneRoles.sort()).toEqual(["builder", "reviewer"]);
+    } finally {
+      writer.mockRestore();
+      reader.mockRestore();
+    }
   });
 });
 

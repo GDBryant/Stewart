@@ -102,7 +102,7 @@ function ReviewStepView({ m }: { m: SetupWizardModel }) {
       recommendError={m.store.state.recommendError}
       evalMode={m.evalMode}
       bench={m.bench}
-      roles={m.roles}
+      roles={m.candidateRoles}
       eligiblePairs={m.eligiblePairs}
       rowFor={m.row}
       edits={m.edits}

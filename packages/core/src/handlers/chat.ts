@@ -3,6 +3,8 @@ import { counterIds } from "@stewart/kernel";
 import { runSlash, slashPlainText } from "@stewart/slash";
 import { slashRegistry } from "./slash.js";
 import type { CoreCtx } from "./types.js";
+import { NO_LEAD_MESSAGE } from "@stewart/session";
+import { resolveActiveLead } from "@stewart/roles-skills";
 
 type ChatParams = { projectId: string; text: string; images?: string[]; sessionId?: string };
 
@@ -25,8 +27,7 @@ export async function handleChatSend(core: CoreCtx, params: unknown): Promise<un
     p.sessionId,
   );
   if (handled) return { sessionId: p.sessionId };
-  const lead = ctx.config.roles.find((r) => r.id === "lead" && r.enabled);
-  if (!lead) throw new Error("the lead role is disabled; enable it to chat");
+  if (!resolveActiveLead(ctx.config.roles)) throw new Error(NO_LEAD_MESSAGE);
   const mention = await expandMentions(ctx.host, slashPlainText(p.text));
   for (const d of mention.dropped) ctx.host.log(`mention ${d} could not be resolved`);
   const norm = normalizeImages(p.images ?? []);

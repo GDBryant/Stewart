@@ -6,7 +6,7 @@ import { parse } from "yaml";
 import type { RoleDef } from "@stewart/config";
 
 const role = (over: Partial<RoleDef> = {}): RoleDef => ({
-  id: "r", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: 25, ...over,
+  id: "r", enabled: true, skills: [], tools: [], writePaths: [], turnBudget: 25, distinctFrom: [], ...over,
 });
 
 describe("matchGlob", () => {
@@ -62,7 +62,7 @@ describe("default roles think", () => {
 describe("default review/audit split", () => {
   it("reviewer reviews code; auditor runs code-health", () => {
     const items = rolesFile.parse(parse(DEFAULT_ROLES_YAML)).items;
-    expect(items.find((r) => r.id === "reviewer")?.skills).toEqual(["code-review"]);
+    expect(items.find((r) => r.id === "reviewer")?.skills).toContain("code-review");
     expect(items.find((r) => r.id === "auditor")?.skills).toEqual(["code-health"]);
   });
 });

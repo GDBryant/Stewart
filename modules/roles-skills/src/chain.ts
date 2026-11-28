@@ -1,5 +1,6 @@
 import type { AgentDef, ChannelDef, Effort, RoleDef } from "@stewart/config";
 import { resolveModelProfile, QUAL_MIN_VERSION } from "@stewart/models";
+import { resolveActiveLead } from "./activeLead.js";
 
 export const DEFAULT_MIN_CONTEXT = 32_000;
 
@@ -14,13 +15,11 @@ export function roleNeeds(role: RoleDef): { vision: boolean; minContext: number 
   return { vision: role.needs?.vision ?? false, minContext: role.needs?.minContext ?? fallback };
 }
 
-/** Effective chain: `[agent, secondary]` deduped, else the lead's chain (for lead: the first agent). */
+/** Effective chain: `[agent, secondary]` deduped, else the active lead's chain (for the active lead itself: the first agent). */
 export function roleChainIds(role: RoleDef, roles: RoleDef[], agents: AgentDef[]): string[] {
   if (role.agent) return [...new Set([role.agent, role.secondary].filter((x): x is string => Boolean(x)))];
-  if (role.id !== "lead") {
-    const lead = roles.find((r) => r.id === "lead" && r.id !== role.id);
-    if (lead) return roleChainIds(lead, roles, agents);
-  }
+  const lead = resolveActiveLead(roles)?.role;
+  if (lead && lead.id !== role.id) return roleChainIds(lead, roles, agents);
   return agents.length ? [agents[0].id] : [];
 }
 

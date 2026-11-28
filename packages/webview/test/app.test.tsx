@@ -844,6 +844,15 @@ describe("webview settings", () => {
     expect(bridge.sent).toContainEqual({ type: "roles.reset", roleId: undefined });
   });
 
+  it("Add defaults asks the host to add missing shipped roles and refreshes config", () => {
+    const { bridge } = mk();
+    openRoles(bridge);
+    expect(bridge.sent.some((m) => m.type === "roles.addDefaults")).toBe(false);
+    fireEvent.click(screen.getByText("Add defaults"));
+    expect(bridge.sent.filter((m) => m.type === "roles.addDefaults")).toHaveLength(1);
+    expect(bridge.sent.at(-1)).toEqual({ type: "config.get" });
+  });
+
   it("assigns one agent to all roles", () => {
     const { bridge } = mk();
     openRoles(bridge);

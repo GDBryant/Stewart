@@ -42,4 +42,26 @@ describe("loadEffectiveConfig", () => {
     const user = { ...small, "roles.yaml": roles("  - id: lead\n    enabled: true\n    agent: small\n"), "settings.yaml": "version: 1\nrunTurnLimit: 30\n" };
     expect(loadEffectiveConfig(user, undefined, {}, { trusted: true }).errors.filter((e) => e.startsWith("warning:"))).toEqual([]);
   });
+
+  const distinct = (roleBody: string) => ({
+    ...small,
+    "agents.yaml": "version: 1\nitems:\n  - id: small\n    channel: c\n    model: s\n  - id: small2\n    channel: c\n    model: s\n  - id: other\n    channel: c\n    model: o\n",
+    "channels.yaml": "version: 1\nitems:\n  - id: c\n    type: ollama\n    modelCaps:\n      s:\n        qualified:\n          agent: { passed: true, at: 1, version: 2, context: 32000 }\n      o:\n        qualified:\n          agent: { passed: true, at: 1, version: 2, context: 32000 }\n",
+    "roles.yaml": roles(`  - id: planner\n    enabled: true\n    agent: small\n${roleBody}`),
+  });
+
+  it("warns in effective config when a distinctFrom role shares the planner's model", () => {
+    const cfg = loadEffectiveConfig(distinct("  - id: interrogator\n    enabled: true\n    agent: small\n    distinctFrom: [planner]\n"), undefined, {}, { trusted: true });
+    expect(cfg.errors).toContain("warning: role interrogator: shares model c/s with planner (distinctFrom); independent review is weakened — bind a different model");
+  });
+
+  it("does not warn in effective config when the distinctFrom role uses another model", () => {
+    const cfg = loadEffectiveConfig(distinct("  - id: interrogator\n    enabled: true\n    agent: other\n    distinctFrom: [planner]\n"), undefined, {}, { trusted: true });
+    expect(cfg.errors.filter((e) => e.startsWith("warning: role interrogator"))).toEqual([]);
+  });
+
+  it("does not warn in effective config for a disabled distinctFrom role", () => {
+    const cfg = loadEffectiveConfig(distinct("  - id: interrogator\n    enabled: false\n    agent: small\n    distinctFrom: [planner]\n"), undefined, {}, { trusted: true });
+    expect(cfg.errors.filter((e) => e.startsWith("warning: role interrogator"))).toEqual([]);
+  });
 });
