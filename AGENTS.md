@@ -28,6 +28,7 @@ Active plans:
 - Harness efficiency plan 2 (built F1–F3, F4 not built): `docs/HARNESS_EFFICIENCY_PLAN_2.md` — from the 2026-11-26 health-check log: transient-error retry/first-token deadline (504 escalated straight to Claude), E2 reasoning field unset so inert, lead hand-batching instead of `health_report`.
 - Golden steps pipeline spec: `docs/GOLDEN_STEPS_SPEC.md` — pipeline mechanics: artifact contracts with provenance, checkpoints C0–C9 + human gates H1–H3, refactor-first health policy, loop tripwires, skill sources.
 - Golden steps, roles and skills: `docs/GOLDEN_STEPS_ROLES_SKILLS.md` — 12-step build pipeline mapped to 7 roles; Stewart binding (role lifecycle, lead resolution, degraded rosters); skills ship in `roles-skills` (`pipelineSkills.ts`).
+- Golden steps audit notes (2026-11-28): `docs/GOLDEN_STEPS_NOTES.md` — doc-vs-code audit of both golden docs: verified-built list, gaps (runner absent, provenance hole, compaction contract, invisible fallback lead), suggested priority; resolution section records what is now built (roster-aware skill, cleanups).
 - Mid-run guidance plan (proposed): `docs/MID_RUN_GUIDANCE_PLAN.md` — `Enter` steers the active run (`chat.steer`), `Ctrl+Enter` queues a follow-up turn.
 
 `docs/ai_docs/` — living as-built docs:
