@@ -73,12 +73,16 @@ function settingsData(cfg: NonNullable<ConfigReply["summary"]>): Pick<TabData, "
   };
 }
 
-function SettingsErrors({ errors, lastError }: { errors: string[]; lastError?: string }) {
+function SettingsErrors({ errors, lastError, dismissed, onDismiss }: { errors: string[]; lastError?: string; dismissed?: boolean; onDismiss(): void }) {
   if (!errors.length && !lastError) return null;
   return (
     <>
-      {errors.length ? (
+      {errors.length && !dismissed ? (
         <div class="card errors">
+          <div class="errors-head">
+            <span class="spacer" />
+            <button class="small" title="Dismiss until the next reload" onClick={onDismiss}>Dismiss</button>
+          </div>
           {errors.map((e, i) => <div key={i} class="fail">⚠ {e}</div>)}
         </div>
       ) : null}
@@ -107,7 +111,7 @@ export function SettingsView({ store }: { store: Store }) {
   const showWizard = store.state.wizardOpen ?? (data.channels.length === 0 && data.agents.length === 0);
   return (
     <div class="settings">
-      <SettingsErrors errors={store.state.config?.errors ?? []} lastError={store.state.lastError} />
+      <SettingsErrors errors={store.state.config?.errors ?? []} lastError={store.state.lastError} dismissed={store.state.warningsDismissed} onDismiss={() => store.dismissWarnings()} />
       {store.state.questions.map((q) => (
         <QuestionCard key={q.questionId} q={q} onAnswer={(a) => store.answer(q.questionId, a)} />
       ))}

@@ -95,6 +95,9 @@ button.small { padding: 1px 6px; font-size: 11px; }
 .secret { display: inline-flex; gap: 3px; align-items: center; }
 .secret input { width: 110px; }
 .errors { border-color: #c335; }
+.errors-head { display: flex; align-items: center; }
+.role-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.role-actions-row { display: flex; gap: 4px; }
 
 .plan .reasons, .card.plan ul { margin: 4px 0 0 16px; padding: 0; }
 .badge { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--vscode-badge-background, #444); color: var(--vscode-badge-foreground, #fff); font-size: 11px; }

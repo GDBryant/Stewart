@@ -123,15 +123,53 @@ function RoleEditForm({ role, candidates, allSkills, needsWrite, save, toggleSki
   );
 }
 
-function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
+function RoleActions({ open, onReset, onToggle, onAskDelete }: { open: boolean; onReset(): void; onToggle(): void; onAskDelete(): void }) {
+  return (
+    <div class="role-actions">
+      <div class="role-actions-row">
+        <button class="small" onClick={onReset}>Reset</button>
+        <button class="small" onClick={onToggle}>{open ? "Close" : "Edit"}</button>
+      </div>
+      <div class="role-actions-row">
+        <button class="small deny" onClick={onAskDelete}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirm({ roleId, warning, onConfirm, onCancel }: { roleId: string; warning?: string; onConfirm(): void; onCancel(): void }) {
+  return (
+    <div class="card-title">
+      <span class="hint">Delete role {roleId}?{warning ? ` ${warning}` : ""} A deleted custom row cannot be recovered.</span>
+      <span class="spacer" />
+      <button class="small deny" onClick={onConfirm}>Confirm delete</button>
+      <button class="small" onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+function RoleTitleMeta({ role, agent, secondary, channels }: { role: RoleSummary; agent?: AgentSummary; secondary?: AgentSummary; channels: ChannelSummary[] }) {
+  return (
+    <>
+      {agent ? <ChannelDot channel={agent.channel} title={`agent ${agent.id} runs on channel ${agent.channel}`} /> : null}
+      <span class="summary">{(role.skills ?? []).join(", ")}</span>
+      {agentCosts(agent, channels) || agentCosts(secondary, channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
+    </>
+  );
+}
+
+function RoleCard({ role, agents, channels, allSkills, onSave, onReset, onDelete, deleteWarning }: {
   role: RoleSummary;
   agents: AgentSummary[];
   channels: ChannelSummary[];
   allSkills: SkillSummary[];
   onSave(next: RoleSummary): void;
   onReset(): void;
+  onDelete(): void;
+  deleteWarning?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const save = (patch: Partial<RoleSummary>) => onSave({ ...role, ...patch });
   const toggleSkill = (id: string) => {
     const cur = role.skills ?? [];
@@ -148,19 +186,39 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset }: {
           <input type="checkbox" checked={role.enabled} onChange={(e) => save({ enabled: (e.target as HTMLInputElement).checked })} />
           <b>{role.id}</b>
         </label>
-        {agent ? <ChannelDot channel={agent.channel} title={`agent ${agent.id} runs on channel ${agent.channel}`} /> : null}
-        <span class="summary">{(role.skills ?? []).join(", ")}</span>
-        {agentCosts(agent, channels) || agentCosts(secondary, channels) ? <span class="badge warn" title="Assigned agent incurs cost">$ costs</span> : null}
+        <RoleTitleMeta role={role} agent={agent} secondary={secondary} channels={channels} />
         <span class="spacer" />
-        <button class="small" onClick={onReset}>Reset</button>
-        <button class="small" onClick={() => setOpen(!open)}>{open ? "Close" : "Edit"}</button>
+        <RoleActions open={open} onReset={onReset} onToggle={() => setOpen(!open)} onAskDelete={() => setConfirming(true)} />
       </div>
+      {confirming ? <DeleteConfirm roleId={role.id} warning={deleteWarning} onConfirm={() => { setConfirming(false); onDelete(); }} onCancel={() => setConfirming(false)} /> : null}
       <div class="role-agent">{role.agent ? `agent: ${role.agent}${role.secondary ? ` → ${role.secondary}` : ""}` : "no agent"}</div>
       {open ? (
         <RoleEditForm role={role} candidates={candidates} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}
     </div>
   );
+}
+
+/** Mirror of the core resolveActiveLead order, over role summaries: enabled agent-kind lead, else first enabled agent-kind after the lead row, else first enabled agent-kind overall. */
+export function activeLeadId(roles: RoleSummary[]): string | undefined {
+  const agent = (r: RoleSummary) => r.enabled && (r.kind ?? "agent") === "agent";
+  const leadIdx = roles.findIndex((r) => r.id === "lead");
+  if (leadIdx >= 0 && agent(roles[leadIdx])) return "lead";
+  if (leadIdx >= 0) {
+    const after = roles.slice(leadIdx + 1).find(agent);
+    if (after) return after.id;
+  }
+  return roles.find(agent)?.id;
+}
+
+/** What deleting this role means for the active lead, per the lifecycle contract's confirm copy. */
+function deleteConsequence(role: RoleSummary, roles: RoleSummary[]): string | undefined {
+  if (!role.enabled && activeLeadId(roles) !== role.id) return undefined;
+  const remaining = roles.filter((r) => r.id !== role.id);
+  const before = activeLeadId(roles);
+  if (before !== role.id) return "This role is enabled.";
+  const after = activeLeadId(remaining);
+  return after ? `It is the active lead — ${after} becomes the active lead instead.` : "It is the active lead — no enabled agent-kind role remains, so chat will be unavailable.";
 }
 
 function NewRoleCard({ agents, channels, allSkills, existingIds, onSave, onCancel }: {
@@ -213,6 +271,15 @@ function RolesHeader({ store, agents, onAdd }: { store: Store; agents: AgentSumm
   );
 }
 
+function roleCardActions(store: Store, save: (next: RoleSummary[]) => void, roles: RoleSummary[], r: RoleSummary) {
+  return {
+    onSave: (next: RoleSummary) => save(roles.map((x) => (x.id === r.id ? next : x))),
+    onReset: () => store.resetRole(r.id),
+    onDelete: () => save(roles.filter((x) => x.id !== r.id)),
+    deleteWarning: deleteConsequence(r, roles),
+  };
+}
+
 export function RolesSection({ store, roles, agents, channels, skills }: {
   store: Store; roles: RoleSummary[]; agents: AgentSummary[]; channels: ChannelSummary[]; skills: SkillSummary[];
 }) {
@@ -229,8 +296,7 @@ export function RolesSection({ store, roles, agents, channels, skills }: {
           agents={agents}
           channels={channels}
           allSkills={skills}
-          onSave={(next) => save(roles.map((x) => (x.id === r.id ? next : x)))}
-          onReset={() => store.resetRole(r.id)}
+          {...roleCardActions(store, save, roles, r)}
         />
       ))}
       {draft ? (

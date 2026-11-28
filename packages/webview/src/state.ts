@@ -195,6 +195,9 @@ export class Store {
   openSkill(id: string): void {
     this.bridge.post({ type: "skills.open", id });
   }
+  dismissWarnings(): void {
+    this.patch({ warningsDismissed: true });
+  }
   resetRole(roleId?: string): void {
     this.bridge.post({ type: "roles.reset", roleId });
     this.requestConfig();
