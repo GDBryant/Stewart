@@ -16,9 +16,11 @@ const role = (over: Partial<RoleDef>): RoleDef => ({ id: "worker", enabled: true
 const agents = [agent("small", "s"), agent("big", "b")];
 const channels = [channel({ s: 32_000, b: 128_000 })];
 
+const leadRole = () => role({ id: "lead", agent: "big", turnBudget: 25 });
+
 describe("roleWindowWarnings", () => {
   it("warns for a 32k agent on a role whose budget is over 40", () => {
-    const w = roleWindowWarnings([role({})], agents, channels, 60);
+    const w = roleWindowWarnings([leadRole(), role({})], agents, channels, 60);
     expect(w).toHaveLength(1);
     expect(w[0]).toMatch(/^warning: role worker: agent 'small' has a 32000-token window but the turn budget is 60/);
     expect(w[0]).toContain("heavyAgent");
@@ -30,18 +32,25 @@ describe("roleWindowWarnings", () => {
     expect(roleWindowWarnings([lead], agents, channels, LONG_BUDGET)).toEqual([]);
   });
 
+  it("a fallback active lead also uses the run limit, whatever its id or turnBudget", () => {
+    const fallback = role({ id: "worker", turnBudget: 5 });
+    expect(roleWindowWarnings([role({ id: "lead", enabled: false }), fallback], agents, channels, 60)).toHaveLength(1);
+    expect(roleWindowWarnings([fallback], agents, channels, 60)).toHaveLength(1);
+    expect(roleWindowWarnings([fallback], agents, channels, LONG_BUDGET)).toEqual([]);
+  });
+
   it("unlimited budgets warn and say so", () => {
-    expect(roleWindowWarnings([role({ turnBudget: "unlimited" })], agents, channels, 60)[0]).toContain("turn budget is unlimited");
+    expect(roleWindowWarnings([leadRole(), role({ turnBudget: "unlimited" })], agents, channels, 60)[0]).toContain("turn budget is unlimited");
   });
 
   it("no warning for a short budget (≤ 40), a larger window, an unknown window, a disabled or function role, or no agent", () => {
-    expect(roleWindowWarnings([role({ turnBudget: 40 })], agents, channels, 60)).toEqual([]);
-    expect(roleWindowWarnings([role({ agent: "big" })], agents, channels, 60)).toEqual([]);
-    expect(roleWindowWarnings([role({})], agents, [channel({ s: undefined })], 60)).toEqual([]);
-    expect(roleWindowWarnings([role({ enabled: false })], agents, channels, 60)).toEqual([]);
-    expect(roleWindowWarnings([role({ kind: "function" })], agents, channels, 60)).toEqual([]);
-    expect(roleWindowWarnings([role({ agent: undefined })], agents, channels, 60)).toEqual([]);
-    expect(roleWindowWarnings([role({ agent: "ghost" })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ turnBudget: 40 })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ agent: "big" })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({})], agents, [channel({ s: undefined })], 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ enabled: false })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ kind: "function" })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ agent: undefined })], agents, channels, 60)).toEqual([]);
+    expect(roleWindowWarnings([leadRole(), role({ agent: "ghost" })], agents, channels, 60)).toEqual([]);
   });
 });
 

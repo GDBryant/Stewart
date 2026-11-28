@@ -148,6 +148,19 @@ function DeleteConfirm({ roleId, warning, onConfirm, onCancel }: { roleId: strin
   );
 }
 
+function RoleAgentLine({ role }: { role: RoleSummary }) {
+  return (
+    <div class="role-agent">
+      {role.agent ? `agent: ${role.agent}${role.secondary ? ` → ${role.secondary}` : ""}` : "no agent"}
+      {!role.agent && role.enabled ? (
+        <span class="warn" title="An enabled role without a bound agent is not independently assigned: delegation to it runs on the active lead's agent and model.">
+          {" "}— unbound: runs on the lead's agent
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function RoleTitleMeta({ role, agent, secondary, channels }: { role: RoleSummary; agent?: AgentSummary; secondary?: AgentSummary; channels: ChannelSummary[] }) {
   return (
     <>
@@ -191,7 +204,7 @@ function RoleCard({ role, agents, channels, allSkills, onSave, onReset, onDelete
         <RoleActions open={open} onReset={onReset} onToggle={() => setOpen(!open)} onAskDelete={() => setConfirming(true)} />
       </div>
       {confirming ? <DeleteConfirm roleId={role.id} warning={deleteWarning} onConfirm={() => { setConfirming(false); onDelete(); }} onCancel={() => setConfirming(false)} /> : null}
-      <div class="role-agent">{role.agent ? `agent: ${role.agent}${role.secondary ? ` → ${role.secondary}` : ""}` : "no agent"}</div>
+      <RoleAgentLine role={role} />
       {open ? (
         <RoleEditForm role={role} candidates={candidates} allSkills={allSkills} needsWrite={needsWrite} save={save} toggleSkill={toggleSkill} />
       ) : null}

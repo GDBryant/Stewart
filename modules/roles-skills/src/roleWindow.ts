@@ -1,14 +1,15 @@
 import type { AgentDef, ChannelDef, RoleDef } from "@stewart/config";
 import { agentContext, agentRefusal } from "./chain.js";
+import { resolveActiveLead } from "./activeLead.js";
 
 /** A window this small compacts constantly on a long run (E7 of the harness-efficiency plan). */
 export const SMALL_WINDOW = 32_768;
 /** A turn budget above this counts as a long run. */
 export const LONG_BUDGET = 40;
 
-/** The role's effective turn budget: the lead's is `settings.runTurnLimit`; "unlimited" counts as very long. */
-function budgetOf(role: RoleDef, leadBudget: number): number {
-  if (role.id === "lead") return leadBudget;
+/** The role's effective turn budget: the active lead's is `settings.runTurnLimit` regardless of its id; "unlimited" counts as very long. */
+function budgetOf(role: RoleDef, leadBudget: number, activeLeadId: string | undefined): number {
+  if (role.id === activeLeadId) return leadBudget;
   return role.turnBudget === "unlimited" ? Number.POSITIVE_INFINITY : role.turnBudget;
 }
 
@@ -17,14 +18,17 @@ function budgetOf(role: RoleDef, leadBudget: number): number {
  * while the role's turn budget is > 40: such runs compact every few requests. Unknown windows are not warned.
  */
 export function roleWindowWarnings(roles: RoleDef[], agents: AgentDef[], channels: ChannelDef[], leadBudget: number): string[] {
-  return roles.flatMap((r) => roleWarning(r, agents, channels, leadBudget));
+  const env = { agents, channels, leadBudget, activeLeadId: resolveActiveLead(roles)?.role.id };
+  return roles.flatMap((r) => roleWarning(r, env));
 }
 
-function roleWarning(r: RoleDef, agents: AgentDef[], channels: ChannelDef[], leadBudget: number): string[] {
+type WarningEnv = { agents: AgentDef[]; channels: ChannelDef[]; leadBudget: number; activeLeadId: string | undefined };
+
+function roleWarning(r: RoleDef, env: WarningEnv): string[] {
   if (!r.enabled || (r.kind ?? "agent") !== "agent" || !r.agent) return [];
-  const agent = agents.find((a) => a.id === r.agent);
-  const window = agent ? agentContext(agent, channels) : undefined;
-  const budget = budgetOf(r, leadBudget);
+  const agent = env.agents.find((a) => a.id === r.agent);
+  const window = agent ? agentContext(agent, env.channels) : undefined;
+  const budget = budgetOf(r, env.leadBudget, env.activeLeadId);
   if (window === undefined || window > SMALL_WINDOW || budget <= LONG_BUDGET) return [];
   const shown = Number.isFinite(budget) ? String(budget) : "unlimited";
   return [`warning: role ${r.id}: agent '${r.agent}' has a ${window}-token window but the turn budget is ${shown}; long runs will compact often. Use a larger-window agent (heavyAgent), lower the budget, or re-run Qualify if the model's window is larger.`];

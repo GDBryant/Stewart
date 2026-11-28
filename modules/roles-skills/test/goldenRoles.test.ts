@@ -54,6 +54,7 @@ describe("golden roles", () => {
     const skill = DEFAULT_SKILLS.find((s) => s.id === "golden-pipeline")!;
     expect(skill.body.length).toBeLessThan(2000);
     for (const w of ["plan_write", "ask_user", "delegate", "planner", "interrogator", "spec-writer", "builder", "investigator", "reviewer", "documenter"]) expect(skill.body).toContain(w);
+    for (const w of ["Inventory first", "inline", "never skipped", "re-interrogate", "single-role mode", "weakened independence"]) expect(skill.body, w).toContain(w);
     expect(byId("planner").skills).not.toContain("golden-pipeline");
   });
 });

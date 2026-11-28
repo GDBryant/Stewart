@@ -57,7 +57,7 @@ export class ChildRunner {
           type: "object",
           additionalProperties: false,
           properties: {
-            role: { type: "string", enum: roles.length ? roles : ["_none_"] },
+            role: { type: "string", enum: roles },
             task: { type: "string" },
             report: { type: "string", enum: ["text", "health"] },
             schema: { type: "object", description: "Required for roles of kind function: the JSON Schema of the object they return." },

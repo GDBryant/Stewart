@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Store } from "./state.js";
 import { Composer } from "./Composer.js";
+import { activeLeadId } from "./rolesSection.js";
 import { MessageItem, ApprovalCard, QuestionCard } from "./MessageItem.js";
 
 export function ChatView({ store }: { store: Store }) {
@@ -30,6 +31,7 @@ export function ChatView({ store }: { store: Store }) {
         {s.questions.map((q) => (
           <QuestionCard key={q.questionId} q={q} onAnswer={(a) => store.answer(q.questionId, a)} />
         ))}
+        <NoLeadEmptyState store={store} />
         <div ref={endRef} />
       </div>
       <Composer store={store} />
@@ -166,4 +168,18 @@ function CostCard({ cost }: { cost: { capUsd: number; accruedUsd: number; oversh
     </div>
   );
 }
-
+/** Actionable empty state: no enabled agent-kind role means chat cannot run — offer the two population paths. */
+function NoLeadEmptyState({ store }: { store: Store }) {
+  const roles = store.state.config?.summary.roles;
+  if (!roles || activeLeadId(roles)) return null;
+  return (
+    <div class="card empty-lead">
+      <p><b>Chat is unavailable:</b> no enabled agent-kind role. Enable one and bind an agent to it.</p>
+      <div class="row">
+        <button class="send" onClick={() => { store.setWizardOpen(true); store.setView("settings"); }}>Run setup</button>
+        <button class="small" onClick={() => store.addDefaultRoles()}>Add defaults</button>
+        <button class="small" onClick={() => store.setView("settings")}>Open roles</button>
+      </div>
+    </div>
+  );
+}
